@@ -216,13 +216,13 @@
                     </div>
 
                     <div class="story-select-toolbar">
-                        <button class="text-btn" onclick="window._dataUI.selectAllStories()">Select All</button>
+                        <button class="text-btn" id="btn-select-all">Select All</button>
                         <span class="toolbar-sep">·</span>
-                        <button class="text-btn" onclick="window._dataUI.selectNoneStories()">Select None</button>
+                        <button class="text-btn" id="btn-select-none">Select None</button>
                     </div>
 
                     <div id="export-story-list" class="story-select-list">
-                        <p class="placeholder-text" style="margin:10px 0;">Loading…</p>
+                        <p class="placeholder-text" style="margin:10px 0;">No stories saved yet.</p>
                     </div>
 
                     <label class="checkbox-label" style="margin-top:12px;">
@@ -230,7 +230,7 @@
                         Also export my vocabulary / SRS data
                     </label>
 
-                    <button class="primary-btn" style="margin-top:14px;" onclick="window._dataUI.handleExport()">
+                    <button class="primary-btn" style="margin-top:14px;" id="btn-download-zip">
                         ⬇ Download as .zip
                     </button>
                     <div id="export-status" class="status-message" style="display:none;"></div>
@@ -276,7 +276,7 @@
                         💡 Upload your exported .zip to any public host (Dropbox direct link, Google Drive, GitHub Releases, etc.) and paste the direct download URL here. Your friend just taps <strong>Sync</strong>.
                     </p>
 
-                    <button class="primary-btn sync-btn" onclick="window._dataUI.handleSync()">
+                    <button class="primary-btn sync-btn" id="btn-sync-now">
                         🔄 Sync Now
                     </button>
                     <div id="sync-status" class="status-message" style="display:none;"></div>

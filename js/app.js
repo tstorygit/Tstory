@@ -2,7 +2,7 @@ import { initSettings } from './settings.js';
 import { initViewer } from './viewer_ui.js';
 import { initSRS } from './srs_ui.js';
 import { initWordManager } from './word_manager.js'; 
-import { initDataManager, selectAllStories, selectNoneStories, handleExport, handleSync } from './data_ui.js';
+import { initDataManager } from './data_ui.js';
 
 document.addEventListener('DOMContentLoaded', () => {
     // 1. Initialize Navigation
@@ -34,8 +34,5 @@ document.addEventListener('DOMContentLoaded', () => {
     initViewer();
     initSRS();
     initWordManager();
-
-    // 4. Data Manager — expose handlers globally for inline onclick in HTML
     initDataManager();
-    window._dataUI = { selectAllStories, selectNoneStories, handleExport, handleSync };
 });
