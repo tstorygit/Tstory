@@ -22,7 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             // Re-render reader word colours if SRS grades changed since last visit
-            if (target === 'view-reader' && sessionStorage.getItem('srs-dirty')) {
+            if (target === 'view-story' && sessionStorage.getItem('srs-dirty')) {
                 sessionStorage.removeItem('srs-dirty');
                 rerenderCurrentBlock();
             }
