@@ -104,94 +104,132 @@
                 <h2>Settings</h2>
             </header>
             <div id="settings-content" class="content-scroll">
-                
+
                 <div class="settings-group">
-                    <h3>API Keys & Models</h3>
-                    <label>Gemini API Key:
-                        <input type="password" id="setting-text-key" placeholder="AIzaSy...">
-                    </label>
-                    
-                    <label>Preferred Text Model:
+                    <div class="settings-group-header">
+                        <span class="settings-group-icon">🔑</span>
+                        <h3>API & Models</h3>
+                    </div>
+                    <div class="settings-row settings-row-column">
+                        <div class="settings-label-row">
+                            <label class="settings-label">Gemini API Keys</label>
+                            <button type="button" id="btn-add-api-key" class="btn-add-key">+ Add Key</button>
+                        </div>
+                        <div id="api-keys-container"></div>
+                        <p class="settings-hint" style="padding: 4px 0 0; font-size:11px;">Multiple keys rotate automatically when a key is rate-limited.</p>
+                    </div>
+                    <div class="settings-row">
+                        <label class="settings-label" for="setting-text-model">Text Model</label>
                         <select id="setting-text-model">
-                            <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview (Newest)</option>
-                            <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
-                            <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+                            <option value="gemini-2.5-pro">gemini-2.5-pro (Recommended)</option>
                             <option value="gemini-2.5-flash">gemini-2.5-flash</option>
                             <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite</option>
                             <option value="gemini-2.0-flash">gemini-2.0-flash</option>
                             <option value="gemini-flash-latest">gemini-flash-latest</option>
                         </select>
-                    </label>
-
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="setting-generate-images">
-                        Enable Image Generation (Experimental)
-                    </label>
-
-                    <label>Preferred Image Model:
+                    </div>
+                    <div class="settings-row">
+                        <label class="settings-label" for="setting-image-model">Image Model</label>
                         <select id="setting-image-model">
-                            <option value="imagen-3.0-generate-002">imagen-3.0-generate-002</option>
-                            <option value="gemini-3-pro-image-preview">gemini-3-pro-image-preview</option>
-                            <option value="gemini-2.0-flash-preview-image-generation">gemini-2.0-flash-preview</option>
+                            <option value="gemini-2.0-flash-preview-image-generation">gemini-2.0-flash-preview-image-generation</option>
                         </select>
+                    </div>
+                    <div class="settings-row">
+                        <label class="settings-label" for="setting-timeout">Request Timeout (s)</label>
+                        <input type="number" id="setting-timeout" min="10" max="600" value="120" class="settings-input-short">
+                    </div>
+                    <div class="settings-divider"></div>
+                    <label class="settings-toggle">
+                        <input type="checkbox" id="setting-generate-images">
+                        <span class="settings-toggle-track"></span>
+                        <span class="settings-toggle-text">Enable Image Generation <em>(Experimental)</em></span>
                     </label>
-
-                    <label class="checkbox-label">
+                    <label class="settings-toggle">
                         <input type="checkbox" id="setting-use-fallback" checked>
-                        Enable automatic model fallback on rate limit
-                    </label>
-
-                    <label>Request Timeout (seconds):
-                        <input type="number" id="setting-timeout" min="10" max="600" value="120" style="width:100px;">
+                        <span class="settings-toggle-track"></span>
+                        <span class="settings-toggle-text">Auto-fallback to next model on rate limit</span>
                     </label>
                 </div>
 
                 <div class="settings-group">
-                    <h3>Reader Preferences</h3>
-                    
-                    <label>SRS Highlight Style:
+                    <div class="settings-group-header">
+                        <span class="settings-group-icon">📖</span>
+                        <h3>Reader</h3>
+                    </div>
+                    <div class="settings-row">
+                        <label class="settings-label" for="setting-highlight-style">Highlight Style</label>
                         <select id="setting-highlight-style">
-                            <option value="background">Background Color (Default)</option>
+                            <option value="background">Background Color</option>
                             <option value="text">Text Color</option>
                         </select>
-                    </label>
-
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="setting-sentence-newline">
-                        Start every sentence on a new line
-                    </label>
-
-                    <!-- THIS IS THE NEW SETTING -->
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="setting-sentence-parsing" checked>
-                        Enable Sentence Translation (Extra API call)
-                    </label>
-
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="setting-show-furigana" checked>
-                        Show Furigana by default
-                    </label>
-
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="setting-show-romaji">
-                        Show Romaji (can be shown together with Furigana)
-                    </label>
-                    
-                    <label>SRS Inclusion Mode:
+                    </div>
+                    <div class="settings-row">
+                        <label class="settings-label" for="setting-srs-mode">SRS Story Mode</label>
                         <select id="setting-srs-mode">
                             <option value="mix">Mix (Latest + Needs Review)</option>
                             <option value="new">Focus New Words</option>
-                            <option value="none">None (Ignore SRS for generation)</option>
+                            <option value="none">Disabled</option>
                         </select>
+                    </div>
+                    <div class="settings-divider"></div>
+                    <label class="settings-toggle">
+                        <input type="checkbox" id="setting-show-furigana" checked>
+                        <span class="settings-toggle-track"></span>
+                        <span class="settings-toggle-text">Show Furigana</span>
                     </label>
-
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="setting-debug-mode">
-                        Enable Debug Mode (Check Console)
+                    <label class="settings-toggle">
+                        <input type="checkbox" id="setting-show-romaji">
+                        <span class="settings-toggle-track"></span>
+                        <span class="settings-toggle-text">Show Romaji</span>
                     </label>
-
-                    <button id="btn-save-settings" class="primary-btn">Save Settings</button>
+                    <label class="settings-toggle">
+                        <input type="checkbox" id="setting-sentence-newline">
+                        <span class="settings-toggle-track"></span>
+                        <span class="settings-toggle-text">Start each sentence on a new line</span>
+                    </label>
+                    <label class="settings-toggle">
+                        <input type="checkbox" id="setting-sentence-parsing" checked>
+                        <span class="settings-toggle-track"></span>
+                        <span class="settings-toggle-text">Enable Sentence Translation <em>(extra API call)</em></span>
+                    </label>
                 </div>
+
+                <div class="settings-group">
+                    <div class="settings-group-header">
+                        <span class="settings-group-icon">🎓</span>
+                        <h3>Word Trainer</h3>
+                    </div>
+                    <div class="settings-row">
+                        <label class="settings-label" for="trainer-srs-mode">SRS word colours</label>
+                        <select id="trainer-srs-mode">
+                            <option value="use">Apply (same as Reader)</option>
+                            <option value="ignore">Ignore (treat all as unrated)</option>
+                        </select>
+                    </div>
+                    <div class="settings-row">
+                        <label class="settings-label" for="trainer-ext-mode">Unknown word display</label>
+                        <select id="trainer-ext-mode">
+                            <option value="highlight">Highlight in blue</option>
+                            <option value="replace_furi">Show translation as furigana</option>
+                            <option value="replace_word">Replace word with translation</option>
+                        </select>
+                    </div>
+                    <p class="settings-hint">Controls how words outside the current rank range (e.g. word #52+ when training word #51) are shown in trainer sentences.</p>
+                </div>
+
+                <div class="settings-group">
+                    <div class="settings-group-header">
+                        <span class="settings-group-icon">🛠️</span>
+                        <h3>Developer</h3>
+                    </div>
+                    <label class="settings-toggle">
+                        <input type="checkbox" id="setting-debug-mode">
+                        <span class="settings-toggle-track"></span>
+                        <span class="settings-toggle-text">Debug Mode <em>(logs to console)</em></span>
+                    </label>
+                </div>
+
+                <button id="btn-save-settings" class="primary-btn" style="margin-bottom: 30px;">💾 Save Settings</button>
 
             </div>
         </section>
@@ -281,6 +319,33 @@
             </div>
         </section>
 
+        <section id="view-trainer" class="view">
+            <header>
+                <h2>Word Trainer</h2>
+            </header>
+            <div id="trainer-progress-container">
+                <div style="display:flex; justify-content:space-between; align-items:center; padding: 6px 20px 4px; font-size:13px; color:var(--text-muted);">
+                    <span id="trainer-progress-label">Word 1 / 1000</span>
+                    <div id="trainer-pregen-box" class="hidden" style="position:static; box-shadow:none; padding:0; background:transparent; font-size:12px; display:none; align-items:center; gap:6px;">
+                        Next: <span id="pregen-word" style="font-weight:bold;"></span>
+                        <button id="btn-pregen">Pre-generate</button>
+                    </div>
+                </div>
+                <div style="height:8px; background:#e0e0e0; margin: 0 20px 8px; border-radius:4px; overflow:hidden;">
+                    <div id="trainer-progress-fill" style="height:100%; background:var(--primary-color); border-radius:4px; width:0%; transition:width 0.3s;"></div>
+                </div>
+            </div>
+            <div id="trainer-content" class="content-scroll"></div>
+        </section>
+
+        <section id="view-games" class="view">
+            <header><h2 id="games-header-title">Mini Games</h2></header>
+            <div id="games-list-screen"  class="content-scroll"></div>
+            <div id="caro-setup-screen"  class="content-scroll" style="display:none;"></div>
+            <div id="caro-game-screen"   class="content-scroll" style="display:none; background:#eef2f5;"></div>
+            <div id="caro-stats-screen"  class="content-scroll" style="display:none;"></div>
+        </section>
+
     </main>
 
     <nav id="bottom-nav">
@@ -288,6 +353,8 @@
         <button class="nav-btn" data-target="view-srs">SRS</button>
         <button class="nav-btn" data-target="view-vocab">List</button>
         <button class="nav-btn" data-target="view-data">Data</button>
+        <button class="nav-btn" data-target="view-trainer">Train</button>
+        <button class="nav-btn" data-target="view-games">Games</button>
         <button class="nav-btn" data-target="view-settings">Settings</button>
     </nav>
 
@@ -316,6 +383,12 @@
                 </div>
             </div>
             <button id="close-popup-btn" style="margin-top: 15px;">Close</button>
+
+            <!-- Trainer zone (shown only when opened from Trainer tab) -->
+            <div id="popup-trainer-zone" class="hidden" style="background:#eef2f5; padding:10px; margin-top:10px; border-radius:6px;">
+                <p style="margin:0 0 8px; font-size:14px;">List Rank: #<span id="popup-rank">...</span></p>
+                <button id="btn-trainer-jump" class="primary-btn" style="width:100%; padding:8px;">Jump to this word</button>
+            </div>
         </div>
     </div>
 

@@ -47,12 +47,12 @@ body {
 
 /* Views */
 .view {
-    display: none;
+    display: none !important;
     height: 100%;
     flex-direction: column;
 }
 .view.active {
-    display: flex;
+    display: flex !important;
 }
 
 header {
@@ -113,16 +113,232 @@ header {
 /* Settings Form Styles */
 .settings-group {
     background: var(--surface-color);
-    padding: 20px;
-    border-radius: 8px;
-    margin-bottom: 20px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    border-radius: 12px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    overflow: hidden;
+}
+
+.settings-group-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 20px;
+    background: rgba(74,144,226,0.06);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.settings-group-icon {
+    font-size: 18px;
+    line-height: 1;
 }
 
 .settings-group h3 {
-    margin-bottom: 15px;
-    font-size: 18px;
+    font-size: 15px;
+    font-weight: 700;
     color: var(--primary-color);
+    margin: 0;
+}
+
+.settings-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.settings-row:last-child { border-bottom: none; }
+
+.settings-label {
+    display: block;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-main);
+    white-space: nowrap;
+    margin: 0;
+}
+
+.settings-row input[type="text"],
+.settings-row input[type="password"],
+.settings-row input[type="number"],
+.settings-row select {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 10px;
+    margin-top: 0;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 14px;
+    background: var(--bg-color);
+    max-width: 300px;
+}
+
+.settings-input-short {
+    max-width: 90px !important;
+}
+
+.settings-divider {
+    height: 1px;
+    background: var(--border-color);
+    margin: 0;
+}
+
+.settings-toggle {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 20px;
+    margin: 0;
+    border-bottom: 1px solid var(--border-color);
+    cursor: pointer;
+    font-weight: normal;
+}
+
+.settings-toggle:last-child { border-bottom: none; }
+
+.settings-toggle:hover { background: rgba(74,144,226,0.04); }
+
+.settings-toggle input[type="checkbox"] {
+    display: none;
+}
+
+.settings-toggle-track {
+    flex-shrink: 0;
+    width: 40px;
+    height: 22px;
+    border-radius: 11px;
+    background: #ccc;
+    position: relative;
+    transition: background 0.2s;
+}
+
+.settings-toggle-track::after {
+    content: '';
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: white;
+    top: 2px;
+    left: 2px;
+    transition: transform 0.2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+.settings-toggle input:checked + .settings-toggle-track {
+    background: var(--primary-color);
+}
+
+.settings-toggle input:checked + .settings-toggle-track::after {
+    transform: translateX(18px);
+}
+
+.settings-toggle-text {
+    font-size: 14px;
+    color: var(--text-main);
+    line-height: 1.4;
+}
+
+.settings-toggle-text em {
+    font-style: normal;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.settings-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+    padding: 8px 20px 14px;
+    margin: 0;
+    line-height: 1.5;
+}
+
+/* Multi-key row */
+.settings-row-column {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 14px 20px;
+}
+
+.settings-label-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+#api-keys-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.api-key-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.api-key-badge {
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--primary-color);
+    background: rgba(74,144,226,0.1);
+    border-radius: 10px;
+    padding: 2px 8px;
+    min-width: 28px;
+    text-align: center;
+}
+
+.api-key-row input.api-key-input {
+    flex: 1;
+    padding: 8px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 13px;
+    font-family: monospace;
+    background: var(--bg-color);
+    margin: 0;
+    width: auto;
+    max-width: none;
+}
+
+.api-key-remove {
+    flex-shrink: 0;
+    background: none;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 6px;
+    cursor: pointer;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+
+.api-key-remove:hover {
+    background: #fee;
+    border-color: #f99;
+    color: #c33;
+}
+
+.btn-add-key {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--primary-color);
+    background: rgba(74,144,226,0.08);
+    border: 1px solid rgba(74,144,226,0.3);
+    border-radius: 6px;
+    padding: 4px 12px;
+    cursor: pointer;
+}
+
+.btn-add-key:hover {
+    background: rgba(74,144,226,0.16);
 }
 
 label {
@@ -173,6 +389,7 @@ select {
     justify-content: center;
     align-items: center;
 }
+.hidden { display: none !important; }
 #word-popup-overlay.hidden { display: none; }
 
 .popup-card {
@@ -614,4 +831,293 @@ select {
 .status-error {
     background: #fff0f0; color: #c0392b;
     border-left: 3px solid #ff4b4b;
+}
+/* ── TARGET WORD RAINBOW ANIMATION ─────────────────────────────────────── */
+
+@keyframes trainerRainbow {
+    0%   { color: #ff0080; text-shadow: 0 0 8px #ff008088, 0 0 20px #ff008033; }
+    14%  { color: #ff4500; text-shadow: 0 0 8px #ff450088, 0 0 20px #ff450033; }
+    28%  { color: #ffaa00; text-shadow: 0 0 8px #ffaa0088, 0 0 20px #ffaa0033; }
+    42%  { color: #88cc00; text-shadow: 0 0 8px #88cc0088, 0 0 20px #88cc0033; }
+    57%  { color: #00cc88; text-shadow: 0 0 8px #00cc8888, 0 0 20px #00cc8833; }
+    71%  { color: #00aaff; text-shadow: 0 0 8px #00aaff88, 0 0 20px #00aaff33; }
+    85%  { color: #aa44ff; text-shadow: 0 0 8px #aa44ff88, 0 0 20px #aa44ff33; }
+    100% { color: #ff0080; text-shadow: 0 0 8px #ff008088, 0 0 20px #ff008033; }
+}
+
+@keyframes trainerBounce {
+    0%, 100% { transform: translateY(0)   scale(1); }
+    30%       { transform: translateY(-3px) scale(1.1); }
+    60%       { transform: translateY(1px)  scale(0.96); }
+}
+
+/* Each character runs the rainbow + bounce, staggered via inline animation-delay */
+.tw-char {
+    display: inline-block;
+    animation:
+        trainerRainbow 2.8s linear   infinite,
+        trainerBounce  1.4s ease-in-out infinite;
+    font-weight: bold;
+}
+
+/* Container for inline (sentence) target word occurrences */
+.target-word-rainbow {
+    display: inline-block;
+    cursor: pointer;
+    border-bottom: none !important;
+}
+
+/* Container for the large header word in State B */
+.target-word-rainbow-lg {
+    display: inline-block;
+}
+
+
+
+#trainer-progress-container {
+    background: var(--surface-color);
+    border-bottom: 1px solid var(--border-color);
+    padding: 8px 0 0;
+}
+
+#trainer-progress-fill {
+    background: var(--primary-color);
+    height: 8px;
+    border-radius: 4px;
+    width: 0%;
+    transition: width 0.3s ease;
+}
+
+.external-word-bg {
+    background-color: rgba(156, 39, 176, 0.15);
+    border-bottom: 2px dashed #9c27b0 !important;
+}
+
+#trainer-pregen-box {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    background: white;
+    padding: 3px 10px;
+    border-radius: 20px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+#trainer-pregen-box #btn-pregen {
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 10px;
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    cursor: pointer;
+}
+
+.trainer-sentence-card {
+    background: var(--surface-color);
+    padding: 15px;
+    margin-bottom: 15px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+#popup-trainer-zone {
+    background: #eef2f5;
+    padding: 10px;
+    margin-top: 10px;
+    border-radius: 6px;
+}
+
+#view-trainer {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+#view-trainer header {
+    flex-shrink: 0;
+}
+
+#view-trainer #trainer-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 15px 20px;
+}
+/* ═══════════════════════════════════════════════════════════
+   GAMES TAB — Caro vocab-recall game
+═══════════════════════════════════════════════════════════ */
+
+/* Game picker card */
+.caro-game-card {
+    display:flex; align-items:center; gap:16px;
+    background:var(--surface-color); border:1px solid var(--border-color);
+    border-radius:12px; padding:18px 16px; margin-bottom:14px;
+    cursor:pointer; transition:box-shadow 0.15s, transform 0.1s;
+    box-shadow:0 1px 4px rgba(0,0,0,0.07);
+}
+.caro-game-card:hover { box-shadow:0 4px 14px rgba(74,144,226,0.18); transform:translateY(-1px); }
+.caro-game-card-icon  { font-size:36px; line-height:1; flex-shrink:0; }
+.caro-game-card-body  { flex:1; min-width:0; }
+.caro-game-card-title { font-size:17px; font-weight:700; color:var(--text-main); margin-bottom:4px; }
+.caro-game-card-desc  { font-size:13px; color:var(--text-muted); line-height:1.4; }
+.caro-game-card-arrow { font-size:26px; color:var(--text-muted); flex-shrink:0; }
+
+/* Setup panel */
+.caro-setup-panel { max-width:480px; margin:0 auto; display:flex; flex-direction:column; gap:16px; }
+.caro-setup-section { background:var(--surface-color); border:1px solid var(--border-color); border-radius:12px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,0.07); }
+.caro-setup-section-title { font-size:13px; font-weight:700; color:var(--primary-color); text-transform:uppercase; letter-spacing:0.05em; padding:10px 20px 8px; background:rgba(74,144,226,0.05); border-bottom:1px solid var(--border-color); }
+
+.caro-count-btn { padding:8px 18px; border-radius:20px; border:2px solid var(--border-color); background:var(--bg-color); color:var(--text-muted); font-size:14px; font-weight:600; cursor:pointer; transition:all 0.15s; }
+.caro-count-btn.active { background:var(--primary-color); border-color:var(--primary-color); color:white; }
+.caro-count-btn:hover:not(.active) { border-color:var(--primary-color); color:var(--primary-color); }
+
+.caro-status-chip { display:inline-block; cursor:pointer; margin:0; padding:0; font-weight:normal; transition:opacity 0.15s; }
+
+.caro-back-btn { background:none; border:none; color:var(--text-muted); font-size:14px; cursor:pointer; padding:8px 0; text-align:center; width:100%; margin-top:4px; }
+.caro-back-btn:hover { color:var(--primary-color); }
+
+/* Game card screen */
+#caro-game-screen { padding:20px; flex-direction:column; align-items:center; }
+#caro-game-screen[style*="flex"] { display:flex; }
+
+.caro-card { width:100%; max-width:420px; background:var(--surface-color); border-radius:16px; border:1px solid var(--border-color); box-shadow:0 4px 20px rgba(0,0,0,0.10); padding:28px 24px 24px; display:flex; flex-direction:column; align-items:center; gap:16px; }
+.caro-card-word { font-size:64px; font-weight:bold; color:var(--text-main); text-align:center; line-height:1.1; }
+.caro-card-reveal-row { display:flex; gap:10px; width:100%; }
+
+.caro-reveal-btn { flex:1; padding:10px; border-radius:8px; border:1px dashed var(--border-color); background:var(--bg-color); color:var(--text-muted); font-size:14px; cursor:pointer; transition:background 0.15s, border-color 0.15s; }
+.caro-reveal-btn:hover { background:#e8f0fb; border-color:var(--primary-color); color:var(--primary-color); }
+
+.caro-hidden-field { display:flex; flex-direction:column; align-items:center; gap:4px; width:100%; padding:10px; background:rgba(74,144,226,0.06); border-radius:8px; animation:caroFadeIn 0.2s ease; }
+@keyframes caroFadeIn { from{opacity:0;transform:translateY(-4px);} to{opacity:1;transform:translateY(0);} }
+.caro-field-label { font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; }
+.caro-field-value { font-size:22px; color:var(--primary-color); font-weight:600; }
+
+.caro-score-btn { flex:1; padding:12px 6px; border-radius:10px; border:none; font-size:14px; font-weight:700; cursor:pointer; transition:transform 0.1s, filter 0.1s; }
+.caro-score-btn:hover  { filter:brightness(1.08); transform:translateY(-1px); }
+.caro-score-btn:active { transform:scale(0.96); }
+.caro-score-miss    { background:#ffecec; color:#c0392b; }
+.caro-score-partial { background:#fff7e0; color:#b7770a; }
+.caro-score-perfect { background:#e8faf3; color:#1a7a4a; }
+
+/* Stats screen */
+.caro-stats-panel { max-width:480px; margin:0 auto; }
+.caro-stats-score-block { text-align:center; padding:24px 20px 20px; background:var(--surface-color); border-radius:12px; border:1px solid var(--border-color); margin-bottom:20px; box-shadow:0 1px 4px rgba(0,0,0,0.07); }
+.caro-stats-score-number { font-size:52px; font-weight:800; line-height:1; }
+.caro-stats-section-title { font-size:14px; font-weight:700; color:var(--text-main); margin-bottom:6px; }
+
+.caro-failed-row { display:flex; align-items:flex-start; gap:12px; padding:14px 0; border-bottom:1px solid var(--border-color); }
+.caro-failed-row:last-child { border-bottom:none; }
+.caro-failed-word-col { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+.caro-failed-word  { font-size:22px; font-weight:bold; color:var(--text-main); }
+.caro-failed-furi  { font-size:12px; color:var(--text-muted); }
+.caro-failed-trans { font-size:13px; color:var(--primary-color); font-weight:500; }
+.caro-failed-right { display:flex; flex-direction:column; align-items:flex-end; gap:6px; flex-shrink:0; }
+.caro-failed-pts   { font-size:12px; font-weight:600; color:var(--text-muted); }
+.caro-failed-srs   { display:flex; gap:4px; }
+.caro-srs-btn.status-btn { width:28px; height:28px; font-size:12px; border-radius:50%; cursor:pointer; font-weight:bold; transition:transform 0.1s; }
+.caro-srs-btn.status-btn:hover { transform:scale(1.15); }
+/* ── Caro Card Redesign ──────────────────────────────────────────── */
+.caro-progress-bar-wrap { width:100%; max-width:420px; padding-bottom:16px; }
+.caro-progress-meta { display:flex; justify-content:space-between; font-size:13px; color:var(--text-muted); margin-bottom:6px; }
+.caro-progress-track { height:6px; background:#e0e0e0; border-radius:3px; overflow:hidden; }
+.caro-progress-fill { height:100%; background:var(--primary-color); border-radius:3px; transition:width .3s; }
+
+/* Reading spoiler badge */
+.caro-furi-spoiler {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 12px;
+    border-radius: 20px;
+    border: 1.5px dashed var(--border-color);
+    background: var(--bg-color);
+    color: var(--text-muted);
+    font-size: 13px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, color 0.15s;
+    align-self: flex-start;
+    margin-bottom: 4px;
+    user-select: none;
+}
+.caro-furi-spoiler:hover { border-color: var(--primary-color); color: var(--primary-color); background: #f0f5ff; }
+.caro-furi-spoiler.caro-furi-revealed { border-style: solid; border-color: var(--border-color); background: var(--surface-color); color: var(--text-main); }
+.caro-furi-hidden { filter: blur(5px); transition: filter 0.2s; pointer-events: none; font-weight: 600; color: var(--text-main); }
+.caro-furi-spoiler.caro-furi-revealed .caro-furi-hidden { filter: none; }
+
+/* Meaning button */
+.caro-reveal-meaning-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    width: 100%;
+    padding: 12px 18px;
+    border-radius: 10px;
+    border: 1.5px dashed var(--border-color);
+    background: var(--bg-color);
+    color: var(--text-muted);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+    margin-top: 8px;
+}
+.caro-reveal-meaning-btn:hover { border-color: var(--primary-color); color: var(--primary-color); background: #f0f5ff; }
+
+/* Meaning revealed box */
+.caro-meaning-revealed {
+    width: 100%;
+    padding: 14px 18px;
+    border-radius: 10px;
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--primary-color);
+}
+
+/* Score row */
+.caro-score-row { width: 100%; margin-top: 12px; }
+.caro-score-label { font-size:12px; color:var(--text-muted); text-align:center; margin-bottom:8px; }
+.caro-score-btns { display:flex; gap:8px; }
+.caro-score-btn { flex:1; padding:12px 6px 10px; border-radius:10px; border:none; font-size:13px; font-weight:700; cursor:pointer; transition:transform 0.1s, filter 0.1s; display:flex; flex-direction:column; align-items:center; gap:2px; }
+.caro-score-icon { font-size:18px; }
+.caro-score-btn:hover  { filter:brightness(1.06); transform:translateY(-1px); }
+.caro-score-btn:active { transform:scale(0.96); }
+.caro-score-miss    { background:#ffecec; color:#c0392b; }
+.caro-score-partial { background:#fff7e0; color:#b7770a; }
+.caro-score-perfect { background:#e8faf3; color:#1a7a4a; }
+
+/* Keyboard hint badge on buttons */
+.caro-kbd-hint { font-size:10px; font-weight:600; opacity:0.55; margin-left:auto; background:rgba(0,0,0,0.07); padding:1px 5px; border-radius:4px; font-family: monospace; }
+.caro-score-btn .caro-kbd-hint { margin-left:0; margin-top:2px; }
+
+/* Bottom row: quit + info */
+.caro-bottom-row { display:flex; align-items:center; justify-content:space-between; width:100%; max-width:420px; margin-top:12px; }
+.caro-info-wrap { position:relative; }
+.caro-info-btn {
+    width:32px; height:32px; border-radius:50%; border:1.5px solid var(--border-color);
+    background:var(--surface-color); color:var(--text-muted); cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    transition: border-color 0.15s, color 0.15s;
+}
+.caro-info-btn:hover { border-color:var(--primary-color); color:var(--primary-color); }
+.caro-info-tooltip {
+    position:absolute; bottom:40px; right:0;
+    background:var(--surface-color); border:1px solid var(--border-color);
+    border-radius:10px; padding:10px 14px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.12);
+    white-space:nowrap; z-index:100;
+    font-size:13px; color:var(--text-main);
+}
+.caro-info-row { display:flex; align-items:center; gap:10px; padding:3px 0; }
+.caro-info-tooltip kbd {
+    display:inline-block; padding:2px 7px; border-radius:5px;
+    background:#f0f0f0; border:1px solid #ccc;
+    font-size:11px; font-family:monospace; font-weight:600; color:#333;
+    min-width:28px; text-align:center;
 }

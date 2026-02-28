@@ -3,6 +3,8 @@ import { initViewer, rerenderCurrentBlock } from './viewer_ui.js';
 import { initSRS } from './srs_ui.js';
 import { initWordManager } from './word_manager.js'; 
 import { initDataManager } from './data_ui.js';
+import { initTrainer } from './trainer_ui.js';
+import { initGames } from './games_ui.js';
 
 document.addEventListener('DOMContentLoaded', () => {
     // 1. Initialize Navigation
@@ -18,6 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             views.forEach(v => {
                 v.classList.remove('active');
+                v.style.display = '';  // clear any inline style set by trainer_ui or other modules
                 if (v.id === target) v.classList.add('active');
             });
 
@@ -41,4 +44,6 @@ document.addEventListener('DOMContentLoaded', () => {
     initSRS();
     initWordManager();
     initDataManager();
+    initTrainer();
+    initGames();
 });

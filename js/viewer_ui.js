@@ -3,6 +3,11 @@ import { handleSync } from './data_ui.js';
 import * as srsDb from './srs_db.js';
 import { settings } from './settings.js';
 
+// ─── ICONS ───────────────────────────────────────────────────────────────────
+
+const EYE_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+
+
 // --- STATE ---
 let currentBlockIndex = 0;
 let activeWordData = null; 
@@ -279,7 +284,7 @@ function renderBlock(index) {
             // Use contains rather than exact-end because accumulated may have chars beyond sentence end
             if (accumulated.replace(/\s/g, '').includes(target)) {
                 const transText = sentences[sentenceIndex].en.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
-                html += `<button class="btn-sentence-trans" data-trans="${transText}" style="margin-left: 5px; background: none; border: none; cursor: pointer; font-size: 16px;">🌐</button>
+                html += `<button class="btn-sentence-trans" data-trans="${transText}" title="Übersetzung anzeigen" style="margin-left:5px; background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px; line-height:1; display:inline-flex; align-items:center;">${EYE_ICON}</button>
                          <div class="sentence-translation-box hidden" style="font-size: 14px; color: var(--text-muted); background: #f0f0f0; padding: 8px; border-radius: 4px; margin-top: 5px; margin-bottom: 10px;">${transText}</div>`;
                 if (useNewLines) html += `<br><br>`;
                 // Reset accumulator to only keep chars after this sentence boundary
@@ -294,7 +299,7 @@ function renderBlock(index) {
     // split differs slightly from tokens), emit any remaining translations at the end
     while (sentenceIndex < sentences.length) {
         const transText = sentences[sentenceIndex].en.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
-        html += `<button class="btn-sentence-trans" data-trans="${transText}" style="margin-left: 5px; background: none; border: none; cursor: pointer; font-size: 16px;">🌐</button>
+        html += `<button class="btn-sentence-trans" data-trans="${transText}" title="Übersetzung anzeigen" style="margin-left:5px; background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px; line-height:1; display:inline-flex; align-items:center;">${EYE_ICON}</button>
                  <div class="sentence-translation-box hidden" style="font-size: 14px; color: var(--text-muted); background: #f0f0f0; padding: 8px; border-radius: 4px; margin-top: 5px; margin-bottom: 10px;">${transText}</div>`;
         sentenceIndex++;
     }
@@ -339,7 +344,7 @@ function renderBlock(index) {
                         <div style="flex:1;">
                             <div style="font-size:18px; line-height: 2.0;">
                                 <strong>${optLetter}:</strong> ${optEnrichedHtml}
-                                ${optEnglishGloss ? `<button class="btn-sentence-trans" data-trans="${optEnglishGloss.replace(/'/g, '&#39;').replace(/"/g, '&quot;')}" style="margin-left:5px; background:none; border:none; cursor:pointer; font-size:16px;">🌐</button>` : ''}
+                                ${optEnglishGloss ? `<button class="btn-sentence-trans" data-trans="${optEnglishGloss.replace(/'/g, '&#39;').replace(/"/g, '&quot;')}" title="Übersetzung anzeigen" style="margin-left:5px; background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px; line-height:1; display:inline-flex; align-items:center;">${EYE_ICON}</button>` : ''}
                             </div>
                             ${optEnglishGloss ? `<div id="${optTransId}" class="sentence-translation-box hidden" style="font-size:13px; color:var(--text-muted); background:#f0f0f0; padding:6px 8px; border-radius:4px; margin-top:2px;">${optEnglishGloss}</div>` : ''}
                         </div>
@@ -426,7 +431,6 @@ function renderBlock(index) {
         };
     }
     
-    injectSRSColors();
 }
 
 async function triggerGeneration(choiceText) {
@@ -464,6 +468,10 @@ function openWordPopup(wordData) {
     const noteEl = document.getElementById('popup-note');
     if (wordData.note) { noteEl.textContent = wordData.note; noteEl.style.display = 'block'; }
     else { noteEl.style.display = 'none'; }
+
+    // Hide trainer zone (only shown when opened from the Trainer tab)
+    const trainerZone = document.getElementById('popup-trainer-zone');
+    if (trainerZone) trainerZone.classList.add('hidden');
 
     const srsEntry = srsDb.getWord(wordData.base);
     const currentStatus = srsEntry ? srsEntry.status : 0;
@@ -505,20 +513,3 @@ function showLoading(stepNum, text) {
 }
 function hideLoading() { if (loadingOverlay) loadingOverlay.style.display = 'none'; }
 function updateProgress(stepNum, description) { showLoading(stepNum, description); }
-
-function injectSRSColors() {
-    if (document.getElementById('dynamic-srs-styles')) return;
-    const style = document.createElement('style');
-    style.id = 'dynamic-srs-styles';
-    style.innerHTML = `
-        .status-0-text { color: var(--status-0); } .status-1-text { color: var(--status-1); } .status-2-text { color: var(--status-2); }
-        .status-3-text { color: var(--status-3); } .status-4-text { color: var(--status-4); } .status-5-text { color: var(--status-5); }
-        .status-unknown-text { color: var(--status-unknown); }
-        .status-0-bg { background-color: var(--status-0); color: white; } .status-1-bg { background-color: var(--status-1); color: white; }
-        .status-2-bg { background-color: var(--status-2); color: black; } .status-3-bg { background-color: var(--status-3); color: black; }
-        .status-4-bg { background-color: var(--status-4); color: white; } .status-5-bg { background-color: var(--status-5); color: white; }
-        .status-unknown-bg { background-color: transparent; }
-        .word-tag { padding: 0 4px; border-radius: 4px; margin: 0 1px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
-        .hidden { display: none !important; }`;
-    document.head.appendChild(style);
-}

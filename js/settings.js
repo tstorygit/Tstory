@@ -1,7 +1,8 @@
 export const settings = {
-    textApiKey: '',
-    textModel: 'gemini-3.1-pro-preview',
-    imageModel: 'imagen-3.0-generate-002',
+    textApiKeys: [],       // array of API keys; replaces single textApiKey
+    textApiKey: '',        // legacy fallback — kept for compatibility
+    textModel: 'gemini-2.5-pro',
+    imageModel: 'gemini-2.0-flash-preview-image-generation',
     generateImages: false,
     useFallback: true,
     showFurigana: true,
@@ -11,12 +12,12 @@ export const settings = {
     textHighlightStyle: 'background',
     sentenceNewline: true,
     enableSentenceParsing: true,
-    requestTimeoutSecs: 120
+    requestTimeoutSecs: 120,
+    trainerExtMode: 'highlight',
+    trainerSrsMode: 'use'
 };
 
 export const TEXT_MODEL_ORDER = [
-    "gemini-3.1-pro-preview",
-    "gemini-3-flash-preview",
     "gemini-2.5-pro",
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
@@ -25,18 +26,89 @@ export const TEXT_MODEL_ORDER = [
 ];
 
 export const IMAGE_MODEL_ORDER = [
-    "imagen-3.0-generate-002",
-    "gemini-3-pro-image-preview",
     "gemini-2.0-flash-preview-image-generation"
 ];
+
+// ─── API KEY LIST UI ─────────────────────────────────────────────────────────
+
+function renderApiKeyInputs(keys) {
+    const container = document.getElementById('api-keys-container');
+    if (!container) return;
+    container.innerHTML = '';
+    const list = keys.length > 0 ? keys : [''];
+    list.forEach(key => addApiKeyRow(key));
+    updateKeyLabels();
+}
+
+function addApiKeyRow(value = '') {
+    const container = document.getElementById('api-keys-container');
+    if (!container) return;
+
+    const row = document.createElement('div');
+    row.className = 'api-key-row';
+
+    const badge = document.createElement('span');
+    badge.className = 'api-key-badge';
+    badge.textContent = '#1';
+
+    const input = document.createElement('input');
+    input.type = 'password';
+    input.className = 'api-key-input';
+    input.placeholder = 'AIzaSy...';
+    input.value = value;
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'api-key-remove';
+    removeBtn.title = 'Remove key';
+    removeBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+    removeBtn.addEventListener('click', () => {
+        // Keep at least one row
+        if (container.querySelectorAll('.api-key-row').length > 1) {
+            row.remove();
+            updateKeyLabels();
+        } else {
+            input.value = '';
+        }
+    });
+
+    row.appendChild(badge);
+    row.appendChild(input);
+    row.appendChild(removeBtn);
+    container.appendChild(row);
+}
+
+function updateKeyLabels() {
+    const container = document.getElementById('api-keys-container');
+    if (!container) return;
+    container.querySelectorAll('.api-key-badge').forEach((badge, i) => {
+        badge.textContent = `#${i + 1}`;
+    });
+}
 
 export function initSettings() {
     loadSettings();
 
+    // Wire the "Add Key" button
+    const addKeyBtn = document.getElementById('btn-add-api-key');
+    if (addKeyBtn) {
+        addKeyBtn.addEventListener('click', () => {
+            addApiKeyRow('');
+            updateKeyLabels();
+        });
+    }
+
     const saveBtn = document.getElementById('btn-save-settings');
     if (saveBtn) {
         saveBtn.addEventListener('click', () => {
-            settings.textApiKey = document.getElementById('setting-text-key').value;
+            // Collect all key inputs
+            const keyInputs = document.querySelectorAll('.api-key-input');
+            settings.textApiKeys = [...keyInputs]
+                .map(i => i.value.trim())
+                .filter(Boolean);
+            // Keep legacy field in sync with first key
+            settings.textApiKey = settings.textApiKeys[0] || '';
+
             settings.textModel = document.getElementById('setting-text-model').value;
             settings.imageModel = document.getElementById('setting-image-model').value;
             settings.generateImages = document.getElementById('setting-generate-images').checked;
@@ -50,6 +122,11 @@ export function initSettings() {
             settings.enableSentenceParsing = document.getElementById('setting-sentence-parsing').checked;
             settings.requestTimeoutSecs = parseInt(document.getElementById('setting-timeout').value) || 120;
 
+            const extMode = document.getElementById('trainer-ext-mode');
+            if (extMode) settings.trainerExtMode = extMode.value;
+            const srsModeEl = document.getElementById('trainer-srs-mode');
+            if (srsModeEl) settings.trainerSrsMode = srsModeEl.value;
+
             localStorage.setItem('ai_reader_settings', JSON.stringify(settings));
             alert('Settings Saved!');
         });
@@ -62,7 +139,13 @@ function loadSettings() {
         const parsed = JSON.parse(saved);
         Object.assign(settings, parsed);
 
-        document.getElementById('setting-text-key').value = settings.textApiKey || '';
+        // Migrate legacy single-key to array
+        if ((!settings.textApiKeys || settings.textApiKeys.length === 0) && settings.textApiKey) {
+            settings.textApiKeys = [settings.textApiKey];
+        }
+
+        renderApiKeyInputs(settings.textApiKeys || []);
+
         document.getElementById('setting-text-model').value = settings.textModel;
         document.getElementById('setting-image-model').value = settings.imageModel;
         document.getElementById('setting-generate-images').checked = settings.generateImages || false;
@@ -80,6 +163,17 @@ function loadSettings() {
 
         const sParse = document.getElementById('setting-sentence-parsing');
         if (sParse) sParse.checked = settings.enableSentenceParsing !== false;
+
+        const extMode = document.getElementById('trainer-ext-mode');
+        if (extMode) extMode.value = settings.trainerExtMode || 'highlight';
+        const srsModeEl = document.getElementById('trainer-srs-mode');
+        if (srsModeEl) srsModeEl.value = settings.trainerSrsMode || 'use';
+
+        const timeout = document.getElementById('setting-timeout');
+        if (timeout) timeout.value = settings.requestTimeoutSecs || 120;
+    } else {
+        // No saved settings — render one empty key input
+        renderApiKeyInputs([]);
     }
 }
 
