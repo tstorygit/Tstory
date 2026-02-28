@@ -1,0 +1,20 @@
+{
+  "name": "AI Japanese Story Reader",
+  "short_name": "AI Reader",
+  "start_url": "index.html",
+  "display": "standalone",
+  "background_color": "#f4f6f8",
+  "theme_color": "#4A90E2",
+  "icons": [
+    {
+      "src": "https://via.placeholder.com/192/4A90E2/ffffff?text=JP",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://via.placeholder.com/512/4A90E2/ffffff?text=JP",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

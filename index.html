@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AI Japanese Reader & SRS</title>
+    <link rel="stylesheet" href="styles.css">
+    
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#4A90E2">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="https://via.placeholder.com/192/4A90E2/ffffff?text=JP">
+</head>
+<body>
+
+    <main id="app-container">
+
+        <section id="view-story" class="view active">
+            <header>
+                <h2>Story Reader</h2>
+            </header>
+            <div id="story-content" class="content-scroll">
+                <div class="placeholder-text">Loading story...</div>
+            </div>
+        </section>
+
+        <section id="view-srs" class="view">
+            <header style="display: flex; justify-content: space-between; align-items: center;">
+                <h2>Review</h2>
+                <span id="srs-counter" style="font-size: 14px; color: var(--text-muted);">0 Due</span>
+            </header>
+            <div id="srs-content" class="content-scroll flex-center" style="background-color: #eef2f5; position: relative; overflow: hidden;">
+                <div id="flashcard-container" style="width: 100%; max-width: 350px; position: relative; height: 400px; display: none;">
+                    <div id="flashcard" class="flashcard">
+                        <div class="flashcard-face flashcard-front flex-center flex-column">
+                            <span id="fc-furi" style="font-size: 18px; color: var(--text-muted); margin-bottom: 5px; height: 27px;"></span>
+                            <h1 id="fc-word" style="font-size: 42px; margin: 0;"></h1>
+                            <p style="margin-top: 30px; color: var(--text-muted); font-size: 14px;">Tap to reveal</p>
+                        </div>
+                        <div class="flashcard-face flashcard-back flex-center flex-column">
+                            <h2 id="fc-word-back" style="font-size: 32px; margin-bottom: 5px;"></h2>
+                            <h3 id="fc-trans" style="font-size: 24px; color: var(--primary-color); margin-bottom: 20px;"></h3>
+                            <div style="width: 100%; padding: 0 20px;">
+                                <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 5px;">Current Status:</p>
+                                <div class="status-buttons" id="fc-status-group" style="margin-bottom: 30px;">
+                                    <button class="status-btn fc-btn" data-status="0">0</button>
+                                    <button class="status-btn fc-btn" data-status="1">1</button>
+                                    <button class="status-btn fc-btn" data-status="2">2</button>
+                                    <button class="status-btn fc-btn" data-status="3">3</button>
+                                    <button class="status-btn fc-btn" data-status="4">4</button>
+                                    <button class="status-btn fc-btn" data-status="5">5</button>
+                                </div>
+                            </div>
+                            <p style="font-size: 14px; color: var(--text-muted);">
+                                &larr; Swipe Left to Decrease <br>
+                                Swipe Right to Increase &rarr;
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div id="srs-empty-state" class="placeholder-text">
+                    <h3>All caught up!</h3>
+                    <p style="margin-top: 10px;">Read more stories to add words to your review queue.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="view-vocab" class="view">
+            <header>
+                <h2>Vocabulary</h2>
+            </header>
+            <div class="vocab-controls" style="padding: 10px 20px; background: var(--surface-color); border-bottom: 1px solid var(--border-color);">
+                <input type="text" id="vocab-search" placeholder="Search Japanese or English..." style="margin-bottom: 10px;">
+                <div style="display: flex; gap: 10px;">
+                    <select id="vocab-filter" style="flex: 1;">
+                        <option value="all">All Statuses</option>
+                        <option value="0">Status 0 (Unknown)</option>
+                        <option value="1">Status 1</option>
+                        <option value="2">Status 2</option>
+                        <option value="3">Status 3</option>
+                        <option value="4">Status 4</option>
+                        <option value="5">Status 5 (Known)</option>
+                    </select>
+                    <select id="vocab-sort" style="flex: 1;">
+                        <option value="newest">Newest First</option>
+                        <option value="oldest">Oldest First</option>
+                        <option value="az">A-Z (Japanese)</option>
+                        <option value="status_asc">Status (Low to High)</option>
+                        <option value="status_desc">Status (High to Low)</option>
+                    </select>
+                </div>
+                <div style="margin-top: 5px; font-size: 12px; color: var(--text-muted); text-align: right;">
+                    <span id="vocab-count">0</span> words found
+                </div>
+            </div>
+            <div id="vocab-list" class="content-scroll"></div>
+        </section>
+
+        <section id="view-settings" class="view">
+            <header>
+                <h2>Settings</h2>
+            </header>
+            <div id="settings-content" class="content-scroll">
+                
+                <div class="settings-group">
+                    <h3>API Keys & Models</h3>
+                    <label>Gemini API Key:
+                        <input type="password" id="setting-text-key" placeholder="AIzaSy...">
+                    </label>
+                    
+                    <label>Preferred Text Model:
+                        <select id="setting-text-model">
+                            <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview (Newest)</option>
+                            <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
+                            <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+                            <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                            <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite</option>
+                            <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+                            <option value="gemini-flash-latest">gemini-flash-latest</option>
+                        </select>
+                    </label>
+
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="setting-generate-images">
+                        Enable Image Generation (Experimental)
+                    </label>
+
+                    <label>Preferred Image Model:
+                        <select id="setting-image-model">
+                            <option value="imagen-3.0-generate-002">imagen-3.0-generate-002</option>
+                            <option value="gemini-3-pro-image-preview">gemini-3-pro-image-preview</option>
+                            <option value="gemini-2.0-flash-preview-image-generation">gemini-2.0-flash-preview</option>
+                        </select>
+                    </label>
+
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="setting-use-fallback" checked>
+                        Enable automatic model fallback on rate limit
+                    </label>
+
+                    <label>Request Timeout (seconds):
+                        <input type="number" id="setting-timeout" min="10" max="600" value="120" style="width:100px;">
+                    </label>
+                </div>
+
+                <div class="settings-group">
+                    <h3>Reader Preferences</h3>
+                    
+                    <label>SRS Highlight Style:
+                        <select id="setting-highlight-style">
+                            <option value="background">Background Color (Default)</option>
+                            <option value="text">Text Color</option>
+                        </select>
+                    </label>
+
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="setting-sentence-newline">
+                        Start every sentence on a new line
+                    </label>
+
+                    <!-- THIS IS THE NEW SETTING -->
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="setting-sentence-parsing" checked>
+                        Enable Sentence Translation (Extra API call)
+                    </label>
+
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="setting-show-furigana" checked>
+                        Show Furigana by default
+                    </label>
+
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="setting-show-romaji">
+                        Show Romaji (can be shown together with Furigana)
+                    </label>
+                    
+                    <label>SRS Inclusion Mode:
+                        <select id="setting-srs-mode">
+                            <option value="mix">Mix (Latest + Needs Review)</option>
+                            <option value="new">Focus New Words</option>
+                            <option value="none">None (Ignore SRS for generation)</option>
+                        </select>
+                    </label>
+
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="setting-debug-mode">
+                        Enable Debug Mode (Check Console)
+                    </label>
+
+                    <button id="btn-save-settings" class="primary-btn">Save Settings</button>
+                </div>
+
+            </div>
+        </section>
+
+    </main>
+
+    <nav id="bottom-nav">
+        <button class="nav-btn active" data-target="view-story">Story</button>
+        <button class="nav-btn" data-target="view-srs">SRS</button>
+        <button class="nav-btn" data-target="view-vocab">List</button>
+        <button class="nav-btn" data-target="view-settings">Settings</button>
+    </nav>
+
+    <div id="word-popup-overlay" class="hidden">
+        <div id="word-popup" class="popup-card">
+            <div class="popup-header">
+                <h3 id="popup-term">...</h3>
+                <span id="popup-furi" style="color:var(--text-muted); font-size:14px;">...</span>
+                <span id="popup-roma" style="color:var(--primary-color); font-size:12px; font-style:italic; margin-left:6px; display:none;">...</span>
+            </div>
+            <div class="popup-body">
+                <p><strong>Base:</strong> <span id="popup-base">...</span></p>
+                <p><strong>Meaning (Base):</strong> <span id="popup-trans-base">...</span></p>
+                <p><strong>Meaning (Context):</strong> <span id="popup-trans-context">...</span></p>
+                <p class="popup-note" id="popup-note">...</p>
+            </div>
+            <div class="popup-footer">
+                <p>Known Status:</p>
+                <div class="status-buttons" id="popup-status-group">
+                    <button class="status-btn" data-status="0">0</button>
+                    <button class="status-btn" data-status="1">1</button>
+                    <button class="status-btn" data-status="2">2</button>
+                    <button class="status-btn" data-status="3">3</button>
+                    <button class="status-btn" data-status="4">4</button>
+                    <button class="status-btn" data-status="5">5</button>
+                </div>
+            </div>
+            <button id="close-popup-btn" style="margin-top: 15px;">Close</button>
+        </div>
+    </div>
+
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>
