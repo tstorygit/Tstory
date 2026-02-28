@@ -91,14 +91,6 @@ function renderLibrary() {
         }
     });
 
-    if (stories.length === 0) {
-        const emptyMsg = document.createElement('div');
-        emptyMsg.className = 'placeholder-text';
-        emptyMsg.textContent = "No saved stories.";
-        storyContentDiv.appendChild(emptyMsg);
-        return;
-    }
-
     const libraryHeaderRow = document.createElement('div');
     libraryHeaderRow.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;';
     libraryHeaderRow.innerHTML = `
@@ -108,6 +100,13 @@ function renderLibrary() {
         </button>
     `;
     storyContentDiv.appendChild(libraryHeaderRow);
+
+    if (stories.length === 0) {
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'placeholder-text';
+        emptyMsg.textContent = "No saved stories. Tap Sync to load shared stories!";
+        storyContentDiv.appendChild(emptyMsg);
+    }
 
     document.getElementById('btn-library-sync').addEventListener('click', async () => {
         const btn = document.getElementById('btn-library-sync');
