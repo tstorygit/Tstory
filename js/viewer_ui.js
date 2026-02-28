@@ -15,6 +15,11 @@ const closePopupBtn = document.getElementById('close-popup-btn');
 const statusButtons = document.querySelectorAll('.status-btn');
 
 // --- INITIALIZATION ---
+// Called externally (e.g. from srs_ui) to refresh word colours after status changes
+export function rerenderCurrentBlock() {
+    if (!isLibraryView) renderBlock(currentBlockIndex);
+}
+
 export function initViewer() {
     if (closePopupBtn) {
         closePopupBtn.addEventListener('click', closeWordPopup);

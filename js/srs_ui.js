@@ -151,9 +151,9 @@ function updateCounter() {
 
 function renderCurrentCard() {
     flashcard.classList.remove(
-        'flipped', 'flip-animate',
-        'swipe-exit-right', 'swipe-exit-left', 'swipe-exit-down',
-        'dragging'
+        'flipped', 'flip-animate', 'dragging',
+        'swipe-exit-front-right', 'swipe-exit-front-left', 'swipe-exit-front-down',
+        'swipe-exit-back-right',  'swipe-exit-back-left',  'swipe-exit-back-down'
     );
     flashcard.style.transform     = '';
     flashcard.style.opacity       = '';
@@ -206,44 +206,27 @@ function commitStatus(newStatus, direction) {
 }
 
 /**
- * Drive the exit purely in JS-land so we control screen-space direction
- * regardless of whether the card is flipped.
- *
- * When flipped, rotateY(180deg) mirrors the local X axis, so
- * translateX(+N) moves the card LEFT on screen. We compensate by
- * inverting the translate when flipped. We keep the flipped class
- * intact so the correct face stays visible during the exit.
+ * Exit animation using CSS keyframes.
+ * We pick from 6 variants: (front|back) × (right|left|down).
+ * The back-variants use inverted translateX so the card always
+ * flies in the screen-space direction the user swiped.
+ * The flipped class is removed right before adding the exit class
+ * so the animation keyframe has a clean starting transform.
  */
 function exitAnimate(direction, onDone) {
     const flipped = isFlipped();
+    const face = flipped ? 'back' : 'front';
+    const exitClass = `swipe-exit-${face}-${direction}`;
 
-    // Screen-space exit targets
-    const targets = {
-        right: { x:  130, y: 0,   rot:  18 },
-        left:  { x: -130, y: 0,   rot: -18 },
-        down:  { x: 0,    y: 110, rot:   0 },
-    };
-    const t = targets[direction];
+    // Clear the inline drag transform and flip class before animating
+    // (the keyframe 0% starts from the natural resting state of the element)
+    flashcard.classList.remove('flipped', 'flip-animate');
+    flashcard.style.transform = '';
+    flashcard.style.opacity   = '';
 
-    // When flipped the local X axis is reversed — invert x and rot
-    const tx  = flipped ? -t.x  : t.x;
-    const rot = flipped ? -t.rot : t.rot;
-
-    // Build the final transform in screen-correct order:
-    // First rotateY (flip state), then translate+rotate in screen space.
-    // We use a wrapper trick: apply rotateY on the element as before,
-    // then add translateX/rotate AFTER in the same transform string.
-    const baseFlip = flipped ? 'rotateY(180deg) ' : '';
-    const finalTransform = `${baseFlip}translateX(${tx}%) rotate(${rot}deg)`;
-
-    flashcard.style.pointerEvents = 'none';
-    flashcard.style.transition = 'transform 0.38s cubic-bezier(0.4,0,1,1), opacity 0.38s ease';
-    flashcard.style.transform  = finalTransform;
-    flashcard.style.opacity    = '0';
-
-    flashcard.addEventListener('transitionend', () => {
-        flashcard.style.transition    = '';
-        flashcard.style.pointerEvents = '';
+    flashcard.classList.add(exitClass);
+    flashcard.addEventListener('animationend', () => {
+        flashcard.classList.remove(exitClass);
         onDone();
     }, { once: true });
 }

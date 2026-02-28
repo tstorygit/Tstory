@@ -297,9 +297,47 @@ select {
    We use a wrapper layer approach: the animation is on the card itself,
    and because the faces use backface-visibility:hidden, flipping is clean.
  */
-/* Exit animations are driven by JS transitions (exitAnimate fn in srs_ui.js)
-   so we get correct screen-space direction regardless of flip state.
-   No CSS keyframes needed here. */
+/* ── Swipe Exit Keyframes ──────────────────────────────────────────────
+   6 variants: front/back × right/left/down.
+   Front face starts from rotateY(0deg), back from rotateY(180deg).
+   Back variants INVERT translateX so the card flies in screen-space
+   direction matching the swipe, not the mirrored local axis.
+*/
+
+/* FRONT face exits */
+@keyframes exit-front-right {
+    0%   { transform: rotateY(0deg) translateX(0)    rotate(0deg);   opacity: 1; }
+    100% { transform: rotateY(0deg) translateX(130%) rotate(18deg);  opacity: 0; }
+}
+@keyframes exit-front-left {
+    0%   { transform: rotateY(0deg) translateX(0)     rotate(0deg);   opacity: 1; }
+    100% { transform: rotateY(0deg) translateX(-130%) rotate(-18deg); opacity: 0; }
+}
+@keyframes exit-front-down {
+    0%   { transform: rotateY(0deg) translateY(0);    opacity: 1; }
+    100% { transform: rotateY(0deg) translateY(115%); opacity: 0; }
+}
+
+/* BACK face exits — translateX is negated to counteract the mirrored X axis */
+@keyframes exit-back-right {
+    0%   { transform: rotateY(180deg) translateX(0)     rotate(0deg);   opacity: 1; }
+    100% { transform: rotateY(180deg) translateX(-130%) rotate(-18deg); opacity: 0; }
+}
+@keyframes exit-back-left {
+    0%   { transform: rotateY(180deg) translateX(0)    rotate(0deg);   opacity: 1; }
+    100% { transform: rotateY(180deg) translateX(130%) rotate(18deg);  opacity: 0; }
+}
+@keyframes exit-back-down {
+    0%   { transform: rotateY(180deg) translateY(0);    opacity: 1; }
+    100% { transform: rotateY(180deg) translateY(115%); opacity: 0; }
+}
+
+.flashcard.swipe-exit-front-right { animation: exit-front-right 0.38s cubic-bezier(0.4,0,1,1) forwards; pointer-events: none; }
+.flashcard.swipe-exit-front-left  { animation: exit-front-left  0.38s cubic-bezier(0.4,0,1,1) forwards; pointer-events: none; }
+.flashcard.swipe-exit-front-down  { animation: exit-front-down  0.32s cubic-bezier(0.4,0,1,1) forwards; pointer-events: none; }
+.flashcard.swipe-exit-back-right  { animation: exit-back-right  0.38s cubic-bezier(0.4,0,1,1) forwards; pointer-events: none; }
+.flashcard.swipe-exit-back-left   { animation: exit-back-left   0.38s cubic-bezier(0.4,0,1,1) forwards; pointer-events: none; }
+.flashcard.swipe-exit-back-down   { animation: exit-back-down   0.32s cubic-bezier(0.4,0,1,1) forwards; pointer-events: none; }
 
 /* ── Swipe Overlay + Hint Labels ────────────────────────────────────────
    These are injected into flashcard-container (NOT into .flashcard),

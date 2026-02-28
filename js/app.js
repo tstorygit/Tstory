@@ -1,5 +1,5 @@
 import { initSettings } from './settings.js';
-import { initViewer } from './viewer_ui.js';
+import { initViewer, rerenderCurrentBlock } from './viewer_ui.js';
 import { initSRS } from './srs_ui.js';
 import { initWordManager } from './word_manager.js'; 
 import { initDataManager } from './data_ui.js';
@@ -20,6 +20,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 v.classList.remove('active');
                 if (v.id === target) v.classList.add('active');
             });
+
+            // Re-render reader word colours if SRS grades changed since last visit
+            if (target === 'view-reader' && sessionStorage.getItem('srs-dirty')) {
+                sessionStorage.removeItem('srs-dirty');
+                rerenderCurrentBlock();
+            }
         });
     });
 
