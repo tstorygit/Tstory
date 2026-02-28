@@ -333,18 +333,21 @@ select {
     pointer-events: none;
 }
 
-/* ── Swipe Overlay (colour hint injected by JS) ─────────────────────── */
+/* ── Swipe Overlay + Hint Labels ────────────────────────────────────────
+   These are injected into flashcard-container (NOT into .flashcard),
+   so they are never subject to the card's rotateY transform.
+   Text is always readable, positions are always screen-correct.
+ */
 #swipe-overlay {
     position: absolute;
     inset: 0;
-    border-radius: inherit;
+    border-radius: 16px;  /* match .flashcard-face */
     pointer-events: none;
     opacity: 0;
     transition: opacity 0.08s linear;
-    z-index: 10;
+    z-index: 5;
 }
 
-/* ── Swipe hint labels that appear at the edges during drag ─────────── */
 .swipe-hint-label {
     position: absolute;
     top: 50%;
@@ -356,7 +359,7 @@ select {
     opacity: 0;
     transition: opacity 0.1s;
     pointer-events: none;
-    z-index: 20;
+    z-index: 6;
     padding: 6px 10px;
     border-radius: 6px;
     border: 2px solid currentColor;
@@ -365,13 +368,13 @@ select {
 .swipe-hint-right {
     left: 16px;
     color: #1a9e55;
-    background: rgba(255,255,255,0.85);
+    background: rgba(255,255,255,0.9);
 }
 
 .swipe-hint-left {
     right: 16px;
     color: #c0392b;
-    background: rgba(255,255,255,0.85);
+    background: rgba(255,255,255,0.9);
 }
 
 /* --- Vocab Manager Styles --- */

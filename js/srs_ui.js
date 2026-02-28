@@ -15,13 +15,12 @@ let drag = {
     currentY: 0,
     startTime: 0,
     totalTravel: 0,
-    locked: false, // true while an exit animation is running
+    locked: false,
 };
 
-// Swipe thresholds
-const SWIPE_THRESHOLD_PX    = 55;   // minimum horizontal travel to commit swipe
-const SWIPE_VELOCITY_PX_MS  = 0.35; // OR a fast flick counts too
-const AXIS_LOCK_RATIO        = 1.3;  // |dx| must be this × |dy| to count as horizontal
+const SWIPE_THRESHOLD_PX   = 55;
+const SWIPE_VELOCITY_PX_MS = 0.35;
+const AXIS_LOCK_RATIO      = 1.3;
 
 // --- DOM ELEMENTS ---
 const flashcardContainer = document.getElementById('flashcard-container');
@@ -29,17 +28,16 @@ const flashcard          = document.getElementById('flashcard');
 const emptyState         = document.getElementById('srs-empty-state');
 const srsCounter         = document.getElementById('srs-counter');
 
-// Card Content Elements
 const elFuri       = document.getElementById('fc-furi');
 const elWord       = document.getElementById('fc-word');
 const elWordBack   = document.getElementById('fc-word-back');
 const elTrans      = document.getElementById('fc-trans');
 const elStatusBtns = document.querySelectorAll('.fc-btn');
 
-// Elements injected by this module
-let swipeOverlay   = null;
-let hintRight      = null;
-let hintLeft       = null;
+// Injected UI — attached to CONTAINER, not the card, so they're never 3D-transformed
+let swipeOverlay = null;
+let hintRight    = null;
+let hintLeft     = null;
 
 // ─────────────────────────────────────────────
 // INIT
@@ -48,31 +46,37 @@ export function initSRS() {
     const srsTabBtn = document.querySelector('button[data-target="view-srs"]');
     if (srsTabBtn) srsTabBtn.addEventListener('click', loadReviewQueue);
 
-    // ── Inject overlay + hint labels into the flashcard ──────────────────
+    // Ensure container is positioned so absolute children work
+    if (getComputedStyle(flashcardContainer).position === 'static') {
+        flashcardContainer.style.position = 'relative';
+    }
+
+    // ── Inject overlay + hints into CONTAINER (not the card!) ────────────
+    // This means they never participate in the card's rotateY / drag transform,
+    // so text is always readable and positions are always correct.
     swipeOverlay = document.createElement('div');
     swipeOverlay.id = 'swipe-overlay';
-    flashcard.appendChild(swipeOverlay);
+    flashcardContainer.appendChild(swipeOverlay);
 
     hintRight = document.createElement('div');
     hintRight.className = 'swipe-hint-label swipe-hint-right';
     hintRight.textContent = '＋ Know';
-    flashcard.appendChild(hintRight);
+    flashcardContainer.appendChild(hintRight);
 
     hintLeft = document.createElement('div');
     hintLeft.className = 'swipe-hint-label swipe-hint-left';
     hintLeft.textContent = 'Review ＋';
-    flashcard.appendChild(hintLeft);
+    flashcardContainer.appendChild(hintLeft);
 
     // ── Card flip on click/tap ────────────────────────────────────────────
-    // Only flip if it was a real tap (not a drag attempt)
     flashcardContainer.addEventListener('click', (e) => {
         if (drag.locked) return;
         if (e.target.tagName === 'BUTTON') return;
-        if (drag.totalTravel > 6) return; // was a drag, not a tap
+        if (drag.totalTravel > 6) return;
         flipCard();
     });
 
-    // ── Status button clicks (back of card) ───────────────────────────────
+    // ── Status button clicks ──────────────────────────────────────────────
     elStatusBtns.forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -81,10 +85,8 @@ export function initSRS() {
         });
     });
 
-    // ── Input handlers ────────────────────────────────────────────────────
     initPointerGestures();
     initKeyboardControls();
-
     loadReviewQueue();
 }
 
@@ -92,13 +94,15 @@ export function initSRS() {
 // FLIP
 // ─────────────────────────────────────────────
 function flipCard() {
-    // Enable CSS transition just for this flip, then remove it
-    // so it doesn't interfere with drag transforms
     flashcard.classList.add('flip-animate');
     flashcard.classList.toggle('flipped');
     flashcard.addEventListener('transitionend', () => {
         flashcard.classList.remove('flip-animate');
     }, { once: true });
+}
+
+function isFlipped() {
+    return flashcard.classList.contains('flipped');
 }
 
 // ─────────────────────────────────────────────
@@ -120,17 +124,16 @@ function updateCounter() {
 }
 
 function renderCurrentCard() {
-    // Full reset
     flashcard.classList.remove(
         'flipped', 'flip-animate',
         'swipe-exit-right', 'swipe-exit-left', 'swipe-exit-down',
         'dragging'
     );
-    flashcard.style.transform  = '';
-    flashcard.style.opacity    = '';
-    flashcard.style.transition = '';
-    flashcard.style.removeProperty('--card-pre-anim-transform');
+    flashcard.style.transform     = '';
+    flashcard.style.opacity       = '';
+    flashcard.style.transition    = '';
     flashcard.style.pointerEvents = '';
+    flashcard.style.removeProperty('--card-pre-anim-transform');
     clearOverlay();
     drag.locked = false;
 
@@ -144,7 +147,6 @@ function renderCurrentCard() {
     emptyState.style.display = 'none';
 
     const wordData = reviewQueue[currentIndex];
-
     elWord.textContent     = wordData.word;
     elFuri.textContent     = settings.showFurigana ? (wordData.furi || '') : '';
     elWordBack.textContent = wordData.word;
@@ -160,10 +162,6 @@ function renderCurrentCard() {
 // ─────────────────────────────────────────────
 // STATUS + EXIT ANIMATION
 // ─────────────────────────────────────────────
-/**
- * @param {number} newStatus
- * @param {'right'|'left'|'down'|null} direction  null = instant (button click)
- */
 function commitStatus(newStatus, direction) {
     if (drag.locked) return;
     drag.locked = true;
@@ -172,16 +170,10 @@ function commitStatus(newStatus, direction) {
     srsDb.updateWordStatus(currentWord.word, newStatus);
 
     if (direction) {
-        // Tell the CSS animation what base transform to start from
-        // (preserves flipped state so the exit looks correct from either face)
-        const baseTransform = flashcard.classList.contains('flipped')
-            ? 'rotateY(180deg)'
-            : 'rotateY(0deg)';
+        const baseTransform = isFlipped() ? 'rotateY(180deg)' : 'rotateY(0deg)';
         flashcard.style.setProperty('--card-pre-anim-transform', baseTransform);
-        // Remove flip class so CSS won't fight the animation
         flashcard.classList.remove('flipped', 'flip-animate');
-        flashcard.style.transform = ''; // clear any inline drag transform
-
+        flashcard.style.transform = '';
         flashcard.classList.add(`swipe-exit-${direction}`);
         flashcard.addEventListener('animationend', nextCard, { once: true });
     } else {
@@ -196,20 +188,21 @@ function nextCard() {
 }
 
 // ─────────────────────────────────────────────
-// OVERLAY (drag colour feedback)
+// OVERLAY
+// Lives on the container — never 3D-rotated, always screen-space correct
 // ─────────────────────────────────────────────
 const OVERLAY_BG = {
-    right: 'radial-gradient(ellipse at 0% 50%,  rgba(34,197,100,0.5)  0%, transparent 65%)',
-    left:  'radial-gradient(ellipse at 100% 50%, rgba(220,50,50,0.5)   0%, transparent 65%)',
-    down:  'radial-gradient(ellipse at 50% 0%,   rgba(140,140,140,0.4) 0%, transparent 65%)',
+    right: 'radial-gradient(ellipse at 0% 50%,  rgba(34,197,100,0.45) 0%, transparent 65%)',
+    left:  'radial-gradient(ellipse at 100% 50%, rgba(220,50,50,0.45)  0%, transparent 65%)',
+    down:  'radial-gradient(ellipse at 50% 0%,   rgba(140,140,140,0.38) 0%, transparent 65%)',
 };
 
 function setOverlay(direction, progress) {
     const p = Math.min(progress, 1);
     swipeOverlay.style.background = OVERLAY_BG[direction] || '';
     swipeOverlay.style.opacity    = p.toFixed(3);
-    if (hintRight) hintRight.style.opacity = direction === 'right' ? (p * 1.6).toFixed(3) : '0';
-    if (hintLeft)  hintLeft.style.opacity  = direction === 'left'  ? (p * 1.6).toFixed(3) : '0';
+    if (hintRight) hintRight.style.opacity = direction === 'right' ? Math.min(p * 1.5, 1).toFixed(3) : '0';
+    if (hintLeft)  hintLeft.style.opacity  = direction === 'left'  ? Math.min(p * 1.5, 1).toFixed(3) : '0';
 }
 
 function clearOverlay() {
@@ -222,7 +215,6 @@ function clearOverlay() {
 
 // ─────────────────────────────────────────────
 // POINTER GESTURE ENGINE
-// Unified: mouse, touch, stylus — via Pointer Events API
 // ─────────────────────────────────────────────
 function initPointerGestures() {
     flashcardContainer.addEventListener('pointerdown',   onPointerDown);
@@ -244,14 +236,11 @@ function onPointerDown(e) {
     drag.startTime   = Date.now();
     drag.totalTravel = 0;
 
-    // Capture so we keep getting events even when pointer leaves the element
     try { flashcardContainer.setPointerCapture(e.pointerId); } catch (_) {}
 
-    // Stop the flip transition from running while we drag
     flashcard.classList.remove('flip-animate');
     flashcard.classList.add('dragging');
-
-    e.preventDefault(); // prevent text selection / scroll
+    e.preventDefault();
 }
 
 function onPointerMove(e) {
@@ -261,37 +250,39 @@ function onPointerMove(e) {
     drag.currentX = e.clientX;
     drag.currentY = e.clientY;
 
-    const dx    = drag.currentX - drag.startX;
-    const dy    = drag.currentY - drag.startY;
-    const absDx = Math.abs(dx);
-    const absDy = Math.abs(dy);
-    drag.totalTravel = Math.hypot(dx, dy);
+    // Screen-space deltas (what the user's finger/mouse actually moved)
+    const rawDx = drag.currentX - drag.startX;
+    const rawDy = drag.currentY - drag.startY;
+    drag.totalTravel = Math.hypot(rawDx, rawDy);
 
-    if (drag.totalTravel < 4) return; // dead zone
+    if (drag.totalTravel < 4) return;
+
+    const absDx = Math.abs(rawDx);
+    const absDy = Math.abs(rawDy);
+
+    // ── KEY FIX: when the card is flipped, its local X-axis is mirrored. ──
+    // translateX(+N) on a rotateY(180deg) element moves it LEFT on screen.
+    // We invert dispDx so the card always follows the finger correctly.
+    // The overlay uses rawDx (screen space) and is unaffected.
+    const flip   = isFlipped();
+    const dispDx = flip ? -rawDx : rawDx;
 
     if (absDx >= absDy) {
-        // Horizontal drag
-        const dir      = dx > 0 ? 'right' : 'left';
-        const progress = absDx / SWIPE_THRESHOLD_PX;
-        setOverlay(dir, progress);
+        const screenDir = rawDx > 0 ? 'right' : 'left';
+        const progress  = absDx / SWIPE_THRESHOLD_PX;
+        setOverlay(screenDir, progress);
 
-        // Tilt card: follow finger horizontally + slight rotation
-        const angle     = (dx / (flashcard.offsetWidth  || 300)) * 20;
-        const baseFlip  = flashcard.classList.contains('flipped') ? 'rotateY(180deg) ' : '';
-        flashcard.style.transform = `${baseFlip}translateX(${dx * 0.28}px) rotate(${angle}deg)`;
+        const angle      = (dispDx / (flashcard.offsetWidth || 300)) * 20;
+        const baseRotate = flip ? 'rotateY(180deg) ' : '';
+        flashcard.style.transform = `${baseRotate}translateX(${dispDx * 0.28}px) rotate(${angle}deg)`;
+    } else if (rawDy > 0) {
+        const progress = absDy / SWIPE_THRESHOLD_PX;
+        setOverlay('down', progress);
+        const baseRotate = flip ? 'rotateY(180deg) ' : '';
+        flashcard.style.transform = `${baseRotate}translateY(${rawDy * 0.22}px)`;
     } else {
-        // Vertical drag (down = skip)
-        if (dy > 0) {
-            const progress = absDy / SWIPE_THRESHOLD_PX;
-            setOverlay('down', progress);
-            const baseFlip = flashcard.classList.contains('flipped') ? 'rotateY(180deg) ' : '';
-            flashcard.style.transform = `${baseFlip}translateY(${dy * 0.22}px)`;
-        } else {
-            // Upward drag — snap back overlay
-            clearOverlay();
-            const baseFlip = flashcard.classList.contains('flipped') ? 'rotateY(180deg)' : '';
-            flashcard.style.transform = baseFlip;
-        }
+        clearOverlay();
+        flashcard.style.transform = flip ? 'rotateY(180deg)' : '';
     }
 }
 
@@ -301,10 +292,10 @@ function onPointerUp(e) {
     drag.active = false;
     flashcard.classList.remove('dragging');
 
-    const dx      = drag.currentX - drag.startX;
-    const dy      = drag.currentY - drag.startY;
-    const absDx   = Math.abs(dx);
-    const absDy   = Math.abs(dy);
+    const rawDx  = drag.currentX - drag.startX;
+    const rawDy  = drag.currentY - drag.startY;
+    const absDx  = Math.abs(rawDx);
+    const absDy  = Math.abs(rawDy);
     const elapsed = Math.max(Date.now() - drag.startTime, 1);
     const velX    = absDx / elapsed;
 
@@ -315,10 +306,10 @@ function onPointerUp(e) {
     const isDown =
         absDy > SWIPE_THRESHOLD_PX &&
         absDy * AXIS_LOCK_RATIO > absDx &&
-        dy > 0;
+        rawDy > 0;
 
     if (isHorizontal || isDown) {
-        resolveSwipe(dx, dy, isHorizontal, isDown);
+        resolveSwipe(rawDx, rawDy, isHorizontal, isDown);
     } else {
         snapBack();
     }
@@ -332,30 +323,28 @@ function onPointerCancel(e) {
 }
 
 function snapBack() {
-    // Animate back to resting position
-    flashcard.classList.add('flip-animate'); // borrow the same transition
-    const baseFlip = flashcard.classList.contains('flipped') ? 'rotateY(180deg)' : '';
-    flashcard.style.transform = baseFlip;
+    flashcard.classList.add('flip-animate');
+    flashcard.style.transform = isFlipped() ? 'rotateY(180deg)' : '';
     clearOverlay();
     flashcard.addEventListener('transitionend', () => {
         flashcard.classList.remove('flip-animate');
     }, { once: true });
 }
 
-function resolveSwipe(dx, dy, isHorizontal, isDown) {
+function resolveSwipe(rawDx, rawDy, isHorizontal, isDown) {
     const currentWord = reviewQueue[currentIndex];
     let newStatus = currentWord.status;
     let direction;
 
-    if (isHorizontal && dx > 0) {
+    // Direction is always in screen space — swipe right = +1, always
+    if (isHorizontal && rawDx > 0) {
         direction = 'right';
         if (newStatus < 5) newStatus++;
-    } else if (isHorizontal && dx < 0) {
+    } else if (isHorizontal && rawDx < 0) {
         direction = 'left';
         if (newStatus > 0) newStatus--;
     } else if (isDown) {
         direction = 'down';
-        // Down = skip: status unchanged, just advance
     }
 
     clearOverlay();
@@ -363,17 +352,33 @@ function resolveSwipe(dx, dy, isHorizontal, isDown) {
 }
 
 // ─────────────────────────────────────────────
+// KEYBOARD OVERLAY FLASH
+// Ramps overlay up then commits — gives the same visual feedback as a swipe
+// ─────────────────────────────────────────────
+function flashOverlayThenCommit(newStatus, direction) {
+    const STEPS    = 8;
+    const STEP_MS  = 18;  // total ramp ~144ms, feels snappy
+    let   step     = 0;
+
+    const ramp = setInterval(() => {
+        step++;
+        setOverlay(direction, step / STEPS);
+        if (step >= STEPS) {
+            clearInterval(ramp);
+            clearOverlay();
+            commitStatus(newStatus, direction);
+        }
+    }, STEP_MS);
+}
+
+// ─────────────────────────────────────────────
 // KEYBOARD CONTROLS
-// ArrowRight → +1 status  ArrowLeft → -1 status
-// ArrowDown  → skip       Space / Enter → flip
 // ─────────────────────────────────────────────
 function initKeyboardControls() {
     document.addEventListener('keydown', (e) => {
         if (drag.locked) return;
         if (currentIndex >= reviewQueue.length) return;
         if (flashcardContainer.style.display === 'none') return;
-
-        // Don't steal keys from text inputs
         if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
 
         const currentWord = reviewQueue[currentIndex];
@@ -383,16 +388,16 @@ function initKeyboardControls() {
             case 'ArrowRight':
                 e.preventDefault();
                 if (newStatus < 5) newStatus++;
-                commitStatus(newStatus, 'right');
+                flashOverlayThenCommit(newStatus, 'right');
                 break;
             case 'ArrowLeft':
                 e.preventDefault();
                 if (newStatus > 0) newStatus--;
-                commitStatus(newStatus, 'left');
+                flashOverlayThenCommit(newStatus, 'left');
                 break;
             case 'ArrowDown':
                 e.preventDefault();
-                commitStatus(newStatus, 'down');
+                flashOverlayThenCommit(newStatus, 'down');
                 break;
             case ' ':
             case 'Enter':
