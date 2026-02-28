@@ -200,7 +200,7 @@ export async function generateImage(prompt) {
             const data = await response.json();
             
             if (data.predictions && data.predictions[0] && data.predictions[0].bytesBase64Encoded) {
-                if (settings.debugMode) console.log(`[${new Date().toLocaleTimeString()}] 🖼️ Image Received`);
+                if (settings.debugMode) console.log(`[${new Date().toLocaleTimeString()}] 🖼️ Image Received`);x
                 return `data:image/png;base64,${data.predictions[0].bytesBase64Encoded}`;
             } else if (data.candidates && data.candidates[0].content) {
                 return data.candidates[0].content.parts[0].text; 

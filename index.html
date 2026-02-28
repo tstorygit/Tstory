@@ -11,6 +11,8 @@
     <meta name="theme-color" content="#4A90E2">
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="https://via.placeholder.com/192/4A90E2/ffffff?text=JP">
+    <!-- JSZip for export/import functionality -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body>
 
@@ -194,12 +196,102 @@
             </div>
         </section>
 
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!-- DATA TAB                                               -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <section id="view-data" class="view">
+            <header>
+                <h2>Data</h2>
+            </header>
+            <div class="content-scroll" id="data-content">
+
+                <!-- ── EXPORT ──────────────────────────────── -->
+                <div class="data-panel">
+                    <div class="data-panel-header">
+                        <span class="data-panel-icon">📦</span>
+                        <div>
+                            <h3>Export Stories</h3>
+                            <p class="data-panel-sub">Save stories to a .zip file on your device.</p>
+                        </div>
+                    </div>
+
+                    <div class="story-select-toolbar">
+                        <button class="text-btn" onclick="window._dataUI.selectAllStories()">Select All</button>
+                        <span class="toolbar-sep">·</span>
+                        <button class="text-btn" onclick="window._dataUI.selectNoneStories()">Select None</button>
+                    </div>
+
+                    <div id="export-story-list" class="story-select-list">
+                        <p class="placeholder-text" style="margin:10px 0;">Loading…</p>
+                    </div>
+
+                    <label class="checkbox-label" style="margin-top:12px;">
+                        <input type="checkbox" id="export-include-vocab">
+                        Also export my vocabulary / SRS data
+                    </label>
+
+                    <button class="primary-btn" style="margin-top:14px;" onclick="window._dataUI.handleExport()">
+                        ⬇ Download as .zip
+                    </button>
+                    <div id="export-status" class="status-message" style="display:none;"></div>
+                </div>
+
+                <!-- ── IMPORT ──────────────────────────────── -->
+                <div class="data-panel">
+                    <div class="data-panel-header">
+                        <span class="data-panel-icon">📂</span>
+                        <div>
+                            <h3>Import Stories</h3>
+                            <p class="data-panel-sub">Load a previously exported .zip. Duplicate stories are skipped.</p>
+                        </div>
+                    </div>
+
+                    <label class="file-pick-label">
+                        <input type="file" id="data-import-file" accept=".zip" style="display:none;">
+                        <span class="file-pick-btn">Choose .zip file</span>
+                        <span id="import-filename" class="file-pick-name">No file chosen</span>
+                    </label>
+
+                    <button id="btn-confirm-import" class="primary-btn" style="display:none; margin-top:12px;">
+                        ⬆ Import Now
+                    </button>
+                    <div id="import-status" class="status-message" style="display:none;"></div>
+                </div>
+
+                <!-- ── SYNC ────────────────────────────────── -->
+                <div class="data-panel">
+                    <div class="data-panel-header">
+                        <span class="data-panel-icon">🔄</span>
+                        <div>
+                            <h3>Sync from URL</h3>
+                            <p class="data-panel-sub">Pull a shared .zip from a direct link — great for learning with a friend.</p>
+                        </div>
+                    </div>
+
+                    <label style="font-size:14px; font-weight:500; margin-bottom:6px; display:block;">Sync URL</label>
+                    <input type="url" id="data-sync-url"
+                           placeholder="https://your-host.com/shared-stories.zip"
+                           style="margin-bottom:8px;">
+                    <p class="data-panel-hint">
+                        💡 Upload your exported .zip to any public host (Dropbox direct link, Google Drive, GitHub Releases, etc.) and paste the direct download URL here. Your friend just taps <strong>Sync</strong>.
+                    </p>
+
+                    <button class="primary-btn sync-btn" onclick="window._dataUI.handleSync()">
+                        🔄 Sync Now
+                    </button>
+                    <div id="sync-status" class="status-message" style="display:none;"></div>
+                </div>
+
+            </div>
+        </section>
+
     </main>
 
     <nav id="bottom-nav">
         <button class="nav-btn active" data-target="view-story">Story</button>
         <button class="nav-btn" data-target="view-srs">SRS</button>
         <button class="nav-btn" data-target="view-vocab">List</button>
+        <button class="nav-btn" data-target="view-data">Data</button>
         <button class="nav-btn" data-target="view-settings">Settings</button>
     </nav>
 
