@@ -338,14 +338,24 @@ select {
    so they are never subject to the card's rotateY transform.
    Text is always readable, positions are always screen-correct.
  */
-#swipe-overlay {
+/* Overlay lives inside each face so it tilts/moves with the card.
+   backface-visibility:hidden on .flashcard-face means only the
+   visible face's overlay ever renders — no mirroring artifacts. */
+.swipe-overlay-face {
     position: absolute;
     inset: 0;
-    border-radius: 16px;  /* match .flashcard-face */
+    border-radius: inherit;
     pointer-events: none;
     opacity: 0;
-    transition: opacity 0.08s linear;
-    z-index: 5;
+    transition: opacity 0.07s linear;
+    z-index: 2;
+}
+
+/* The back face is rotateY(180deg) so its coordinate space is mirrored.
+   Counter-rotate the overlay so gradient origins stay screen-correct.
+   (We also swap left/right gradient origins in JS for belt-and-suspenders.) */
+.swipe-overlay-back {
+    transform: rotateY(180deg);
 }
 
 .swipe-hint-label {

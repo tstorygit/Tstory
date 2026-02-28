@@ -34,8 +34,12 @@ const elWordBack   = document.getElementById('fc-word-back');
 const elTrans      = document.getElementById('fc-trans');
 const elStatusBtns = document.querySelectorAll('.fc-btn');
 
-// Injected UI — attached to CONTAINER, not the card, so they're never 3D-transformed
-let swipeOverlay = null;
+// Two overlays — one per face — so the gradient physically sits on the card.
+// backface-visibility:hidden ensures only the visible face's overlay shows.
+// The back-face overlay has a counter-rotate applied via CSS class so its
+// gradient directions match screen space correctly.
+let overlayFront = null;
+let overlayBack  = null;
 let hintRight    = null;
 let hintLeft     = null;
 
@@ -51,21 +55,30 @@ export function initSRS() {
         flashcardContainer.style.position = 'relative';
     }
 
-    // ── Inject overlay + hints into CONTAINER (not the card!) ────────────
-    // This means they never participate in the card's rotateY / drag transform,
-    // so text is always readable and positions are always correct.
-    swipeOverlay = document.createElement('div');
-    swipeOverlay.id = 'swipe-overlay';
-    flashcardContainer.appendChild(swipeOverlay);
+    // ── Inject overlays directly into each face ───────────────────────────
+    // Each face has backface-visibility:hidden so only the visible face's
+    // overlay renders. The back-face overlay gets a CSS counter-rotate so
+    // gradient directions are always screen-space correct.
+    const frontFace = flashcard.querySelector('.flashcard-front');
+    const backFace  = flashcard.querySelector('.flashcard-back');
 
+    overlayFront = document.createElement('div');
+    overlayFront.className = 'swipe-overlay-face';
+    if (frontFace) frontFace.appendChild(overlayFront);
+
+    overlayBack = document.createElement('div');
+    overlayBack.className = 'swipe-overlay-face swipe-overlay-back';
+    if (backFace) backFace.appendChild(overlayBack);
+
+    // Hints stay on the container — they float in screen space outside the card
     hintRight = document.createElement('div');
     hintRight.className = 'swipe-hint-label swipe-hint-right';
-    hintRight.textContent = '＋ Know';
+    hintRight.textContent = '+ Know';
     flashcardContainer.appendChild(hintRight);
 
     hintLeft = document.createElement('div');
     hintLeft.className = 'swipe-hint-label swipe-hint-left';
-    hintLeft.textContent = 'Review ＋';
+    hintLeft.textContent = 'Review +';
     flashcardContainer.appendChild(hintLeft);
 
     // ── Card flip on click/tap ────────────────────────────────────────────
@@ -189,26 +202,44 @@ function nextCard() {
 
 // ─────────────────────────────────────────────
 // OVERLAY
-// Lives on the container — never 3D-rotated, always screen-space correct
+// Front face: gradient anchored at screen edges as expected.
+// Back face:  overlay has rotateY(180deg) counter-applied in CSS, so
+//             "left" and "right" are visually flipped back to screen space.
 // ─────────────────────────────────────────────
+
+// Gradient origins from the perspective of the FRONT face (screen space)
 const OVERLAY_BG = {
-    right: 'radial-gradient(ellipse at 0% 50%,  rgba(34,197,100,0.45) 0%, transparent 65%)',
-    left:  'radial-gradient(ellipse at 100% 50%, rgba(220,50,50,0.45)  0%, transparent 65%)',
-    down:  'radial-gradient(ellipse at 50% 0%,   rgba(140,140,140,0.38) 0%, transparent 65%)',
+    right: 'radial-gradient(ellipse at 0%   50%, rgba(34,197,100,0.52) 0%, transparent 62%)',
+    left:  'radial-gradient(ellipse at 100% 50%, rgba(220,50,50,0.52)  0%, transparent 62%)',
+    down:  'radial-gradient(ellipse at 50%  0%,  rgba(140,140,140,0.42) 0%, transparent 62%)',
+};
+
+// Back face needs gradients mirrored because the face itself is rotateY(180deg).
+// Our CSS counter-rotates the overlay div, but the gradient origin % stays.
+// Easiest fix: swap left/right origins for the back face.
+const OVERLAY_BG_BACK = {
+    right: 'radial-gradient(ellipse at 100% 50%, rgba(34,197,100,0.52) 0%, transparent 62%)',
+    left:  'radial-gradient(ellipse at 0%   50%, rgba(220,50,50,0.52)  0%, transparent 62%)',
+    down:  'radial-gradient(ellipse at 50%  0%,  rgba(140,140,140,0.42) 0%, transparent 62%)',
 };
 
 function setOverlay(direction, progress) {
-    const p = Math.min(progress, 1);
-    swipeOverlay.style.background = OVERLAY_BG[direction] || '';
-    swipeOverlay.style.opacity    = p.toFixed(3);
+    const p = Math.min(progress, 1).toFixed(3);
+    if (overlayFront) {
+        overlayFront.style.background = OVERLAY_BG[direction]      || '';
+        overlayFront.style.opacity    = p;
+    }
+    if (overlayBack) {
+        overlayBack.style.background  = OVERLAY_BG_BACK[direction] || '';
+        overlayBack.style.opacity     = p;
+    }
     if (hintRight) hintRight.style.opacity = direction === 'right' ? Math.min(p * 1.5, 1).toFixed(3) : '0';
     if (hintLeft)  hintLeft.style.opacity  = direction === 'left'  ? Math.min(p * 1.5, 1).toFixed(3) : '0';
 }
 
 function clearOverlay() {
-    if (!swipeOverlay) return;
-    swipeOverlay.style.opacity    = '0';
-    swipeOverlay.style.background = '';
+    if (overlayFront) { overlayFront.style.opacity = '0'; overlayFront.style.background = ''; }
+    if (overlayBack)  { overlayBack.style.opacity  = '0'; overlayBack.style.background  = ''; }
     if (hintRight) hintRight.style.opacity = '0';
     if (hintLeft)  hintLeft.style.opacity  = '0';
 }
@@ -356,8 +387,8 @@ function resolveSwipe(rawDx, rawDy, isHorizontal, isDown) {
 // Ramps overlay up then commits — gives the same visual feedback as a swipe
 // ─────────────────────────────────────────────
 function flashOverlayThenCommit(newStatus, direction) {
-    const STEPS    = 8;
-    const STEP_MS  = 18;  // total ramp ~144ms, feels snappy
+    const STEPS    = 12;
+    const STEP_MS  = 30;  // total ramp ~360ms, clearly visible
     let   step     = 0;
 
     const ramp = setInterval(() => {
