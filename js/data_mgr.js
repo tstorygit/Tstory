@@ -14,7 +14,7 @@ import * as srsDb from './srs_db.js';
 
 const STORAGE_KEY = 'ai_reader_stories';
 const SYNC_URL_KEY = 'ai_reader_sync_url';
-const DEFAULT_SYNC_URL = 'https://tstorygit.github.io/Tstory/shared-stories.zip';
+const DEFAULT_SYNC_URL = 'https://raw.githubusercontent.com/tstorygit/Tstory/main/shared-stories.zip';
 
 // ─── HELPERS ────────────────────────────────────────────────────────────────
 

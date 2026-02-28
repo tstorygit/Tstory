@@ -109,6 +109,7 @@ async function handleImportConfirm() {
         document.getElementById('import-filename').textContent = 'No file chosen';
         document.getElementById('btn-confirm-import').style.display = 'none';
         renderStoryList();
+        if (result.added > 0) document.querySelector('button[data-target="view-story"]').click();
     } catch (err) {
         showStatus('import-status', 'error', err.message);
     }
@@ -116,23 +117,25 @@ async function handleImportConfirm() {
 
 // ─── SYNC ─────────────────────────────────────────────────────────────────────
 
-async function handleSync() {
-    const url = document.getElementById('data-sync-url').value.trim();
-    if (!url) return showStatus('sync-status', 'error', 'Please enter a sync URL first.');
+export async function handleSync(opts = {}) {
+    // opts.silent = true: skip UI status messages (called from Story tab button)
+    const url = dataMgr.getSyncUrl();
+    if (!url) {
+        if (!opts.silent) showStatus('sync-status', 'error', 'Please enter a sync URL first.');
+        throw new Error('No sync URL configured.');
+    }
 
-    dataMgr.setSyncUrl(url);
-    showStatus('sync-status', 'loading', 'Fetching zip from URL…');
-    try {
-        const result = await dataMgr.syncFromUrl(url);
-        let msg = `Synced! Added ${result.added} story/stories`;
-        if (result.skipped > 0) msg += `, skipped ${result.skipped} duplicate(s)`;
-        if (result.vocabAdded > 0) msg += `, ${result.vocabAdded} vocab words`;
-        msg += '.';
+    if (!opts.silent) showStatus('sync-status', 'loading', 'Fetching zip from URL…');
+    const result = await dataMgr.syncFromUrl(url);
+    let msg = `Synced! Added ${result.added} story/stories`;
+    if (result.skipped > 0) msg += `, skipped ${result.skipped} duplicate(s)`;
+    if (result.vocabAdded > 0) msg += `, ${result.vocabAdded} vocab words`;
+    msg += '.';
+    if (!opts.silent) {
         showStatus('sync-status', 'success', msg);
         renderStoryList();
-    } catch (e) {
-        showStatus('sync-status', 'error', e.message);
     }
+    return result;
 }
 
 // ─── UTILITIES ────────────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 import * as storyMgr from './story_mgr.js';
+import { handleSync } from './data_ui.js';
 import * as srsDb from './srs_db.js';
 import { settings } from './settings.js';
 
@@ -98,10 +99,38 @@ function renderLibrary() {
         return;
     }
 
-    const listHeader = document.createElement('h3');
-    listHeader.textContent = "Your Library";
-    listHeader.style.marginBottom = '15px';
-    storyContentDiv.appendChild(listHeader);
+    const libraryHeaderRow = document.createElement('div');
+    libraryHeaderRow.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;';
+    libraryHeaderRow.innerHTML = `
+        <h3 style="margin:0;">Your Library</h3>
+        <button id="btn-library-sync" style="display:flex; align-items:center; gap:6px; padding:8px 14px; background:var(--primary-color); color:white; border:none; border-radius:20px; font-size:13px; font-weight:600; cursor:pointer;">
+            🔄 Sync
+        </button>
+    `;
+    storyContentDiv.appendChild(libraryHeaderRow);
+
+    document.getElementById('btn-library-sync').addEventListener('click', async () => {
+        const btn = document.getElementById('btn-library-sync');
+        btn.innerHTML = '⏳ Syncing…';
+        btn.disabled = true;
+        try {
+            const result = await handleSync({ silent: true });
+            if (result.added > 0) {
+                renderLibrary(); // Refresh so new stories appear
+            } else {
+                btn.innerHTML = '✓ Up to date';
+                setTimeout(() => { btn.innerHTML = '🔄 Sync'; btn.disabled = false; }, 2500);
+                return;
+            }
+        } catch (e) {
+            btn.innerHTML = '✗ Failed';
+            btn.style.background = 'var(--status-0)';
+            setTimeout(() => { btn.innerHTML = '🔄 Sync'; btn.disabled = false; btn.style.background = ''; }, 3000);
+            return;
+        }
+        btn.disabled = false;
+        btn.innerHTML = '🔄 Sync';
+    });
 
     stories.sort((a,b) => new Date(b.created) - new Date(a.created)); 
     stories.forEach(story => {
