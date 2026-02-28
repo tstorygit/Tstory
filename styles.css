@@ -297,41 +297,9 @@ select {
    We use a wrapper layer approach: the animation is on the card itself,
    and because the faces use backface-visibility:hidden, flipping is clean.
  */
-@keyframes swipeExitRight {
-    0%   { transform: var(--card-pre-anim-transform, rotateY(0deg))
-                      translateX(0)   rotate(0deg);   opacity: 1; }
-    100% { transform: var(--card-pre-anim-transform, rotateY(0deg))
-                      translateX(130%) rotate(18deg);  opacity: 0; }
-}
-
-@keyframes swipeExitLeft {
-    0%   { transform: var(--card-pre-anim-transform, rotateY(0deg))
-                      translateX(0)    rotate(0deg);   opacity: 1; }
-    100% { transform: var(--card-pre-anim-transform, rotateY(0deg))
-                      translateX(-130%) rotate(-18deg); opacity: 0; }
-}
-
-@keyframes swipeExitDown {
-    0%   { transform: var(--card-pre-anim-transform, rotateY(0deg))
-                      translateY(0);   opacity: 1; }
-    100% { transform: var(--card-pre-anim-transform, rotateY(0deg))
-                      translateY(110%); opacity: 0; }
-}
-
-.flashcard.swipe-exit-right {
-    animation: swipeExitRight 0.38s cubic-bezier(0.4, 0, 1, 1) forwards;
-    pointer-events: none;
-}
-
-.flashcard.swipe-exit-left {
-    animation: swipeExitLeft  0.38s cubic-bezier(0.4, 0, 1, 1) forwards;
-    pointer-events: none;
-}
-
-.flashcard.swipe-exit-down {
-    animation: swipeExitDown  0.32s cubic-bezier(0.4, 0, 1, 1) forwards;
-    pointer-events: none;
-}
+/* Exit animations are driven by JS transitions (exitAnimate fn in srs_ui.js)
+   so we get correct screen-space direction regardless of flip state.
+   No CSS keyframes needed here. */
 
 /* ── Swipe Overlay + Hint Labels ────────────────────────────────────────
    These are injected into flashcard-container (NOT into .flashcard),

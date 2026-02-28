@@ -50,6 +50,19 @@ export function initSRS() {
     const srsTabBtn = document.querySelector('button[data-target="view-srs"]');
     if (srsTabBtn) srsTabBtn.addEventListener('click', loadReviewQueue);
 
+    // When switching TO the reader tab, reload it if any cards were graded
+    // so word highlight colours reflect the updated statuses.
+    const readerTabBtn = document.querySelector('button[data-target="view-reader"]');
+    if (readerTabBtn) {
+        readerTabBtn.addEventListener('click', () => {
+            if (sessionStorage.getItem('srs-dirty')) {
+                sessionStorage.removeItem('srs-dirty');
+                // Fire a custom event that the reader can listen to for a reload
+                document.dispatchEvent(new CustomEvent('srs:ratings-changed'));
+            }
+        });
+    }
+
     // Ensure container is positioned so absolute children work
     if (getComputedStyle(flashcardContainer).position === 'static') {
         flashcardContainer.style.position = 'relative';
@@ -182,16 +195,57 @@ function commitStatus(newStatus, direction) {
     const currentWord = reviewQueue[currentIndex];
     srsDb.updateWordStatus(currentWord.word, newStatus);
 
+    // Mark that a rating happened so the reader reloads on tab switch
+    sessionStorage.setItem('srs-dirty', '1');
+
     if (direction) {
-        const baseTransform = isFlipped() ? 'rotateY(180deg)' : 'rotateY(0deg)';
-        flashcard.style.setProperty('--card-pre-anim-transform', baseTransform);
-        flashcard.classList.remove('flipped', 'flip-animate');
-        flashcard.style.transform = '';
-        flashcard.classList.add(`swipe-exit-${direction}`);
-        flashcard.addEventListener('animationend', nextCard, { once: true });
+        exitAnimate(direction, nextCard);
     } else {
         nextCard();
     }
+}
+
+/**
+ * Drive the exit purely in JS-land so we control screen-space direction
+ * regardless of whether the card is flipped.
+ *
+ * When flipped, rotateY(180deg) mirrors the local X axis, so
+ * translateX(+N) moves the card LEFT on screen. We compensate by
+ * inverting the translate when flipped. We keep the flipped class
+ * intact so the correct face stays visible during the exit.
+ */
+function exitAnimate(direction, onDone) {
+    const flipped = isFlipped();
+
+    // Screen-space exit targets
+    const targets = {
+        right: { x:  130, y: 0,   rot:  18 },
+        left:  { x: -130, y: 0,   rot: -18 },
+        down:  { x: 0,    y: 110, rot:   0 },
+    };
+    const t = targets[direction];
+
+    // When flipped the local X axis is reversed — invert x and rot
+    const tx  = flipped ? -t.x  : t.x;
+    const rot = flipped ? -t.rot : t.rot;
+
+    // Build the final transform in screen-correct order:
+    // First rotateY (flip state), then translate+rotate in screen space.
+    // We use a wrapper trick: apply rotateY on the element as before,
+    // then add translateX/rotate AFTER in the same transform string.
+    const baseFlip = flipped ? 'rotateY(180deg) ' : '';
+    const finalTransform = `${baseFlip}translateX(${tx}%) rotate(${rot}deg)`;
+
+    flashcard.style.pointerEvents = 'none';
+    flashcard.style.transition = 'transform 0.38s cubic-bezier(0.4,0,1,1), opacity 0.38s ease';
+    flashcard.style.transform  = finalTransform;
+    flashcard.style.opacity    = '0';
+
+    flashcard.addEventListener('transitionend', () => {
+        flashcard.style.transition    = '';
+        flashcard.style.pointerEvents = '';
+        onDone();
+    }, { once: true });
 }
 
 function nextCard() {
