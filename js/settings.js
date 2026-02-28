@@ -9,7 +9,7 @@ export const settings = {
     srsMode: 'mix',
     debugMode: false,
     textHighlightStyle: 'background',
-    sentenceNewline: false,
+    sentenceNewline: true,
     enableSentenceParsing: true,
     requestTimeoutSecs: 120
 };
