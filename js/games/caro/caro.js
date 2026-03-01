@@ -6,7 +6,7 @@ import * as srsDb   from '../../srs_db.js';
 
 let _screens = null;
 let _onExit  = null;
-let _state   = { queue:[], currentIndex:0, score:0, failedWords:[] };
+let _state   = { activeQueue:[], reserveQueue:[], currentIndex:0, score:0, history:[] };
 
 export function init(screens, onExit) { _screens = screens; _onExit = onExit; }
 export function launch() { _show('setup'); _renderSetup(); }
@@ -22,12 +22,23 @@ function _show(name) {
     if (hdr) hdr.textContent = _titles[name] || 'Caro';
 }
 
+// ── Banned Words Storage ───────────────────────────────────────────────────
+
+function _getBanned() {
+    try { return JSON.parse(localStorage.getItem('caro_banned_words')) || []; }
+    catch { return []; }
+}
+function _setBanned(list) {
+    localStorage.setItem('caro_banned_words', JSON.stringify(list));
+}
+
 // ── Setup ──────────────────────────────────────────────────────────────────
 
 function _renderSetup() {
     const el = _screens.setup; if (!el) return;
     const srsWords = srsDb.getAllWords();
     const hasSrs   = Object.keys(srsWords).length > 0;
+    const banned   = _getBanned();
 
     el.innerHTML = `
         <div class="caro-setup-panel">
@@ -62,8 +73,13 @@ function _renderSetup() {
                     </div>
                 </div>
             </div>
+            ${banned.length > 0 ? `
+            <div style="text-align:center; margin-top:4px;">
+                <span style="font-size:13px;color:var(--text-muted);">Banned Words: ${banned.length} </span>
+                <button id="caro-btn-clear-bans" style="background:none;border:none;color:var(--primary-color);font-size:13px;cursor:pointer;text-decoration:underline;">Clear list</button>
+            </div>` : ''}
             <div id="caro-warning" style="display:none;padding:10px 14px;background:#fff3cd;border:1px solid #ffc107;border-radius:8px;font-size:13px;color:#856404;margin-bottom:4px;"></div>
-            <button class="primary-btn" id="caro-btn-start">▶ Start Game</button>
+            <button class="primary-btn" id="caro-btn-start" style="margin-top:8px;">▶ Start Game</button>
             <button class="caro-back-btn" id="caro-btn-back">← Back to Games</button>
         </div>`;
 
@@ -80,6 +96,13 @@ function _renderSetup() {
         el.querySelectorAll('.caro-count-btn').forEach(x=>x.classList.remove('active'));
         b.classList.add('active');
     });
+
+    const clearBansBtn = el.querySelector('#caro-btn-clear-bans');
+    if (clearBansBtn) {
+        clearBansBtn.addEventListener('click', () => {
+            if(confirm("Clear all banned words?")) { _setBanned([]); _renderSetup(); }
+        });
+    }
 
     el.querySelector('#caro-btn-back').addEventListener('click', _onExit);
     el.querySelector('#caro-btn-start').addEventListener('click', ()=>_start(el));
@@ -99,32 +122,41 @@ function _start(el) {
     if (useSrs && statuses.length===0) { warn.textContent='Select at least one SRS status.'; warn.style.display='block'; return; }
     warn.style.display='none';
 
-    const queue = _buildQueue(useSrs, use1000, statuses, limit);
-    if (!queue.length) { warn.textContent='No words matched your settings.'; warn.style.display='block'; return; }
+    const fullQueue = _buildQueue(useSrs, use1000, statuses);
+    if (!fullQueue.length) { warn.textContent='No words matched your settings (or all are banned).'; warn.style.display='block'; return; }
 
-    _state = { queue, currentIndex:0, score:0, failedWords:[] };
+    _state = {
+        activeQueue: isFinite(limit) ? fullQueue.slice(0, limit) : fullQueue,
+        reserveQueue: isFinite(limit) ? fullQueue.slice(limit) : [],
+        currentIndex: 0,
+        score: 0,
+        history: []
+    };
     _show('game'); _renderCard();
 }
 
-function _buildQueue(useSrs, use1000, statuses, limit) {
+function _buildQueue(useSrs, use1000, statuses) {
+    const banned = new Set(_getBanned());
     const map = new Map();
-    if (use1000) wordList.forEach(w => map.set(w.word, {word:w.word,furi:w.furi,trans:w.trans,status:null}));
+    if (use1000) wordList.forEach(w => {
+        if (!banned.has(w.word)) map.set(w.word, {word:w.word,furi:w.furi,trans:w.trans,status:null});
+    });
     if (useSrs) {
         Object.values(srsDb.getAllWords()).forEach(w => {
+            if (banned.has(w.word)) return;
             if (statuses.includes(w.status)) map.set(w.word, {word:w.word,furi:w.furi,trans:w.translation,status:w.status});
             else if (!use1000) map.delete(w.word);
         });
     }
-    let arr = [...map.values()].sort(()=>Math.random()-.5);
-    return isFinite(limit) ? arr.slice(0,limit) : arr;
+    return [...map.values()].sort(()=>Math.random()-.5);
 }
 
 // ── Game Card ─────────────────────────────────────────────────────────────────
 
 function _renderCard() {
     const el = _screens.game; if (!el) return;
-    const {queue,currentIndex,score} = _state;
-    const word=queue[currentIndex], total=queue.length, pct=Math.round(currentIndex/total*100);
+    const {activeQueue,currentIndex,score} = _state;
+    const word=activeQueue[currentIndex], total=activeQueue.length, pct=Math.round(currentIndex/total*100);
 
     // Remove any old keyboard listener before re-rendering
     if (el._keyHandler) { document.removeEventListener('keydown', el._keyHandler); el._keyHandler = null; }
@@ -142,6 +174,8 @@ function _renderCard() {
         </div>
 
         <div class="caro-card">
+            <button id="caro-btn-ban" class="caro-ban-btn" title="Ban this word (never show again)">🚫</button>
+
             <!-- Reading spoiler badge at top -->
             <div class="caro-furi-spoiler" id="caro-furi-spoiler" title="Reveal reading (Ctrl)">
                 <svg id="caro-furi-eye-icon" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -197,6 +231,27 @@ function _renderCard() {
                 </div>
             </div>
         </div>`;
+
+    // Ban button
+    el.querySelector('#caro-btn-ban').addEventListener('click', () => {
+        if(!confirm("Ban this word? It won't appear in Caro again.")) return;
+        const wordObj = _state.activeQueue[_state.currentIndex];
+        const banned = _getBanned();
+        if(!banned.includes(wordObj.word)) {
+            banned.push(wordObj.word);
+            _setBanned(banned);
+        }
+        if (_state.reserveQueue.length > 0) {
+            _state.activeQueue[_state.currentIndex] = _state.reserveQueue.shift();
+        } else {
+            _state.activeQueue.splice(_state.currentIndex, 1);
+            if (_state.currentIndex >= _state.activeQueue.length) {
+                _show('stats'); _renderStats();
+                return;
+            }
+        }
+        _renderCard();
+    });
 
     // Reading spoiler toggle
     const spoiler = el.querySelector('#caro-furi-spoiler');
@@ -255,19 +310,14 @@ function _renderCard() {
     document.addEventListener('keydown', el._keyHandler);
 }
 
-function _maybeScore(el) {
-    if (el.querySelector('#caro-meaning-box').style.display!=='none')
-        el.querySelector('#caro-score-row').style.display='block';
-}
-
 function _score(pts) {
     const el = _screens.game;
     if (el && el._keyHandler) { document.removeEventListener('keydown', el._keyHandler); el._keyHandler = null; }
-    const word = _state.queue[_state.currentIndex];
+    const word = _state.activeQueue[_state.currentIndex];
     _state.score += pts;
-    if (pts < 1) _state.failedWords.push({...word, pointsEarned:pts});
+    _state.history.push({...word, pts});
     _state.currentIndex++;
-    if (_state.currentIndex >= _state.queue.length) { _show('stats'); _renderStats(); }
+    if (_state.currentIndex >= _state.activeQueue.length) { _show('stats'); _renderStats(); }
     else _renderCard();
 }
 
@@ -275,34 +325,47 @@ function _score(pts) {
 
 function _renderStats() {
     const el = _screens.stats; if (!el) return;
-    const {queue,score,failedWords} = _state;
-    const total=queue.length, pct=total?Math.round(score/total*100):0;
+    const {score,history} = _state;
+    const total=history.length, pct=total?Math.round(score/total*100):0;
     const col = pct>=80?'#06d6a0':pct>=50?'#ffb703':'#ff4b4b';
 
-    const failedHtml = !failedWords.length
-        ? `<p style="color:var(--text-muted);font-size:14px;text-align:center;padding:20px 0;">🎉 No missed or partial words!</p>`
-        : failedWords.map((w,i)=>{
-            const cur = srsDb.getWord(w.word)?.status ?? null;
-            return `<div class="caro-failed-row" data-idx="${i}">
-                <div class="caro-failed-word-col">
-                    <span class="caro-failed-word">${w.word}</span>
-                    <span class="caro-failed-furi">${w.furi||''}</span>
-                    <span class="caro-failed-trans">${w.trans||''}</span>
-                </div>
-                <div class="caro-failed-right">
-                    <span class="caro-failed-pts">${w.pointsEarned===0?'🔴 Miss':'🟡 Partial'}</span>
-                    <div class="caro-failed-srs">
-                        ${[0,1,2,3,4,5].map(s=>`<button class="caro-srs-btn status-btn"
-                            data-word="${encodeURIComponent(w.word)}"
-                            data-furi="${encodeURIComponent(w.furi||'')}"
-                            data-trans="${encodeURIComponent(w.trans||'')}"
-                            data-status="${s}"
-                            style="${cur===s?'border:3px solid #333;':'border:none;'}">${s}</button>`).join('')}
+    const missed = history.filter(w => w.pts === 0);
+    const partial = history.filter(w => w.pts === 0.5);
+    const perfect = history.filter(w => w.pts === 1);
+
+    let uid = 0;
+    function buildGroup(title, words, icon) {
+        if(!words.length) return '';
+        return `
+            <div class="caro-stats-section-title" style="margin-top:20px;">${icon} ${title} (${words.length})</div>
+            <div>${words.map(w => {
+                const i = uid++;
+                const cur = srsDb.getWord(w.word)?.status ?? null;
+                return `<div class="caro-result-row" data-idx="${i}">
+                    <div class="caro-result-word-col">
+                        <span class="caro-result-word">${w.word}</span>
+                        <span class="caro-result-furi">${w.furi||''}</span>
+                        <span class="caro-result-trans">${w.trans||''}</span>
                     </div>
-                    <div id="caro-saved-${i}" style="display:none;font-size:11px;color:#1a7a4a;margin-top:3px;">✓ Saved</div>
-                </div>
-            </div>`;
-        }).join('');
+                    <div class="caro-result-right">
+                        <div class="caro-result-srs">
+                            ${[0,1,2,3,4,5].map(s=>`<button class="caro-srs-btn status-btn"
+                                data-word="${encodeURIComponent(w.word)}"
+                                data-furi="${encodeURIComponent(w.furi||'')}"
+                                data-trans="${encodeURIComponent(w.trans||'')}"
+                                data-status="${s}"
+                                style="${cur===s?'border:3px solid #333;':'border:none;'}">${s}</button>`).join('')}
+                        </div>
+                        <div id="caro-saved-${i}" style="display:none;font-size:11px;color:#1a7a4a;margin-top:3px;text-align:right;">✓ Saved</div>
+                    </div>
+                </div>`;
+            }).join('')}</div>
+        `;
+    }
+
+    const listsHtml = buildGroup('Missed', missed, '🔴') + 
+                      buildGroup('Partial', partial, '🟡') + 
+                      buildGroup('Perfect', perfect, '🟢');
 
     el.innerHTML = `
         <div class="caro-stats-panel">
@@ -310,13 +373,13 @@ function _renderStats() {
                 <div class="caro-stats-score-number" style="color:${col}">${_fmt(score)}<span style="font-size:24px;color:var(--text-muted);"> / ${total}</span></div>
                 <div style="font-size:16px;color:var(--text-muted);margin-top:4px;">${pct}% correct</div>
                 <div style="margin-top:12px;display:flex;gap:16px;justify-content:center;font-size:13px;color:var(--text-muted);">
-                    <span>✅ Perfect: ${queue.length-failedWords.length}</span>
-                    <span>⚠️ Partial/Miss: ${failedWords.length}</span>
+                    <span>✅ Perfect: ${perfect.length}</span>
+                    <span>⚠️ Partial: ${partial.length}</span>
+                    <span>🔴 Missed: ${missed.length}</span>
                 </div>
             </div>
-            ${failedWords.length?`<div class="caro-stats-section-title" style="margin-top:20px;">Review & Update SRS Status</div>
-            <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">Tap a number to save to your SRS.</p>`:''}
-            <div>${failedHtml}</div>
+            ${history.length?`<p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;text-align:center;">Review & Update SRS Status</p>`:''}
+            ${listsHtml}
             <div style="display:flex;gap:10px;margin-top:20px;">
                 <button class="primary-btn" id="caro-btn-again" style="flex:1;">▶ Play Again</button>
                 <button class="primary-btn" id="caro-btn-done" style="flex:1;background:var(--bg-color);color:var(--text-main);border:1px solid var(--border-color);">← Games</button>
@@ -327,10 +390,10 @@ function _renderStats() {
         const word=decodeURIComponent(btn.dataset.word), furi=decodeURIComponent(btn.dataset.furi),
               trans=decodeURIComponent(btn.dataset.trans), status=+btn.dataset.status;
         srsDb.saveWord({word,furi,translation:trans,status});
-        btn.closest('.caro-failed-srs').querySelectorAll('.caro-srs-btn').forEach(b=>{
+        btn.closest('.caro-result-srs').querySelectorAll('.caro-srs-btn').forEach(b=>{
             b.style.border = +b.dataset.status===status?'3px solid #333':'none';
         });
-        const msg=el.querySelector(`#caro-saved-${btn.closest('.caro-failed-row').dataset.idx}`);
+        const msg=el.querySelector(`#caro-saved-${btn.closest('.caro-result-row').dataset.idx}`);
         if(msg){msg.style.display='block';setTimeout(()=>msg.style.display='none',2000);}
     }));
 
