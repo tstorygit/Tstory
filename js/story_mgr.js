@@ -45,7 +45,7 @@ export function deleteStory(id) {
     if (activeStoryId === id) activeStoryId = null;
 }
 
-export async function createNewStory(theme, onProgress) {
+export async function createNewStory(theme, onProgress, onRawTextReady) {
     const stories = getStoryList();
     
     const newStory = {
@@ -61,12 +61,13 @@ export async function createNewStory(theme, onProgress) {
     
     activeStoryId = newStory.id;
 
-    return await generateNextBlock(null, onProgress);
+    return await generateNextBlock(null, onProgress, onRawTextReady);
 }
 
-export async function generateNextBlock(chosenOption, onProgress) {
-    const stories = getStoryList();
-    const storyIndex = stories.findIndex(s => s.id === activeStoryId);
+export async function generateNextBlock(chosenOption, onProgress, onRawTextReady) {
+    // 1. Load latest data
+    let stories = getStoryList();
+    let storyIndex = stories.findIndex(s => s.id === activeStoryId);
     if (storyIndex === -1) throw new Error("Active story not found in storage.");
     
     const storyData = stories[storyIndex];
@@ -74,9 +75,6 @@ export async function generateNextBlock(chosenOption, onProgress) {
     onProgress(0, "Drafting the next part of the story...");
 
     // Build vocabulary hint list based on SRS mode.
-    // 'none'  → disable entirely, no words injected into prompt
-    // 'new'   → focus on low-status words (0–2) the user hasn't learned yet
-    // 'mix'   → default: oldest-updated words across all statuses
     let targetWords = [];
     if (settings.srsMode !== 'none') {
         let srsCriteria = { limit: 5 };
@@ -87,19 +85,17 @@ export async function generateNextBlock(chosenOption, onProgress) {
     }
     
     // --- CONSTRUCT PROMPTS ---
-
-    // 1. SYSTEM PROMPT — invariant rules only. Keep the user prompt lean.
+    const customLevel = settings.customPromptParams || 'JLPT N4-N3';
     const systemInstruction = `You are a Japanese visual novel writer.
 
 STRICT RULES:
 1. Write exactly 4 to 6 sentences of Japanese text.
-2. Language level: JLPT N4-N3. Focus on dialogue and character actions. Avoid elaborate scene descriptions.
+2. Language level: ${customLevel}. Focus on dialogue and character actions. Avoid elaborate scene descriptions.
 3. After the story sentences, you MUST append exactly two continuation options IN JAPANESE formatted like this:
 [OPTION A: 日本語で選択肢の説明]
 [OPTION B: 日本語で選択肢の説明]
 4. Output ONLY the Japanese story text followed by the two bracketed options. No English commentary, no greetings, no explanations.`;
 
-    // 2. USER PROMPT — dynamic context only
     let userPrompt = `Theme: ${storyData.themePrompt}`;
 
     if (targetWords.length > 0) {
@@ -109,7 +105,19 @@ STRICT RULES:
     if (chosenOption && storyData.blocks.length > 0) {
         const lastBlock = storyData.blocks[storyData.blocks.length - 1];
         lastBlock.selectedOption = chosenOption;
-        userPrompt += `\n\nPrevious story context:\n${lastBlock.rawJa}\n\nPlayer chose: ${chosenOption}\n\nWrite the next 4-6 sentences.`;
+
+        // Clean the previous story text: Remove the [OPTION A...] lines so the AI
+        // doesn't get confused by options that were NOT selected.
+        // Regex removes [OPTION X: ...] and anything inside.
+        const cleanHistory = lastBlock.rawJa.replace(/\[OPTION [AB]:[\s\S]*?\]/g, '').trim();
+
+        // Strip "A: " or "B: " prefix from the chosen option for the prompt
+        // e.g. "A: Go home" becomes "Go home"
+        const cleanChoice = chosenOption.replace(/^[AB]:\s*/, '').trim();
+
+        userPrompt += `\n\nPrevious story context:\n${cleanHistory}`;
+        userPrompt += `\n\nCRITICAL INSTRUCTION: The story continues from the choice: "${cleanChoice}".`;
+        userPrompt += `\nWrite the next 4-6 sentences based on this choice.`;
     } else {
         userPrompt += `\n\nWrite the opening 4-6 sentences.`;
     }
@@ -117,49 +125,118 @@ STRICT RULES:
     const rawJaText = await generateText(userPrompt, systemInstruction, false);
     
     // --- CLEANUP ---
-    // Remove markdown code fences
     let cleanRawJa = rawJaText.replace(/```.*?\n/g, '').replace(/```/g, '').trim();
-    
-    // Split options away from the Japanese body so we can sanitize each independently.
-    // The regex captures the option tags so slice(1) retains them.
     const parts = cleanRawJa.split(/(\[OPTION [AB]:.*?\])/);
-    // Strip ALL newlines/whitespace from the story body — the tokenizer must never see \n tokens.
     const storyBody = parts[0].replace(/[\n\r\t]+/g, '').trim();
-    // Re-join: story body + options (each option on its own line for the regex in text_manager)
-    cleanRawJa = storyBody + '\n' + parts.slice(1).join('\n');
+    cleanRawJa = storyBody + (parts.length > 1 ? '\n' + parts.slice(1).join('').trim() : '');
 
-    const enrichedData = await processTextPipeline(cleanRawJa, onProgress);
-
-    let imageUrl = null;
-    if (settings.generateImages) {
-        onProgress(6, "Drawing the manga panel...");
-        try {
-            imageUrl = await generateImage(enrichedData.imagePrompt);
-        } catch (e) {
-            console.error("Image generation failed, continuing without image.", e);
-        }
-    } else {
-        console.log("Image generation skipped due to settings.");
+    let optA = "";
+    let optB = "";
+    const optionRegex = /\[OPTION ([AB]):\s*(.*?)\]/g;
+    const matches = [...cleanRawJa.matchAll(optionRegex)];
+    if (matches.length >= 2) {
+        optA = matches[0][2].trim();
+        optB = matches[1][2].trim();
     }
 
-    const newBlock = {
-        id: storyData.blocks.length,
+    const cleanStoryText = cleanRawJa.replace(optionRegex, '').trim();
+    const tempBlockId = storyData.blocks.length;
+
+    // Create a temporary block
+    const tempBlock = {
+        id: tempBlockId,
         rawJa: cleanRawJa,
-        enrichedData: enrichedData,
-        imageUrl: imageUrl,
-        selectedOption: null
+        enrichedData: {
+            words: [{ surface: cleanStoryText }],
+            sentences: [],
+            optionWords: {
+                A: [{ surface: optA }],
+                B: [{ surface: optB }]
+            },
+            optionTranslations: {
+                A: "",
+                B: ""
+            }
+        },
+        imageUrl: null,
+        selectedOption: null,
+        isProcessing: true
     };
 
-    storyData.blocks.push(newBlock);
-    
+    // --- CRITICAL FIX: SAVE TO STORAGE IMMEDIATELY ---
+    // We must update the array and Save to localStorage so viewer_ui can see it
+    // when it re-renders.
+    storyData.blocks.push(tempBlock);
     stories[storyIndex] = storyData;
     saveStoryList(stories);
 
-    onProgress(100, "Ready!");
-    return newBlock;
+    // Alert the UI to render the raw text immediately
+    if (onRawTextReady) {
+        onRawTextReady();
+    }
+
+    try {
+        const enrichedData = await processTextPipeline(cleanRawJa, onProgress);
+
+        let imageUrl = null;
+        if (settings.generateImages) {
+            onProgress(6, "Drawing the manga panel...");
+            try {
+                imageUrl = await generateImage(enrichedData.imagePrompt);
+            } catch (e) {
+                console.error("Image generation failed, continuing without image.", e);
+            }
+        } else {
+            console.log("Image generation skipped due to settings.");
+        }
+
+        const finalBlock = {
+            id: tempBlockId,
+            rawJa: cleanRawJa,
+            enrichedData: enrichedData,
+            imageUrl: imageUrl,
+            selectedOption: null
+        };
+
+        // Re-fetch list to ensure we rely on fresh state (safe against race conditions)
+        stories = getStoryList();
+        storyIndex = stories.findIndex(s => s.id === activeStoryId);
+        
+        if (storyIndex !== -1) {
+            const currentStoryData = stories[storyIndex];
+            // Find the index of our temp block
+            const blockIndex = currentStoryData.blocks.findIndex(b => b.id === tempBlockId);
+            
+            if (blockIndex !== -1) {
+                currentStoryData.blocks[blockIndex] = finalBlock;
+                stories[storyIndex] = currentStoryData;
+                saveStoryList(stories);
+            } else {
+                // Fallback if index somehow shifted: append
+                currentStoryData.blocks.push(finalBlock);
+                stories[storyIndex] = currentStoryData;
+                saveStoryList(stories);
+            }
+        }
+
+        onProgress(100, "Ready!");
+        return finalBlock;
+
+    } catch (err) {
+        // Rollback: Remove the temporary block if NLP fails so we don't leave a broken block
+        stories = getStoryList();
+        storyIndex = stories.findIndex(s => s.id === activeStoryId);
+        if (storyIndex !== -1) {
+            const currentStoryData = stories[storyIndex];
+            currentStoryData.blocks = currentStoryData.blocks.filter(b => b.id !== tempBlockId);
+            stories[storyIndex] = currentStoryData;
+            saveStoryList(stories);
+        }
+        throw err;
+    }
 }
 
-export async function regenerateLastBlock(onProgress) {
+export async function regenerateLastBlock(onProgress, onRawTextReady) {
     const stories = getStoryList();
     const storyIndex = stories.findIndex(s => s.id === activeStoryId);
     if (storyIndex === -1) throw new Error("Active story not found.");
@@ -178,5 +255,5 @@ export async function regenerateLastBlock(onProgress) {
     stories[storyIndex] = storyData;
     saveStoryList(stories);
 
-    return await generateNextBlock(chosenOption, onProgress);
+    return await generateNextBlock(chosenOption, onProgress, onRawTextReady);
 }

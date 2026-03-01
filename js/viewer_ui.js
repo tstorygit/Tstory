@@ -12,6 +12,7 @@ const EYE_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"
 let currentBlockIndex = 0;
 let activeWordData = null; 
 let isLibraryView = true;
+let isBackgroundProcessing = false;
 
 // --- DOM ELEMENTS ---
 const storyContentDiv = document.getElementById('story-content');
@@ -20,7 +21,6 @@ const closePopupBtn = document.getElementById('close-popup-btn');
 const statusButtons = document.querySelectorAll('.status-btn');
 
 // --- INITIALIZATION ---
-// Called externally (e.g. from srs_ui) to refresh word colours after status changes
 export function rerenderCurrentBlock() {
     if (!isLibraryView) renderBlock(currentBlockIndex);
 }
@@ -46,9 +46,6 @@ export function initViewer() {
         });
     }
 
-    // Re-render current block when display settings change (furigana / romaji toggles).
-    // We sync the setting value from the DOM immediately so the user doesn't need to
-    // press Save first — these are pure visual options with no API side-effects.
     const rerenderTriggers = [
         { id: 'setting-show-furigana',   key: 'showFurigana',       type: 'checkbox' },
         { id: 'setting-show-romaji',     key: 'showRomaji',         type: 'checkbox' },
@@ -59,7 +56,6 @@ export function initViewer() {
         const el = document.getElementById(id);
         if (!el) return;
         el.addEventListener('change', () => {
-            // Sync this one setting live so renderBlock picks it up immediately
             settings[key] = type === 'checkbox' ? el.checked : el.value;
             if (!isLibraryView) renderBlock(currentBlockIndex);
         });
@@ -70,6 +66,7 @@ export function initViewer() {
 
 function renderLibrary() {
     isLibraryView = true;
+    isBackgroundProcessing = false; // Reset background state when entering library
     storyContentDiv.innerHTML = '';
     const stories = storyMgr.getStoryList();
 
@@ -91,12 +88,22 @@ function renderLibrary() {
         const theme = document.getElementById('new-story-theme').value.trim();
         if (!theme) return alert("Please enter a theme!");
         try {
+            isBackgroundProcessing = false;
             showLoading(0, "Initializing Story...");
-            await storyMgr.createNewStory(theme, updateProgress);
-            hideLoading();
+            await storyMgr.createNewStory(theme, updateProgress, () => {
+                // On raw text ready:
+                hideLoading();
+                isBackgroundProcessing = true;
+                // Since data is saved, this will correctly load the reader with the temp block
+                renderReader(); 
+            });
+            // Re-render reader once fully complete to clear the temporary processing block status
             renderReader();
+            hideLoading();
+            isBackgroundProcessing = false;
         } catch (error) {
             hideLoading();
+            isBackgroundProcessing = false;
             alert("Error: " + error.message);
         }
     });
@@ -125,7 +132,7 @@ function renderLibrary() {
         try {
             const result = await handleSync({ silent: true });
             if (result.added > 0) {
-                renderLibrary(); // Refresh so new stories appear
+                renderLibrary();
             } else {
                 btn.innerHTML = '✓ Up to date';
                 setTimeout(() => { btn.innerHTML = '🔄 Sync'; btn.disabled = false; }, 2500);
@@ -199,7 +206,11 @@ function renderLibrary() {
 function renderReader() {
     isLibraryView = false;
     const storyData = storyMgr.getActiveStory();
-    if (!storyData) { renderLibrary(); return; }
+    if (!storyData || storyData.blocks.length === 0) { 
+        // Only redirect if NOT processing. If processing, we expect a block to appear soon.
+        renderLibrary(); 
+        return; 
+    }
     currentBlockIndex = storyData.blocks.length - 1;
     renderBlock(currentBlockIndex);
 }
@@ -215,9 +226,6 @@ function renderWordHtml(wordObj, useBgHighlight) {
     const showRoma = settings.showRomaji && wordObj.roma;
 
     if (showFuri || showRoma) {
-        // Use a newline inside <rt> with white-space:pre to stack annotations vertically.
-        // This is the most reliable cross-browser approach — <span display:block> inside
-        // <rt> is ignored by browsers since <rt> is an inline context.
         let rtLines = [];
         if (showFuri) rtLines.push(`<span style="font-size:10px; color:var(--text-muted);">${wordObj.furi}</span>`);
         if (showRoma) rtLines.push(`<span style="font-size:9px; color:var(--primary-color); font-style:italic;">${wordObj.roma}</span>`);
@@ -250,6 +258,19 @@ function renderBlock(index) {
     html += !isLatestBlock ? `<button id="btn-next-page" style="background:none; border:none; color:var(--primary-color); cursor:pointer;">Next &rarr;</button>` : `<span></span>`;
     html += `</div>`;
 
+    // INLINE PROCESSING INDICATOR
+    if (block.isProcessing) {
+        html += `<div id="inline-processing-indicator" style="background: var(--surface-color); padding: 15px; border-bottom: 1px solid var(--border-color); margin-bottom: 20px; border-radius:8px; border:1px solid #eee;">
+                    <div style="display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 8px;">
+                         <div class="spinner" style="width: 16px; height: 16px; border: 2px solid #ccc; border-top: 2px solid var(--primary-color); border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                         <span id="inline-loading-text" style="font-size: 14px; color: var(--primary-color); font-weight: 500;">Analyzing text...</span>
+                    </div>
+                    <div style="width: 100%; background: #e0e0e0; border-radius: 4px; height: 4px; overflow: hidden;">
+                        <div id="inline-loading-bar" style="width: 0%; height: 100%; background: var(--primary-color); transition: width 0.3s ease;"></div>
+                    </div>
+                 </div>`;
+    }
+
     // IMAGE
     if (block.imageUrl) {
         html += `<div class="manga-image-container" style="margin-bottom: 20px; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
@@ -258,19 +279,15 @@ function renderBlock(index) {
     }
 
     // MAIN TEXT
-    html += `<div class="japanese-text" style="font-size: 20px; line-height: 2.2; margin-bottom: 30px; letter-spacing: 1px;">`;
+    // Use rawJa if enriched words not yet available (processing state)
+    // The temp block provided by story_mgr has a basic structure in enrichedData.words
+    html += `<div class="japanese-text" style="font-size: 20px; line-height: 2.2; margin-bottom: 30px; letter-spacing: 1px; ${block.isProcessing ? 'opacity: 0.9;' : ''}">`;
     
     const words = block.enrichedData.words || [];
     const sentences = block.enrichedData.sentences || [];
     let sentenceIndex = 0;
 
-    // Build a flat surface string to find sentence boundaries by matching sentence ja text.
-    // This is more robust than scanning punctuation tokens, which breaks for quoted speech.
-    // We accumulate surface chars and emit a translation button once the accumulated string
-    // contains the full text of the current sentence.
     let accumulated = '';
-
-    // Pre-clean sentence ja strings: strip spaces so matching works regardless of tokenizer spacing
     const sentenceJa = sentences.map(s => s.ja.replace(/\s/g, ''));
 
     for (let i = 0; i < words.length; i++) {
@@ -278,16 +295,13 @@ function renderBlock(index) {
         html += renderWordHtml(w, useBgHighlight);
         accumulated += w.surface;
 
-        // Check if we've just completed the current sentence
         if (sentenceIndex < sentenceJa.length) {
             const target = sentenceJa[sentenceIndex];
-            // Use contains rather than exact-end because accumulated may have chars beyond sentence end
             if (accumulated.replace(/\s/g, '').includes(target)) {
                 const transText = sentences[sentenceIndex].en.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
                 html += `<button class="btn-sentence-trans" data-trans="${transText}" title="Übersetzung anzeigen" style="margin-left:5px; background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px; line-height:1; display:inline-flex; align-items:center;">${EYE_ICON}</button>
                          <div class="sentence-translation-box hidden" style="font-size: 14px; color: var(--text-muted); background: #f0f0f0; padding: 8px; border-radius: 4px; margin-top: 5px; margin-bottom: 10px;">${transText}</div>`;
                 if (useNewLines) html += `<br><br>`;
-                // Reset accumulator to only keep chars after this sentence boundary
                 const endPos = accumulated.replace(/\s/g, '').indexOf(target) + target.length;
                 accumulated = accumulated.replace(/\s/g, '').slice(endPos);
                 sentenceIndex++;
@@ -295,8 +309,6 @@ function renderBlock(index) {
         }
     }
 
-    // Flush: if sentence data exists but no matching surface was found (e.g. AI sentence
-    // split differs slightly from tokens), emit any remaining translations at the end
     while (sentenceIndex < sentences.length) {
         const transText = sentences[sentenceIndex].en.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
         html += `<button class="btn-sentence-trans" data-trans="${transText}" title="Übersetzung anzeigen" style="margin-left:5px; background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px; line-height:1; display:inline-flex; align-items:center;">${EYE_ICON}</button>
@@ -314,6 +326,9 @@ function renderBlock(index) {
             html += `<div class="options-container" style="display: flex; flex-direction: column; gap: 15px; margin-bottom: 30px;">
                         <h4 style="color: var(--text-muted); text-align: center;">How does the story continue?</h4>`;
             
+            const disabledStyle = block.isProcessing ? 'opacity:0.6; cursor:wait;' : '';
+            const disabledProp = block.isProcessing ? 'disabled' : '';
+
             matches.forEach((match) => {
                 const optLetter = match[1];
                 const optTextRaw = match[2];
@@ -321,22 +336,30 @@ function renderBlock(index) {
                 let optEnrichedHtml = '';
                 const optionWordsDict = block.enrichedData.optionWords || {};
                 
-                // Fallback for old save structures (array instead of object)
+                // Render parsed tokens for the Japanese text
                 if (Array.isArray(optionWordsDict)) {
                      optEnrichedHtml = optTextRaw;
                 } else if (optionWordsDict[optLetter] && optionWordsDict[optLetter].length > 0) {
-                     // Render parsed tokens
                      optEnrichedHtml = optionWordsDict[optLetter].map(t => renderWordHtml(t, useBgHighlight)).join('');
                 } else {
                      optEnrichedHtml = optTextRaw;
                 }
 
-                // Build English gloss from token meanings (particles/punctuation have no meaning, filtered out).
-                const optTokens = (!Array.isArray(optionWordsDict) && optionWordsDict[optLetter]) ? optionWordsDict[optLetter] : [];
-                const optEnglishGloss = optTokens
-                    .map(t => t.trans_context || t.trans_base || '')
-                    .filter(m => m.trim() !== '')
-                    .join(' ');
+                // --- NEW: Use Full Sentence Translation if Available ---
+                const optTranslations = block.enrichedData.optionTranslations || {};
+                let optEnglishGloss = "";
+
+                if (optTranslations[optLetter] && optTranslations[optLetter].trim() !== "") {
+                    // Use natural translation from AI
+                    optEnglishGloss = optTranslations[optLetter];
+                } else {
+                    // Fallback: Build gloss from individual word meanings
+                    const optTokens = (!Array.isArray(optionWordsDict) && optionWordsDict[optLetter]) ? optionWordsDict[optLetter] : [];
+                    optEnglishGloss = optTokens
+                        .map(t => t.trans_context || t.trans_base || '')
+                        .filter(m => m.trim() !== '')
+                        .join(' ');
+                }
 
                 const optTransId = `opt-trans-${optLetter}`;
                 html += `
@@ -348,7 +371,7 @@ function renderBlock(index) {
                             </div>
                             ${optEnglishGloss ? `<div id="${optTransId}" class="sentence-translation-box hidden" style="font-size:13px; color:var(--text-muted); background:#f0f0f0; padding:6px 8px; border-radius:4px; margin-top:2px;">${optEnglishGloss}</div>` : ''}
                         </div>
-                        <button class="option-go-btn primary-btn" data-option="${optLetter}: ${optTextRaw}" style="width: auto; padding: 10px 20px;">Choose</button>
+                        <button class="option-go-btn primary-btn" data-option="${optLetter}: ${optTextRaw}" style="width: auto; padding: 10px 20px; ${disabledStyle}" ${disabledProp}>Choose</button>
                     </div>
                 `;
             });
@@ -357,8 +380,8 @@ function renderBlock(index) {
                 <div style="margin-top: 10px; border-top: 1px dashed var(--border-color); padding-top: 15px;">
                     <label style="font-size: 14px; color: var(--text-muted); margin-bottom: 5px; display:block;">Or perform a custom action:</label>
                     <div style="display: flex; gap: 5px;">
-                        <input type="text" id="custom-option-input" placeholder="e.g. Chi decides to take a nap." style="flex:1; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px;">
-                        <button id="btn-custom-go" class="primary-btn" style="width: auto;">Go</button>
+                        <input type="text" id="custom-option-input" placeholder="e.g. Chi decides to take a nap." style="flex:1; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px;" ${disabledProp}>
+                        <button id="btn-custom-go" class="primary-btn" style="width: auto; ${disabledStyle}" ${disabledProp}>Go</button>
                     </div>
                 </div>
             </div>`;
@@ -370,8 +393,10 @@ function renderBlock(index) {
     }
 
     if (isLatestBlock) {
+        const disabledStyle = block.isProcessing ? 'opacity:0.5; cursor:wait;' : '';
+        const disabledProp = block.isProcessing ? 'disabled' : '';
         html += `<div style="text-align: center; margin-top: 40px; border-top: 1px solid var(--border-color); padding-top: 20px;">
-                    <button id="btn-regenerate" style="background: none; border: 1px solid var(--text-muted); color: var(--text-muted); padding: 8px 15px; border-radius: 6px; cursor: pointer;">🔁 Regenerate This Page</button>
+                    <button id="btn-regenerate" style="background: none; border: 1px solid var(--text-muted); color: var(--text-muted); padding: 8px 15px; border-radius: 6px; cursor: pointer; ${disabledStyle}" ${disabledProp}>🔁 Regenerate This Page</button>
                  </div>`;
     }
 
@@ -382,23 +407,21 @@ function renderBlock(index) {
     if (document.getElementById('btn-prev-page')) document.getElementById('btn-prev-page').onclick = () => { currentBlockIndex--; renderBlock(currentBlockIndex); };
     if (document.getElementById('btn-next-page')) document.getElementById('btn-next-page').onclick = () => { currentBlockIndex++; renderBlock(currentBlockIndex); };
 
-    // Dictionary popup via event delegation (catches main text AND options text)
     storyContentDiv.addEventListener('click', (e) => {
         const wordEl = e.target.closest('.clickable-word');
         if (wordEl) {
             e.stopPropagation();
-            const wordData = JSON.parse(decodeURIComponent(wordEl.getAttribute('data-word')));
-            openWordPopup(wordData);
+            try {
+                const wordData = JSON.parse(decodeURIComponent(wordEl.getAttribute('data-word')));
+                openWordPopup(wordData);
+            } catch(e) {}
         }
     });
 
     document.querySelectorAll('.btn-sentence-trans').forEach(btn => {
         btn.onclick = (e) => {
-            // The translation box is either the immediate next sibling (story text)
-            // or the next sibling of the button's parent div (option rows).
             let transBox = e.currentTarget.nextElementSibling;
             if (!transBox || !transBox.classList.contains('sentence-translation-box')) {
-                // Walk up one level and look at parent's next sibling
                 transBox = e.currentTarget.parentElement?.nextElementSibling;
             }
             if (transBox && transBox.classList.contains('sentence-translation-box')) {
@@ -423,24 +446,44 @@ function renderBlock(index) {
         document.getElementById('btn-regenerate').onclick = async () => {
             if (!confirm("Scrap this page and try again?")) return;
             try {
+                isBackgroundProcessing = false;
                 showLoading(0, "Regenerating...");
-                await storyMgr.regenerateLastBlock(updateProgress);
-                hideLoading();
+                await storyMgr.regenerateLastBlock(updateProgress, () => {
+                    hideLoading();
+                    isBackgroundProcessing = true;
+                    renderBlock(storyMgr.getActiveStory().blocks.length - 1);
+                });
                 renderBlock(storyMgr.getActiveStory().blocks.length - 1);
-            } catch (error) { hideLoading(); alert("Failed: " + error.message); }
+                hideLoading();
+                isBackgroundProcessing = false;
+            } catch (error) { 
+                hideLoading(); 
+                isBackgroundProcessing = false;
+                alert("Failed: " + error.message); 
+            }
         };
     }
-    
 }
 
 async function triggerGeneration(choiceText) {
     try {
+        isBackgroundProcessing = false;
         showLoading(0, "Writing next chapter...");
-        await storyMgr.generateNextBlock(choiceText, updateProgress);
-        hideLoading();
+        await storyMgr.generateNextBlock(choiceText, updateProgress, () => {
+            hideLoading();
+            isBackgroundProcessing = true;
+            currentBlockIndex = storyMgr.getActiveStory().blocks.length - 1;
+            renderBlock(currentBlockIndex);
+        });
         currentBlockIndex = storyMgr.getActiveStory().blocks.length - 1;
         renderBlock(currentBlockIndex);
-    } catch (error) { hideLoading(); alert("Failed: " + error.message); }
+        hideLoading();
+        isBackgroundProcessing = false;
+    } catch (error) { 
+        hideLoading(); 
+        isBackgroundProcessing = false;
+        alert("Failed: " + error.message); 
+    }
 }
 
 // POPUP LOGIC
@@ -448,11 +491,9 @@ function openWordPopup(wordData) {
     activeWordData = wordData;
     document.getElementById('popup-term').textContent = wordData.surface;
 
-    // Furigana line: show furigana if available and enabled, else romaji if enabled
     const furiEl = document.getElementById('popup-furi');
     const romaEl = document.getElementById('popup-roma');
 
-    // Both shown independently — no priority, user controls each via settings
     furiEl.textContent = (settings.showFurigana && wordData.furi) ? wordData.furi : '';
     furiEl.style.display = (settings.showFurigana && wordData.furi) ? 'inline' : 'none';
 
@@ -469,7 +510,6 @@ function openWordPopup(wordData) {
     if (wordData.note) { noteEl.textContent = wordData.note; noteEl.style.display = 'block'; }
     else { noteEl.style.display = 'none'; }
 
-    // Hide trainer zone (only shown when opened from the Trainer tab)
     const trainerZone = document.getElementById('popup-trainer-zone');
     if (trainerZone) trainerZone.classList.add('hidden');
 
@@ -493,7 +533,17 @@ function handleStatusClick(newStatus) {
 
 // PROGRESS / LOADING
 let loadingOverlay = null;
+
 function showLoading(stepNum, text) {
+    if (isBackgroundProcessing) {
+        // If inline indicator doesn't exist (because we are on a different page), do nothing
+        const inlineText = document.getElementById('inline-loading-text');
+        const inlineBar = document.getElementById('inline-loading-bar');
+        if (inlineText) inlineText.textContent = text;
+        if (inlineBar) inlineBar.style.width = `${Math.min(100, Math.max(0, (stepNum / 6) * 100))}%`;
+        return; 
+    }
+
     if (!loadingOverlay) {
         loadingOverlay = document.createElement('div');
         loadingOverlay.id = 'loading-overlay';
@@ -507,9 +557,18 @@ function showLoading(stepNum, text) {
             </div>
             <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>`;
         document.body.appendChild(loadingOverlay);
-    } else { loadingOverlay.style.display = 'flex'; loadingOverlay.querySelector('#loading-text').textContent = text; }
+    } else { 
+        loadingOverlay.style.display = 'flex'; 
+        loadingOverlay.querySelector('#loading-text').textContent = text; 
+    }
     const barEl = loadingOverlay.querySelector('#loading-bar-fill');
     if (barEl) barEl.style.width = `${Math.min(100, Math.max(0, (stepNum / 6) * 100))}%`;
 }
-function hideLoading() { if (loadingOverlay) loadingOverlay.style.display = 'none'; }
-function updateProgress(stepNum, description) { showLoading(stepNum, description); }
+
+function hideLoading() { 
+    if (loadingOverlay) loadingOverlay.style.display = 'none'; 
+}
+
+function updateProgress(stepNum, description) { 
+    showLoading(stepNum, description); 
+}

@@ -59,19 +59,21 @@ ${includeSentences ? '- "includeSentences": true — means you must also split t
 OUTPUT: A JSON object with:
 - "story": array of token objects for the story text
 - "optA": array of token objects for option A text
-- "optB": array of token objects for option B text${sentencesOutputDoc}
+- "optB": array of token objects for option B text
+- "optA_en": "Natural English translation of Option A (full sentence)"
+- "optB_en": "Natural English translation of Option B (full sentence)"${sentencesOutputDoc}
 
 Each token object has these fields:
-- "surface": The exact characters of this token as they appear in the input text. REQUIRED. All surface values concatenated must reproduce the input exactly.
+- "surface": The exact characters of this token as they appear in the input text. REQUIRED.
 - "base": The dictionary/base form of the word (e.g. the infinitive for verbs). OMIT this field entirely when it is identical to surface — do not repeat it.
 - "furigana": The hiragana reading of this token. OMIT when surface contains no kanji characters.
 - "romaji": The romanized (Latin alphabet) reading of this token. OMIT only for bare punctuation marks (。！？、…「」『』).
 - "meaning": The English meaning of this word in context. OMIT for grammatical particles (は、が、を、に、で…) and punctuation.
 
 IMPORTANT RULES:
-1. surface values must concatenate exactly to the input — no characters added, skipped, or changed.
+1. Ignore whitespace and newlines. Do not include them in any token's surface. Tokenize all actual Japanese words and punctuation in order. Do not skip any actual characters.
 2. A conjugated verb or adjective is always ONE token. Example: 食べられた is one token with surface "食べられた", base "食べる", not split into parts.
-3. Never produce a token whose surface is a whitespace character, newline, or empty string.
+3. Never produce a token whose surface is empty or contains only whitespace.
 4. Grammatical particles (は、が、を、に、で、と、の、へ、から、まで、より…) are standalone tokens with only surface and romaji.
 
 EXAMPLE:
@@ -84,7 +86,9 @@ Output: {
     {"surface": "。"}
   ],
   "optA": [{"surface": "逃げる", "romaji": "nigeru", "meaning": "to run away"}],
-  "optB": [{"surface": "寝る", "romaji": "neru", "meaning": "to sleep"}]
+  "optB": [{"surface": "寝る", "romaji": "neru", "meaning": "to sleep"}],
+  "optA_en": "Run away",
+  "optB_en": "Go to sleep"
 }`;
 
     const response = await generateText(JSON.stringify(requestPayload), systemPrompt, true);
@@ -99,7 +103,7 @@ Output: {
             .map(t => ({
                 surface:       t.surface      ?? t.s ?? '',
                 base:          t.base         ?? t.b ?? (t.surface ?? t.s ?? ''),
-                furi:          t.furigana      ?? t.f ?? '',
+                furi:          t.furigana     ?? t.f ?? '',
                 roma:          t.romaji       ?? t.r ?? '',
                 trans_base:    t.meaning      ?? t.t ?? '',
                 trans_context: t.meaning      ?? t.t ?? '',
@@ -127,6 +131,10 @@ Output: {
         optionWords: {
             A: normalize(data.optA),
             B: normalize(data.optB)
+        },
+        optionTranslations: {
+            A: data.optA_en || "",
+            B: data.optB_en || ""
         }
     };
 }

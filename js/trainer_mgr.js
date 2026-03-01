@@ -93,7 +93,7 @@ export async function generateTrainerSentences(rank, forceRegenerate = false, on
         throw new Error('AI returned malformed JSON for trainer sentences.');
     }
 
-    const sentences = parsed.sentences || [];
+    const sentences = parsed.sentences ||[];
     if (sentences.length === 0) throw new Error('AI returned no sentences.');
 
     onProgress(3, 'Analyzing vocabulary…');
@@ -108,32 +108,32 @@ export async function generateTrainerSentences(rank, forceRegenerate = false, on
 OUTPUT: JSON only, no markdown — { "tokens": [ ... ] }
 
 Each token object:
-- "surface": exact characters as they appear. All surfaces concatenated must reproduce the input exactly. REQUIRED.
+- "surface": exact characters as they appear. REQUIRED.
 - "base": dictionary/base form. OMIT if identical to surface.
 - "furigana": hiragana reading. OMIT if surface has no kanji.
 - "romaji": romanized reading. OMIT ONLY for bare punctuation (。！？、…「」『』（）).
 - "meaning": English meaning in context. OMIT for grammatical particles (は が を に で と の へ から まで より も) and punctuation.
 
 RULES:
-1. Surfaces must concatenate to reproduce the input exactly — no characters skipped or added.
+1. Ignore whitespace and newlines. Do not include them in any token's surface. Tokenize all actual Japanese words and punctuation in order. Do not skip any actual characters.
 2. A conjugated verb or adjective is ONE token (e.g. 食べられた → one token, base 食べる).
 3. No token with empty or whitespace-only surface.`;
 
     const nlpUser = combinedJa;
 
-    let tokens = [];
+    let tokens =[];
     try {
         const nlpRaw = await generateText(nlpUser, nlpSystem, true);
         const nlpCleaned = nlpRaw.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
         const nlpParsed = JSON.parse(nlpCleaned);
-        const raw = nlpParsed.tokens || [];
+        const raw = nlpParsed.tokens ||[];
         // Normalize field names (support both full and abbreviated keys from older saves)
         tokens = raw
             .filter(t => (t.surface || t.s) && String(t.surface || t.s).trim() !== '')
             .map(t => ({
                 surface:       t.surface      ?? t.s ?? '',
                 base:          t.base         ?? t.b ?? (t.surface ?? t.s ?? ''),
-                furi:          t.furigana      ?? t.f ?? '',
+                furi:          t.furigana     ?? t.f ?? '',
                 roma:          t.romaji       ?? t.r ?? '',
                 trans_base:    t.meaning      ?? t.t ?? '',
                 trans_context: t.meaning      ?? t.t ?? '',

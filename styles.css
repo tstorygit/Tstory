@@ -1121,3 +1121,29 @@ select {
     font-size:11px; font-family:monospace; font-weight:600; color:#333;
     min-width:28px; text-align:center;
 }
+
+/* SRS Status Highlighting Classes */
+.status-0-text { color: var(--status-0); }
+.status-1-text { color: var(--status-1); }
+.status-2-text { color: var(--status-2); }
+.status-3-text { color: var(--status-3); }
+.status-4-text { color: var(--status-4); }
+.status-5-text { color: var(--status-5); }
+.status-unknown-text { color: var(--text-main); }
+
+.status-0-bg { background-color: var(--status-0); color: white; }
+.status-1-bg { background-color: var(--status-1); color: white; }
+.status-2-bg { background-color: var(--status-2); color: black; }
+.status-3-bg { background-color: var(--status-3); color: black; }
+.status-4-bg { background-color: var(--status-4); color: white; }
+.status-5-bg { background-color: var(--status-5); color: white; }
+.status-unknown-bg { background-color: transparent; }
+
+/* Word tag styling for background mode */
+.word-tag {
+    padding: 0 4px;
+    border-radius: 4px;
+    margin: 0 1px;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+}

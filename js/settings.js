@@ -14,7 +14,8 @@ export const settings = {
     enableSentenceParsing: true,
     requestTimeoutSecs: 120,
     trainerExtMode: 'highlight',
-    trainerSrsMode: 'use'
+    trainerSrsMode: 'use',
+    customPromptParams: 'JLPT N4-N3' // Default language level
 };
 
 export const TEXT_MODEL_ORDER = [
@@ -121,6 +122,9 @@ export function initSettings() {
             settings.sentenceNewline = document.getElementById('setting-sentence-newline').checked;
             settings.enableSentenceParsing = document.getElementById('setting-sentence-parsing').checked;
             settings.requestTimeoutSecs = parseInt(document.getElementById('setting-timeout').value) || 120;
+            
+            // New JLPT/Prompt setting
+            settings.customPromptParams = document.getElementById('setting-custom-prompt').value.trim() || 'JLPT N4-N3';
 
             const extMode = document.getElementById('trainer-ext-mode');
             if (extMode) settings.trainerExtMode = extMode.value;
@@ -171,6 +175,10 @@ function loadSettings() {
 
         const timeout = document.getElementById('setting-timeout');
         if (timeout) timeout.value = settings.requestTimeoutSecs || 120;
+
+        const customPrompt = document.getElementById('setting-custom-prompt');
+        if (customPrompt) customPrompt.value = settings.customPromptParams || 'JLPT N4-N3';
+
     } else {
         // No saved settings — render one empty key input
         renderApiKeyInputs([]);
