@@ -182,7 +182,7 @@ export async function generateNextBlock(chosenOption, onProgress, onRawTextReady
         targetWords = srsDb.getFilteredWords(srsCriteria).map(w => w.word);
     }
     
-    const customLevel = settings.customPromptParams || 'JLPT N4-N3';
+    const customLevel = settings.customPromptParams || 'JLPT N4';
     const systemInstruction = `You are a Japanese visual novel writer.
 
 STRICT RULES:

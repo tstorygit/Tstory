@@ -15,7 +15,7 @@ export const settings = {
     requestTimeoutSecs: 120,
     trainerExtMode: 'highlight',
     trainerSrsMode: 'use',
-    customPromptParams: 'JLPT N4-N3' // Default language level
+    customPromptParams: 'JLPT N4' // Default language level
 };
 
 export const TEXT_MODEL_ORDER = [
@@ -124,7 +124,7 @@ export function initSettings() {
             settings.requestTimeoutSecs = parseInt(document.getElementById('setting-timeout').value) || 120;
             
             // New JLPT/Prompt setting
-            settings.customPromptParams = document.getElementById('setting-custom-prompt').value.trim() || 'JLPT N4-N3';
+            settings.customPromptParams = document.getElementById('setting-custom-prompt').value.trim() || 'JLPT N4';
 
             const extMode = document.getElementById('trainer-ext-mode');
             if (extMode) settings.trainerExtMode = extMode.value;
@@ -177,7 +177,7 @@ function loadSettings() {
         if (timeout) timeout.value = settings.requestTimeoutSecs || 120;
 
         const customPrompt = document.getElementById('setting-custom-prompt');
-        if (customPrompt) customPrompt.value = settings.customPromptParams || 'JLPT N4-N3';
+        if (customPrompt) customPrompt.value = settings.customPromptParams || 'JLPT N4';
 
     } else {
         // No saved settings — render one empty key input

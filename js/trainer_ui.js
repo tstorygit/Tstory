@@ -49,6 +49,36 @@ export function initTrainer() {
             }
         });
     }
+    
+    // Popup Status Button handler (specifically for Trainer)
+    const popupStatusGroup = document.getElementById('popup-status-group');
+    if (popupStatusGroup) {
+        popupStatusGroup.addEventListener('click', (e) => {
+            // Only handle if we are currently inside the Trainer view
+            if (!document.getElementById('view-trainer').classList.contains('active')) return;
+            
+            if (e.target.classList.contains('status-btn')) {
+                const newStatus = parseInt(e.target.getAttribute('data-status'));
+                const wordDataStr = document.getElementById('word-popup').dataset.wordData;
+                
+                if (wordDataStr) {
+                    try {
+                        const wordData = JSON.parse(wordDataStr);
+                        srsDb.saveWord({
+                            word: wordData.base || wordData.surface,
+                            furi: wordData.furi || '',
+                            translation: wordData.trans_base || wordData.trans_context || '',
+                            status: newStatus
+                        });
+                        document.getElementById('word-popup-overlay').classList.add('hidden');
+                        renderTrainer();
+                    } catch (err) {
+                        console.error('Failed to parse wordData', err);
+                    }
+                }
+            }
+        });
+    }
 
     // Pre-generate button
     const pregenBtn = document.getElementById('btn-pregen');
@@ -127,8 +157,9 @@ function openTrainerWordPopup(wordData) {
         }
     }
 
-    // Store word data on popup for status-btn handler in word_manager.js compatibility
+    // Store word data on popup for status-btn handler
     document.getElementById('word-popup').dataset.activeWord = wordData.base || wordData.surface;
+    document.getElementById('word-popup').dataset.wordData = JSON.stringify(wordData);
 
     popupOverlay.classList.remove('hidden');
 }
@@ -271,10 +302,14 @@ function renderStateB(content, block, rank, total) {
 
     // Target word header — rainbow on the big display word too
     const tw = block.targetWord;
+    
+    // Wrapped the rainbow target word in a fixed-height container to prevent layout shifting
     html += `
         <div style="text-align:center; padding: 15px 0 20px; border-bottom: 1px solid var(--border-color); margin-bottom: 20px;">
             <div style="font-size:13px; color:var(--text-muted);">Word #${rank}</div>
-            <div class="target-word-rainbow-lg" style="font-size:36px; margin-bottom:4px;">${rainbowChars(tw.word)}</div>
+            <div style="height: 55px; display: flex; align-items: center; justify-content: center; margin-bottom: 4px;">
+                <div class="target-word-rainbow-lg" style="font-size:36px;">${rainbowChars(tw.word)}</div>
+            </div>
             <div style="font-size:16px; color:var(--text-muted);">${tw.furi || ''}</div>
             <div style="font-size:14px; color:var(--primary-color);">${tw.trans || ''}</div>
         </div>
