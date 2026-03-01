@@ -144,7 +144,9 @@ export async function createStoryFromRawText(rawText, onProgress, onRawTextReady
 
 export async function createStoryFromImage(base64Data, mimeType, onProgress, onRawTextReady) {
     onProgress(0, "Reading Japanese text from image...");
-    const prompt = "Extract all Japanese text from this image. Output ONLY the Japanese text. Do not translate. Preserve the natural reading order. Do not add any English text, formatting, or explanations.";
+    
+    // Explicitly command the AI to preserve layout and structural lines
+    const prompt = "Extract all Japanese text from this image. Output ONLY the Japanese text. Do not translate. CRITICAL: Preserve the exact visual layout, including line breaks, paragraphs, and headers. If text is visually separated or on a new line in the image, it MUST be on a new line in your output. Do not add any English text, markdown formatting, or explanations.";
     
     let extractedText = "";
     try {

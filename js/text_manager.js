@@ -56,7 +56,7 @@ INPUT: A JSON object with:
 - "story": a Japanese story text string
 - "optA": a Japanese option A string (may be empty string)
 - "optB": a Japanese option B string (may be empty string)
-${includeSentences ? '- "includeSentences": true — means you must also split the story into sentences with translations' : ''}
+${includeSentences ? '- "includeSentences": true — means you must also split the story into sentences with translations. IMPORTANT: Respect line breaks in the input. Treat distinct lines as distinct sentences, even if they lack final punctuation.' : ''}
 
 OUTPUT: A JSON object with:
 - "story": array of token objects for the story text
