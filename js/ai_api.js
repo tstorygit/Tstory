@@ -34,7 +34,7 @@ function setModelIndex(keyIdx, idx) {
 
 // ─── TEXT GENERATION ─────────────────────────────────────────────────────────
 
-export async function generateText(prompt, systemInstruction = "", expectJson = false) {
+export async function generateText(prompt, systemInstruction = "", expectJson = false, imageData = null) {
     const keys = getKeyList();
     if (keys.length === 0) {
         throw new Error("No API key configured. Please add one in Settings.");
@@ -63,13 +63,25 @@ export async function generateText(prompt, systemInstruction = "", expectJson = 
                 console.groupCollapsed(`[${time}] 🔵 AI REQUEST — Key #${keyIdx + 1}/${keys.length} · ${modelName}`);
                 console.log("%cSystem:", "color:orange;font-weight:bold;", systemInstruction || "(None)");
                 console.log("%cPrompt:", "color:#4A90E2;font-weight:bold;", prompt);
+                if (imageData) console.log("%cImage attached", "color:purple;font-weight:bold;");
                 console.groupEnd();
             }
 
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
+            const parts = [];
+            if (imageData) {
+                parts.push({
+                    inlineData: {
+                        mimeType: imageData.mimeType,
+                        data: imageData.data
+                    }
+                });
+            }
+            parts.push({ text: prompt });
+
             const payload = {
-                contents: [{ parts: [{ text: prompt }] }],
+                contents: [{ parts: parts }],
                 generationConfig: { temperature: 0.3 }
             };
             if (systemInstruction) {

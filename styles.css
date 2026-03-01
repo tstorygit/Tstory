@@ -1166,3 +1166,7 @@ select {
     background: rgba(156,39,176,0.1);
     color: #9c27b0;
 }
+.story-badge-imported-photo {
+    background: rgba(255,152,0,0.1);
+    color: #f57c00;
+}

@@ -84,9 +84,15 @@ function renderLibrary() {
 
         <div style="border-top: 1px solid var(--border-color); margin-bottom: 20px;"></div>
 
-        <h3 style="margin-bottom: 10px; color: #9c27b0;">Import Raw Text</h3>
+        <h3 style="margin-bottom: 10px; color: #9c27b0;">Import Raw Text or Photo</h3>
         <textarea id="import-raw-text" rows="3" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); margin-bottom: 10px;" placeholder="Paste Japanese text here..."></textarea>
-        <button id="btn-import-story" class="primary-btn" style="background-color: #9c27b0;">Analyze & Read</button>
+        <div style="display: flex; gap: 10px;">
+            <button id="btn-import-story" class="primary-btn" style="flex: 1; background-color: #9c27b0;">Analyze Text</button>
+            <label for="import-photo-upload" class="primary-btn" style="width: auto; background-color: #7b1fa2; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0 20px;" title="Scan Photo">
+                📷 Scan
+            </label>
+            <input type="file" id="import-photo-upload" accept="image/*" style="display: none;">
+        </div>
     `;
     storyContentDiv.appendChild(createContainer);
 
@@ -130,6 +136,38 @@ function renderLibrary() {
             isBackgroundProcessing = false;
             alert("Error: " + error.message);
         }
+    });
+
+    document.getElementById('import-photo-upload').addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            const dataUrl = event.target.result;
+            const base64Data = dataUrl.split(',')[1];
+            const mimeType = file.type;
+            
+            try {
+                isBackgroundProcessing = false;
+                showLoading(0, "Reading image...");
+                await storyMgr.createStoryFromImage(base64Data, mimeType, updateProgress, () => {
+                    hideLoading();
+                    isBackgroundProcessing = true;
+                    renderReader();
+                });
+                renderReader();
+                hideLoading();
+                isBackgroundProcessing = false;
+            } catch (error) {
+                hideLoading();
+                isBackgroundProcessing = false;
+                alert("Error: " + error.message);
+            }
+            
+            e.target.value = ''; // Reset file input
+        };
+        reader.readAsDataURL(file);
     });
 
     const libraryHeaderRow = document.createElement('div');
@@ -185,8 +223,15 @@ function renderLibrary() {
         card.style.justifyContent = 'space-between';
         card.style.alignItems = 'center';
 
-        const badgeClass = story.type === 'imported' ? 'story-badge-imported' : 'story-badge-generated';
-        const badgeText = story.type === 'imported' ? 'Imported' : 'Generated';
+        let badgeClass = 'story-badge-generated';
+        let badgeText = 'Generated';
+        if (story.type === 'imported') {
+            badgeClass = 'story-badge-imported';
+            badgeText = 'Imported';
+        } else if (story.type === 'imported-photo') {
+            badgeClass = 'story-badge-imported-photo';
+            badgeText = 'Photo';
+        }
 
         const infoDiv = document.createElement('div');
         infoDiv.innerHTML = `
@@ -273,7 +318,7 @@ function renderBlock(index) {
     const isLatestBlock = (index === storyData.blocks.length - 1);
     const useBgHighlight = (settings.textHighlightStyle === 'background');
     const useNewLines = settings.sentenceNewline;
-    const isImported = storyData.type === 'imported';
+    const isImported = (storyData.type === 'imported' || storyData.type === 'imported-photo');
 
     let html = '';
 

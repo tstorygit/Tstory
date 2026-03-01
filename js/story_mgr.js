@@ -65,7 +65,7 @@ export async function createNewStory(theme, onProgress, onRawTextReady) {
     return await generateNextBlock(null, onProgress, onRawTextReady);
 }
 
-export async function createStoryFromRawText(rawText, onProgress, onRawTextReady) {
+export async function createStoryFromRawText(rawText, onProgress, onRawTextReady, storyType = 'imported') {
     const stories = getStoryList();
     const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     let title = lines.length > 0 ? lines[0] : "Imported Text";
@@ -74,8 +74,8 @@ export async function createStoryFromRawText(rawText, onProgress, onRawTextReady
     const newStory = {
         id: Date.now().toString(),
         title: title,
-        themePrompt: "Imported Raw Text",
-        type: 'imported',
+        themePrompt: storyType === 'imported-photo' ? "Imported from Photo" : "Imported Raw Text",
+        type: storyType,
         created: new Date().toISOString(),
         blocks: []
     };
@@ -140,6 +140,26 @@ export async function createStoryFromRawText(rawText, onProgress, onRawTextReady
         deleteStory(newStory.id);
         throw err;
     }
+}
+
+export async function createStoryFromImage(base64Data, mimeType, onProgress, onRawTextReady) {
+    onProgress(0, "Reading Japanese text from image...");
+    const prompt = "Extract all Japanese text from this image. Output ONLY the Japanese text. Do not translate. Preserve the natural reading order. Do not add any English text, formatting, or explanations.";
+    
+    let extractedText = "";
+    try {
+        extractedText = await generateText(prompt, "", false, { mimeType, data: base64Data });
+    } catch (e) {
+        throw new Error("Failed to extract text from image: " + e.message);
+    }
+    
+    if (!extractedText || !extractedText.trim()) {
+        throw new Error("No text could be found in the image.");
+    }
+    
+    extractedText = extractedText.replace(/```.*?\n/g, '').replace(/```/g, '').trim();
+    
+    return await createStoryFromRawText(extractedText, onProgress, onRawTextReady, 'imported-photo');
 }
 
 export async function generateNextBlock(chosenOption, onProgress, onRawTextReady) {
@@ -303,7 +323,7 @@ export async function regenerateLastBlock(onProgress, onRawTextReady) {
     const storyData = stories[storyIndex];
     if (storyData.blocks.length === 0) throw new Error("No block to regenerate.");
 
-    if (storyData.type === 'imported') {
+    if (storyData.type === 'imported' || storyData.type === 'imported-photo') {
         const block = storyData.blocks[storyData.blocks.length - 1];
         block.isProcessing = true;
         saveStoryList(stories);
