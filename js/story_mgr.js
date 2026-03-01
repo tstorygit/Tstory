@@ -53,7 +53,8 @@ export async function createNewStory(theme, onProgress, onRawTextReady) {
         title: theme.substring(0, 30) + (theme.length > 30 ? "..." : ""),
         themePrompt: theme,
         created: new Date().toISOString(),
-        blocks: []
+        blocks: [],
+        type: 'generated'
     };
 
     stories.push(newStory);
@@ -64,8 +65,84 @@ export async function createNewStory(theme, onProgress, onRawTextReady) {
     return await generateNextBlock(null, onProgress, onRawTextReady);
 }
 
+export async function createStoryFromRawText(rawText, onProgress, onRawTextReady) {
+    const stories = getStoryList();
+    const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    let title = lines.length > 0 ? lines[0] : "Imported Text";
+    if (title.length > 30) title = title.substring(0, 30) + "...";
+
+    const newStory = {
+        id: Date.now().toString(),
+        title: title,
+        themePrompt: "Imported Raw Text",
+        type: 'imported',
+        created: new Date().toISOString(),
+        blocks: []
+    };
+
+    const tempBlockId = 0;
+    const tempBlock = {
+        id: tempBlockId,
+        rawJa: rawText,
+        enrichedData: {
+            words: [{ surface: rawText }],
+            sentences: [],
+            optionWords: {},
+            optionTranslations: {}
+        },
+        imageUrl: null,
+        selectedOption: null,
+        isProcessing: true
+    };
+
+    newStory.blocks.push(tempBlock);
+    stories.push(newStory);
+    saveStoryList(stories);
+    
+    activeStoryId = newStory.id;
+
+    if (onRawTextReady) {
+        onRawTextReady();
+    }
+
+    try {
+        const enrichedData = await processTextPipeline(rawText, onProgress, true);
+        
+        let imageUrl = null;
+        if (settings.generateImages) {
+            onProgress(6, "Drawing illustration...");
+            try {
+                imageUrl = await generateImage(enrichedData.imagePrompt);
+            } catch (e) {
+                console.error("Image generation failed, continuing without image.", e);
+            }
+        }
+
+        const finalBlock = {
+            id: tempBlockId,
+            rawJa: rawText,
+            enrichedData: enrichedData,
+            imageUrl: imageUrl,
+            selectedOption: null
+        };
+
+        let freshStories = getStoryList();
+        let storyIndex = freshStories.findIndex(s => s.id === activeStoryId);
+        if (storyIndex !== -1) {
+            freshStories[storyIndex].blocks[0] = finalBlock;
+            saveStoryList(freshStories);
+        }
+
+        onProgress(100, "Ready!");
+        return finalBlock;
+
+    } catch (err) {
+        deleteStory(newStory.id);
+        throw err;
+    }
+}
+
 export async function generateNextBlock(chosenOption, onProgress, onRawTextReady) {
-    // 1. Load latest data
     let stories = getStoryList();
     let storyIndex = stories.findIndex(s => s.id === activeStoryId);
     if (storyIndex === -1) throw new Error("Active story not found in storage.");
@@ -74,7 +151,6 @@ export async function generateNextBlock(chosenOption, onProgress, onRawTextReady
 
     onProgress(0, "Drafting the next part of the story...");
 
-    // Build vocabulary hint list based on SRS mode.
     let targetWords = [];
     if (settings.srsMode !== 'none') {
         let srsCriteria = { limit: 5 };
@@ -84,7 +160,6 @@ export async function generateNextBlock(chosenOption, onProgress, onRawTextReady
         targetWords = srsDb.getFilteredWords(srsCriteria).map(w => w.word);
     }
     
-    // --- CONSTRUCT PROMPTS ---
     const customLevel = settings.customPromptParams || 'JLPT N4-N3';
     const systemInstruction = `You are a Japanese visual novel writer.
 
@@ -106,13 +181,7 @@ STRICT RULES:
         const lastBlock = storyData.blocks[storyData.blocks.length - 1];
         lastBlock.selectedOption = chosenOption;
 
-        // Clean the previous story text: Remove the [OPTION A...] lines so the AI
-        // doesn't get confused by options that were NOT selected.
-        // Regex removes [OPTION X: ...] and anything inside.
         const cleanHistory = lastBlock.rawJa.replace(/\[OPTION [AB]:[\s\S]*?\]/g, '').trim();
-
-        // Strip "A: " or "B: " prefix from the chosen option for the prompt
-        // e.g. "A: Go home" becomes "Go home"
         const cleanChoice = chosenOption.replace(/^[AB]:\s*/, '').trim();
 
         userPrompt += `\n\nPrevious story context:\n${cleanHistory}`;
@@ -124,7 +193,6 @@ STRICT RULES:
 
     const rawJaText = await generateText(userPrompt, systemInstruction, false);
     
-    // --- CLEANUP ---
     let cleanRawJa = rawJaText.replace(/```.*?\n/g, '').replace(/```/g, '').trim();
     const parts = cleanRawJa.split(/(\[OPTION [AB]:.*?\])/);
     const storyBody = parts[0].replace(/[\n\r\t]+/g, '').trim();
@@ -142,7 +210,6 @@ STRICT RULES:
     const cleanStoryText = cleanRawJa.replace(optionRegex, '').trim();
     const tempBlockId = storyData.blocks.length;
 
-    // Create a temporary block
     const tempBlock = {
         id: tempBlockId,
         rawJa: cleanRawJa,
@@ -163,20 +230,16 @@ STRICT RULES:
         isProcessing: true
     };
 
-    // --- CRITICAL FIX: SAVE TO STORAGE IMMEDIATELY ---
-    // We must update the array and Save to localStorage so viewer_ui can see it
-    // when it re-renders.
     storyData.blocks.push(tempBlock);
     stories[storyIndex] = storyData;
     saveStoryList(stories);
 
-    // Alert the UI to render the raw text immediately
     if (onRawTextReady) {
         onRawTextReady();
     }
 
     try {
-        const enrichedData = await processTextPipeline(cleanRawJa, onProgress);
+        const enrichedData = await processTextPipeline(cleanRawJa, onProgress, false);
 
         let imageUrl = null;
         if (settings.generateImages) {
@@ -198,13 +261,11 @@ STRICT RULES:
             selectedOption: null
         };
 
-        // Re-fetch list to ensure we rely on fresh state (safe against race conditions)
         stories = getStoryList();
         storyIndex = stories.findIndex(s => s.id === activeStoryId);
         
         if (storyIndex !== -1) {
             const currentStoryData = stories[storyIndex];
-            // Find the index of our temp block
             const blockIndex = currentStoryData.blocks.findIndex(b => b.id === tempBlockId);
             
             if (blockIndex !== -1) {
@@ -212,7 +273,6 @@ STRICT RULES:
                 stories[storyIndex] = currentStoryData;
                 saveStoryList(stories);
             } else {
-                // Fallback if index somehow shifted: append
                 currentStoryData.blocks.push(finalBlock);
                 stories[storyIndex] = currentStoryData;
                 saveStoryList(stories);
@@ -223,7 +283,6 @@ STRICT RULES:
         return finalBlock;
 
     } catch (err) {
-        // Rollback: Remove the temporary block if NLP fails so we don't leave a broken block
         stories = getStoryList();
         storyIndex = stories.findIndex(s => s.id === activeStoryId);
         if (storyIndex !== -1) {
@@ -244,16 +303,56 @@ export async function regenerateLastBlock(onProgress, onRawTextReady) {
     const storyData = stories[storyIndex];
     if (storyData.blocks.length === 0) throw new Error("No block to regenerate.");
 
-    storyData.blocks.pop();
-    
-    let chosenOption = null;
-    if (storyData.blocks.length > 0) {
-        const previousBlock = storyData.blocks[storyData.blocks.length - 1];
-        chosenOption = previousBlock.selectedOption;
+    if (storyData.type === 'imported') {
+        const block = storyData.blocks[storyData.blocks.length - 1];
+        block.isProcessing = true;
+        saveStoryList(stories);
+        
+        if (onRawTextReady) onRawTextReady();
+
+        try {
+            const enrichedData = await processTextPipeline(block.rawJa, onProgress, true);
+            let imageUrl = block.imageUrl;
+            
+            if (!imageUrl && settings.generateImages) {
+                onProgress(6, "Drawing illustration...");
+                try {
+                    imageUrl = await generateImage(enrichedData.imagePrompt);
+                } catch (e) {
+                    console.error("Image generation failed, continuing without image.", e);
+                }
+            }
+            
+            block.enrichedData = enrichedData;
+            block.imageUrl = imageUrl;
+            block.isProcessing = false;
+            
+            let freshStories = getStoryList();
+            let freshStoryIndex = freshStories.findIndex(s => s.id === activeStoryId);
+            if (freshStoryIndex !== -1) {
+                freshStories[freshStoryIndex].blocks[freshStories[freshStoryIndex].blocks.length - 1] = block;
+                saveStoryList(freshStories);
+            }
+            
+            onProgress(100, "Ready!");
+            return block;
+        } catch (err) {
+            block.isProcessing = false;
+            saveStoryList(stories);
+            throw err;
+        }
+    } else {
+        storyData.blocks.pop();
+        
+        let chosenOption = null;
+        if (storyData.blocks.length > 0) {
+            const previousBlock = storyData.blocks[storyData.blocks.length - 1];
+            chosenOption = previousBlock.selectedOption;
+        }
+
+        stories[storyIndex] = storyData;
+        saveStoryList(stories);
+
+        return await generateNextBlock(chosenOption, onProgress, onRawTextReady);
     }
-
-    stories[storyIndex] = storyData;
-    saveStoryList(stories);
-
-    return await generateNextBlock(chosenOption, onProgress, onRawTextReady);
 }

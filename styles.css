@@ -1147,3 +1147,22 @@ select {
     box-decoration-break: clone;
     -webkit-box-decoration-break: clone;
 }
+
+/* ── STORY BADGES ─────────────────────────────────────── */
+.story-badge {
+    font-size: 10px;
+    font-weight: bold;
+    padding: 3px 6px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+.story-badge-generated {
+    background: rgba(74,144,226,0.1);
+    color: var(--primary-color);
+}
+.story-badge-imported {
+    background: rgba(156,39,176,0.1);
+    color: #9c27b0;
+}

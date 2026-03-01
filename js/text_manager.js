@@ -15,19 +15,21 @@ function cleanAndParseJSON(rawString) {
 
 // --- THE PIPELINE ---
 
-export async function processTextPipeline(rawText, onProgress) {
+export async function processTextPipeline(rawText, onProgress, isRawImport = false) {
     // 1. EXTRACT OPTIONS
-    const optionRegex = /\[OPTION ([AB]):\s*(.*?)\]/g;
     let optA = "";
     let optB = "";
+    let cleanStoryText = rawText;
 
-    const matches = [...rawText.matchAll(optionRegex)];
-    if (matches.length >= 2) {
-        optA = matches[0][2].trim();
-        optB = matches[1][2].trim();
+    if (!isRawImport) {
+        const optionRegex = /\[OPTION ([AB]):\s*(.*?)\]/g;
+        const matches = [...rawText.matchAll(optionRegex)];
+        if (matches.length >= 2) {
+            optA = matches[0][2].trim();
+            optB = matches[1][2].trim();
+        }
+        cleanStoryText = rawText.replace(optionRegex, '').trim();
     }
-    // Remove option tags from story text
-    const cleanStoryText = rawText.replace(optionRegex, '').trim();
 
     // 2. BUILD THE COMBINED PAYLOAD
     const requestPayload = {
@@ -52,14 +54,14 @@ export async function processTextPipeline(rawText, onProgress) {
 
 INPUT: A JSON object with:
 - "story": a Japanese story text string
-- "optA": a Japanese option A string
-- "optB": a Japanese option B string
+- "optA": a Japanese option A string (may be empty string)
+- "optB": a Japanese option B string (may be empty string)
 ${includeSentences ? '- "includeSentences": true — means you must also split the story into sentences with translations' : ''}
 
 OUTPUT: A JSON object with:
 - "story": array of token objects for the story text
-- "optA": array of token objects for option A text
-- "optB": array of token objects for option B text
+- "optA": array of token objects for option A text (return [] if input optA was empty)
+- "optB": array of token objects for option B text (return [] if input optB was empty)
 - "optA_en": "Natural English translation of Option A (full sentence)"
 - "optB_en": "Natural English translation of Option B (full sentence)"${sentencesOutputDoc}
 

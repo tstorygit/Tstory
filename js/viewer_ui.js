@@ -80,7 +80,13 @@ function renderLibrary() {
     createContainer.innerHTML = `
         <h3 style="margin-bottom: 10px; color: var(--primary-color);">Create New Story</h3>
         <textarea id="new-story-theme" rows="2" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); margin-bottom: 10px;" placeholder="e.g. My cat Chi goes to space..."></textarea>
-        <button id="btn-create-story" class="primary-btn">Generate</button>
+        <button id="btn-create-story" class="primary-btn" style="margin-bottom: 20px;">Generate</button>
+
+        <div style="border-top: 1px solid var(--border-color); margin-bottom: 20px;"></div>
+
+        <h3 style="margin-bottom: 10px; color: #9c27b0;">Import Raw Text</h3>
+        <textarea id="import-raw-text" rows="3" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); margin-bottom: 10px;" placeholder="Paste Japanese text here..."></textarea>
+        <button id="btn-import-story" class="primary-btn" style="background-color: #9c27b0;">Analyze & Read</button>
     `;
     storyContentDiv.appendChild(createContainer);
 
@@ -91,13 +97,31 @@ function renderLibrary() {
             isBackgroundProcessing = false;
             showLoading(0, "Initializing Story...");
             await storyMgr.createNewStory(theme, updateProgress, () => {
-                // On raw text ready:
                 hideLoading();
                 isBackgroundProcessing = true;
-                // Since data is saved, this will correctly load the reader with the temp block
                 renderReader(); 
             });
-            // Re-render reader once fully complete to clear the temporary processing block status
+            renderReader();
+            hideLoading();
+            isBackgroundProcessing = false;
+        } catch (error) {
+            hideLoading();
+            isBackgroundProcessing = false;
+            alert("Error: " + error.message);
+        }
+    });
+
+    document.getElementById('btn-import-story').addEventListener('click', async () => {
+        const text = document.getElementById('import-raw-text').value.trim();
+        if (!text) return alert("Please paste some text to import!");
+        try {
+            isBackgroundProcessing = false;
+            showLoading(0, "Importing & Analyzing...");
+            await storyMgr.createStoryFromRawText(text, updateProgress, () => {
+                hideLoading();
+                isBackgroundProcessing = true;
+                renderReader();
+            });
             renderReader();
             hideLoading();
             isBackgroundProcessing = false;
@@ -161,10 +185,16 @@ function renderLibrary() {
         card.style.justifyContent = 'space-between';
         card.style.alignItems = 'center';
 
+        const badgeClass = story.type === 'imported' ? 'story-badge-imported' : 'story-badge-generated';
+        const badgeText = story.type === 'imported' ? 'Imported' : 'Generated';
+
         const infoDiv = document.createElement('div');
         infoDiv.innerHTML = `
-            <div style="font-weight: bold; font-size: 16px;">${story.title}</div>
-            <div style="font-size: 12px; color: var(--text-muted);">Blocks: ${story.blocks.length} • ${new Date(story.created).toLocaleDateString()}</div>
+            <div style="font-weight: bold; font-size: 16px;">
+                ${story.title}
+                <span class="story-badge ${badgeClass}">${badgeText}</span>
+            </div>
+            <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Blocks: ${story.blocks.length} • ${new Date(story.created).toLocaleDateString()}</div>
         `;
 
         const actionsDiv = document.createElement('div');
@@ -207,7 +237,6 @@ function renderReader() {
     isLibraryView = false;
     const storyData = storyMgr.getActiveStory();
     if (!storyData || storyData.blocks.length === 0) { 
-        // Only redirect if NOT processing. If processing, we expect a block to appear soon.
         renderLibrary(); 
         return; 
     }
@@ -244,6 +273,7 @@ function renderBlock(index) {
     const isLatestBlock = (index === storyData.blocks.length - 1);
     const useBgHighlight = (settings.textHighlightStyle === 'background');
     const useNewLines = settings.sentenceNewline;
+    const isImported = storyData.type === 'imported';
 
     let html = '';
 
@@ -279,8 +309,6 @@ function renderBlock(index) {
     }
 
     // MAIN TEXT
-    // Use rawJa if enriched words not yet available (processing state)
-    // The temp block provided by story_mgr has a basic structure in enrichedData.words
     html += `<div class="japanese-text" style="font-size: 20px; line-height: 2.2; margin-bottom: 30px; letter-spacing: 1px; ${block.isProcessing ? 'opacity: 0.9;' : ''}">`;
     
     const words = block.enrichedData.words || [];
@@ -318,7 +346,7 @@ function renderBlock(index) {
     html += `</div>`;
 
     // OPTIONS
-    if (isLatestBlock) {
+    if (isLatestBlock && !isImported) {
         const optionRegex = /\[OPTION ([AB]):\s*(.*?)\]/g;
         let matches = [...block.rawJa.matchAll(optionRegex)];
 
@@ -336,7 +364,6 @@ function renderBlock(index) {
                 let optEnrichedHtml = '';
                 const optionWordsDict = block.enrichedData.optionWords || {};
                 
-                // Render parsed tokens for the Japanese text
                 if (Array.isArray(optionWordsDict)) {
                      optEnrichedHtml = optTextRaw;
                 } else if (optionWordsDict[optLetter] && optionWordsDict[optLetter].length > 0) {
@@ -345,15 +372,12 @@ function renderBlock(index) {
                      optEnrichedHtml = optTextRaw;
                 }
 
-                // --- NEW: Use Full Sentence Translation if Available ---
                 const optTranslations = block.enrichedData.optionTranslations || {};
                 let optEnglishGloss = "";
 
                 if (optTranslations[optLetter] && optTranslations[optLetter].trim() !== "") {
-                    // Use natural translation from AI
                     optEnglishGloss = optTranslations[optLetter];
                 } else {
-                    // Fallback: Build gloss from individual word meanings
                     const optTokens = (!Array.isArray(optionWordsDict) && optionWordsDict[optLetter]) ? optionWordsDict[optLetter] : [];
                     optEnglishGloss = optTokens
                         .map(t => t.trans_context || t.trans_base || '')
@@ -395,8 +419,10 @@ function renderBlock(index) {
     if (isLatestBlock) {
         const disabledStyle = block.isProcessing ? 'opacity:0.5; cursor:wait;' : '';
         const disabledProp = block.isProcessing ? 'disabled' : '';
+        const regenText = isImported ? "🔁 Re-analyze This Text" : "🔁 Regenerate This Page";
+        
         html += `<div style="text-align: center; margin-top: 40px; border-top: 1px solid var(--border-color); padding-top: 20px;">
-                    <button id="btn-regenerate" style="background: none; border: 1px solid var(--text-muted); color: var(--text-muted); padding: 8px 15px; border-radius: 6px; cursor: pointer; ${disabledStyle}" ${disabledProp}>🔁 Regenerate This Page</button>
+                    <button id="btn-regenerate" style="background: none; border: 1px solid var(--text-muted); color: var(--text-muted); padding: 8px 15px; border-radius: 6px; cursor: pointer; ${disabledStyle}" ${disabledProp}>${regenText}</button>
                  </div>`;
     }
 
@@ -444,7 +470,8 @@ function renderBlock(index) {
 
     if (document.getElementById('btn-regenerate')) {
         document.getElementById('btn-regenerate').onclick = async () => {
-            if (!confirm("Scrap this page and try again?")) return;
+            const msg = isImported ? "Re-run AI analysis on this text?" : "Scrap this page and try again?";
+            if (!confirm(msg)) return;
             try {
                 isBackgroundProcessing = false;
                 showLoading(0, "Regenerating...");
@@ -536,7 +563,6 @@ let loadingOverlay = null;
 
 function showLoading(stepNum, text) {
     if (isBackgroundProcessing) {
-        // If inline indicator doesn't exist (because we are on a different page), do nothing
         const inlineText = document.getElementById('inline-loading-text');
         const inlineBar = document.getElementById('inline-loading-bar');
         if (inlineText) inlineText.textContent = text;
