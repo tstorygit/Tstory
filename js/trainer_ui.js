@@ -57,24 +57,25 @@ export function initTrainer() {
             // Only handle if we are currently inside the Trainer view
             if (!document.getElementById('view-trainer').classList.contains('active')) return;
             
-            if (e.target.classList.contains('status-btn')) {
-                const newStatus = parseInt(e.target.getAttribute('data-status'));
-                const wordDataStr = document.getElementById('word-popup').dataset.wordData;
-                
-                if (wordDataStr) {
-                    try {
-                        const wordData = JSON.parse(wordDataStr);
-                        srsDb.saveWord({
-                            word: wordData.base || wordData.surface,
-                            furi: wordData.furi || '',
-                            translation: wordData.trans_base || wordData.trans_context || '',
-                            status: newStatus
-                        });
-                        document.getElementById('word-popup-overlay').classList.add('hidden');
-                        renderTrainer();
-                    } catch (err) {
-                        console.error('Failed to parse wordData', err);
-                    }
+            const btn = e.target.closest('.status-btn');
+            if (!btn) return;
+            
+            const newStatus = parseInt(btn.getAttribute('data-status'));
+            const wordDataStr = document.getElementById('word-popup').dataset.wordData;
+            
+            if (wordDataStr) {
+                try {
+                    const wordData = JSON.parse(wordDataStr);
+                    srsDb.saveWord({
+                        word: wordData.base || wordData.surface,
+                        furi: wordData.furi || '',
+                        translation: wordData.trans_base || wordData.trans_context || '',
+                        status: newStatus
+                    });
+                    document.getElementById('word-popup-overlay').classList.add('hidden');
+                    renderTrainer();
+                } catch (err) {
+                    console.error('Failed to parse wordData', err);
                 }
             }
         });
@@ -187,9 +188,6 @@ export async function renderTrainer() {
     if (!content) return;
 
     // Check if data is cached
-    const cached = trainerMgr.getWordByRank(rank) ? null : null; // just fetch below
-    // Actually, trainer_mgr caches internally. We render state based on whether cached data is available.
-    // We peek at localStorage directly via manager:
     const existingData = getCachedBlock(rank);
 
     if (!existingData) {
@@ -216,35 +214,46 @@ function renderStateA(content, wordObj, rank) {
 
     const total = trainerMgr.getTotalWords();
     const nextWordObj = rank < total ? trainerMgr.getWordByRank(rank + 1) : null;
-    const nextLabel = nextWordObj ? `Weiter → ${nextWordObj.word}` : '';
 
     content.innerHTML = `
-        <div style="text-align: center; padding: 30px 20px 20px;">
-            <div style="font-size: 14px; color: var(--text-muted); margin-bottom: 8px;">Word #${rank}</div>
-            <div style="font-size: 56px; font-weight: bold; margin-bottom: 6px;">${wordObj.word}</div>
-            <div style="font-size: 20px; color: var(--text-muted); margin-bottom: 4px;">${wordObj.furi || ''}</div>
-            <div style="margin-bottom: 36px;">
-                <button id="btn-reveal-trans" style="background:none; border:1px dashed var(--border-color); color:var(--text-muted); padding:6px 16px; border-radius:20px; cursor:pointer; font-size:14px;">${EYE_ICON} Bedeutung anzeigen</button>
-                <div id="trans-spoiler" style="display:none; font-size:16px; color:var(--primary-color); margin-top:8px;">${wordObj.trans || ''}</div>
+        <div style="max-width: 800px; margin: 0 auto;">
+            <!-- Top Area: Rigid 240px Height Container to prevent layout shift entirely -->
+            <div style="height: 240px; display: flex; flex-direction: column; justify-content: center; align-items: center; border-bottom: 1px solid var(--border-color); margin-bottom: 20px;">
+                <div style="height: 20px; font-size: 14px; color: var(--text-muted); margin-bottom: 8px;">Word #${rank}</div>
+                <div style="height: 70px; display: flex; align-items: center; justify-content: center;">
+                    <div style="font-size: 56px; font-weight: bold; line-height: 1;">${wordObj.word}</div>
+                </div>
+                <div style="height: 28px; font-size: 20px; color: var(--text-muted); margin-bottom: 12px; display: flex; align-items: center; justify-content: center;">
+                    ${wordObj.furi || ''}
+                </div>
+                
+                <div style="height: 40px; display: flex; align-items: center; justify-content: center; width: 100%;">
+                    <button id="btn-reveal-trans" style="background:none; border:1px dashed var(--border-color); color:var(--text-muted); padding:6px 16px; border-radius:20px; cursor:pointer; font-size:14px;">${EYE_ICON} Bedeutung anzeigen</button>
+                    <div id="trans-spoiler" style="display:none; font-size:16px; color:var(--primary-color); text-align: center; padding: 0 10px;">${wordObj.trans || ''}</div>
+                </div>
             </div>
 
-            <button id="btn-generate-sentences" class="primary-btn" style="font-size: 17px; padding: 14px 36px; margin-bottom: 12px; width: 100%;">
-                📖 Sätze generieren
-            </button>
+            <!-- Bottom Area: Buttons container anchored precisely below the header -->
+            <div style="max-width: 600px; margin: 0 auto;">
+                <button id="btn-generate-sentences" class="primary-btn" style="font-size: 17px; padding: 14px 36px; margin-bottom: 12px; width: 100%;">
+                    📖 Sätze generieren
+                </button>
 
-            ${rank < total ? `
-            <button id="btn-trainer-skip-done" style="width:100%; padding:12px; border-radius:8px; background:var(--primary-color); color:white; border:none; cursor:pointer; font-size:14px; font-weight:bold; margin-bottom:8px; display:flex; align-items:center; justify-content:center; gap:8px;">
-                <span>✓ Kenn ich schon — Weiter gehts mit: ${nextWordObj ? nextWordObj.word : ''}</span>
-                <span style="background:rgba(255,255,255,0.3); font-size:11px; padding:2px 6px; border-radius:10px;">SRS 5</span>
-            </button>
-            <button id="btn-trainer-skip" style="width:100%; padding:10px; border-radius:8px; background:none; border:1px solid var(--border-color); color:var(--text-muted); cursor:pointer; font-size:14px;">
-                → Überspringen — Weiter gehts mit: ${nextWordObj ? nextWordObj.word : ''}
-            </button>` : ''}
+                ${rank < total ? `
+                <button id="btn-trainer-skip-done" style="width:100%; padding:12px; border-radius:8px; background:var(--primary-color); color:white; border:none; cursor:pointer; font-size:14px; font-weight:bold; margin-bottom:8px; display:flex; align-items:center; justify-content:center; gap:8px;">
+                    <span>✓ Kenn ich schon — Weiter gehts mit: ${nextWordObj ? nextWordObj.word : ''}</span>
+                    <span style="background:rgba(255,255,255,0.3); font-size:11px; padding:2px 6px; border-radius:10px;">SRS 5</span>
+                </button>
+                <button id="btn-trainer-skip" style="width:100%; padding:10px; border-radius:8px; background:none; border:1px solid var(--border-color); color:var(--text-muted); cursor:pointer; font-size:14px;">
+                    → Überspringen — Weiter gehts mit: ${nextWordObj ? nextWordObj.word : ''}
+                </button>` : ''}
+
+                ${rank > 1 ? `
+                <div style="text-align:center; margin-top:20px;">
+                    <button id="btn-trainer-prev-a" style="background:none; border:none; color:var(--primary-color); cursor:pointer; font-size:13px;">← Zurück</button>
+                </div>` : ''}
+            </div>
         </div>
-
-        ${rank > 1 ? `<div style="text-align:center; margin-top:8px;">
-            <button id="btn-trainer-prev-a" style="background:none; border:none; color:var(--primary-color); cursor:pointer; font-size:13px;">← Zurück</button>
-        </div>` : ''}
     `;
 
     document.getElementById('btn-reveal-trans')?.addEventListener('click', () => {
@@ -300,30 +309,38 @@ function renderStateB(content, block, rank, total) {
 
     let html = '';
 
-    // Target word header — rainbow on the big display word too
+    // Target word header — perfectly matches State A's rigid 240px height and layout to prevent UI jumping
     const tw = block.targetWord;
     
-    // Wrapped the rainbow target word in a fixed-height container to prevent layout shifting
     html += `
-        <div style="text-align:center; padding: 15px 0 20px; border-bottom: 1px solid var(--border-color); margin-bottom: 20px;">
-            <div style="font-size:13px; color:var(--text-muted);">Word #${rank}</div>
-            <div style="height: 55px; display: flex; align-items: center; justify-content: center; margin-bottom: 4px;">
-                <div class="target-word-rainbow-lg" style="font-size:36px;">${rainbowChars(tw.word)}</div>
+        <div style="max-width: 800px; margin: 0 auto;">
+            <!-- Top Area: Rigid 240px Height Container -->
+            <div style="height: 240px; display: flex; flex-direction: column; justify-content: center; align-items: center; border-bottom: 1px solid var(--border-color); margin-bottom: 20px;">
+                <div style="height: 20px; font-size: 13px; color: var(--text-muted); margin-bottom: 8px;">Word #${rank}</div>
+                <div style="height: 70px; display: flex; align-items: center; justify-content: center;">
+                    <div class="target-word-rainbow-lg" style="font-size: 56px; font-weight: bold; line-height: 1;">${rainbowChars(tw.word)}</div>
+                </div>
+                <div style="height: 28px; font-size: 20px; color: var(--text-muted); margin-bottom: 12px; display: flex; align-items: center; justify-content: center;">
+                    ${tw.furi || ''}
+                </div>
+                <div style="height: 40px; font-size: 16px; color: var(--primary-color); display: flex; align-items: center; justify-content: center; text-align: center; padding: 0 10px;">
+                    ${tw.trans || ''}
+                </div>
             </div>
-            <div style="font-size:16px; color:var(--text-muted);">${tw.furi || ''}</div>
-            <div style="font-size:14px; color:var(--primary-color);">${tw.trans || ''}</div>
-        </div>
+            
+            <!-- Bottom Area: Sentences container anchored precisely below the header -->
+            <div>
     `;
 
     // Sentences
-    const sentences = block.rawSentences || [];
-    const words = block.enrichedData?.words || [];
+    const sentences = block.rawSentences ||[];
+    const words = block.enrichedData?.words ||[];
     const targetWord = tw.word;
 
     const sentenceTokenGroups = splitTokensIntoSentences(words, sentences);
 
     sentences.forEach((sentence, idx) => {
-        const tokens = sentenceTokenGroups[idx] || [];
+        const tokens = sentenceTokenGroups[idx] ||[];
         const tokensHtml = tokens.map(t => renderTrainerWordHtml(t, useBg, extMode, targetWord)).join('');
         const transEscaped = (sentence.en || '').replace(/'/g, "&#39;").replace(/"/g, "&quot;");
 
@@ -358,6 +375,9 @@ function renderStateB(content, block, rank, total) {
     html += `<div style="text-align:center; margin-top:20px;">
         <button id="btn-trainer-regen" style="background:none; border:1px solid var(--text-muted); color:var(--text-muted); padding:8px 15px; border-radius:6px; cursor:pointer;">🔁 Regenerate</button>
     </div>`;
+
+    // Close the wrapper div
+    html += `</div></div>`;
 
     content.innerHTML = html;
 
@@ -400,13 +420,13 @@ function renderStateB(content, block, rank, total) {
 
 // Split tokens array back into per-sentence groups based on sentence.ja text
 function splitTokensIntoSentences(tokens, sentences) {
-    const groups = [];
+    const groups =[];
     let tokenIdx = 0;
 
     for (const sentence of sentences) {
         const target = sentence.ja.replace(/\s/g, '');
         let accumulated = '';
-        const group = [];
+        const group =[];
 
         while (tokenIdx < tokens.length && !accumulated.replace(/\s/g, '').includes(target)) {
             group.push(tokens[tokenIdx]);
@@ -436,7 +456,7 @@ function isPunctuation(surface) {
 
 // Build staggered per-character spans for the rainbow animation
 function rainbowChars(text) {
-    return [...text].map((ch, i) =>
+    return[...text].map((ch, i) =>
         `<span class="tw-char" style="animation-delay:${(i * 0.12).toFixed(2)}s">${ch}</span>`
     ).join('');
 }
@@ -483,7 +503,7 @@ function renderTrainerWordHtml(token, useBg, extMode, targetWord = null) {
     const showAnnotation = showFuri || showRoma;
 
     const rainbowClass = isTarget ? 'target-word-rainbow' : '';
-    const combinedClass = [statusClass, extClass, rainbowClass].filter(Boolean).join(' ');
+    const combinedClass =[statusClass, extClass, rainbowClass].filter(Boolean).join(' ');
     const innerContent = isTarget ? rainbowChars(surfaceDisplay) : surfaceDisplay;
 
     if (showAnnotation) {

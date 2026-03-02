@@ -2,6 +2,7 @@ import * as storyMgr from './story_mgr.js';
 import { handleSync } from './data_ui.js';
 import * as srsDb from './srs_db.js';
 import { settings } from './settings.js';
+import { speakText, stopSpeech } from './tts_api.js';
 
 // ─── ICONS ───────────────────────────────────────────────────────────────────
 
@@ -46,7 +47,7 @@ export function initViewer() {
         });
     }
 
-    const rerenderTriggers = [
+    const rerenderTriggers =[
         { id: 'setting-show-furigana',   key: 'showFurigana',       type: 'checkbox' },
         { id: 'setting-show-romaji',     key: 'showRomaji',         type: 'checkbox' },
         { id: 'setting-highlight-style', key: 'textHighlightStyle', type: 'select'   },
@@ -65,6 +66,7 @@ export function initViewer() {
 }
 
 function renderLibrary() {
+    stopSpeech(); // Ensure audio stops when going back to library
     isLibraryView = true;
     isBackgroundProcessing = false; // Reset background state when entering library
     storyContentDiv.innerHTML = '';
@@ -300,7 +302,7 @@ function renderWordHtml(wordObj, useBgHighlight) {
     const showRoma = settings.showRomaji && wordObj.roma;
 
     if (showFuri || showRoma) {
-        let rtLines = [];
+        let rtLines =[];
         if (showFuri) rtLines.push(`<span style="font-size:10px; color:var(--text-muted);">${wordObj.furi}</span>`);
         if (showRoma) rtLines.push(`<span style="font-size:9px; color:var(--primary-color); font-style:italic;">${wordObj.roma}</span>`);
         const rtContent = rtLines.join('<br>');
@@ -311,6 +313,8 @@ function renderWordHtml(wordObj, useBgHighlight) {
 }
 
 function renderBlock(index) {
+    stopSpeech(); // Stop speech when rendering a new block/turning a page
+
     const storyData = storyMgr.getActiveStory();
     if (!storyData || !storyData.blocks[index]) return;
 
@@ -357,7 +361,7 @@ function renderBlock(index) {
     html += `<div class="japanese-text" style="font-size: 20px; line-height: 2.2; margin-bottom: 30px; letter-spacing: 1px; ${block.isProcessing ? 'opacity: 0.9;' : ''}">`;
     
     const words = block.enrichedData.words || [];
-    const sentences = block.enrichedData.sentences || [];
+    const sentences = block.enrichedData.sentences ||[];
     let sentenceIndex = 0;
 
     let accumulated = '';
@@ -390,10 +394,19 @@ function renderBlock(index) {
     }
     html += `</div>`;
 
+    // AUDIO PLAYER SECTION
+    html += `<div class="audio-player-container" style="margin-bottom: 25px; padding: 15px; background: var(--surface-color); border: 1px solid var(--border-color); border-radius: 8px; display: flex; align-items: center; justify-content: center;">`;
+    
+    html += `<button id="btn-read-aloud" class="primary-btn" style="background-color: #5e35b1; display:flex; align-items:center; justify-content:center; gap:8px; padding: 10px 20px; font-size: 15px; width: 100%; ${block.isProcessing ? 'opacity:0.5; cursor:wait;' : ''}" ${block.isProcessing ? 'disabled' : ''}>
+                <span id="read-aloud-icon" style="font-size:18px;">🔊</span> <span id="read-aloud-text">Read Aloud</span>
+             </button>`;
+    
+    html += `</div>`;
+
     // OPTIONS
     if (isLatestBlock && !isImported) {
         const optionRegex = /\[OPTION ([AB]):\s*(.*?)\]/g;
-        let matches = [...block.rawJa.matchAll(optionRegex)];
+        let matches =[...block.rawJa.matchAll(optionRegex)];
 
         if (matches.length >= 2) {
             html += `<div class="options-container" style="display: flex; flex-direction: column; gap: 15px; margin-bottom: 30px;">
@@ -423,7 +436,7 @@ function renderBlock(index) {
                 if (optTranslations[optLetter] && optTranslations[optLetter].trim() !== "") {
                     optEnglishGloss = optTranslations[optLetter];
                 } else {
-                    const optTokens = (!Array.isArray(optionWordsDict) && optionWordsDict[optLetter]) ? optionWordsDict[optLetter] : [];
+                    const optTokens = (!Array.isArray(optionWordsDict) && optionWordsDict[optLetter]) ? optionWordsDict[optLetter] :[];
                     optEnglishGloss = optTokens
                         .map(t => t.trans_context || t.trans_base || '')
                         .filter(m => m.trim() !== '')
@@ -471,12 +484,53 @@ function renderBlock(index) {
                  </div>`;
     }
 
+    // Spacer at the bottom to ensure the audio button isn't hidden under Android's nav bar.
+    html += `<div style="height: 80px;"></div>`;
+
     storyContentDiv.innerHTML = html;
 
     // EVENT LISTENERS
     document.getElementById('btn-back-lib').addEventListener('click', renderLibrary);
     if (document.getElementById('btn-prev-page')) document.getElementById('btn-prev-page').onclick = () => { currentBlockIndex--; renderBlock(currentBlockIndex); };
     if (document.getElementById('btn-next-page')) document.getElementById('btn-next-page').onclick = () => { currentBlockIndex++; renderBlock(currentBlockIndex); };
+
+    // Audio Listen Handler (Web Speech API)
+    const btnReadAloud = document.getElementById('btn-read-aloud');
+    if (btnReadAloud) {
+        btnReadAloud.onclick = () => {
+            const textEl = document.getElementById('read-aloud-text');
+            const iconEl = document.getElementById('read-aloud-icon');
+
+            // Use the button text to securely toggle the state
+            if (textEl && textEl.textContent === "Stop Reading") {
+                stopSpeech();
+                textEl.textContent = "Read Aloud";
+                iconEl.textContent = "🔊";
+                return;
+            }
+
+            btnReadAloud.disabled = true;
+            if (textEl) textEl.textContent = "Starting...";
+
+            // Clean the text to ensure options are stripped out
+            let textToSpeak = block.rawJa.replace(/\[OPTION\s+[AB][\s\S]*?\]/gi, '').trim();
+
+            speakText(textToSpeak, 
+                () => {
+                    // onStart callback
+                    if (textEl) textEl.textContent = "Stop Reading";
+                    if (iconEl) iconEl.textContent = "⏹️";
+                    btnReadAloud.disabled = false;
+                },
+                () => {
+                    // onEnd / onError callback
+                    if (textEl) textEl.textContent = "Read Aloud";
+                    if (iconEl) iconEl.textContent = "🔊";
+                    btnReadAloud.disabled = false;
+                }
+            );
+        };
+    }
 
     storyContentDiv.addEventListener('click', (e) => {
         const wordEl = e.target.closest('.clickable-word');
@@ -643,3 +697,4 @@ function hideLoading() {
 function updateProgress(stepNum, description) { 
     showLoading(stepNum, description); 
 }
+

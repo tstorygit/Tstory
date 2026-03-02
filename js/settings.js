@@ -1,8 +1,8 @@
 export const settings = {
-    textApiKeys: [],       // array of API keys; replaces single textApiKey
+    textApiKeys:[],       // array of API keys; replaces single textApiKey
     textApiKey: '',        // legacy fallback — kept for compatibility
     textModel: 'gemini-2.5-pro',
-    imageModel: 'gemini-2.0-flash-preview-image-generation',
+    imageModel: 'gemini-3.1-flash-image-preview',
     generateImages: false,
     useFallback: true,
     showFurigana: true,
@@ -18,7 +18,7 @@ export const settings = {
     customPromptParams: 'JLPT N4' // Default language level
 };
 
-export const TEXT_MODEL_ORDER = [
+export const TEXT_MODEL_ORDER =[
     "gemini-2.5-pro",
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
@@ -26,8 +26,10 @@ export const TEXT_MODEL_ORDER = [
     "gemini-flash-latest"
 ];
 
-export const IMAGE_MODEL_ORDER = [
-    "gemini-2.0-flash-preview-image-generation"
+export const IMAGE_MODEL_ORDER =[
+    "gemini-3.1-flash-image-preview",
+    "gemini-3-pro-image-preview",
+    "gemini-2.5-flash-image"
 ];
 
 // ─── API KEY LIST UI ─────────────────────────────────────────────────────────
@@ -36,7 +38,7 @@ function renderApiKeyInputs(keys) {
     const container = document.getElementById('api-keys-container');
     if (!container) return;
     container.innerHTML = '';
-    const list = keys.length > 0 ? keys : [''];
+    const list = keys.length > 0 ? keys :[''];
     list.forEach(key => addApiKeyRow(key));
     updateKeyLabels();
 }
@@ -104,7 +106,7 @@ export function initSettings() {
         saveBtn.addEventListener('click', () => {
             // Collect all key inputs
             const keyInputs = document.querySelectorAll('.api-key-input');
-            settings.textApiKeys = [...keyInputs]
+            settings.textApiKeys =[...keyInputs]
                 .map(i => i.value.trim())
                 .filter(Boolean);
             // Keep legacy field in sync with first key
@@ -148,7 +150,7 @@ function loadSettings() {
             settings.textApiKeys = [settings.textApiKey];
         }
 
-        renderApiKeyInputs(settings.textApiKeys || []);
+        renderApiKeyInputs(settings.textApiKeys ||[]);
 
         document.getElementById('setting-text-model').value = settings.textModel;
         document.getElementById('setting-image-model').value = settings.imageModel;
@@ -189,7 +191,7 @@ export function getModelStack(type) {
     const order = type === 'text' ? TEXT_MODEL_ORDER : IMAGE_MODEL_ORDER;
     const preferred = type === 'text' ? settings.textModel : settings.imageModel;
 
-    if (!settings.useFallback) return [preferred];
+    if (!settings.useFallback) return[preferred];
 
     const startIndex = order.indexOf(preferred);
     return order.slice(startIndex !== -1 ? startIndex : 0);
