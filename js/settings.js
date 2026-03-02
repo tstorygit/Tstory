@@ -12,6 +12,7 @@ export const settings = {
     textHighlightStyle: 'background',
     sentenceNewline: true,
     enableSentenceParsing: true,
+    proLevel5: true,
     requestTimeoutSecs: 120,
     trainerExtMode: 'highlight',
     trainerSrsMode: 'use',
@@ -122,6 +123,7 @@ export function initSettings() {
             settings.srsMode = document.getElementById('setting-srs-mode').value;
             settings.textHighlightStyle = document.getElementById('setting-highlight-style').value;
             settings.sentenceNewline = document.getElementById('setting-sentence-newline').checked;
+            settings.proLevel5 = document.getElementById('setting-pro-level5').checked;
             settings.enableSentenceParsing = document.getElementById('setting-sentence-parsing').checked;
             settings.requestTimeoutSecs = parseInt(document.getElementById('setting-timeout').value) || 120;
             
@@ -165,7 +167,10 @@ function loadSettings() {
         if (hlStyle) hlStyle.value = settings.textHighlightStyle || 'background';
 
         const snLine = document.getElementById('setting-sentence-newline');
-        if (snLine) snLine.checked = settings.sentenceNewline || false;
+        if (snLine) snLine.checked = settings.sentenceNewline !== false;
+
+        const pro5 = document.getElementById('setting-pro-level5');
+        if (pro5) pro5.checked = settings.proLevel5 !== false;
 
         const sParse = document.getElementById('setting-sentence-parsing');
         if (sParse) sParse.checked = settings.enableSentenceParsing !== false;

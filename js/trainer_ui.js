@@ -357,7 +357,7 @@ function renderStateB(content, block, rank, total) {
     // Navigation
     const nextWordObj = rank < total ? trainerMgr.getWordByRank(rank + 1) : null;
 
-    const srsBtns = [0,1,2,3,4,5].map(i =>
+    const srsBtns =[0,1,2,3,4,5].map(i =>
         `<button class="status-btn btn-trainer-srs" data-srs="${i}" data-status="${i}">${i}</button>`
     ).join('');
 
@@ -477,7 +477,10 @@ function renderTrainerWordHtml(token, useBg, extMode, targetWord = null) {
     const srsEntry = srsDb.getWord(token.base || token.surface);
     const hasSrsStatus = settings.trainerSrsMode !== 'ignore' && srsEntry != null;
     const status = hasSrsStatus ? srsEntry.status : 'unknown';
-    const statusClass = isTarget ? '' : (useBg ? `status-${status}-bg word-tag` : `status-${status}-text`);
+    
+    const isPro5 = settings.proLevel5 && status === 5;
+    
+    const statusClass = isTarget ? '' : (isPro5 ? '' : (useBg ? `status-${status}-bg word-tag` : `status-${status}-text`));
     const wordDataStr = encodeURIComponent(JSON.stringify(token));
     const styleExtras = useBg && !isTarget ? '' : 'border-bottom:none;';
 
@@ -498,8 +501,8 @@ function renderTrainerWordHtml(token, useBg, extMode, targetWord = null) {
         }
     }
 
-    const showFuri = settings.showFurigana && (furiDisplay || token.furi);
-    const showRoma = settings.showRomaji && token.roma;
+    const showFuri = !isPro5 && settings.showFurigana && (furiDisplay || token.furi);
+    const showRoma = !isPro5 && settings.showRomaji && token.roma;
     const showAnnotation = showFuri || showRoma;
 
     const rainbowClass = isTarget ? 'target-word-rainbow' : '';

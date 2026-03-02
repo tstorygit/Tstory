@@ -52,6 +52,7 @@ export function initViewer() {
         { id: 'setting-show-romaji',     key: 'showRomaji',         type: 'checkbox' },
         { id: 'setting-highlight-style', key: 'textHighlightStyle', type: 'select'   },
         { id: 'setting-sentence-newline',key: 'sentenceNewline',    type: 'checkbox' },
+        { id: 'setting-pro-level5',      key: 'proLevel5',          type: 'checkbox' },
     ];
     rerenderTriggers.forEach(({ id, key, type }) => {
         const el = document.getElementById(id);
@@ -294,12 +295,15 @@ function renderReader() {
 function renderWordHtml(wordObj, useBgHighlight) {
     const srsEntry = srsDb.getWord(wordObj.base);
     const status = srsEntry ? srsEntry.status : 'unknown';
-    const statusClass = useBgHighlight ? `status-${status}-bg word-tag` : `status-${status}-text`;
+    
+    const isPro5 = settings.proLevel5 && status === 5;
+    
+    const statusClass = isPro5 ? '' : (useBgHighlight ? `status-${status}-bg word-tag` : `status-${status}-text`);
     const wordDataStr = encodeURIComponent(JSON.stringify(wordObj));
-    const styleExtras = useBgHighlight ? '' : 'border-bottom:1px dashed #ccc;';
+    const styleExtras = (useBgHighlight || isPro5) ? '' : 'border-bottom:1px dashed #ccc;';
 
-    const showFuri = settings.showFurigana && wordObj.furi;
-    const showRoma = settings.showRomaji && wordObj.roma;
+    const showFuri = !isPro5 && settings.showFurigana && wordObj.furi;
+    const showRoma = !isPro5 && settings.showRomaji && wordObj.roma;
 
     if (showFuri || showRoma) {
         let rtLines =[];
@@ -360,7 +364,7 @@ function renderBlock(index) {
     // MAIN TEXT
     html += `<div class="japanese-text" style="font-size: 20px; line-height: 2.2; margin-bottom: 30px; letter-spacing: 1px; ${block.isProcessing ? 'opacity: 0.9;' : ''}">`;
     
-    const words = block.enrichedData.words || [];
+    const words = block.enrichedData.words ||[];
     const sentences = block.enrichedData.sentences ||[];
     let sentenceIndex = 0;
 
@@ -697,4 +701,3 @@ function hideLoading() {
 function updateProgress(stepNum, description) { 
     showLoading(stepNum, description); 
 }
-
