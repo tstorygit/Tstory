@@ -274,7 +274,6 @@ export async function generateSpeech(text) {
 
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
         
-        // CRITICAL: TTS models do NOT accept system_instruction. Only 'text' content.
         const payload = {
             contents: [{ parts: [{ text: text }] }],
             generationConfig: {
@@ -286,7 +285,14 @@ export async function generateSpeech(text) {
                         }
                     }
                 }
-            }
+            },
+            // Explicitly relax safety settings for TTS to prevent blocks on learning words like "kill" or "die"
+            safetySettings: [
+                { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+                { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+                { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+                { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+            ]
         };
 
         const controller = new AbortController();
@@ -309,24 +315,24 @@ export async function generateSpeech(text) {
             }
 
             const data = await response.json();
-            
-            // Check for valid audio data
+
+            // 1. Success case
             if (data.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data) {
                 if (settings.debugMode) console.log(`[${new Date().toLocaleTimeString()}] 🔊 Audio received`);
                 return data.candidates[0].content.parts[0].inlineData.data;
             } 
             
-            // Handle cases where the model refuses to generate (e.g., safety filters)
+            // 2. Failure case (Safety Filter)
             if (data.candidates?.[0]?.finishReason) {
                 const reason = data.candidates[0].finishReason;
-                if (settings.debugMode) console.warn(`TTS Finish Reason: ${reason}`);
-                
-                if (reason === 'SAFETY' || reason === 'RECITATION' || reason === 'OTHER') {
+                if (settings.debugMode) console.warn(`TTS Blocked. Finish Reason: ${reason}`);
+                if (reason !== 'STOP') {
                     throw new Error(`TTS blocked by AI filter (Reason: ${reason}). Try simpler text.`);
                 }
             }
             
-            throw new Error("Unexpected Audio API response structure (Missing inlineData).");
+            // 3. Unknown failure
+            throw new Error("Unexpected Audio API response structure (No inlineData found).");
 
         } catch (error) {
             clearTimeout(timeoutId);
