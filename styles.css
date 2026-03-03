@@ -32,8 +32,8 @@
     --nav-height: 60px;
 }
 
-/* Dark Mode Overrides */
-[data-theme="dark"] {
+/* Dark Mode Overrides (Using :root for highest specificity) */
+:root[data-theme="dark"] {
     --bg-color: #121212;
     --surface-color: #1e1e1e;
     --text-main: #e0e0e0;
@@ -56,7 +56,7 @@
 }
 
 /* Dim images slightly in dark mode to prevent blinding contrast */
-[data-theme="dark"] .manga-image-container img {
+:root[data-theme="dark"] .manga-image-container img {
     filter: brightness(0.85) contrast(1.1);
 }
 
@@ -441,7 +441,7 @@ select, textarea {
     max-width: 400px;
     border-radius: 12px;
     padding: 20px;
-    box-shadow: var(--card-shadow);
+    box-shadow: 0 4px 12px var(--shadow-medium);
 }
 
 .popup-header {
@@ -655,7 +655,7 @@ select, textarea {
     background: rgba(255,255,255,0.9);
 }
 
-[data-theme="dark"] .swipe-hint-right, [data-theme="dark"] .swipe-hint-left {
+:root[data-theme="dark"] .swipe-hint-right, :root[data-theme="dark"] .swipe-hint-left {
     background: rgba(18, 18, 18, 0.9);
 }
 
@@ -883,8 +883,8 @@ select, textarea {
     border-left: 3px solid #ff4b4b;
 }
 
-[data-theme="dark"] .status-success { color: #4ade80; }
-[data-theme="dark"] .status-error { color: #ff6b6b; }
+:root[data-theme="dark"] .status-success { color: #4ade80; }
+:root[data-theme="dark"] .status-error { color: #ff6b6b; }
 
 /* ── TARGET WORD RAINBOW ANIMATION ─────────────────────────────────────── */
 
@@ -1055,10 +1055,10 @@ select, textarea {
 .caro-score-partial { background:#fff7e0; color:#b7770a; }
 .caro-score-perfect { background:#e8faf3; color:#1a7a4a; }
 
-[data-theme="dark"] .caro-score-miss { background: rgba(192, 57, 43, 0.2); color: #ff6b6b; }
-[data-theme="dark"] .caro-score-partial { background: rgba(183, 119, 10, 0.2); color: #ffc107; }
-[data-theme="dark"] .caro-score-perfect { background: rgba(26, 122, 74, 0.2); color: #4ade80; }
-[data-theme="dark"] .caro-score-btn:hover { filter: brightness(1.2); }
+:root[data-theme="dark"] .caro-score-miss { background: rgba(192, 57, 43, 0.2); color: #ff6b6b; }
+:root[data-theme="dark"] .caro-score-partial { background: rgba(183, 119, 10, 0.2); color: #ffc107; }
+:root[data-theme="dark"] .caro-score-perfect { background: rgba(26, 122, 74, 0.2); color: #4ade80; }
+:root[data-theme="dark"] .caro-score-btn:hover { filter: brightness(1.2); }
 
 /* Keyboard hint badge on buttons */
 .caro-kbd-hint { font-size:10px; font-weight:600; opacity:0.55; margin-left:auto; background:rgba(0,0,0,0.07); padding:1px 5px; border-radius:4px; font-family: monospace; }
@@ -1241,5 +1241,5 @@ select, textarea {
     color: #f57c00;
 }
 
-[data-theme="dark"] .story-badge-imported { color: #d66ee8; }
-[data-theme="dark"] .story-badge-imported-photo { color: #ffab40; }
+:root[data-theme="dark"] .story-badge-imported { color: #d66ee8; }
+:root[data-theme="dark"] .story-badge-imported-photo { color: #ffab40; }
