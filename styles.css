@@ -892,31 +892,25 @@ select, textarea {
     contain: layout style;
 }
 
-/* Sentence-context chars: same rainbow, but bounce without scale to prevent
-   Chrome from reflowing sibling tokens on every animation frame */
+/* Sentence-context chars: same rainbow, but NO transform-based bounce to prevent
+   Chrome from reflowing sibling tokens. Only color animates — zero layout impact. */
 .tw-char-sentence {
-    display: inline-block;
+    display: inline;
     animation:
-        trainerRainbow       2.8s linear      infinite,
-        trainerBounceSentence 1.4s ease-in-out infinite;
+        trainerRainbow 2.8s linear infinite;
     font-weight: bold;
-    will-change: transform;
-    transform: translateZ(0);
-    backface-visibility: hidden;
-    contain: layout style;
+    will-change: color;
 }
 
 /* Container for inline (sentence) target word occurrences.
-   isolation:isolate creates a new stacking context so Chrome's compositor
-   doesn't reflow siblings when children animate. */
+   display:inline keeps it in normal text flow without creating a new box
+   that could shift siblings. isolation:isolate stacks it independently. */
 .target-word-rainbow {
-    display: inline-block;
+    display: inline;
     cursor: pointer;
     border-bottom: none !important;
     isolation: isolate;
-    /* Vertical overflow room so the bounce scale doesn't clip,
-       but importantly does NOT change the line's layout height */
-    overflow: visible;
+    font-weight: bold;
 }
 
 /* Container for the large header word in State B */
@@ -981,6 +975,7 @@ select, textarea {
     margin-bottom: 15px;
     border-radius: 8px;
     border: 1px solid var(--border-color);
+    contain: layout style;
 }
 
 #popup-trainer-zone {
