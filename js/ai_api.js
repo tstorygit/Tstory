@@ -274,17 +274,28 @@ export async function generateSpeech(text) {
 
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
         
+<<<<<<< HEAD
         // CRITICAL FIX: Removed system_instruction.
         // Specialized TTS models like "gemini-2.5-flash-preview-tts" often throw 500 Errors
         // if passed a system_instruction field. They only expect contents with text.
         const payload = {
+=======
+        const payload = {
+            system_instruction: {
+                parts:[{ text: "You are a native Japanese speaker. Read the provided text fluently and naturally in Japanese. Do not translate. Output only the spoken audio." }]
+            },
+>>>>>>> b52bba3bb591b09823f95aab16b10b6ddc2a7935
             contents: [{ parts: [{ text: text }] }],
             generationConfig: {
                 responseModalities: ["AUDIO"],
                 speechConfig: {
                     voiceConfig: {
                         prebuiltVoiceConfig: {
+<<<<<<< HEAD
                             voiceName: "Aoede" // Other options: "Charon", "Kore", "Fenrir", "Puck"
+=======
+                            voiceName: "Aoede"
+>>>>>>> b52bba3bb591b09823f95aab16b10b6ddc2a7935
                         }
                     }
                 }
