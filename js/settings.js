@@ -16,7 +16,8 @@ export const settings = {
     requestTimeoutSecs: 120,
     trainerExtMode: 'highlight',
     trainerSrsMode: 'use',
-    customPromptParams: 'JLPT N4' // Default language level
+    customPromptParams: 'JLPT N4', // Default language level
+    theme: 'system' // system, light, dark
 };
 
 export const TEXT_MODEL_ORDER =[
@@ -90,8 +91,35 @@ function updateKeyLabels() {
     });
 }
 
+// ─── THEME LOGIC ─────────────────────────────────────────────────────────────
+
+export function applyTheme(themeSetting) {
+    if (themeSetting === 'dark' || 
+       (themeSetting === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+    } else {
+        document.documentElement.removeAttribute('data-theme');
+    }
+}
+
 export function initSettings() {
     loadSettings();
+
+    // Listen for OS theme changes if set to system
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+        if (settings.theme === 'system') applyTheme('system');
+    });
+
+    // Apply immediately on load
+    applyTheme(settings.theme);
+
+    // Live preview when changing the theme dropdown
+    const themeSelect = document.getElementById('setting-theme');
+    if (themeSelect) {
+        themeSelect.addEventListener('change', (e) => {
+            applyTheme(e.target.value);
+        });
+    }
 
     // Wire the "Add Key" button
     const addKeyBtn = document.getElementById('btn-add-api-key');
@@ -126,6 +154,7 @@ export function initSettings() {
             settings.proLevel5 = document.getElementById('setting-pro-level5').checked;
             settings.enableSentenceParsing = document.getElementById('setting-sentence-parsing').checked;
             settings.requestTimeoutSecs = parseInt(document.getElementById('setting-timeout').value) || 120;
+            settings.theme = document.getElementById('setting-theme').value;
             
             // New JLPT/Prompt setting
             settings.customPromptParams = document.getElementById('setting-custom-prompt').value.trim() || 'JLPT N4';
@@ -136,6 +165,7 @@ export function initSettings() {
             if (srsModeEl) settings.trainerSrsMode = srsModeEl.value;
 
             localStorage.setItem('ai_reader_settings', JSON.stringify(settings));
+            applyTheme(settings.theme);
             alert('Settings Saved!');
         });
     }
@@ -162,6 +192,9 @@ function loadSettings() {
         document.getElementById('setting-show-romaji').checked = settings.showRomaji || false;
         document.getElementById('setting-debug-mode').checked = settings.debugMode || false;
         document.getElementById('setting-srs-mode').value = settings.srsMode;
+
+        const themeSelect = document.getElementById('setting-theme');
+        if (themeSelect) themeSelect.value = settings.theme || 'system';
 
         const hlStyle = document.getElementById('setting-highlight-style');
         if (hlStyle) hlStyle.value = settings.textHighlightStyle || 'background';

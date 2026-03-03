@@ -32,7 +32,7 @@
                 <h2>Review</h2>
                 <span id="srs-counter" style="font-size: 14px; color: var(--text-muted);">0 Due</span>
             </header>
-            <div id="srs-content" class="content-scroll flex-center" style="background-color: #eef2f5; position: relative; overflow: hidden;">
+            <div id="srs-content" class="content-scroll flex-center" style="background-color: var(--flashcard-bg); position: relative; overflow: hidden;">
                 <div id="flashcard-container" style="width: 100%; max-width: 350px; position: relative; height: 400px; display: none;">
                     <div id="flashcard" class="flashcard">
                         <div class="flashcard-face flashcard-front flex-center flex-column">
@@ -156,7 +156,15 @@
                 <div class="settings-group">
                     <div class="settings-group-header">
                         <span class="settings-group-icon">📖</span>
-                        <h3>Reader</h3>
+                        <h3>Appearance & Reader</h3>
+                    </div>
+                    <div class="settings-row">
+                        <label class="settings-label" for="setting-theme">Theme</label>
+                        <select id="setting-theme">
+                            <option value="system">System Default</option>
+                            <option value="light">Light</option>
+                            <option value="dark">Dark</option>
+                        </select>
                     </div>
                     <div class="settings-row">
                         <label class="settings-label" for="setting-custom-prompt">Target Level</label>
@@ -342,7 +350,7 @@
                         <button id="btn-pregen">Pre-generate</button>
                     </div>
                 </div>
-                <div style="height:8px; background:#e0e0e0; margin: 0 20px 8px; border-radius:4px; overflow:hidden;">
+                <div style="height:8px; background:var(--border-color); margin: 0 20px 8px; border-radius:4px; overflow:hidden;">
                     <div id="trainer-progress-fill" style="height:100%; background:var(--primary-color); border-radius:4px; width:0%; transition:width 0.3s;"></div>
                 </div>
             </div>
@@ -353,7 +361,7 @@
             <header><h2 id="games-header-title">Mini Games</h2></header>
             <div id="games-list-screen"  class="content-scroll"></div>
             <div id="caro-setup-screen"  class="content-scroll" style="display:none;"></div>
-            <div id="caro-game-screen"   class="content-scroll" style="display:none; background:#eef2f5;"></div>
+            <div id="caro-game-screen"   class="content-scroll" style="display:none; background:var(--flashcard-bg);"></div>
             <div id="caro-stats-screen"  class="content-scroll" style="display:none;"></div>
         </section>
 
@@ -396,7 +404,7 @@
             <button id="close-popup-btn" style="margin-top: 15px;">Close</button>
 
             <!-- Trainer zone (shown only when opened from Trainer tab) -->
-            <div id="popup-trainer-zone" class="hidden" style="background:#eef2f5; padding:10px; margin-top:10px; border-radius:6px;">
+            <div id="popup-trainer-zone" class="hidden" style="background:var(--flashcard-bg); padding:10px; margin-top:10px; border-radius:6px;">
                 <p style="margin:0 0 8px; font-size:14px;">List Rank: #<span id="popup-rank">...</span></p>
                 <button id="btn-trainer-jump" class="primary-btn" style="width:100%; padding:8px;">Jump to this word</button>
             </div>

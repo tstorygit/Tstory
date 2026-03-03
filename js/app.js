@@ -1,4 +1,4 @@
-import { initSettings } from './settings.js';
+import { initSettings, applyTheme, settings } from './settings.js';
 import { initViewer, rerenderCurrentBlock } from './viewer_ui.js';
 import { initSRS } from './srs_ui.js';
 import { initWordManager } from './word_manager.js'; 
@@ -7,6 +7,17 @@ import { initTrainer } from './trainer_ui.js';
 import { initGames } from './games_ui.js';
 
 document.addEventListener('DOMContentLoaded', () => {
+    // 0. Quick-apply theme before heavy initialization to prevent flash of wrong theme
+    const saved = localStorage.getItem('ai_reader_settings');
+    if (saved) {
+        try {
+            const parsed = JSON.parse(saved);
+            if (parsed.theme) applyTheme(parsed.theme);
+        } catch (e) {}
+    } else {
+        applyTheme('system');
+    }
+
     // 1. Initialize Navigation
     const navButtons = document.querySelectorAll('.nav-btn');
     const views = document.querySelectorAll('.view');

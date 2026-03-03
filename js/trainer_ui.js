@@ -144,7 +144,7 @@ function openTrainerWordPopup(wordData) {
     const srsEntry = srsDb.getWord(wordData.base || wordData.surface);
     const currentStatus = srsEntry ? srsEntry.status : 0;
     statusButtons.forEach(btn => {
-        btn.style.border = (parseInt(btn.getAttribute('data-status')) === currentStatus) ? '3px solid #333' : 'none';
+        btn.style.border = (parseInt(btn.getAttribute('data-status')) === currentStatus) ? '3px solid var(--text-main)' : 'none';
     });
 
     // Trainer zone
@@ -221,7 +221,7 @@ function renderStateA(content, wordObj, rank) {
             <div style="height: 240px; display: flex; flex-direction: column; justify-content: center; align-items: center; border-bottom: 1px solid var(--border-color); margin-bottom: 20px;">
                 <div style="height: 20px; font-size: 14px; color: var(--text-muted); margin-bottom: 8px;">Word #${rank}</div>
                 <div style="height: 70px; display: flex; align-items: center; justify-content: center;">
-                    <div style="font-size: 56px; font-weight: bold; line-height: 1;">${wordObj.word}</div>
+                    <div style="font-size: 56px; font-weight: bold; line-height: 1; color: var(--text-main);">${wordObj.word}</div>
                 </div>
                 <div style="height: 28px; font-size: 20px; color: var(--text-muted); margin-bottom: 12px; display: flex; align-items: center; justify-content: center;">
                     ${wordObj.furi || ''}
@@ -271,7 +271,7 @@ function renderStateA(content, wordObj, rank) {
             renderTrainer();
         } catch (e) {
             hideTrainerLoading();
-            content.innerHTML += `<p style="color:red; padding:20px;">Error: ${e.message}</p>`;
+            content.innerHTML += `<p style="color:var(--status-0); padding:20px;">Error: ${e.message}</p>`;
         }
     });
 
@@ -346,10 +346,10 @@ function renderStateB(content, block, rank, total) {
 
         html += `
             <div class="trainer-sentence-card">
-                <div style="font-size: 20px; line-height: 2.4; margin-bottom: 8px;">${tokensHtml}
+                <div style="font-size: 20px; line-height: 2.4; margin-bottom: 8px; color: var(--text-main);">${tokensHtml}
                     <button class="btn-sentence-trans" title="Übersetzung anzeigen" style="margin-left:5px; background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px; line-height:1; display:inline-flex; align-items:center;">${EYE_ICON}</button>
                 </div>
-                <div class="sentence-translation-box hidden" style="display:none; font-size:14px; color:var(--text-muted); background:#f0f0f0; padding:8px; border-radius:4px; margin-top:4px;">${transEscaped}</div>
+                <div class="sentence-translation-box hidden" style="display:none; font-size:14px; color:var(--text-muted); background:var(--trans-box-bg); padding:8px; border-radius:4px; margin-top:4px;">${transEscaped}</div>
             </div>
         `;
     });
@@ -357,23 +357,23 @@ function renderStateB(content, block, rank, total) {
     // Navigation
     const nextWordObj = rank < total ? trainerMgr.getWordByRank(rank + 1) : null;
 
-    const srsBtns =[0,1,2,3,4,5].map(i =>
+    const srsBtns = [0,1,2,3,4,5].map(i =>
         `<button class="status-btn btn-trainer-srs" data-srs="${i}" data-status="${i}">${i}</button>`
     ).join('');
 
     html += `<div style="display:flex; gap:10px; margin-top:14px; align-items:center;">`;
     html += rank > 1
-        ? `<button id="btn-trainer-prev" style="padding:10px 18px; border-radius:6px; background:none; border:1px solid var(--border-color); color:var(--text-muted); cursor:pointer; font-size:13px; white-space:nowrap; flex-shrink:0;">← Zurück</button>`
+        ? `<button id="btn-trainer-prev" style="padding:10px 18px; border-radius:6px; background:var(--surface-color); border:1px solid var(--border-color); color:var(--text-muted); cursor:pointer; font-size:13px; white-space:nowrap; flex-shrink:0;">← Zurück</button>`
         : `<span style="flex-shrink:0;"></span>`;
     html += `<div class="status-buttons" style="flex:1; margin:0; justify-content:center; gap:8px;">${srsBtns}</div>`;
     html += rank < total
-        ? `<button id="btn-trainer-next" style="padding:10px 18px; border-radius:6px; background:none; border:1px solid var(--border-color); color:var(--text-muted); cursor:pointer; font-size:13px; white-space:nowrap; flex-shrink:0;">Überspringen →</button>`
+        ? `<button id="btn-trainer-next" style="padding:10px 18px; border-radius:6px; background:var(--surface-color); border:1px solid var(--border-color); color:var(--text-muted); cursor:pointer; font-size:13px; white-space:nowrap; flex-shrink:0;">Überspringen →</button>`
         : `<span style="font-size:14px; color:var(--text-muted); flex-shrink:0;">🎉 All done!</span>`;
     html += `</div>`;
 
     // Regenerate
     html += `<div style="text-align:center; margin-top:20px;">
-        <button id="btn-trainer-regen" style="background:none; border:1px solid var(--text-muted); color:var(--text-muted); padding:8px 15px; border-radius:6px; cursor:pointer;">🔁 Regenerate</button>
+        <button id="btn-trainer-regen" style="background:var(--surface-color); border:1px solid var(--border-color); color:var(--text-muted); padding:8px 15px; border-radius:6px; cursor:pointer;">🔁 Regenerate</button>
     </div>`;
 
     // Close the wrapper div
@@ -471,7 +471,7 @@ function renderTrainerWordHtml(token, useBg, extMode, targetWord = null) {
     const isTarget = targetWord && (
         token.surface === targetWord ||
         token.base    === targetWord ||
-        token.surface === (token.base || '') && token.surface === targetWord
+        (token.surface === (token.base || '') && token.surface === targetWord)
     );
 
     const srsEntry = srsDb.getWord(token.base || token.surface);
@@ -482,7 +482,11 @@ function renderTrainerWordHtml(token, useBg, extMode, targetWord = null) {
     
     const statusClass = isTarget ? '' : (isPro5 ? '' : (useBg ? `status-${status}-bg word-tag` : `status-${status}-text`));
     const wordDataStr = encodeURIComponent(JSON.stringify(token));
-    const styleExtras = useBg && !isTarget ? '' : 'border-bottom:none;';
+    
+    let styleExtras = '';
+    if (!useBg && !isTarget && !isPro5) {
+        styleExtras = 'border-bottom:1px dashed var(--border-color);';
+    }
 
     const isExt = token.isExternal === true;
 
@@ -594,10 +598,10 @@ function showTrainerLoading(step, text) {
         trainerLoadingOverlay = document.createElement('div');
         trainerLoadingOverlay.id = 'trainer-loading-overlay';
         trainerLoadingOverlay.innerHTML = `
-            <div style="background: rgba(255,255,255,0.95); position: fixed; top:0; left:0; right:0; bottom:0; z-index: 2000; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; text-align: center;">
-                <div style="width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid var(--primary-color); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px;"></div>
+            <div style="background: var(--overlay-bg); position: fixed; top:0; left:0; right:0; bottom:0; z-index: 2000; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; text-align: center;">
+                <div style="width: 40px; height: 40px; border: 4px solid var(--border-color); border-top: 4px solid var(--primary-color); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px;"></div>
                 <h3 id="trainer-loading-text" style="color: var(--text-main); margin-bottom: 15px;">${text}</h3>
-                <div style="width: 80%; background: #e0e0e0; border-radius: 10px; height: 10px; overflow: hidden;">
+                <div style="width: 80%; background: var(--border-color); border-radius: 10px; height: 10px; overflow: hidden;">
                     <div id="trainer-loading-fill" style="width: 0%; height: 100%; background: var(--primary-color); transition: width 0.3s ease;"></div>
                 </div>
             </div>`;

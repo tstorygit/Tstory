@@ -78,17 +78,17 @@ function renderLibrary() {
     createContainer.style.padding = '20px';
     createContainer.style.background = 'var(--surface-color)';
     createContainer.style.borderRadius = '8px';
-    createContainer.style.boxShadow = '0 2px 5px rgba(0,0,0,0.05)';
+    createContainer.style.boxShadow = '0 2px 5px var(--shadow-light)';
 
     createContainer.innerHTML = `
         <h3 style="margin-bottom: 10px; color: var(--primary-color);">Create New Story</h3>
-        <textarea id="new-story-theme" rows="2" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); margin-bottom: 10px;" placeholder="e.g. My cat Chi goes to space..."></textarea>
+        <textarea id="new-story-theme" rows="2" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); margin-bottom: 10px; background: var(--bg-color); color: var(--text-main);" placeholder="e.g. My cat Chi goes to space..."></textarea>
         <button id="btn-create-story" class="primary-btn" style="margin-bottom: 20px;">Generate</button>
 
         <div style="border-top: 1px solid var(--border-color); margin-bottom: 20px;"></div>
 
         <h3 style="margin-bottom: 10px; color: #9c27b0;">Import Raw Text or Photo</h3>
-        <textarea id="import-raw-text" rows="3" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); margin-bottom: 10px;" placeholder="Paste Japanese text here..."></textarea>
+        <textarea id="import-raw-text" rows="3" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); margin-bottom: 10px; background: var(--bg-color); color: var(--text-main);" placeholder="Paste Japanese text here..."></textarea>
         <div style="display: flex; gap: 10px;">
             <button id="btn-import-story" class="primary-btn" style="flex: 1; background-color: #9c27b0;">Analyze Text</button>
             <label for="import-photo-upload" class="primary-btn" style="width: auto; background-color: #7b1fa2; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0 20px;" title="Scan Photo">
@@ -300,7 +300,7 @@ function renderWordHtml(wordObj, useBgHighlight) {
     
     const statusClass = isPro5 ? '' : (useBgHighlight ? `status-${status}-bg word-tag` : `status-${status}-text`);
     const wordDataStr = encodeURIComponent(JSON.stringify(wordObj));
-    const styleExtras = (useBgHighlight || isPro5) ? '' : 'border-bottom:1px dashed #ccc;';
+    const styleExtras = (useBgHighlight || isPro5) ? '' : 'border-bottom:1px dashed var(--border-color);';
 
     const showFuri = !isPro5 && settings.showFurigana && wordObj.furi;
     const showRoma = !isPro5 && settings.showRomaji && wordObj.roma;
@@ -343,12 +343,12 @@ function renderBlock(index) {
 
     // INLINE PROCESSING INDICATOR
     if (block.isProcessing) {
-        html += `<div id="inline-processing-indicator" style="background: var(--surface-color); padding: 15px; border-bottom: 1px solid var(--border-color); margin-bottom: 20px; border-radius:8px; border:1px solid #eee;">
+        html += `<div id="inline-processing-indicator" style="background: var(--surface-color); padding: 15px; margin-bottom: 20px; border-radius:8px; border:1px solid var(--border-color);">
                     <div style="display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 8px;">
-                         <div class="spinner" style="width: 16px; height: 16px; border: 2px solid #ccc; border-top: 2px solid var(--primary-color); border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                         <div class="spinner" style="width: 16px; height: 16px; border: 2px solid var(--border-color); border-top: 2px solid var(--primary-color); border-radius: 50%; animation: spin 1s linear infinite;"></div>
                          <span id="inline-loading-text" style="font-size: 14px; color: var(--primary-color); font-weight: 500;">Analyzing text...</span>
                     </div>
-                    <div style="width: 100%; background: #e0e0e0; border-radius: 4px; height: 4px; overflow: hidden;">
+                    <div style="width: 100%; background: var(--border-color); border-radius: 4px; height: 4px; overflow: hidden;">
                         <div id="inline-loading-bar" style="width: 0%; height: 100%; background: var(--primary-color); transition: width 0.3s ease;"></div>
                     </div>
                  </div>`;
@@ -356,7 +356,7 @@ function renderBlock(index) {
 
     // IMAGE
     if (block.imageUrl) {
-        html += `<div class="manga-image-container" style="margin-bottom: 20px; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+        html += `<div class="manga-image-container" style="margin-bottom: 20px; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px var(--shadow-medium);">
                     <img src="${block.imageUrl}" alt="Manga Panel" style="width: 100%; display: block;">
                  </div>`;
     }
@@ -381,7 +381,7 @@ function renderBlock(index) {
             if (accumulated.replace(/\s/g, '').includes(target)) {
                 const transText = sentences[sentenceIndex].en.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
                 html += `<button class="btn-sentence-trans" data-trans="${transText}" title="Übersetzung anzeigen" style="margin-left:5px; background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px; line-height:1; display:inline-flex; align-items:center;">${EYE_ICON}</button>
-                         <div class="sentence-translation-box hidden" style="font-size: 14px; color: var(--text-muted); background: #f0f0f0; padding: 8px; border-radius: 4px; margin-top: 5px; margin-bottom: 10px;">${transText}</div>`;
+                         <div class="sentence-translation-box hidden" style="font-size: 14px; color: var(--text-muted); background: var(--trans-box-bg); padding: 8px; border-radius: 4px; margin-top: 5px; margin-bottom: 10px;">${transText}</div>`;
                 if (useNewLines) html += `<br><br>`;
                 const endPos = accumulated.replace(/\s/g, '').indexOf(target) + target.length;
                 accumulated = accumulated.replace(/\s/g, '').slice(endPos);
@@ -393,7 +393,7 @@ function renderBlock(index) {
     while (sentenceIndex < sentences.length) {
         const transText = sentences[sentenceIndex].en.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
         html += `<button class="btn-sentence-trans" data-trans="${transText}" title="Übersetzung anzeigen" style="margin-left:5px; background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px; line-height:1; display:inline-flex; align-items:center;">${EYE_ICON}</button>
-                 <div class="sentence-translation-box hidden" style="font-size: 14px; color: var(--text-muted); background: #f0f0f0; padding: 8px; border-radius: 4px; margin-top: 5px; margin-bottom: 10px;">${transText}</div>`;
+                 <div class="sentence-translation-box hidden" style="font-size: 14px; color: var(--text-muted); background: var(--trans-box-bg); padding: 8px; border-radius: 4px; margin-top: 5px; margin-bottom: 10px;">${transText}</div>`;
         sentenceIndex++;
     }
     html += `</div>`;
@@ -455,7 +455,7 @@ function renderBlock(index) {
                                 <strong>${optLetter}:</strong> ${optEnrichedHtml}
                                 ${optEnglishGloss ? `<button class="btn-sentence-trans" data-trans="${optEnglishGloss.replace(/'/g, '&#39;').replace(/"/g, '&quot;')}" title="Übersetzung anzeigen" style="margin-left:5px; background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px; line-height:1; display:inline-flex; align-items:center;">${EYE_ICON}</button>` : ''}
                             </div>
-                            ${optEnglishGloss ? `<div id="${optTransId}" class="sentence-translation-box hidden" style="font-size:13px; color:var(--text-muted); background:#f0f0f0; padding:6px 8px; border-radius:4px; margin-top:2px;">${optEnglishGloss}</div>` : ''}
+                            ${optEnglishGloss ? `<div id="${optTransId}" class="sentence-translation-box hidden" style="font-size:13px; color:var(--text-muted); background:var(--trans-box-bg); padding:6px 8px; border-radius:4px; margin-top:2px;">${optEnglishGloss}</div>` : ''}
                         </div>
                         <button class="option-go-btn primary-btn" data-option="${optLetter}: ${optTextRaw}" style="width: auto; padding: 10px 20px; ${disabledStyle}" ${disabledProp}>Choose</button>
                     </div>
@@ -466,14 +466,14 @@ function renderBlock(index) {
                 <div style="margin-top: 10px; border-top: 1px dashed var(--border-color); padding-top: 15px;">
                     <label style="font-size: 14px; color: var(--text-muted); margin-bottom: 5px; display:block;">Or perform a custom action:</label>
                     <div style="display: flex; gap: 5px;">
-                        <input type="text" id="custom-option-input" placeholder="e.g. Chi decides to take a nap." style="flex:1; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px;" ${disabledProp}>
+                        <input type="text" id="custom-option-input" placeholder="e.g. Chi decides to take a nap." style="flex:1; padding: 10px; border: 1px solid var(--border-color); background: var(--bg-color); color: var(--text-main); border-radius: 6px;" ${disabledProp}>
                         <button id="btn-custom-go" class="primary-btn" style="width: auto; ${disabledStyle}" ${disabledProp}>Go</button>
                     </div>
                 </div>
             </div>`;
         }
     } else if (block.selectedOption) {
-        html += `<div class="past-choice" style="background: #e8f4fd; padding: 15px; border-radius: 8px; text-align: center; color: var(--primary-color); font-weight: bold; margin-bottom: 30px;">
+        html += `<div class="past-choice" style="background: var(--past-choice-bg); padding: 15px; border-radius: 8px; text-align: center; color: var(--primary-color); font-weight: bold; margin-bottom: 30px;">
                     You chose: ${block.selectedOption}
                  </div>`;
     }
@@ -647,7 +647,7 @@ function openWordPopup(wordData) {
     const currentStatus = srsEntry ? srsEntry.status : 0;
     
     statusButtons.forEach(btn => {
-        btn.style.border = (parseInt(btn.getAttribute('data-status')) === currentStatus) ? '3px solid #333' : 'none';
+        btn.style.border = (parseInt(btn.getAttribute('data-status')) === currentStatus) ? '3px solid var(--text-main)' : 'none';
     });
     popupOverlay.classList.remove('hidden');
 }
@@ -677,10 +677,10 @@ function showLoading(stepNum, text) {
         loadingOverlay = document.createElement('div');
         loadingOverlay.id = 'loading-overlay';
         loadingOverlay.innerHTML = `
-            <div style="background: rgba(255,255,255,0.95); position: absolute; top:0; left:0; right:0; bottom:0; z-index: 2000; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; text-align: center;">
-                <div class="spinner" style="width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid var(--primary-color); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px;"></div>
+            <div style="background: var(--overlay-bg); position: absolute; top:0; left:0; right:0; bottom:0; z-index: 2000; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; text-align: center;">
+                <div class="spinner" style="width: 40px; height: 40px; border: 4px solid var(--border-color); border-top: 4px solid var(--primary-color); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px;"></div>
                 <h3 id="loading-text" style="color: var(--text-main); margin-bottom: 15px;">${text}</h3>
-                <div style="width: 80%; background: #e0e0e0; border-radius: 10px; height: 10px; overflow: hidden;">
+                <div style="width: 80%; background: var(--border-color); border-radius: 10px; height: 10px; overflow: hidden;">
                     <div id="loading-bar-fill" style="width: 0%; height: 100%; background: var(--primary-color); transition: width 0.3s ease;"></div>
                 </div>
             </div>
