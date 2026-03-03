@@ -34,23 +34,23 @@
 
 /* Dark Mode Overrides (High Contrast) */
 :root[data-theme="dark"] {
-    --bg-color: #0d0d0d;          /* Deep, near-black background */
-    --surface-color: #242424;     /* Distinct lighter gray for cards/panels */
-    --flashcard-bg: #2d2d2d;      /* Even lighter for embedded UI boxes */
+    --bg-color: #000000;          /* Pure black for high contrast base */
+    --surface-color: #1a1a1a;     /* Very dark gray for main cards */
+    --flashcard-bg: #2d2d2d;      /* Lighter gray for internal boxes/trainer zone */
     
     --text-main: #f0f0f0;
     --text-muted: #a0a0a0;
-    --border-color: #404040;
+    --border-color: #333333;
     
-    --trans-box-bg: #333333;
+    --trans-box-bg: #333333;      /* Distinct from surface */
     --past-choice-bg: #1c2c3c;
     --overlay-bg: rgba(13, 13, 13, 0.95);
     --warning-bg: #3b3624;
     --warning-border: #d4a017;
     
     --shadow-color: rgba(0, 0, 0, 0.9);
-    --shadow-light: rgba(0, 0, 0, 0.5);
-    --shadow-medium: rgba(0, 0, 0, 0.7);
+    --shadow-light: rgba(255, 255, 255, 0.05); /* Slight white glow for separation */
+    --shadow-medium: rgba(0, 0, 0, 0.8);
 
     --primary-color: #6bb0ff;
     --primary-hover: #5da0e8;
@@ -877,6 +877,10 @@ select, textarea {
         trainerRainbow 2.8s linear   infinite,
         trainerBounce  1.4s ease-in-out infinite;
     font-weight: bold;
+    /* FIX FOR CHROME JITTER: Forces GPU layer so scale doesn't impact layout flow */
+    will-change: transform;
+    transform: translateZ(0);
+    backface-visibility: hidden;
 }
 
 /* Container for inline (sentence) target word occurrences */
