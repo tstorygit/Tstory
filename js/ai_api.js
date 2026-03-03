@@ -14,7 +14,7 @@ function setActiveKeyIndex(idx) {
 
 /** Returns the ordered array of non-empty API keys from settings. */
 export function getKeyList() {
-    const keys = (settings.textApiKeys || []).map(k => k.trim()).filter(Boolean);
+    const keys = (settings.textApiKeys ||[]).map(k => k.trim()).filter(Boolean);
     // Legacy fallback: single-key setting
     if (keys.length === 0 && settings.textApiKey) keys.push(settings.textApiKey.trim());
     return keys;
@@ -69,7 +69,7 @@ export async function generateText(prompt, systemInstruction = "", expectJson = 
 
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
-            const parts = [];
+            const parts =[];
             if (imageData) {
                 parts.push({
                     inlineData: {
@@ -250,4 +250,82 @@ export async function generateImage(prompt) {
     }
 
     throw new Error(`AI Image Generation failed. Last error: ${lastError?.message}`);
+}
+
+// ─── SPEECH GENERATION (TTS) ─────────────────────────────────────────────────
+
+export async function generateSpeech(text) {
+    const keys = getKeyList();
+    if (keys.length === 0) throw new Error("No API key configured.");
+
+    const modelName = "gemini-2.5-flash";
+    let lastError = null;
+    const startKeyIdx = getActiveKeyIndex() % keys.length;
+
+    for (let ki = 0; ki < keys.length; ki++) {
+        const keyIdx = (startKeyIdx + ki) % keys.length;
+        const apiKey = keys[keyIdx];
+
+        if (settings.debugMode) {
+            console.groupCollapsed(`[${new Date().toLocaleTimeString()}] 🔊 TTS — Key #${keyIdx + 1} · ${modelName}`);
+            console.log("Text:", text);
+            console.groupEnd();
+        }
+
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+        
+        const payload = {
+            system_instruction: {
+                parts:[{ text: "You are a native Japanese speaker. Read the provided text fluently and naturally in Japanese. Do not translate. Output only the spoken audio." }]
+            },
+            contents: [{ parts: [{ text: text }] }],
+            generationConfig: {
+                responseModalities: ["AUDIO"],
+                speechConfig: {
+                    voiceConfig: {
+                        prebuiltVoiceConfig: {
+                            voiceName: "Aoede"
+                        }
+                    }
+                }
+            }
+        };
+
+        const controller = new AbortController();
+        const timeoutMs = (settings.requestTimeoutSecs || 120) * 1000;
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(`Status ${response.status}: ${errorData.error?.message || 'Server error'}`);
+            }
+
+            const data = await response.json();
+
+            if (data.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data) {
+                if (settings.debugMode) console.log(`[${new Date().toLocaleTimeString()}] 🔊 Audio received`);
+                return data.candidates[0].content.parts[0].inlineData.data;
+            } else {
+                throw new Error("Unexpected Audio API response structure.");
+            }
+
+        } catch (error) {
+            clearTimeout(timeoutId);
+            lastError = error;
+            if (settings.debugMode) console.error("TTS Gen Error:", error);
+            if (!settings.useFallback) break;
+        }
+    }
+
+    throw new Error(`AI Speech Generation failed. Last error: ${lastError?.message}`);
 }

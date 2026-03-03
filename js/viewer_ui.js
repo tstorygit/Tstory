@@ -8,12 +8,17 @@ import { speakText, stopSpeech } from './tts_api.js';
 
 const EYE_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
 
+const SPEAKER_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>`;
+
 
 // --- STATE ---
 let currentBlockIndex = 0;
 let activeWordData = null; 
 let isLibraryView = true;
 let isBackgroundProcessing = false;
+
+// Track which sentence-speak button is currently active
+let activeSpeakBtn = null;
 
 // --- DOM ELEMENTS ---
 const storyContentDiv = document.getElementById('story-content');
@@ -316,8 +321,17 @@ function renderWordHtml(wordObj, useBgHighlight) {
     }
 }
 
+// Helper: render inline sentence-level action buttons (eye + speaker)
+function sentenceActionButtons(transText, jaText) {
+    const safeJa = jaText.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+    const speakBtn = `<button class="btn-sentence-speak" data-ja="${safeJa}" title="Read aloud" style="margin-left:3px; background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px; line-height:1; display:inline-flex; align-items:center; opacity:0.7; transition:opacity 0.15s;">${SPEAKER_ICON}</button>`;
+    const eyeBtn = `<button class="btn-sentence-trans" data-trans="${transText}" title="Show translation" style="margin-left:5px; background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px; line-height:1; display:inline-flex; align-items:center;">${EYE_ICON}</button>`;
+    return eyeBtn + speakBtn;
+}
+
 function renderBlock(index) {
     stopSpeech(); // Stop speech when rendering a new block/turning a page
+    activeSpeakBtn = null;
 
     const storyData = storyMgr.getActiveStory();
     if (!storyData || !storyData.blocks[index]) return;
@@ -331,9 +345,15 @@ function renderBlock(index) {
     let html = '';
 
     // HEADER & NAVIGATION
+    // Build the "Read All" text so we can decide if we show the button
+    const isProcessingNow = !!block.isProcessing;
+
     html += `<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">
                 <button id="btn-back-lib" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size: 14px;">&larr; Library</button>
                 <span style="font-size: 14px; font-weight: bold; color: var(--primary-color);">Page ${index + 1} / ${storyData.blocks.length}</span>
+                <button id="btn-read-all" title="Read everything aloud" style="background:none; border:none; cursor:pointer; color:var(--text-muted); padding:4px 8px; border-radius:20px; font-size:12px; display:inline-flex; align-items:center; gap:5px; transition:color 0.2s, background 0.2s; ${isProcessingNow ? 'opacity:0.4; cursor:wait;' : ''}" ${isProcessingNow ? 'disabled' : ''}>
+                    ${SPEAKER_ICON} <span id="read-all-label">Read all</span>
+                </button>
              </div>`;
 
     html += `<div class="block-nav" style="display: flex; justify-content: space-between; margin-bottom: 15px; font-size: 14px;">`;
@@ -380,8 +400,9 @@ function renderBlock(index) {
             const target = sentenceJa[sentenceIndex];
             if (accumulated.replace(/\s/g, '').includes(target)) {
                 const transText = sentences[sentenceIndex].en.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
-                html += `<button class="btn-sentence-trans" data-trans="${transText}" title="Übersetzung anzeigen" style="margin-left:5px; background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px; line-height:1; display:inline-flex; align-items:center;">${EYE_ICON}</button>
-                         <div class="sentence-translation-box hidden" style="font-size: 14px; color: var(--text-muted); background: var(--trans-box-bg); padding: 8px; border-radius: 4px; margin-top: 5px; margin-bottom: 10px;">${transText}</div>`;
+                const jaText = sentences[sentenceIndex].ja;
+                html += sentenceActionButtons(transText, jaText);
+                html += `<div class="sentence-translation-box hidden" style="font-size: 14px; color: var(--text-muted); background: var(--trans-box-bg); padding: 8px; border-radius: 4px; margin-top: 5px; margin-bottom: 10px;">${transText}</div>`;
                 if (useNewLines) html += `<br><br>`;
                 const endPos = accumulated.replace(/\s/g, '').indexOf(target) + target.length;
                 accumulated = accumulated.replace(/\s/g, '').slice(endPos);
@@ -392,19 +413,11 @@ function renderBlock(index) {
 
     while (sentenceIndex < sentences.length) {
         const transText = sentences[sentenceIndex].en.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
-        html += `<button class="btn-sentence-trans" data-trans="${transText}" title="Übersetzung anzeigen" style="margin-left:5px; background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px; line-height:1; display:inline-flex; align-items:center;">${EYE_ICON}</button>
-                 <div class="sentence-translation-box hidden" style="font-size: 14px; color: var(--text-muted); background: var(--trans-box-bg); padding: 8px; border-radius: 4px; margin-top: 5px; margin-bottom: 10px;">${transText}</div>`;
+        const jaText = sentences[sentenceIndex].ja;
+        html += sentenceActionButtons(transText, jaText);
+        html += `<div class="sentence-translation-box hidden" style="font-size: 14px; color: var(--text-muted); background: var(--trans-box-bg); padding: 8px; border-radius: 4px; margin-top: 5px; margin-bottom: 10px;">${transText}</div>`;
         sentenceIndex++;
     }
-    html += `</div>`;
-
-    // AUDIO PLAYER SECTION
-    html += `<div class="audio-player-container" style="margin-bottom: 25px; padding: 15px; background: var(--surface-color); border: 1px solid var(--border-color); border-radius: 8px; display: flex; align-items: center; justify-content: center;">`;
-    
-    html += `<button id="btn-read-aloud" class="primary-btn" style="background-color: #5e35b1; display:flex; align-items:center; justify-content:center; gap:8px; padding: 10px 20px; font-size: 15px; width: 100%; ${block.isProcessing ? 'opacity:0.5; cursor:wait;' : ''}" ${block.isProcessing ? 'disabled' : ''}>
-                <span id="read-aloud-icon" style="font-size:18px;">🔊</span> <span id="read-aloud-text">Read Aloud</span>
-             </button>`;
-    
     html += `</div>`;
 
     // OPTIONS
@@ -448,12 +461,14 @@ function renderBlock(index) {
                 }
 
                 const optTransId = `opt-trans-${optLetter}`;
+                const safeOptRaw = optTextRaw.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
                 html += `
                     <div class="option-row" style="display:flex; align-items:center; gap:10px; background:var(--surface-color); padding:10px; border-radius:8px; border: 2px solid var(--primary-color);">
                         <div style="flex:1;">
                             <div style="font-size:18px; line-height: 2.0;">
                                 <strong>${optLetter}:</strong> ${optEnrichedHtml}
-                                ${optEnglishGloss ? `<button class="btn-sentence-trans" data-trans="${optEnglishGloss.replace(/'/g, '&#39;').replace(/"/g, '&quot;')}" title="Übersetzung anzeigen" style="margin-left:5px; background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px; line-height:1; display:inline-flex; align-items:center;">${EYE_ICON}</button>` : ''}
+                                <button class="btn-sentence-speak" data-ja="${safeOptRaw}" title="Read aloud" style="margin-left:4px; background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px; line-height:1; display:inline-flex; align-items:center; opacity:0.7; transition:opacity 0.15s;">${SPEAKER_ICON}</button>
+                                ${optEnglishGloss ? `<button class="btn-sentence-trans" data-trans="${optEnglishGloss.replace(/'/g, '&#39;').replace(/"/g, '&quot;')}" title="Show translation" style="margin-left:3px; background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px; line-height:1; display:inline-flex; align-items:center;">${EYE_ICON}</button>` : ''}
                             </div>
                             ${optEnglishGloss ? `<div id="${optTransId}" class="sentence-translation-box hidden" style="font-size:13px; color:var(--text-muted); background:var(--trans-box-bg); padding:6px 8px; border-radius:4px; margin-top:2px;">${optEnglishGloss}</div>` : ''}
                         </div>
@@ -488,55 +503,90 @@ function renderBlock(index) {
                  </div>`;
     }
 
-    // Spacer at the bottom to ensure the audio button isn't hidden under Android's nav bar.
+    // Spacer at the bottom
     html += `<div style="height: 80px;"></div>`;
 
     storyContentDiv.innerHTML = html;
 
-    // EVENT LISTENERS
+    // ── EVENT LISTENERS ──────────────────────────────────────────────────────
+
     document.getElementById('btn-back-lib').addEventListener('click', renderLibrary);
     if (document.getElementById('btn-prev-page')) document.getElementById('btn-prev-page').onclick = () => { currentBlockIndex--; renderBlock(currentBlockIndex); };
     if (document.getElementById('btn-next-page')) document.getElementById('btn-next-page').onclick = () => { currentBlockIndex++; renderBlock(currentBlockIndex); };
 
-    // Audio Listen Handler (Web Speech API)
-    const btnReadAloud = document.getElementById('btn-read-aloud');
-    if (btnReadAloud) {
-        btnReadAloud.onclick = () => {
-            const textEl = document.getElementById('read-aloud-text');
-            const iconEl = document.getElementById('read-aloud-icon');
+    // ── "READ ALL" subtle button (story + options) ───────────────────────────
+    const btnReadAll = document.getElementById('btn-read-all');
+    if (btnReadAll) {
+        btnReadAll.onclick = () => {
+            const labelEl = document.getElementById('read-all-label');
 
-            // Use the button text to securely toggle the state
-            if (textEl && textEl.textContent === "Stop Reading") {
+            if (labelEl && labelEl.textContent === 'Stop') {
                 stopSpeech();
-                textEl.textContent = "Read Aloud";
-                iconEl.textContent = "🔊";
+                labelEl.textContent = 'Read all';
+                btnReadAll.style.color = '';
                 return;
             }
 
-            btnReadAloud.disabled = true;
-            if (textEl) textEl.textContent = "Starting...";
+            // Build full text: story + option texts
+            const optionRegex = /\[OPTION ([AB]):\s*(.*?)\]/g;
+            const storyOnly = block.rawJa.replace(/\[OPTION\s+[AB][\s\S]*?\]/gi, '').trim();
+            const optMatches = [...block.rawJa.matchAll(optionRegex)];
+            let fullText = storyOnly;
+            optMatches.forEach(m => { fullText += '　' + m[2]; });
 
-            // Clean the text to ensure options are stripped out
-            let textToSpeak = block.rawJa.replace(/\[OPTION\s+[AB][\s\S]*?\]/gi, '').trim();
+            btnReadAll.style.color = 'var(--primary-color)';
+            if (labelEl) labelEl.textContent = 'Stop';
 
-            speakText(textToSpeak, 
+            speakText(fullText,
+                () => { /* onStart - already updated above */ },
                 () => {
-                    // onStart callback
-                    if (textEl) textEl.textContent = "Stop Reading";
-                    if (iconEl) iconEl.textContent = "⏹️";
-                    btnReadAloud.disabled = false;
-                },
-                () => {
-                    // onEnd / onError callback
-                    if (textEl) textEl.textContent = "Read Aloud";
-                    if (iconEl) iconEl.textContent = "🔊";
-                    btnReadAloud.disabled = false;
+                    if (labelEl) labelEl.textContent = 'Read all';
+                    btnReadAll.style.color = '';
                 }
             );
         };
     }
 
+    // ── Per-sentence speak buttons ───────────────────────────────────────────
     storyContentDiv.addEventListener('click', (e) => {
+        // Sentence speak
+        const speakBtn = e.target.closest('.btn-sentence-speak');
+        if (speakBtn) {
+            e.stopPropagation();
+            const jaText = decodeURIComponent(speakBtn.getAttribute('data-ja') || '').replace(/&#39;/g, "'").replace(/&quot;/g, '"');
+
+            // Toggle: if same button is active, stop
+            if (activeSpeakBtn === speakBtn) {
+                stopSpeech();
+                speakBtn.style.opacity = '0.7';
+                speakBtn.style.color = '';
+                activeSpeakBtn = null;
+                return;
+            }
+
+            // Reset previous active button
+            if (activeSpeakBtn) {
+                activeSpeakBtn.style.opacity = '0.7';
+                activeSpeakBtn.style.color = '';
+                activeSpeakBtn = null;
+            }
+
+            activeSpeakBtn = speakBtn;
+            speakBtn.style.opacity = '1';
+            speakBtn.style.color = 'var(--primary-color)';
+
+            speakText(jaText,
+                () => { /* onStart */ },
+                () => {
+                    speakBtn.style.opacity = '0.7';
+                    speakBtn.style.color = '';
+                    if (activeSpeakBtn === speakBtn) activeSpeakBtn = null;
+                }
+            );
+            return;
+        }
+
+        // Word click
         const wordEl = e.target.closest('.clickable-word');
         if (wordEl) {
             e.stopPropagation();
@@ -700,4 +750,50 @@ function hideLoading() {
 
 function updateProgress(stepNum, description) { 
     showLoading(stepNum, description); 
+}
+
+// ── EXPORTED HELPER: speak a sentence (for use in trainer_ui.js) ─────────────
+/**
+ * Call this from trainer_ui.js to add a speak button next to a sentence.
+ * Returns an HTMLButtonElement ready to be inserted next to the sentence element.
+ *
+ * Usage in trainer_ui.js:
+ *   import { makeSentenceSpeakButton } from './viewer_ui.js';
+ *   const btn = makeSentenceSpeakButton(jaText);
+ *   sentenceEl.appendChild(btn);
+ */
+export function makeSentenceSpeakButton(jaText) {
+    const btn = document.createElement('button');
+    btn.innerHTML = SPEAKER_ICON;
+    btn.title = 'Read aloud';
+    btn.style.cssText = 'background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px 4px; line-height:1; display:inline-flex; align-items:center; opacity:0.7; transition:opacity 0.15s, color 0.15s; vertical-align:middle;';
+
+    let isPlaying = false;
+
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+
+        if (isPlaying) {
+            stopSpeech();
+            isPlaying = false;
+            btn.style.opacity = '0.7';
+            btn.style.color = '';
+            return;
+        }
+
+        isPlaying = true;
+        btn.style.opacity = '1';
+        btn.style.color = 'var(--primary-color)';
+
+        speakText(jaText,
+            () => { /* onStart */ },
+            () => {
+                isPlaying = false;
+                btn.style.opacity = '0.7';
+                btn.style.color = '';
+            }
+        );
+    });
+
+    return btn;
 }
