@@ -217,17 +217,20 @@ function renderStateA(content, wordObj, rank) {
 
     content.innerHTML = `
         <div style="max-width: 800px; margin: 0 auto;">
-            <!-- Top Area: Rigid 240px Height Container to prevent layout shift entirely -->
+            <!-- Top Area: Rigid Height Container to prevent layout shift entirely -->
             <div style="height: 240px; display: flex; flex-direction: column; justify-content: center; align-items: center; border-bottom: 1px solid var(--border-color); margin-bottom: 20px;">
-                <div style="height: 20px; font-size: 14px; color: var(--text-muted); margin-bottom: 8px;">Word #${rank}</div>
-                <div style="height: 70px; display: flex; align-items: center; justify-content: center;">
-                    <div style="font-size: 56px; font-weight: bold; line-height: 1; color: var(--text-main);">${wordObj.word}</div>
+                <div style="height: 20px; font-size: 14px; color: var(--text-muted); margin-bottom: 8px; flex-shrink: 0;">Word #${rank}</div>
+                
+                <!-- Fixed height word container with ellipsis logic -->
+                <div style="height: 70px; width: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0;">
+                    <div class="trainer-word-clamp" style="font-size: 56px; font-weight: bold; line-height: 1.1; color: var(--text-main); text-align: center;">${wordObj.word}</div>
                 </div>
-                <div style="height: 28px; font-size: 20px; color: var(--text-muted); margin-bottom: 12px; display: flex; align-items: center; justify-content: center;">
+                
+                <div style="height: 28px; font-size: 20px; color: var(--text-muted); margin-bottom: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                     ${wordObj.furi || ''}
                 </div>
                 
-                <div style="height: 40px; display: flex; align-items: center; justify-content: center; width: 100%;">
+                <div style="height: 40px; display: flex; align-items: center; justify-content: center; width: 100%; flex-shrink: 0;">
                     <button id="btn-reveal-trans" style="background:none; border:1px dashed var(--border-color); color:var(--text-muted); padding:6px 16px; border-radius:20px; cursor:pointer; font-size:14px;">${EYE_ICON} Bedeutung anzeigen</button>
                     <div id="trans-spoiler" style="display:none; font-size:16px; color:var(--primary-color); text-align: center; padding: 0 10px;">${wordObj.trans || ''}</div>
                 </div>
@@ -316,14 +319,18 @@ function renderStateB(content, block, rank, total) {
         <div style="max-width: 800px; margin: 0 auto;">
             <!-- Top Area: Rigid 240px Height Container -->
             <div style="height: 240px; display: flex; flex-direction: column; justify-content: center; align-items: center; border-bottom: 1px solid var(--border-color); margin-bottom: 20px;">
-                <div style="height: 20px; font-size: 13px; color: var(--text-muted); margin-bottom: 8px;">Word #${rank}</div>
-                <div style="height: 70px; display: flex; align-items: center; justify-content: center;">
-                    <div class="target-word-rainbow-lg" style="font-size: 56px; font-weight: bold; line-height: 1;">${rainbowChars(tw.word)}</div>
+                <div style="height: 20px; font-size: 13px; color: var(--text-muted); margin-bottom: 8px; flex-shrink: 0;">Word #${rank}</div>
+                
+                <!-- Fixed height word container with ellipsis logic -->
+                <div style="height: 70px; width: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0;">
+                    <div class="target-word-rainbow-lg trainer-word-clamp" style="font-size: 56px; font-weight: bold; line-height: 1.1; text-align: center;">${rainbowChars(tw.word)}</div>
                 </div>
-                <div style="height: 28px; font-size: 20px; color: var(--text-muted); margin-bottom: 12px; display: flex; align-items: center; justify-content: center;">
+                
+                <div style="height: 28px; font-size: 20px; color: var(--text-muted); margin-bottom: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                     ${tw.furi || ''}
                 </div>
-                <div style="height: 40px; font-size: 16px; color: var(--primary-color); display: flex; align-items: center; justify-content: center; text-align: center; padding: 0 10px;">
+                
+                <div style="height: 40px; font-size: 16px; color: var(--primary-color); display: flex; align-items: center; justify-content: center; text-align: center; padding: 0 10px; flex-shrink: 0;">
                     ${tw.trans || ''}
                 </div>
             </div>

@@ -8,7 +8,7 @@
     --primary-hover: #357ABD;
     --border-color: #e0e0e0;
     
-    /* New UI Element Colors */
+    /* UI Element Colors */
     --trans-box-bg: #f0f0f0;
     --past-choice-bg: #e8f4fd;
     --overlay-bg: rgba(255, 255, 255, 0.95);
@@ -32,26 +32,28 @@
     --nav-height: 60px;
 }
 
-/* Dark Mode Overrides (Using :root for highest specificity) */
+/* Dark Mode Overrides (High Contrast) */
 :root[data-theme="dark"] {
-    --bg-color: #121212;
-    --surface-color: #1e1e1e;
-    --text-main: #e0e0e0;
-    --text-muted: #9e9e9e;
-    --border-color: #333333;
+    --bg-color: #0d0d0d;          /* Deep, near-black background */
+    --surface-color: #242424;     /* Distinct lighter gray for cards/panels */
+    --flashcard-bg: #2d2d2d;      /* Even lighter for embedded UI boxes */
     
-    --trans-box-bg: #2a2a2a;
-    --past-choice-bg: #1a2a3a;
-    --overlay-bg: rgba(18, 18, 18, 0.95);
-    --flashcard-bg: #1a1a1a;
-    --warning-bg: #2d2a1f;
-    --warning-border: #b38b00;
-    --shadow-color: rgba(0, 0, 0, 0.5);
-    --shadow-light: rgba(0, 0, 0, 0.2);
-    --shadow-medium: rgba(0, 0, 0, 0.4);
+    --text-main: #f0f0f0;
+    --text-muted: #a0a0a0;
+    --border-color: #404040;
+    
+    --trans-box-bg: #333333;
+    --past-choice-bg: #1c2c3c;
+    --overlay-bg: rgba(13, 13, 13, 0.95);
+    --warning-bg: #3b3624;
+    --warning-border: #d4a017;
+    
+    --shadow-color: rgba(0, 0, 0, 0.9);
+    --shadow-light: rgba(0, 0, 0, 0.5);
+    --shadow-medium: rgba(0, 0, 0, 0.7);
 
-    --primary-color: #5da0e8;
-    --primary-hover: #4a90e2;
+    --primary-color: #6bb0ff;
+    --primary-hover: #5da0e8;
     --status-unknown: #e0e0e0;
 }
 
@@ -500,11 +502,6 @@ select, textarea {
     flex-direction: column;
 }
 
-/*
- * The flashcard element is the 3D stage.
- * JS sets transform directly during drag, so we only apply the flip transition
- * when NOT dragging (JS removes/adds a class for this).
- */
 .flashcard {
     width: 100%;
     height: 100%;
@@ -513,8 +510,6 @@ select, textarea {
     cursor: grab;
     user-select: none;
     -webkit-user-select: none;
-    /* Transition only active when the .flip-animate class is present,
-       preventing it from fighting the drag transform */
 }
 
 .flashcard.flip-animate {
@@ -540,11 +535,9 @@ select, textarea {
     box-shadow: 0 8px 24px var(--shadow-medium);
     padding: 20px;
     text-align: center;
-    /* Faces must not intercept pointer events during drag */
     pointer-events: none;
 }
 
-/* Re-enable pointer events on faces only when not dragging */
 .flashcard:not(.dragging) .flashcard-face {
     pointer-events: auto;
 }
@@ -552,19 +545,6 @@ select, textarea {
 .flashcard-back {
     transform: rotateY(180deg);
 }
-
-/* ── Swipe Exit Animations ──────────────────────────────────────────────
-   These do NOT bake in rotateY — the card wrapper handles both flip state
-   and the swipe exit independently via JS-applied classes.
-   We use a wrapper layer approach: the animation is on the card itself,
-   and because the faces use backface-visibility:hidden, flipping is clean.
- */
-/* ── Swipe Exit Keyframes ──────────────────────────────────────────────
-   6 variants: front/back × right/left/down.
-   Front face starts from rotateY(0deg), back from rotateY(180deg).
-   Back variants INVERT translateX so the card flies in screen-space
-   direction matching the swipe, not the mirrored local axis.
-*/
 
 /* FRONT face exits */
 @keyframes exit-front-right {
@@ -580,7 +560,7 @@ select, textarea {
     100% { transform: rotateY(0deg) translateY(115%); opacity: 0; }
 }
 
-/* BACK face exits — translateX is negated to counteract the mirrored X axis */
+/* BACK face exits */
 @keyframes exit-back-right {
     0%   { transform: rotateY(180deg) translateX(0)     rotate(0deg);   opacity: 1; }
     100% { transform: rotateY(180deg) translateX(-130%) rotate(-18deg); opacity: 0; }
@@ -601,14 +581,6 @@ select, textarea {
 .flashcard.swipe-exit-back-left   { animation: exit-back-left   0.38s cubic-bezier(0.4,0,1,1) forwards; pointer-events: none; }
 .flashcard.swipe-exit-back-down   { animation: exit-back-down   0.32s cubic-bezier(0.4,0,1,1) forwards; pointer-events: none; }
 
-/* ── Swipe Overlay + Hint Labels ────────────────────────────────────────
-   These are injected into flashcard-container (NOT into .flashcard),
-   so they are never subject to the card's rotateY transform.
-   Text is always readable, positions are always screen-correct.
- */
-/* Overlay lives inside each face so it tilts/moves with the card.
-   backface-visibility:hidden on .flashcard-face means only the
-   visible face's overlay ever renders — no mirroring artifacts. */
 .swipe-overlay-face {
     position: absolute;
     inset: 0;
@@ -619,9 +591,6 @@ select, textarea {
     z-index: 2;
 }
 
-/* The back face is rotateY(180deg) so its coordinate space is mirrored.
-   Counter-rotate the overlay so gradient origins stay screen-correct.
-   (We also swap left/right gradient origins in JS for belt-and-suspenders.) */
 .swipe-overlay-back {
     transform: rotateY(180deg);
 }
@@ -674,7 +643,6 @@ select, textarea {
     background-color: var(--shadow-light);
 }
 
-/* Status Dot */
 .vocab-status-dot {
     width: 12px;
     height: 12px;
@@ -683,13 +651,11 @@ select, textarea {
     flex-shrink: 0;
 }
 
-/* Text Container */
 .vocab-info {
     flex: 1;
-    overflow: hidden; /* Prevent long text breaking layout */
+    overflow: hidden; 
 }
 
-/* Top Line: Word + Reading */
 .vocab-main-line {
     display: flex;
     align-items: baseline;
@@ -708,7 +674,6 @@ select, textarea {
     color: var(--text-muted);
 }
 
-/* Bottom Line: Meaning */
 .vocab-trans {
     font-size: 14px;
     color: var(--text-muted);
@@ -926,6 +891,14 @@ select, textarea {
     display: inline-block;
 }
 
+/* Utility to prevent large Japanese words from breaking container heights */
+.trainer-word-clamp {
+    white-space: nowrap;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 0 10px;
+}
 
 
 #trainer-progress-container {
