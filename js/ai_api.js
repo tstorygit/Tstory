@@ -258,7 +258,7 @@ export async function generateSpeech(text) {
     const keys = getKeyList();
     if (keys.length === 0) throw new Error("No API key configured.");
 
-    const modelName = "gemini-2.5-flash";
+    const modelName = "gemini-2.5-flash-preview-tts";
     let lastError = null;
     const startKeyIdx = getActiveKeyIndex() % keys.length;
 
