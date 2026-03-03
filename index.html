@@ -7,7 +7,7 @@
     <!-- The ?v=2 forces the browser to load the new CSS instead of the cached version -->
     <link rel="stylesheet" href="styles.css?v=2">
     
-    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#4A90E2">
     <link rel="manifest" href="manifest.json">
@@ -140,6 +140,11 @@
                     <div class="settings-row">
                         <label class="settings-label" for="setting-timeout">Request Timeout (s)</label>
                         <input type="number" id="setting-timeout" min="10" max="600" value="120" class="settings-input-short">
+                    </div>
+                    <!-- New TTS Cache Limit Setting -->
+                    <div class="settings-row">
+                        <label class="settings-label" for="setting-tts-limit">TTS Cache Limit</label>
+                        <input type="number" id="setting-tts-limit" min="0" max="500" value="50" class="settings-input-short" title="Number of audio clips to store on device">
                     </div>
                     <div class="settings-divider"></div>
                     <label class="settings-toggle">

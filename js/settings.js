@@ -14,6 +14,7 @@ export const settings = {
     enableSentenceParsing: true,
     proLevel5: true,
     requestTimeoutSecs: 120,
+    ttsCacheLimit: 50, // Default cache limit
     trainerExtMode: 'highlight',
     trainerSrsMode: 'use',
     customPromptParams: 'JLPT N4', // Default language level
@@ -154,6 +155,7 @@ export function initSettings() {
             settings.proLevel5 = document.getElementById('setting-pro-level5').checked;
             settings.enableSentenceParsing = document.getElementById('setting-sentence-parsing').checked;
             settings.requestTimeoutSecs = parseInt(document.getElementById('setting-timeout').value) || 120;
+            settings.ttsCacheLimit = parseInt(document.getElementById('setting-tts-limit').value) || 50;
             settings.theme = document.getElementById('setting-theme').value;
             
             // New JLPT/Prompt setting
@@ -215,6 +217,9 @@ function loadSettings() {
 
         const timeout = document.getElementById('setting-timeout');
         if (timeout) timeout.value = settings.requestTimeoutSecs || 120;
+
+        const ttsLimit = document.getElementById('setting-tts-limit');
+        if (ttsLimit) ttsLimit.value = settings.ttsCacheLimit || 50;
 
         const customPrompt = document.getElementById('setting-custom-prompt');
         if (customPrompt) customPrompt.value = settings.customPromptParams || 'JLPT N4';
