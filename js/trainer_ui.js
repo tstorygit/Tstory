@@ -2,14 +2,18 @@ import * as trainerMgr from './trainer_mgr.js';
 import * as srsDb from './srs_db.js';
 import { settings } from './settings.js';
 import { wordList } from '../data/word_list_1000.js'; // Imported to lookup missing ranks
+import { speakText, stopSpeech } from './tts_api.js';
 
 // ─── ICONS ───────────────────────────────────────────────────────────────────
 
 const EYE_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
 
+const SPEAKER_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>`;
+
 // ─── STATE ───────────────────────────────────────────────────────────────────
 
 let pregenAbortController = null;
+let activeSpeakBtn = null;
 
 // ─── INIT ────────────────────────────────────────────────────────────────────
 
@@ -112,6 +116,48 @@ export function initTrainer() {
             }
         });
     }
+
+    // Sentence speak buttons in trainer (delegated)
+    if (trainerContent) {
+        trainerContent.addEventListener('click', (e) => {
+            const speakBtn = e.target.closest('.btn-sentence-speak');
+            if (!speakBtn) return;
+            e.stopPropagation();
+
+            const jaText = decodeURIComponent(speakBtn.getAttribute('data-ja') || '');
+
+            // Toggle logic: if same button, stop
+            if (activeSpeakBtn === speakBtn) {
+                stopSpeech();
+                speakBtn.style.opacity = '0.7';
+                speakBtn.style.color = '';
+                activeSpeakBtn = null;
+                return;
+            }
+
+            // Reset previous button
+            if (activeSpeakBtn) {
+                activeSpeakBtn.style.opacity = '0.7';
+                activeSpeakBtn.style.color = '';
+                activeSpeakBtn = null;
+            }
+
+            // Start new speech
+            activeSpeakBtn = speakBtn;
+            speakBtn.style.opacity = '1';
+            speakBtn.style.color = 'var(--primary-color)';
+
+            speakText(jaText,
+                () => { /* onStart */ },
+                () => {
+                    // onEnd
+                    speakBtn.style.opacity = '0.7';
+                    speakBtn.style.color = '';
+                    if (activeSpeakBtn === speakBtn) activeSpeakBtn = null;
+                }
+            );
+        });
+    }
 }
 
 // ─── POPUP ───────────────────────────────────────────────────────────────────
@@ -177,6 +223,9 @@ function openTrainerWordPopup(wordData) {
 // ─── RENDER ───────────────────────────────────────────────────────────────────
 
 export async function renderTrainer() {
+    stopSpeech(); // Ensure no lingering audio from previous state/word
+    activeSpeakBtn = null;
+
     const rank = trainerMgr.getProgress();
     const total = trainerMgr.getTotalWords();
     const wordObj = trainerMgr.getWordByRank(rank);
@@ -365,10 +414,16 @@ function renderStateB(content, block, rank, total) {
         const tokens = sentenceTokenGroups[idx] ||[];
         const tokensHtml = tokens.map(t => renderTrainerWordHtml(t, useBg, extMode, targetWord)).join('');
         const transEscaped = (sentence.en || '').replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+        
+        // Encode Japanese text for speech button (URI safe)
+        const jaUri = encodeURIComponent(sentence.ja || '');
 
         html += `
             <div class="trainer-sentence-card">
                 <div style="font-size: 20px; line-height: 2.4; margin-bottom: 8px; color: var(--text-main);">${tokensHtml}
+                    <!-- Speak Button -->
+                    <button class="btn-sentence-speak" data-ja="${jaUri}" title="Read aloud" style="margin-left:6px; background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px; line-height:1; display:inline-flex; align-items:center; opacity:0.7; transition:opacity 0.15s;">${SPEAKER_ICON}</button>
+                    <!-- Translation Button -->
                     <button class="btn-sentence-trans" title="Übersetzung anzeigen" style="margin-left:5px; background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px; line-height:1; display:inline-flex; align-items:center;">${EYE_ICON}</button>
                 </div>
                 <div class="sentence-translation-box hidden" style="display:none; font-size:14px; color:var(--text-muted); background:var(--trans-box-bg); padding:8px; border-radius:4px; margin-top:4px;">${transEscaped}</div>
