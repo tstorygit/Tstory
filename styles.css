@@ -870,6 +870,15 @@ select, textarea {
     60%       { transform: translateY(1px)  scale(0.96); }
 }
 
+/* Sentence-inline version: translateY only, NO scale.
+   scale() on inline-block chars in a line box causes Chrome to reflow the
+   entire surrounding line on every animation frame, shifting other words. */
+@keyframes trainerBounceSentence {
+    0%, 100% { transform: translateY(0); }
+    30%       { transform: translateY(-3px); }
+    60%       { transform: translateY(1px); }
+}
+
 /* Each character runs the rainbow + bounce, staggered via inline animation-delay */
 .tw-char {
     display: inline-block;
@@ -877,22 +886,43 @@ select, textarea {
         trainerRainbow 2.8s linear   infinite,
         trainerBounce  1.4s ease-in-out infinite;
     font-weight: bold;
-    /* FIX FOR CHROME JITTER: Forces GPU layer so scale doesn't impact layout flow */
     will-change: transform;
     transform: translateZ(0);
     backface-visibility: hidden;
+    contain: layout style;
 }
 
-/* Container for inline (sentence) target word occurrences */
+/* Sentence-context chars: same rainbow, but bounce without scale to prevent
+   Chrome from reflowing sibling tokens on every animation frame */
+.tw-char-sentence {
+    display: inline-block;
+    animation:
+        trainerRainbow       2.8s linear      infinite,
+        trainerBounceSentence 1.4s ease-in-out infinite;
+    font-weight: bold;
+    will-change: transform;
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    contain: layout style;
+}
+
+/* Container for inline (sentence) target word occurrences.
+   isolation:isolate creates a new stacking context so Chrome's compositor
+   doesn't reflow siblings when children animate. */
 .target-word-rainbow {
     display: inline-block;
     cursor: pointer;
     border-bottom: none !important;
+    isolation: isolate;
+    /* Vertical overflow room so the bounce scale doesn't clip,
+       but importantly does NOT change the line's layout height */
+    overflow: visible;
 }
 
 /* Container for the large header word in State B */
 .target-word-rainbow-lg {
     display: inline-block;
+    isolation: isolate;
 }
 
 /* Utility to prevent large Japanese words from breaking container heights */

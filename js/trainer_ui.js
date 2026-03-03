@@ -476,10 +476,18 @@ function isPunctuation(surface) {
     return PUNCTUATION_RE.test(surface);
 }
 
-// Build staggered per-character spans for the rainbow animation
+// Build staggered per-character spans for the rainbow animation (large header)
 function rainbowChars(text) {
     return[...text].map((ch, i) =>
         `<span class="tw-char" style="animation-delay:${(i * 0.12).toFixed(2)}s">${ch}</span>`
+    ).join('');
+}
+
+// Same rainbow, but uses the sentence-safe class (no scale bounce) to prevent
+// Chrome from reflowing sibling tokens on every animation frame
+function rainbowCharsSentence(text) {
+    return[...text].map((ch, i) =>
+        `<span class="tw-char-sentence" style="animation-delay:${(i * 0.12).toFixed(2)}s">${ch}</span>`
     ).join('');
 }
 
@@ -533,7 +541,7 @@ function renderTrainerWordHtml(token, useBg, extMode, targetWord = null) {
 
     const rainbowClass = isTarget ? 'target-word-rainbow' : '';
     const combinedClass =[statusClass, extClass, rainbowClass].filter(Boolean).join(' ');
-    const innerContent = isTarget ? rainbowChars(surfaceDisplay) : surfaceDisplay;
+    const innerContent = isTarget ? rainbowCharsSentence(surfaceDisplay) : surfaceDisplay;
 
     if (showAnnotation) {
         let rtLines = [];
