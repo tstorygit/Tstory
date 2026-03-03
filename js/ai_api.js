@@ -274,9 +274,7 @@ export async function generateSpeech(text) {
 
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
         
-        // CRITICAL FIX: Removed system_instruction.
-        // Specialized TTS models like "gemini-2.5-flash-preview-tts" often throw 500 Errors
-        // if passed a system_instruction field. They only expect contents with text.
+        // CRITICAL: TTS models do NOT accept system_instruction. Only 'text' content.
         const payload = {
             contents: [{ parts: [{ text: text }] }],
             generationConfig: {
@@ -311,13 +309,24 @@ export async function generateSpeech(text) {
             }
 
             const data = await response.json();
-
+            
+            // Check for valid audio data
             if (data.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data) {
                 if (settings.debugMode) console.log(`[${new Date().toLocaleTimeString()}] 🔊 Audio received`);
                 return data.candidates[0].content.parts[0].inlineData.data;
-            } else {
-                throw new Error("Unexpected Audio API response structure.");
+            } 
+            
+            // Handle cases where the model refuses to generate (e.g., safety filters)
+            if (data.candidates?.[0]?.finishReason) {
+                const reason = data.candidates[0].finishReason;
+                if (settings.debugMode) console.warn(`TTS Finish Reason: ${reason}`);
+                
+                if (reason === 'SAFETY' || reason === 'RECITATION' || reason === 'OTHER') {
+                    throw new Error(`TTS blocked by AI filter (Reason: ${reason}). Try simpler text.`);
+                }
             }
+            
+            throw new Error("Unexpected Audio API response structure (Missing inlineData).");
 
         } catch (error) {
             clearTimeout(timeoutId);

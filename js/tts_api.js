@@ -65,8 +65,18 @@ export async function speakText(text, onStartCallback, onEndCallback) {
         // Prevent playing if the user navigated away or cancelled the operation
         if (speechId !== currentSpeechId) return;
 
+        if (!base64Pcm || base64Pcm.length === 0) {
+            throw new Error("Received empty audio data from API.");
+        }
+
         const pcmBuffer = base64ToArrayBuffer(base64Pcm);
         const pcmBytes = new Uint8Array(pcmBuffer);
+        
+        if (pcmBytes.length === 0) {
+            throw new Error("Audio buffer is empty.");
+        }
+
+        // Convert raw PCM to WAV container
         const wavBytes = pcm16ToWav(pcmBytes, 24000);
         
         const blob = new Blob([wavBytes], { type: 'audio/wav' });
@@ -74,6 +84,9 @@ export async function speakText(text, onStartCallback, onEndCallback) {
         
         activeAudio = new Audio(url);
         
+        // Ensure browser loads it
+        activeAudio.preload = 'auto';
+
         activeAudio.onended = () => {
             URL.revokeObjectURL(url);
             activeAudio = null;
@@ -82,6 +95,9 @@ export async function speakText(text, onStartCallback, onEndCallback) {
 
         activeAudio.onerror = (e) => {
             console.error("Audio playback error:", e);
+            if (activeAudio && activeAudio.error) {
+                console.error(`Media Error Code: ${activeAudio.error.code} - ${activeAudio.error.message}`);
+            }
             URL.revokeObjectURL(url);
             activeAudio = null;
             if (onEndCallback) onEndCallback();
@@ -89,12 +105,24 @@ export async function speakText(text, onStartCallback, onEndCallback) {
 
         if (onStartCallback) onStartCallback();
         
-        await activeAudio.play();
+        // Attempt play. Browsers block autoplay if this async chain took too long since the click,
+        // but typically 1-3 seconds is tolerated if it originated from a click.
+        try {
+            await activeAudio.play();
+        } catch (playError) {
+            console.error("Browser blocked audio play:", playError);
+            if (onEndCallback) onEndCallback();
+        }
 
     } catch (e) {
         console.error("Gemini TTS Error:", e);
         if (speechId === currentSpeechId) {
-            alert("Failed to generate speech. Check API limits or console.");
+            // Only alert if this was a recent user request
+            if (e.message.includes('blocked by AI filter')) {
+                alert(e.message);
+            } else {
+                console.warn("TTS failed silently to prevent spamming alerts during rapid clicks.");
+            }
             if (onEndCallback) onEndCallback();
         }
     }
