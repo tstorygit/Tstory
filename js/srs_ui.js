@@ -2,7 +2,7 @@ import * as srsDb from './srs_db.js';
 import { settings } from './settings.js';
 
 // --- STATE ---
-let reviewQueue = [];
+let reviewQueue =[];
 let currentIndex = 0;
 
 // --- GESTURE STATE ---
@@ -308,7 +308,6 @@ function onPointerDown(e) {
 
     flashcard.classList.remove('flip-animate');
     flashcard.classList.add('dragging');
-    e.preventDefault();
 }
 
 function onPointerMove(e) {

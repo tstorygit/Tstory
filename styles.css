@@ -510,6 +510,8 @@ select, textarea {
     cursor: grab;
     user-select: none;
     -webkit-user-select: none;
+    touch-action: none;
+    -webkit-touch-callout: none;
 }
 
 .flashcard.flip-animate {
