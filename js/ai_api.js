@@ -85,7 +85,7 @@ export async function generateText(prompt, systemInstruction = "", expectJson = 
                 generationConfig: { temperature: 0.3 }
             };
             if (systemInstruction) {
-                payload.system_instruction = { parts:[{ text: systemInstruction }] };
+                payload.system_instruction = { parts: [{ text: systemInstruction }] };
             }
             if (expectJson) {
                 payload.generationConfig.response_mime_type = "application/json";
@@ -258,7 +258,7 @@ export async function generateSpeech(text) {
     const keys = getKeyList();
     if (keys.length === 0) throw new Error("No API key configured.");
 
-    const modelName = "gemini-2.5-flash-tts";
+    const modelName = "gemini-2.5-flash-preview-tts";
     let lastError = null;
     const startKeyIdx = getActiveKeyIndex() % keys.length;
 
@@ -278,7 +278,7 @@ export async function generateSpeech(text) {
             system_instruction: {
                 parts:[{ text: "You are a native Japanese speaker. Read the provided text fluently and naturally in Japanese. Do not translate. Output only the spoken audio." }]
             },
-            contents: [{ parts:[{ text: text }] }],
+            contents: [{ parts: [{ text: text }] }],
             generationConfig: {
                 responseModalities: ["AUDIO"],
                 speechConfig: {
