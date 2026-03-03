@@ -1,6 +1,7 @@
 import * as trainerMgr from './trainer_mgr.js';
 import * as srsDb from './srs_db.js';
 import { settings } from './settings.js';
+import { wordList } from '../data/word_list_1000.js'; // Imported to lookup missing ranks
 
 // ─── ICONS ───────────────────────────────────────────────────────────────────
 
@@ -147,11 +148,19 @@ function openTrainerWordPopup(wordData) {
         btn.style.border = (parseInt(btn.getAttribute('data-status')) === currentStatus) ? '3px solid var(--text-main)' : 'none';
     });
 
-    // Trainer zone
+    // Trainer zone - DYNAMIC RANK LOOKUP
+    let displayRank = wordData.rank;
+    if (displayRank === undefined) {
+        // Fallback: If rank wasn't cached, look it up in the live dictionary right now
+        const baseForm = wordData.base || wordData.surface;
+        const match = wordList.find(w => w.word === baseForm || w.word === wordData.surface);
+        if (match) displayRank = match.rank;
+    }
+
     if (popupTrainerZone) {
-        if (wordData.rank !== undefined) {
-            document.getElementById('popup-rank').textContent = wordData.rank;
-            document.getElementById('btn-trainer-jump').setAttribute('data-target-rank', wordData.rank);
+        if (displayRank !== undefined) {
+            document.getElementById('popup-rank').textContent = displayRank;
+            document.getElementById('btn-trainer-jump').setAttribute('data-target-rank', displayRank);
             popupTrainerZone.classList.remove('hidden');
         } else {
             popupTrainerZone.classList.add('hidden');
@@ -218,21 +227,24 @@ function renderStateA(content, wordObj, rank) {
     content.innerHTML = `
         <div style="max-width: 800px; margin: 0 auto;">
             <!-- Top Area: Rigid Height Container to prevent layout shift entirely -->
-            <div style="height: 240px; display: flex; flex-direction: column; justify-content: center; align-items: center; border-bottom: 1px solid var(--border-color); margin-bottom: 20px;">
-                <div style="height: 20px; font-size: 14px; color: var(--text-muted); margin-bottom: 8px; flex-shrink: 0;">Word #${rank}</div>
+            <div style="height: 240px; min-height: 240px; max-height: 240px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; align-items: center; border-bottom: 1px solid var(--border-color); margin-bottom: 20px; padding-top: 15px; overflow: hidden;">
                 
-                <!-- Fixed height word container with ellipsis logic -->
-                <div style="height: 70px; width: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0;">
-                    <div class="trainer-word-clamp" style="font-size: 56px; font-weight: bold; line-height: 1.1; color: var(--text-main); text-align: center;">${wordObj.word}</div>
+                <div style="height: 20px; min-height: 20px; font-size: 13px; color: var(--text-muted); margin-bottom: 5px; flex-shrink: 0;">Word #${rank}</div>
+                
+                <!-- Fixed height word container with absolute overflow constraints -->
+                <div style="height: 90px; min-height: 90px; width: 100%; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                    <div style="font-size: 56px; font-weight: bold; line-height: 1.2; color: var(--text-main); text-align: center; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; padding: 0 10px;">
+                        ${wordObj.word}
+                    </div>
                 </div>
                 
-                <div style="height: 28px; font-size: 20px; color: var(--text-muted); margin-bottom: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <div style="height: 30px; min-height: 30px; font-size: 20px; color: var(--text-muted); margin-bottom: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; white-space: nowrap; overflow: hidden; max-width: 100%;">
                     ${wordObj.furi || ''}
                 </div>
                 
-                <div style="height: 40px; display: flex; align-items: center; justify-content: center; width: 100%; flex-shrink: 0;">
-                    <button id="btn-reveal-trans" style="background:none; border:1px dashed var(--border-color); color:var(--text-muted); padding:6px 16px; border-radius:20px; cursor:pointer; font-size:14px;">${EYE_ICON} Bedeutung anzeigen</button>
-                    <div id="trans-spoiler" style="display:none; font-size:16px; color:var(--primary-color); text-align: center; padding: 0 10px;">${wordObj.trans || ''}</div>
+                <div style="height: 40px; min-height: 40px; display: flex; align-items: flex-start; justify-content: center; width: 100%; flex-shrink: 0; overflow: hidden;">
+                    <button id="btn-reveal-trans" style="background:none; border:1px dashed var(--border-color); color:var(--text-muted); padding:6px 16px; border-radius:20px; cursor:pointer; font-size:14px; margin-top:2px;">${EYE_ICON} Bedeutung anzeigen</button>
+                    <div id="trans-spoiler" style="display:none; font-size:16px; color:var(--primary-color); text-align: center; padding: 0 10px; line-height: 1.2;">${wordObj.trans || ''}</div>
                 </div>
             </div>
 
@@ -317,20 +329,23 @@ function renderStateB(content, block, rank, total) {
     
     html += `
         <div style="max-width: 800px; margin: 0 auto;">
-            <!-- Top Area: Rigid 240px Height Container -->
-            <div style="height: 240px; display: flex; flex-direction: column; justify-content: center; align-items: center; border-bottom: 1px solid var(--border-color); margin-bottom: 20px;">
-                <div style="height: 20px; font-size: 13px; color: var(--text-muted); margin-bottom: 8px; flex-shrink: 0;">Word #${rank}</div>
+            <!-- Top Area: Rigid Height Container to prevent layout shift entirely -->
+            <div style="height: 240px; min-height: 240px; max-height: 240px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; align-items: center; border-bottom: 1px solid var(--border-color); margin-bottom: 20px; padding-top: 15px; overflow: hidden;">
                 
-                <!-- Fixed height word container with ellipsis logic -->
-                <div style="height: 70px; width: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0;">
-                    <div class="target-word-rainbow-lg trainer-word-clamp" style="font-size: 56px; font-weight: bold; line-height: 1.1; text-align: center;">${rainbowChars(tw.word)}</div>
+                <div style="height: 20px; min-height: 20px; font-size: 13px; color: var(--text-muted); margin-bottom: 5px; flex-shrink: 0;">Word #${rank}</div>
+                
+                <!-- Fixed height word container with absolute overflow constraints -->
+                <div style="height: 90px; min-height: 90px; width: 100%; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                    <div class="target-word-rainbow-lg" style="font-size: 56px; font-weight: bold; line-height: 1.2; text-align: center; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; padding: 0 10px;">
+                        ${rainbowChars(tw.word)}
+                    </div>
                 </div>
                 
-                <div style="height: 28px; font-size: 20px; color: var(--text-muted); margin-bottom: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <div style="height: 30px; min-height: 30px; font-size: 20px; color: var(--text-muted); margin-bottom: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; white-space: nowrap; overflow: hidden; max-width: 100%;">
                     ${tw.furi || ''}
                 </div>
                 
-                <div style="height: 40px; font-size: 16px; color: var(--primary-color); display: flex; align-items: center; justify-content: center; text-align: center; padding: 0 10px; flex-shrink: 0;">
+                <div style="height: 40px; min-height: 40px; font-size: 16px; color: var(--primary-color); display: flex; align-items: flex-start; justify-content: center; text-align: center; padding: 0 10px; flex-shrink: 0; overflow: hidden; width: 100%; line-height: 1.2; padding-top: 2px;">
                     ${tw.trans || ''}
                 </div>
             </div>
@@ -471,7 +486,7 @@ function rainbowChars(text) {
 function renderTrainerWordHtml(token, useBg, extMode, targetWord = null) {
     // Punctuation: render as plain text — no click, no highlight, no furigana
     if (isPunctuation(token.surface)) {
-        return `<span>${token.surface}</span>`;
+        return `<span style="color: var(--text-main);">${token.surface}</span>`;
     }
 
     // Check if this token is the target word (match on surface or base)

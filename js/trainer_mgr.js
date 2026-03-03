@@ -150,9 +150,14 @@ RULES:
     const enrichedTokens = tokens.map(token => {
         const baseForm = token.base || token.surface;
         const match = wordListByWord[baseForm] || wordListByWord[token.surface];
-        if (match && match.rank <= rank) {
-            return { ...token, isExternal: false, rank: match.rank };
+        
+        if (match) {
+            // If the word exists in our 1000 list, ALWAYS attach its rank.
+            // It is only considered "external" (highlighted blue) if its rank is > the current training rank.
+            return { ...token, isExternal: match.rank > rank, rank: match.rank };
         }
+        
+        // If it's completely missing from our 1000 list:
         return { ...token, isExternal: true };
     });
 
