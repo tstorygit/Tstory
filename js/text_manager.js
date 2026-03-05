@@ -4,13 +4,21 @@ import { settings } from './settings.js';
 // --- HELPER FUNCTIONS ---
 
 function cleanAndParseJSON(rawString) {
-    try {
-        let cleaned = rawString.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
-        return JSON.parse(cleaned);
-    } catch (e) {
-        console.error("Failed to parse JSON. Raw string:", rawString);
-        throw new Error("AI returned malformed JSON.");
+    // Strip markdown fences
+    let cleaned = rawString.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+
+    // 1. Try direct parse first (happy path)
+    try { return JSON.parse(cleaned); } catch (_) {}
+
+    // 2. Extract the outermost { ... } block to tolerate trailing garbage
+    const start = cleaned.indexOf('{');
+    const end   = cleaned.lastIndexOf('}');
+    if (start !== -1 && end > start) {
+        try { return JSON.parse(cleaned.slice(start, end + 1)); } catch (_) {}
     }
+
+    console.error("Failed to parse JSON. Raw string:", rawString);
+    throw new Error("AI returned malformed JSON.");
 }
 
 // --- THE PIPELINE ---

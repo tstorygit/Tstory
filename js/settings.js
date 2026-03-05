@@ -1,7 +1,7 @@
 export const settings = {
     textApiKeys:[],       // array of API keys; replaces single textApiKey
     textApiKey: '',        // legacy fallback — kept for compatibility
-    textModel: 'gemini-2.5-pro',
+    textModel: 'gemini-3.1-flash-lite-preview',
     imageModel: 'gemini-3.1-flash-image-preview',
     generateImages: false,
     useFallback: true,
@@ -22,7 +22,7 @@ export const settings = {
 };
 
 export const TEXT_MODEL_ORDER =[
-    "gemini-2.5-pro",
+    "gemini-3.1-flash-lite-preview",
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
     "gemini-2.0-flash",

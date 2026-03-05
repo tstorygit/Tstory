@@ -58,8 +58,9 @@ export function getTotalWords() {
  * @param {number} rank
  * @param {boolean} forceRegenerate - Skip cache and regenerate
  * @param {Function} onProgress - optional progress callback(step, text)
+ * @param {Function} onSentencesReady - fired after step 1 with raw sentences before NLP
  */
-export async function generateTrainerSentences(rank, forceRegenerate = false, onProgress = () => {}) {
+export async function generateTrainerSentences(rank, forceRegenerate = false, onProgress = () => {}, onSentencesReady = null) {
     const data = getTrainerData();
     const key = String(rank);
 
@@ -93,8 +94,24 @@ export async function generateTrainerSentences(rank, forceRegenerate = false, on
         throw new Error('AI returned malformed JSON for trainer sentences.');
     }
 
-    const sentences = parsed.sentences ||[];
+    const sentences = parsed.sentences || [];
     if (sentences.length === 0) throw new Error('AI returned no sentences.');
+
+    // ── Fire early callback so UI can show raw sentences + translations immediately ──
+    if (onSentencesReady) {
+        // Store a partial block in cache so renderTrainer can show something right away
+        const partialBlock = {
+            rank,
+            targetWord: targetWordObj,
+            rawSentences: sentences,
+            enrichedData: { words: [], sentences },
+            isProcessing: true,
+            cachedAt: Date.now()
+        };
+        data[key] = partialBlock;
+        saveTrainerData(data);
+        onSentencesReady(sentences);
+    }
 
     onProgress(3, 'Analyzing vocabulary…');
 
@@ -167,8 +184,9 @@ RULES:
         rawSentences: sentences,
         enrichedData: {
             words: enrichedTokens,
-            sentences: sentences   // keep translations accessible for rendering
+            sentences: sentences
         },
+        isProcessing: false,
         cachedAt: Date.now()
     };
 

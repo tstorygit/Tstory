@@ -45,7 +45,7 @@ export function deleteStory(id) {
     if (activeStoryId === id) activeStoryId = null;
 }
 
-export async function createNewStory(theme, onProgress, onRawTextReady) {
+export async function createNewStory(theme, onProgress, onRawTextReady, onEnrichedReady) {
     const stories = getStoryList();
     
     const newStory = {
@@ -62,10 +62,10 @@ export async function createNewStory(theme, onProgress, onRawTextReady) {
     
     activeStoryId = newStory.id;
 
-    return await generateNextBlock(null, onProgress, onRawTextReady);
+    return await generateNextBlock(null, onProgress, onRawTextReady, onEnrichedReady);
 }
 
-export async function createStoryFromRawText(rawText, onProgress, onRawTextReady, storyType = 'imported') {
+export async function createStoryFromRawText(rawText, onProgress, onRawTextReady, storyType = 'imported', onEnrichedReady = null) {
     const stories = getStoryList();
     const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     let title = lines.length > 0 ? lines[0] : "Imported Text";
@@ -107,7 +107,22 @@ export async function createStoryFromRawText(rawText, onProgress, onRawTextReady
 
     try {
         const enrichedData = await processTextPipeline(rawText, onProgress, true);
-        
+
+        // Stage 2: enriched text ready — update block and notify UI before image
+        {
+            let freshStories = getStoryList();
+            let si = freshStories.findIndex(s => s.id === activeStoryId);
+            if (si !== -1) {
+                freshStories[si].blocks[0] = {
+                    id: tempBlockId, rawJa: rawText,
+                    enrichedData: enrichedData, imageUrl: null,
+                    selectedOption: null, isProcessing: settings.generateImages
+                };
+                saveStoryList(freshStories);
+            }
+        }
+        if (onEnrichedReady) onEnrichedReady();
+
         let imageUrl = null;
         if (settings.generateImages) {
             onProgress(6, "Drawing illustration...");
@@ -142,7 +157,7 @@ export async function createStoryFromRawText(rawText, onProgress, onRawTextReady
     }
 }
 
-export async function createStoryFromImage(base64Data, mimeType, onProgress, onRawTextReady) {
+export async function createStoryFromImage(base64Data, mimeType, onProgress, onRawTextReady, onEnrichedReady = null) {
     onProgress(0, "Reading Japanese text from image...");
     
     // Explicitly command the AI to preserve layout and structural lines
@@ -161,10 +176,10 @@ export async function createStoryFromImage(base64Data, mimeType, onProgress, onR
     
     extractedText = extractedText.replace(/```.*?\n/g, '').replace(/```/g, '').trim();
     
-    return await createStoryFromRawText(extractedText, onProgress, onRawTextReady, 'imported-photo');
+    return await createStoryFromRawText(extractedText, onProgress, onRawTextReady, 'imported-photo', onEnrichedReady);
 }
 
-export async function generateNextBlock(chosenOption, onProgress, onRawTextReady) {
+export async function generateNextBlock(chosenOption, onProgress, onRawTextReady, onEnrichedReady = null) {
     let stories = getStoryList();
     let storyIndex = stories.findIndex(s => s.id === activeStoryId);
     if (storyIndex === -1) throw new Error("Active story not found in storage.");
@@ -263,6 +278,24 @@ STRICT RULES:
     try {
         const enrichedData = await processTextPipeline(cleanRawJa, onProgress, false);
 
+        // Stage 2: enriched text ready — update block and notify UI before image
+        {
+            let freshStories2 = getStoryList();
+            let si2 = freshStories2.findIndex(s => s.id === activeStoryId);
+            if (si2 !== -1) {
+                const bi2 = freshStories2[si2].blocks.findIndex(b => b.id === tempBlockId);
+                if (bi2 !== -1) {
+                    freshStories2[si2].blocks[bi2] = {
+                        id: tempBlockId, rawJa: cleanRawJa,
+                        enrichedData: enrichedData, imageUrl: null,
+                        selectedOption: null, isProcessing: settings.generateImages
+                    };
+                    saveStoryList(freshStories2);
+                }
+            }
+        }
+        if (onEnrichedReady) onEnrichedReady();
+
         let imageUrl = null;
         if (settings.generateImages) {
             onProgress(6, "Drawing the manga panel...");
@@ -317,7 +350,7 @@ STRICT RULES:
     }
 }
 
-export async function regenerateLastBlock(onProgress, onRawTextReady) {
+export async function regenerateLastBlock(onProgress, onRawTextReady, onEnrichedReady = null) {
     const stories = getStoryList();
     const storyIndex = stories.findIndex(s => s.id === activeStoryId);
     if (storyIndex === -1) throw new Error("Active story not found.");
@@ -334,8 +367,21 @@ export async function regenerateLastBlock(onProgress, onRawTextReady) {
 
         try {
             const enrichedData = await processTextPipeline(block.rawJa, onProgress, true);
+
+            // Stage 2: enriched ready — update and notify before image
+            block.enrichedData = enrichedData;
+            block.isProcessing = !!((!block.imageUrl) && settings.generateImages);
+            {
+                let fs = getStoryList();
+                let fsi = fs.findIndex(s => s.id === activeStoryId);
+                if (fsi !== -1) {
+                    fs[fsi].blocks[fs[fsi].blocks.length - 1] = { ...block };
+                    saveStoryList(fs);
+                }
+            }
+            if (onEnrichedReady) onEnrichedReady();
+
             let imageUrl = block.imageUrl;
-            
             if (!imageUrl && settings.generateImages) {
                 onProgress(6, "Drawing illustration...");
                 try {

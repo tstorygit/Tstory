@@ -264,6 +264,17 @@ function getCachedBlock(rank) {
     }
 }
 
+// Compute minimum safe header height from character count + animation math
+// 56px font * 1.1 scale * 1.4 line-height + 3px bounce + label + furi + trans + padding
+function calcHeaderHeight(word, hasFuri) {
+    const wordRowH = Math.ceil(56 * 1.1 * 1.4) + 10; // ~97px incl. bounce room
+    const labelH   = 28;
+    const furiH    = 36; // always reserve furigana row height for consistency
+    const transH   = 44;
+    const padH     = 30;
+    return Math.max(235, wordRowH + labelH + furiH + transH + padH);
+}
+
 function renderStateA(content, wordObj, rank) {
     if (!wordObj) {
         content.innerHTML = `<div class="placeholder-text">No word found at rank ${rank}.</div>`;
@@ -276,13 +287,13 @@ function renderStateA(content, wordObj, rank) {
     content.innerHTML = `
         <div style="max-width: 800px; margin: 0 auto;">
             <!-- Top Area: Rigid Height Container to prevent layout shift entirely -->
-            <div style="height: 240px; min-height: 240px; max-height: 240px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; align-items: center; border-bottom: 1px solid var(--border-color); margin-bottom: 20px; padding-top: 15px; overflow: hidden;">
+            <div style="height: ${calcHeaderHeight(wordObj.word, !!wordObj.furi)}px; min-height: ${calcHeaderHeight(wordObj.word, !!wordObj.furi)}px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; align-items: center; border-bottom: 1px solid var(--border-color); margin-bottom: 20px; padding-top: 15px; overflow: visible;">
                 
                 <div style="height: 20px; min-height: 20px; font-size: 13px; color: var(--text-muted); margin-bottom: 5px; flex-shrink: 0;">Word #${rank}</div>
                 
                 <!-- Fixed height word container with absolute overflow constraints -->
-                <div style="height: 90px; min-height: 90px; width: 100%; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                    <div style="font-size: 56px; font-weight: bold; line-height: 1.2; color: var(--text-main); text-align: center; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; padding: 0 10px;">
+                <div style="min-height: 90px; width: 100%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 4px 0;">
+                    <div style="font-size: 56px; font-weight: bold; line-height: 1.4; color: var(--text-main); text-align: center; padding: 0 10px;">
                         ${wordObj.word}
                     </div>
                 </div>
@@ -330,8 +341,24 @@ function renderStateA(content, wordObj, rank) {
     document.getElementById('btn-generate-sentences').addEventListener('click', async () => {
         showTrainerLoading(1, 'Generating sentences…');
         try {
-            await trainerMgr.generateTrainerSentences(rank, false, (step, text) => showTrainerLoading(step, text));
-            hideTrainerLoading();
+            await trainerMgr.generateTrainerSentences(
+                rank,
+                false,
+                (step, text) => {
+                    // Once sentences are ready (step >= 3), hide the overlay — raw view will show inline spinner
+                    if (step >= 3) {
+                        hideTrainerLoading();
+                    } else {
+                        showTrainerLoading(step, text);
+                    }
+                },
+                (sentences) => {
+                    // Sentences + translations ready — show raw view immediately
+                    hideTrainerLoading();
+                    const wordObj = trainerMgr.getWordByRank(rank);
+                    renderStateB_raw(content, wordObj, rank, sentences);
+                }
+            );
             renderTrainer();
         } catch (e) {
             hideTrainerLoading();
@@ -360,6 +387,65 @@ function renderStateA(content, wordObj, rank) {
     updatePregenBox(rank, false);
 }
 
+// Show raw sentences + translations immediately, with inline NLP spinner
+function renderStateB_raw(content, wordObj, rank, sentences) {
+    if (!wordObj) return;
+    let html = `
+        <div style="max-width: 800px; margin: 0 auto;">
+            <div style="height: ${calcHeaderHeight(wordObj.word, !!wordObj.furi)}px; min-height: ${calcHeaderHeight(wordObj.word, !!wordObj.furi)}px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; align-items: center; border-bottom: 1px solid var(--border-color); margin-bottom: 20px; padding-top: 15px; overflow: visible;">
+                <div style="height: 20px; min-height: 20px; font-size: 13px; color: var(--text-muted); margin-bottom: 5px; flex-shrink: 0;">Word #${rank}</div>
+                <div style="min-height: 90px; width: 100%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 4px 0;">
+                    <div class="target-word-rainbow-lg" style="font-size: 56px; font-weight: bold; line-height: 1.4; text-align: center; padding: 0 10px;">
+                        ${rainbowChars(wordObj.word)}
+                    </div>
+                </div>
+                <div style="height: 30px; min-height: 30px; font-size: 20px; color: var(--text-muted); margin-bottom: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">${wordObj.furi || ''}</div>
+                <div style="height: 40px; font-size: 16px; color: var(--primary-color); text-align: center; padding: 0 10px; line-height: 1.2; padding-top: 2px; display:flex; align-items:flex-start; justify-content:center; flex-shrink:0; overflow:hidden;">${wordObj.trans || ''}</div>
+            </div>
+            <div>
+    `;
+
+    // Inline NLP progress indicator
+    html += `<div id="trainer-nlp-indicator" style="display:flex; align-items:center; gap:10px; padding:10px 0 16px 0; color:var(--primary-color); font-size:14px;">
+        <div style="width:14px; height:14px; border:2px solid var(--border-color); border-top:2px solid var(--primary-color); border-radius:50%; animation:spin 1s linear infinite; flex-shrink:0;"></div>
+        <span>Analyzing vocabulary…</span>
+    </div>`;
+
+    sentences.forEach((sentence, idx) => {
+        const transEscaped = (sentence.en || '').replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+        const uid = `trainer-strans-raw-${idx}`;
+        // Highlight the target word with rainbow animation even in the raw (pre-NLP) view
+        const jaHtml = wordObj.word
+            ? (sentence.ja || '').replace(
+                new RegExp(wordObj.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'),
+                `<span class="target-word-rainbow">${rainbowCharsSentence(wordObj.word)}</span>`
+              )
+            : (sentence.ja || '');
+        html += `
+            <div class="trainer-sentence-card">
+                <div style="font-size: 20px; line-height: 2.0; margin-bottom: 8px; color: var(--text-main);">
+                    ${jaHtml}
+                    <button class="btn-sentence-trans" data-target="${uid}" title="Show translation" style="margin-left:5px; background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px; line-height:1; display:inline-flex; align-items:center;">${EYE_ICON}</button>
+                </div>
+                <div id="${uid}" class="sentence-translation-box" style="display:none; font-size:14px; color:var(--text-muted); background:var(--trans-box-bg); padding:8px; border-radius:4px; margin-top:4px;">${transEscaped}</div>
+            </div>
+        `;
+    });
+
+    html += `</div></div>`;
+    content.innerHTML = html;
+
+    // Wire eye buttons
+    content.querySelectorAll('.btn-sentence-trans').forEach(btn => {
+        btn.onclick = (e) => {
+            const uid = e.currentTarget.getAttribute('data-target');
+            const box = uid ? document.getElementById(uid) : null;
+            if (box) box.style.display = box.style.display === 'none' || !box.style.display ? 'block' : 'none';
+        };
+    });
+}
+
+
 function renderStateB(content, block, rank, total) {
     // Ensure SRS highlight CSS exists even if Story tab was never visited
     if (!document.getElementById('dynamic-srs-styles')) {
@@ -379,13 +465,13 @@ function renderStateB(content, block, rank, total) {
     html += `
         <div style="max-width: 800px; margin: 0 auto;">
             <!-- Top Area: Rigid Height Container to prevent layout shift entirely -->
-            <div style="height: 240px; min-height: 240px; max-height: 240px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; align-items: center; border-bottom: 1px solid var(--border-color); margin-bottom: 20px; padding-top: 15px; overflow: hidden;">
+            <div style="height: ${calcHeaderHeight(tw.word, !!tw.furi)}px; min-height: ${calcHeaderHeight(tw.word, !!tw.furi)}px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; align-items: center; border-bottom: 1px solid var(--border-color); margin-bottom: 20px; padding-top: 15px; overflow: visible;">
                 
                 <div style="height: 20px; min-height: 20px; font-size: 13px; color: var(--text-muted); margin-bottom: 5px; flex-shrink: 0;">Word #${rank}</div>
                 
                 <!-- Fixed height word container with absolute overflow constraints -->
-                <div style="height: 90px; min-height: 90px; width: 100%; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                    <div class="target-word-rainbow-lg" style="font-size: 56px; font-weight: bold; line-height: 1.2; text-align: center; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; padding: 0 10px;">
+                <div style="min-height: 90px; width: 100%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 4px 0;">
+                    <div class="target-word-rainbow-lg" style="font-size: 56px; font-weight: bold; line-height: 1.4; text-align: center; padding: 0 10px;">
                         ${rainbowChars(tw.word)}
                     </div>
                 </div>
@@ -483,8 +569,15 @@ function renderStateB(content, block, rank, total) {
         trainerMgr.clearCacheForRank(rank);
         showTrainerLoading(1, 'Regenerating…');
         try {
-            await trainerMgr.generateTrainerSentences(rank, true, (step, text) => showTrainerLoading(step, text));
-            hideTrainerLoading();
+            await trainerMgr.generateTrainerSentences(
+                rank, true,
+                (step, text) => { if (step >= 3) hideTrainerLoading(); else showTrainerLoading(step, text); },
+                (sentences) => {
+                    hideTrainerLoading();
+                    const wordObj = trainerMgr.getWordByRank(rank);
+                    renderStateB_raw(content, wordObj, rank, sentences);
+                }
+            );
             renderTrainer();
         } catch (e) {
             hideTrainerLoading();

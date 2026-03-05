@@ -152,8 +152,12 @@ export async function generateText(prompt, systemInstruction = "", expectJson = 
                     }
                 }
 
-                // Timeouts: don't sticky-advance model index so next top-level call retries same model
-                if (!isTimeout) setModelIndex(keyIdx, mi + 1);
+                // Network errors (offline, DNS failure): don't advance model — the issue
+                // is connectivity, not the model. Rotating would leave a worse model
+                // selected permanently after reconnecting.
+                const isNetworkError = error instanceof TypeError && error.message.includes('fetch');
+
+                if (!isTimeout && !isNetworkError) setModelIndex(keyIdx, mi + 1);
 
                 lastError = error;
                 if (!settings.useFallback) break;

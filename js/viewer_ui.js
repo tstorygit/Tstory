@@ -20,6 +20,35 @@ let isBackgroundProcessing = false;
 // Track which sentence-speak button is currently active
 let activeSpeakBtn = null;
 
+// --- ERROR MODAL ---
+function showErrorModal(message, onRetry) {
+    document.getElementById('error-modal-overlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'error-modal-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:9999;';
+    const box = document.createElement('div');
+    box.style.cssText = 'background:var(--bg-card,#1e1e2e);color:var(--text-primary,#cdd6f4);border:1px solid var(--border-color,#45475a);border-radius:12px;padding:28px 24px;max-width:380px;width:90%;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,0.5);';
+    box.innerHTML = `<div style="font-size:2rem;margin-bottom:12px;">⚠️</div>
+        <div style="font-weight:700;font-size:1.05rem;margin-bottom:8px;">Something went wrong</div>
+        <div style="font-size:0.85rem;opacity:0.75;margin-bottom:20px;line-height:1.5;word-break:break-word;">${message}</div>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;" id="error-modal-btns"></div>`;
+    const btnRow = box.querySelector('#error-modal-btns');
+    const menuBtn = document.createElement('button');
+    menuBtn.textContent = '← Main Menu';
+    menuBtn.style.cssText = 'padding:9px 18px;border-radius:8px;border:1px solid var(--border-color,#45475a);background:transparent;color:var(--text-primary,#cdd6f4);cursor:pointer;font-size:0.9rem;';
+    menuBtn.onclick = () => { overlay.remove(); renderLibrary(); };
+    btnRow.appendChild(menuBtn);
+    if (onRetry) {
+        const retryBtn = document.createElement('button');
+        retryBtn.textContent = '↺ Try Again';
+        retryBtn.style.cssText = 'padding:9px 18px;border-radius:8px;border:none;background:var(--accent-color,#cba6f7);color:#1e1e2e;cursor:pointer;font-weight:700;font-size:0.9rem;';
+        retryBtn.onclick = async () => { overlay.remove(); await onRetry(); };
+        btnRow.appendChild(retryBtn);
+    }
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+}
+
 // --- DOM ELEMENTS ---
 const storyContentDiv = document.getElementById('story-content');
 const popupOverlay = document.getElementById('word-popup-overlay');
@@ -113,7 +142,10 @@ function renderLibrary() {
             await storyMgr.createNewStory(theme, updateProgress, () => {
                 hideLoading();
                 isBackgroundProcessing = true;
-                renderReader(); 
+                renderReader();
+            }, () => {
+                const s = storyMgr.getActiveStory();
+                if (s) renderBlock(s.blocks.length - 1);
             });
             renderReader();
             hideLoading();
@@ -121,7 +153,16 @@ function renderLibrary() {
         } catch (error) {
             hideLoading();
             isBackgroundProcessing = false;
-            alert("Error: " + error.message);
+            const capturedTheme = theme;
+            showErrorModal(error.message, async () => {
+                try {
+                    showLoading(0, "Initializing Story...");
+                    await storyMgr.createNewStory(capturedTheme, updateProgress, () => {
+                        hideLoading(); isBackgroundProcessing = true; renderReader();
+                    }, () => { const s = storyMgr.getActiveStory(); if (s) renderBlock(s.blocks.length - 1); });
+                    renderReader(); hideLoading(); isBackgroundProcessing = false;
+                } catch (e) { hideLoading(); isBackgroundProcessing = false; showErrorModal(e.message, null); }
+            });
         }
     });
 
@@ -135,6 +176,9 @@ function renderLibrary() {
                 hideLoading();
                 isBackgroundProcessing = true;
                 renderReader();
+            }, 'imported', () => {
+                const s = storyMgr.getActiveStory();
+                if (s) renderBlock(s.blocks.length - 1);
             });
             renderReader();
             hideLoading();
@@ -142,7 +186,16 @@ function renderLibrary() {
         } catch (error) {
             hideLoading();
             isBackgroundProcessing = false;
-            alert("Error: " + error.message);
+            const capturedText = text;
+            showErrorModal(error.message, async () => {
+                try {
+                    showLoading(0, "Importing & Analyzing...");
+                    await storyMgr.createStoryFromRawText(capturedText, updateProgress, () => {
+                        hideLoading(); isBackgroundProcessing = true; renderReader();
+                    }, 'imported', () => { const s = storyMgr.getActiveStory(); if (s) renderBlock(s.blocks.length - 1); });
+                    renderReader(); hideLoading(); isBackgroundProcessing = false;
+                } catch (e) { hideLoading(); isBackgroundProcessing = false; showErrorModal(e.message, null); }
+            });
         }
     });
 
@@ -163,6 +216,9 @@ function renderLibrary() {
                     hideLoading();
                     isBackgroundProcessing = true;
                     renderReader();
+                }, () => {
+                    const s = storyMgr.getActiveStory();
+                    if (s) renderBlock(s.blocks.length - 1);
                 });
                 renderReader();
                 hideLoading();
@@ -170,7 +226,17 @@ function renderLibrary() {
             } catch (error) {
                 hideLoading();
                 isBackgroundProcessing = false;
-                alert("Error: " + error.message);
+                const capturedBase64 = base64Data;
+                const capturedMime = mimeType;
+                showErrorModal(error.message, async () => {
+                    try {
+                        showLoading(0, "Reading image...");
+                        await storyMgr.createStoryFromImage(capturedBase64, capturedMime, updateProgress, () => {
+                            hideLoading(); isBackgroundProcessing = true; renderReader();
+                        }, () => { const s = storyMgr.getActiveStory(); if (s) renderBlock(s.blocks.length - 1); });
+                        renderReader(); hideLoading(); isBackgroundProcessing = false;
+                    } catch (e) { hideLoading(); isBackgroundProcessing = false; showErrorModal(e.message, null); }
+                });
             }
             
             e.target.value = ''; // Reset file input
@@ -321,15 +387,20 @@ function renderWordHtml(wordObj, useBgHighlight) {
     }
 }
 
-// Helper: render inline sentence-level action buttons (eye + speaker)
+// Helper: render inline sentence-level action buttons (eye + speaker) + translation box
+let _sentenceBtnCounter = 0;
 function sentenceActionButtons(transText, jaText) {
     const safeJa = jaText.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
     const speakBtn = `<button class="btn-sentence-speak" data-ja="${safeJa}" title="Read aloud" style="margin-left:3px; background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px; line-height:1; display:inline-flex; align-items:center; opacity:0.7; transition:opacity 0.15s;">${SPEAKER_ICON}</button>`;
-    const eyeBtn = `<button class="btn-sentence-trans" data-trans="${transText}" title="Show translation" style="margin-left:5px; background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px; line-height:1; display:inline-flex; align-items:center;">${EYE_ICON}</button>`;
-    return eyeBtn + speakBtn;
+    if (!transText) return speakBtn;
+    const uid = `strans-${_sentenceBtnCounter++}`;
+    const eyeBtn = `<button class="btn-sentence-trans" data-target="${uid}" title="Show translation" style="margin-left:5px; background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px; line-height:1; display:inline-flex; align-items:center;">${EYE_ICON}</button>`;
+    const transDiv = `<div id="${uid}" class="sentence-translation-box" style="display:none; font-size:14px; color:var(--text-muted); background:var(--trans-box-bg); padding:8px; border-radius:4px; margin-top:5px; margin-bottom:10px;">${transText}</div>`;
+    return eyeBtn + speakBtn + transDiv;
 }
 
 function renderBlock(index) {
+    _sentenceBtnCounter = 0;
     stopSpeech(); // Stop speech when rendering a new block/turning a page
     activeSpeakBtn = null;
 
@@ -383,40 +454,61 @@ function renderBlock(index) {
 
     // MAIN TEXT
     html += `<div class="japanese-text" style="font-size: 20px; line-height: 2.2; margin-bottom: 30px; letter-spacing: 1px; ${block.isProcessing ? 'opacity: 0.9;' : ''}">`;
-    
-    const words = block.enrichedData.words ||[];
-    const sentences = block.enrichedData.sentences ||[];
-    let sentenceIndex = 0;
 
-    let accumulated = '';
-    const sentenceJa = sentences.map(s => s.ja.replace(/\s/g, ''));
+    const words = block.enrichedData.words || [];
+    const sentences = block.enrichedData.sentences || [];
 
+    // Pre-compute stripped sentence targets and track which word index each ends at
+    // Strategy: walk tokens, accumulate stripped surface, find the earliest sentence end
+    const strip = s => s.replace(/[\s\u3000]/g, '');
+
+    // Build a flat stripped string from all surfaces so we can locate sentence boundaries
+    const surfaces = words.map(w => strip(w.surface));
+    const cumulative = [];  // cumulative stripped length after each token
+    let cum = 0;
+    for (const s of surfaces) { cum += s.length; cumulative.push(cum); }
+    const fullStripped = surfaces.join('');
+
+    // For each sentence find the char-position of its end in fullStripped
+    const sentenceEndPos = [];   // end char index (exclusive) in fullStripped
+    let searchFrom = 0;
+    for (const sent of sentences) {
+        const target = strip(sent.ja);
+        const idx = fullStripped.indexOf(target, searchFrom);
+        if (idx !== -1) {
+            sentenceEndPos.push(idx + target.length);
+            searchFrom = idx + target.length;
+        } else {
+            sentenceEndPos.push(-1); // not found — will fall through to end
+        }
+    }
+
+    let sentIdx = 0;
     for (let i = 0; i < words.length; i++) {
         const w = words[i];
         html += renderWordHtml(w, useBgHighlight);
-        accumulated += w.surface;
 
-        if (sentenceIndex < sentenceJa.length) {
-            const target = sentenceJa[sentenceIndex];
-            if (accumulated.replace(/\s/g, '').includes(target)) {
-                const transText = sentences[sentenceIndex].en.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
-                const jaText = sentences[sentenceIndex].ja;
+        // After appending this token, check if we've reached the end of the current sentence
+        while (sentIdx < sentences.length) {
+            const endPos = sentenceEndPos[sentIdx];
+            if (endPos === -1 || cumulative[i] >= endPos) {
+                const transText = sentences[sentIdx].en.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+                const jaText = sentences[sentIdx].ja;
                 html += sentenceActionButtons(transText, jaText);
-                html += `<div class="sentence-translation-box hidden" style="font-size: 14px; color: var(--text-muted); background: var(--trans-box-bg); padding: 8px; border-radius: 4px; margin-top: 5px; margin-bottom: 10px;">${transText}</div>`;
                 if (useNewLines) html += `<br><br>`;
-                const endPos = accumulated.replace(/\s/g, '').indexOf(target) + target.length;
-                accumulated = accumulated.replace(/\s/g, '').slice(endPos);
-                sentenceIndex++;
+                sentIdx++;
+            } else {
+                break;
             }
         }
     }
 
-    while (sentenceIndex < sentences.length) {
-        const transText = sentences[sentenceIndex].en.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
-        const jaText = sentences[sentenceIndex].ja;
+    // Flush any remaining sentences not matched (safety net)
+    while (sentIdx < sentences.length) {
+        const transText = sentences[sentIdx].en.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+        const jaText = sentences[sentIdx].ja;
         html += sentenceActionButtons(transText, jaText);
-        html += `<div class="sentence-translation-box hidden" style="font-size: 14px; color: var(--text-muted); background: var(--trans-box-bg); padding: 8px; border-radius: 4px; margin-top: 5px; margin-bottom: 10px;">${transText}</div>`;
-        sentenceIndex++;
+        sentIdx++;
     }
     html += `</div>`;
 
@@ -467,10 +559,10 @@ function renderBlock(index) {
                         <div style="flex:1;">
                             <div style="font-size:18px; line-height: 2.0;">
                                 <strong>${optLetter}:</strong> ${optEnrichedHtml}
-                                <button class="btn-sentence-speak" data-ja="${safeOptRaw}" title="Read aloud" style="margin-left:4px; background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px; line-height:1; display:inline-flex; align-items:center; opacity:0.7; transition:opacity 0.15s;">${SPEAKER_ICON}</button>
-                                ${optEnglishGloss ? `<button class="btn-sentence-trans" data-trans="${optEnglishGloss.replace(/'/g, '&#39;').replace(/"/g, '&quot;')}" title="Show translation" style="margin-left:3px; background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px; line-height:1; display:inline-flex; align-items:center;">${EYE_ICON}</button>` : ''}
+                                ${optEnglishGloss ? `<button class="btn-sentence-trans" data-target="${optTransId}" title="Show translation" style="margin-left:5px; background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px; line-height:1; display:inline-flex; align-items:center;">${EYE_ICON}</button>` : ''}
+                                <button class="btn-sentence-speak" data-ja="${safeOptRaw}" title="Read aloud" style="margin-left:3px; background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px; line-height:1; display:inline-flex; align-items:center; opacity:0.7; transition:opacity 0.15s;">${SPEAKER_ICON}</button>
                             </div>
-                            ${optEnglishGloss ? `<div id="${optTransId}" class="sentence-translation-box hidden" style="font-size:13px; color:var(--text-muted); background:var(--trans-box-bg); padding:6px 8px; border-radius:4px; margin-top:2px;">${optEnglishGloss}</div>` : ''}
+                            ${optEnglishGloss ? `<div id="${optTransId}" class="sentence-translation-box" style="display:none; font-size:13px; color:var(--text-muted); background:var(--trans-box-bg); padding:6px 8px; border-radius:4px; margin-top:2px;">${optEnglishGloss}</div>` : ''}
                         </div>
                         <button class="option-go-btn primary-btn" data-option="${optLetter}: ${optTextRaw}" style="width: auto; padding: 10px 20px; ${disabledStyle}" ${disabledProp}>Choose</button>
                     </div>
@@ -599,13 +691,10 @@ function renderBlock(index) {
 
     document.querySelectorAll('.btn-sentence-trans').forEach(btn => {
         btn.onclick = (e) => {
-            let transBox = e.currentTarget.nextElementSibling;
-            if (!transBox || !transBox.classList.contains('sentence-translation-box')) {
-                transBox = e.currentTarget.parentElement?.nextElementSibling;
-            }
-            if (transBox && transBox.classList.contains('sentence-translation-box')) {
-                const isHidden = transBox.classList.toggle('hidden');
-                transBox.style.display = isHidden ? 'none' : 'block';
+            const uid = e.currentTarget.getAttribute('data-target');
+            const transBox = uid ? document.getElementById(uid) : null;
+            if (transBox) {
+                transBox.style.display = transBox.style.display === 'none' || !transBox.style.display ? 'block' : 'none';
             }
         };
     });
@@ -632,14 +721,27 @@ function renderBlock(index) {
                     hideLoading();
                     isBackgroundProcessing = true;
                     renderBlock(storyMgr.getActiveStory().blocks.length - 1);
+                }, () => {
+                    const s = storyMgr.getActiveStory();
+                    if (s) renderBlock(s.blocks.length - 1);
                 });
                 renderBlock(storyMgr.getActiveStory().blocks.length - 1);
                 hideLoading();
                 isBackgroundProcessing = false;
-            } catch (error) { 
-                hideLoading(); 
+            } catch (error) {
+                hideLoading();
                 isBackgroundProcessing = false;
-                alert("Failed: " + error.message); 
+                showErrorModal(error.message, async () => {
+                    try {
+                        showLoading(0, "Regenerating...");
+                        await storyMgr.regenerateLastBlock(updateProgress, () => {
+                            hideLoading(); isBackgroundProcessing = true;
+                            renderBlock(storyMgr.getActiveStory().blocks.length - 1);
+                        }, () => { const s = storyMgr.getActiveStory(); if (s) renderBlock(s.blocks.length - 1); });
+                        renderBlock(storyMgr.getActiveStory().blocks.length - 1);
+                        hideLoading(); isBackgroundProcessing = false;
+                    } catch (e) { hideLoading(); isBackgroundProcessing = false; showErrorModal(e.message, null); }
+                });
             }
         };
     }
@@ -654,15 +756,21 @@ async function triggerGeneration(choiceText) {
             isBackgroundProcessing = true;
             currentBlockIndex = storyMgr.getActiveStory().blocks.length - 1;
             renderBlock(currentBlockIndex);
+        }, () => {
+            const s = storyMgr.getActiveStory();
+            if (s) { currentBlockIndex = s.blocks.length - 1; renderBlock(currentBlockIndex); }
         });
         currentBlockIndex = storyMgr.getActiveStory().blocks.length - 1;
         renderBlock(currentBlockIndex);
         hideLoading();
         isBackgroundProcessing = false;
-    } catch (error) { 
-        hideLoading(); 
+    } catch (error) {
+        hideLoading();
         isBackgroundProcessing = false;
-        alert("Failed: " + error.message); 
+        const capturedChoice = choiceText;
+        showErrorModal(error.message, async () => {
+            await triggerGeneration(capturedChoice);
+        });
     }
 }
 
