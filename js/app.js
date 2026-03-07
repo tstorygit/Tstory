@@ -5,6 +5,7 @@ import { initWordManager } from './word_manager.js';
 import { initDataManager } from './data_ui.js';
 import { initTrainer } from './trainer_ui.js';
 import { initGames } from './games_ui.js';
+import { initPopup } from './popup_manager.js';
 
 document.addEventListener('DOMContentLoaded', () => {
     // 0. Quick-apply theme before heavy initialization to prevent flash of wrong theme
@@ -50,6 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // 3. Initialize Modules
+    initPopup();
     initSettings();
     initViewer();
     initSRS();

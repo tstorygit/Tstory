@@ -1,12 +1,15 @@
 // js/games/caro/caro.js — Caro vocab-recall game
 // export { init, launch }
 
-import { wordList } from '../../../data/word_list_1000.js';
-import * as srsDb   from '../../srs_db.js';
+import * as srsDb from '../../srs_db.js';
+import { mountVocabSelector, getBannedWords, setBannedWords } from '../../vocab_selector.js';
 
 let _screens = null;
 let _onExit  = null;
+let _selector = null;
 let _state   = { activeQueue:[], reserveQueue:[], currentIndex:0, score:0, history:[] };
+
+const BANNED_KEY = 'caro_banned_words';
 
 export function init(screens, onExit) { _screens = screens; _onExit = onExit; }
 export function launch() { _show('setup'); _renderSetup(); }
@@ -22,133 +25,47 @@ function _show(name) {
     if (hdr) hdr.textContent = _titles[name] || 'Caro';
 }
 
-// ── Banned Words Storage ───────────────────────────────────────────────────
-
-function _getBanned() {
-    try { return JSON.parse(localStorage.getItem('caro_banned_words')) || []; }
-    catch { return []; }
-}
-function _setBanned(list) {
-    localStorage.setItem('caro_banned_words', JSON.stringify(list));
-}
-
 // ── Setup ──────────────────────────────────────────────────────────────────
 
 function _renderSetup() {
-    const el = _screens.setup; if (!el) return;
-    const srsWords = srsDb.getAllWords();
-    const hasSrs   = Object.keys(srsWords).length > 0;
-    const banned   = _getBanned();
+    const el = _screens.setup;
+    if (!el) return;
 
-    el.innerHTML = `
-        <div class="caro-setup-panel">
-            <div class="caro-setup-section">
-                <div class="caro-setup-section-title">Word Sources</div>
-                <label class="settings-toggle" style="border-radius:8px 8px 0 0;">
-                    <input type="checkbox" id="caro-use-srs" ${hasSrs?'checked':''}>
-                    <span class="settings-toggle-track"></span>
-                    <span class="settings-toggle-text">My SRS Vocabulary <em>(${Object.keys(srsWords).length} words)</em></span>
-                </label>
-                <div id="caro-srs-filter" style="padding:10px 20px 12px; background:var(--surface-color); border:1px solid var(--border-color); border-top:none; ${hasSrs?'':'display:none;'}">
-                    <div style="font-size:13px;font-weight:600;color:var(--text-muted);margin-bottom:8px;">Include statuses:</div>
-                    <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                        ${[0,1,2,3,4,5].map(s=>`
-                            <label class="caro-status-chip">
-                                <input type="checkbox" class="caro-status-check" value="${s}" ${s<=3?'checked':''}>
-                                <span class="status-btn" data-status="${s}" style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:14px;font-weight:bold;border:2px solid transparent;">${s}</span>
-                            </label>`).join('')}
-                    </div>
-                </div>
-                <label class="settings-toggle" style="border-radius:0 0 8px 8px;border-top:1px solid var(--border-color);">
-                    <input type="checkbox" id="caro-use-list" checked>
-                    <span class="settings-toggle-track"></span>
-                    <span class="settings-toggle-text">Top 1000 Word List <em>(${wordList.length} words)</em></span>
-                </label>
-            </div>
-            <div class="caro-setup-section">
-                <div class="caro-setup-section-title">Session Size</div>
-                <div style="background:var(--surface-color);border:1px solid var(--border-color);border-radius:8px;padding:14px 20px;">
-                    <div style="display:flex;gap:8px;flex-wrap:wrap;" id="caro-count-group">
-                        ${[10,20,50,100,'All'].map((n,i)=>`<button class="caro-count-btn ${i===1?'active':''}" data-count="${n}">${n}</button>`).join('')}
-                    </div>
-                </div>
-            </div>
-            ${banned.length > 0 ? `
-            <div style="text-align:center; margin-top:4px;">
-                <span style="font-size:13px;color:var(--text-muted);">Banned Words: ${banned.length} </span>
-                <button id="caro-btn-clear-bans" style="background:none;border:none;color:var(--primary-color);font-size:13px;cursor:pointer;text-decoration:underline;">Clear list</button>
-            </div>` : ''}
-            <div id="caro-warning" style="display:none;padding:10px 14px;background:#fff3cd;border:1px solid #ffc107;border-radius:8px;font-size:13px;color:#856404;margin-bottom:4px;"></div>
-            <button class="primary-btn" id="caro-btn-start" style="margin-top:8px;">▶ Start Game</button>
-            <button class="caro-back-btn" id="caro-btn-back">← Back to Games</button>
-        </div>`;
-
-    const srsToggle = el.querySelector('#caro-use-srs');
-    const srsFilter = el.querySelector('#caro-srs-filter');
-    srsToggle.addEventListener('change', () => { srsFilter.style.display = srsToggle.checked?'block':'none'; });
-
-    el.querySelectorAll('.caro-status-check').forEach(cb => {
-        _chip(cb); cb.addEventListener('change', ()=>_chip(cb));
+    _selector = mountVocabSelector(el, {
+        bannedKey:    BANNED_KEY,
+        defaultCount: 20,
     });
 
-    el.querySelector('#caro-count-group').addEventListener('click', e => {
-        const b = e.target.closest('.caro-count-btn'); if (!b) return;
-        el.querySelectorAll('.caro-count-btn').forEach(x=>x.classList.remove('active'));
-        b.classList.add('active');
-    });
+    const actions = _selector.getActionsEl();
 
-    const clearBansBtn = el.querySelector('#caro-btn-clear-bans');
-    if (clearBansBtn) {
-        clearBansBtn.addEventListener('click', () => {
-            if(confirm("Clear all banned words?")) { _setBanned([]); _renderSetup(); }
-        });
-    }
+    const startBtn = document.createElement('button');
+    startBtn.className   = 'primary-btn';
+    startBtn.style.marginTop = '8px';
+    startBtn.textContent = '▶ Start Game';
+    startBtn.addEventListener('click', _start);
 
-    el.querySelector('#caro-btn-back').addEventListener('click', _onExit);
-    el.querySelector('#caro-btn-start').addEventListener('click', ()=>_start(el));
+    const backBtn = document.createElement('button');
+    backBtn.className   = 'caro-back-btn';
+    backBtn.textContent = '← Back to Games';
+    backBtn.addEventListener('click', _onExit);
+
+    actions.append(startBtn, backBtn);
 }
 
-function _chip(cb) { const c=cb.closest('.caro-status-chip'); if(c) c.style.opacity=cb.checked?'1':'0.35'; }
-
-function _start(el) {
-    const useSrs  = el.querySelector('#caro-use-srs').checked;
-    const use1000 = el.querySelector('#caro-use-list').checked;
-    const statuses = useSrs ? [...el.querySelectorAll('.caro-status-check:checked')].map(c=>+c.value) : [];
-    const raw = el.querySelector('.caro-count-btn.active')?.getAttribute('data-count') ?? '20';
-    const limit = raw==='All' ? Infinity : +raw;
-    const warn = el.querySelector('#caro-warning');
-
-    if (!useSrs && !use1000) { warn.textContent='Select at least one word source.'; warn.style.display='block'; return; }
-    if (useSrs && statuses.length===0) { warn.textContent='Select at least one SRS status.'; warn.style.display='block'; return; }
-    warn.style.display='none';
-
-    const fullQueue = _buildQueue(useSrs, use1000, statuses);
-    if (!fullQueue.length) { warn.textContent='No words matched your settings (or all are banned).'; warn.style.display='block'; return; }
+function _start() {
+    // getQueue() handles validation and shows warnings inside the setup screen
+    const fullQueue = _selector.getQueue();
+    if (!fullQueue.length) return;
 
     _state = {
-        activeQueue: isFinite(limit) ? fullQueue.slice(0, limit) : fullQueue,
-        reserveQueue: isFinite(limit) ? fullQueue.slice(limit) : [],
+        activeQueue:  fullQueue,
+        reserveQueue: [],
         currentIndex: 0,
-        score: 0,
-        history: []
+        score:        0,
+        history:      [],
     };
-    _show('game'); _renderCard();
-}
-
-function _buildQueue(useSrs, use1000, statuses) {
-    const banned = new Set(_getBanned());
-    const map = new Map();
-    if (use1000) wordList.forEach(w => {
-        if (!banned.has(w.word)) map.set(w.word, {word:w.word,furi:w.furi,trans:w.trans,status:null});
-    });
-    if (useSrs) {
-        Object.values(srsDb.getAllWords()).forEach(w => {
-            if (banned.has(w.word)) return;
-            if (statuses.includes(w.status)) map.set(w.word, {word:w.word,furi:w.furi,trans:w.translation,status:w.status});
-            else if (!use1000) map.delete(w.word);
-        });
-    }
-    return [...map.values()].sort(()=>Math.random()-.5);
+    _show('game');
+    _renderCard();
 }
 
 // ── Game Card ─────────────────────────────────────────────────────────────────
@@ -236,10 +153,9 @@ function _renderCard() {
     el.querySelector('#caro-btn-ban').addEventListener('click', () => {
         if(!confirm("Ban this word? It won't appear in Caro again.")) return;
         const wordObj = _state.activeQueue[_state.currentIndex];
-        const banned = _getBanned();
-        if(!banned.includes(wordObj.word)) {
-            banned.push(wordObj.word);
-            _setBanned(banned);
+        const banned  = getBannedWords(BANNED_KEY);
+        if (!banned.includes(wordObj.word)) {
+            setBannedWords(BANNED_KEY, [...banned, wordObj.word]);
         }
         if (_state.reserveQueue.length > 0) {
             _state.activeQueue[_state.currentIndex] = _state.reserveQueue.shift();

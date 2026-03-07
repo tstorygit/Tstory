@@ -369,6 +369,9 @@
             <div id="caro-setup-screen"  class="content-scroll" style="display:none;"></div>
             <div id="caro-game-screen"   class="content-scroll" style="display:none; background:var(--flashcard-bg);"></div>
             <div id="caro-stats-screen"  class="content-scroll" style="display:none;"></div>
+            <div id="neko-setup-screen"  class="content-scroll" style="display:none;"></div>
+            <div id="neko-game-screen"   class="content-scroll" style="display:none; padding:0; overflow:hidden;"></div>
+            <div id="neko-stats-screen"  class="content-scroll" style="display:none;"></div>
         </section>
 
     </main>
@@ -409,10 +412,13 @@
             </div>
             <button id="close-popup-btn" style="margin-top: 15px;">Close</button>
 
-            <!-- Trainer zone (shown only when opened from Trainer tab) -->
-            <div id="popup-trainer-zone" class="hidden" style="background:var(--flashcard-bg); padding:10px; margin-top:10px; border-radius:6px;">
-                <p style="margin:0 0 8px; font-size:14px;">List Rank: #<span id="popup-rank">...</span></p>
-                <button id="btn-trainer-jump" class="primary-btn" style="width:100%; padding:8px;">Jump to this word</button>
+            <!-- Generic slot for caller-injected extra panels -->
+            <div id="popup-extra-slot" class="hidden">
+                <!-- Trainer zone (shown only when opened from Trainer tab) -->
+                <div id="popup-trainer-zone" style="background:var(--flashcard-bg); padding:10px; margin-top:10px; border-radius:6px;">
+                    <p style="margin:0 0 8px; font-size:14px;">List Rank: #<span id="popup-rank">...</span></p>
+                    <button id="btn-trainer-jump" class="primary-btn" style="width:100%; padding:8px;">Jump to this word</button>
+                </div>
             </div>
         </div>
     </div>

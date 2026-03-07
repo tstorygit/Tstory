@@ -3,6 +3,7 @@ import * as srsDb from './srs_db.js';
 import { settings } from './settings.js';
 import { wordList } from '../data/word_list_1000.js'; // Imported to lookup missing ranks
 import { speakText, stopSpeech } from './tts_api.js';
+import { openPopup, closePopup } from './popup_manager.js';
 
 // ─── ICONS ───────────────────────────────────────────────────────────────────
 
@@ -35,54 +36,6 @@ export function initTrainer() {
         srsModeSelect.addEventListener('change', () => {
             settings.trainerSrsMode = srsModeSelect.value;
             renderTrainer();
-        });
-    }
-
-    // Jump button in popup
-    const jumpBtn = document.getElementById('btn-trainer-jump');
-    if (jumpBtn) {
-        jumpBtn.addEventListener('click', () => {
-            const targetRank = parseInt(jumpBtn.getAttribute('data-target-rank'));
-            if (!targetRank) return;
-            if (confirm(`Jump your progress to word #${targetRank}?`)) {
-                trainerMgr.setProgress(targetRank);
-                // Close popup
-                document.getElementById('word-popup-overlay').classList.add('hidden');
-                // Navigate to trainer tab
-                document.querySelector('button[data-target="view-trainer"]')?.click();
-                renderTrainer();
-            }
-        });
-    }
-    
-    // Popup Status Button handler (specifically for Trainer)
-    const popupStatusGroup = document.getElementById('popup-status-group');
-    if (popupStatusGroup) {
-        popupStatusGroup.addEventListener('click', (e) => {
-            // Only handle if we are currently inside the Trainer view
-            if (!document.getElementById('view-trainer').classList.contains('active')) return;
-            
-            const btn = e.target.closest('.status-btn');
-            if (!btn) return;
-            
-            const newStatus = parseInt(btn.getAttribute('data-status'));
-            const wordDataStr = document.getElementById('word-popup').dataset.wordData;
-            
-            if (wordDataStr) {
-                try {
-                    const wordData = JSON.parse(wordDataStr);
-                    srsDb.saveWord({
-                        word: wordData.base || wordData.surface,
-                        furi: wordData.furi || '',
-                        translation: wordData.trans_base || wordData.trans_context || '',
-                        status: newStatus
-                    });
-                    document.getElementById('word-popup-overlay').classList.add('hidden');
-                    renderTrainer();
-                } catch (err) {
-                    console.error('Failed to parse wordData', err);
-                }
-            }
         });
     }
 
@@ -162,62 +115,55 @@ export function initTrainer() {
 
 // ─── POPUP ───────────────────────────────────────────────────────────────────
 
-function openTrainerWordPopup(wordData) {
-    // Fill standard popup fields
-    const popupOverlay = document.getElementById('word-popup-overlay');
-    const popupTrainerZone = document.getElementById('popup-trainer-zone');
-
-    document.getElementById('popup-term').textContent = wordData.surface;
-    const furiEl = document.getElementById('popup-furi');
-    const romaEl = document.getElementById('popup-roma');
-
-    furiEl.textContent = (settings.showFurigana && wordData.furi) ? wordData.furi : '';
-    furiEl.style.display = (settings.showFurigana && wordData.furi) ? 'inline' : 'none';
-    if (romaEl) {
-        romaEl.textContent = (settings.showRomaji && wordData.roma) ? wordData.roma : '';
-        romaEl.style.display = (settings.showRomaji && wordData.roma) ? 'inline' : 'none';
+/**
+ * Build the trainer extra panel (the #popup-trainer-zone element) for the given word.
+ * Updates its rank label and wires a fresh jump button (cloneNode avoids stacking
+ * listeners across multiple opens).  Returns null if the word has no rank.
+ */
+function _buildTrainerPanel(wordData) {
+    let rank = wordData.rank;
+    if (rank === undefined) {
+        const match = wordList.find(w => w.word === (wordData.base || wordData.surface));
+        if (match) rank = match.rank;
     }
+    if (rank === undefined) return null;
 
-    document.getElementById('popup-base').textContent = wordData.base || wordData.surface;
-    document.getElementById('popup-trans-base').textContent = wordData.trans_base || '';
-    document.getElementById('popup-trans-context').textContent = wordData.trans_context || '';
+    const zone = document.getElementById('popup-trainer-zone');
+    if (!zone) return null;
 
-    const noteEl = document.getElementById('popup-note');
-    if (wordData.note) { noteEl.textContent = wordData.note; noteEl.style.display = 'block'; }
-    else { noteEl.style.display = 'none'; }
+    document.getElementById('popup-rank').textContent = rank;
 
-    // SRS status buttons
-    const statusButtons = document.querySelectorAll('#popup-status-group .status-btn');
-    const srsEntry = srsDb.getWord(wordData.base || wordData.surface);
-    const currentStatus = srsEntry ? srsEntry.status : 0;
-    statusButtons.forEach(btn => {
-        btn.style.border = (parseInt(btn.getAttribute('data-status')) === currentStatus) ? '3px solid var(--text-main)' : 'none';
+    // Clone to prevent stacking event listeners across multiple opens
+    const oldBtn = document.getElementById('btn-trainer-jump');
+    const newBtn = oldBtn.cloneNode(true);
+    oldBtn.replaceWith(newBtn);
+    newBtn.addEventListener('click', () => {
+        if (confirm(`Jump your progress to word #${rank}?`)) {
+            trainerMgr.setProgress(rank);
+            closePopup();
+            document.querySelector('button[data-target="view-trainer"]')?.click();
+            renderTrainer();
+        }
     });
 
-    // Trainer zone - DYNAMIC RANK LOOKUP
-    let displayRank = wordData.rank;
-    if (displayRank === undefined) {
-        // Fallback: If rank wasn't cached, look it up in the live dictionary right now
-        const baseForm = wordData.base || wordData.surface;
-        const match = wordList.find(w => w.word === baseForm || w.word === wordData.surface);
-        if (match) displayRank = match.rank;
-    }
+    zone.classList.remove('hidden');
+    return zone;
+}
 
-    if (popupTrainerZone) {
-        if (displayRank !== undefined) {
-            document.getElementById('popup-rank').textContent = displayRank;
-            document.getElementById('btn-trainer-jump').setAttribute('data-target-rank', displayRank);
-            popupTrainerZone.classList.remove('hidden');
-        } else {
-            popupTrainerZone.classList.add('hidden');
+function openTrainerWordPopup(wordData) {
+    openPopup(wordData, {
+        extraPanel: _buildTrainerPanel(wordData),
+        onSave: (wd, newStatus) => {
+            srsDb.saveWord({
+                word:        wd.base || wd.surface,
+                furi:        wd.furi || '',
+                translation: wd.trans_base || wd.trans_context || '',
+                status:      newStatus,
+            });
+            closePopup();
+            renderTrainer();
         }
-    }
-
-    // Store word data on popup for status-btn handler
-    document.getElementById('word-popup').dataset.activeWord = wordData.base || wordData.surface;
-    document.getElementById('word-popup').dataset.wordData = JSON.stringify(wordData);
-
-    popupOverlay.classList.remove('hidden');
+    });
 }
 
 // ─── RENDER ───────────────────────────────────────────────────────────────────

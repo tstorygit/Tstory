@@ -3,6 +3,7 @@ import { handleSync } from './data_ui.js';
 import * as srsDb from './srs_db.js';
 import { settings } from './settings.js';
 import { speakText, stopSpeech } from './tts_api.js';
+import { openPopup, closePopup } from './popup_manager.js';
 
 // ─── ICONS ───────────────────────────────────────────────────────────────────
 
@@ -13,7 +14,6 @@ const SPEAKER_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height=
 
 // --- STATE ---
 let currentBlockIndex = 0;
-let activeWordData = null; 
 let isLibraryView = true;
 let isBackgroundProcessing = false;
 
@@ -51,9 +51,6 @@ function showErrorModal(message, onRetry) {
 
 // --- DOM ELEMENTS ---
 const storyContentDiv = document.getElementById('story-content');
-const popupOverlay = document.getElementById('word-popup-overlay');
-const closePopupBtn = document.getElementById('close-popup-btn');
-const statusButtons = document.querySelectorAll('.status-btn');
 
 // --- INITIALIZATION ---
 export function rerenderCurrentBlock() {
@@ -61,26 +58,6 @@ export function rerenderCurrentBlock() {
 }
 
 export function initViewer() {
-    if (closePopupBtn) {
-        closePopupBtn.addEventListener('click', closeWordPopup);
-    }
-    
-    if (popupOverlay) {
-        popupOverlay.addEventListener('click', (e) => {
-            if (e.target === popupOverlay) closeWordPopup();
-        });
-    }
-
-    const popupStatusGroup = document.getElementById('popup-status-group');
-    if (popupStatusGroup) {
-        popupStatusGroup.addEventListener('click', (e) => {
-            if (e.target.classList.contains('status-btn')) {
-                const newStatus = parseInt(e.target.getAttribute('data-status'));
-                handleStatusClick(newStatus);
-            }
-        });
-    }
-
     const rerenderTriggers =[
         { id: 'setting-show-furigana',   key: 'showFurigana',       type: 'checkbox' },
         { id: 'setting-show-romaji',     key: 'showRomaji',         type: 'checkbox' },
@@ -684,7 +661,14 @@ function renderBlock(index) {
             e.stopPropagation();
             try {
                 const wordData = JSON.parse(decodeURIComponent(wordEl.getAttribute('data-word')));
-                openWordPopup(wordData);
+                openPopup(wordData, {
+                    onSave: (wd, newStatus) => {
+                        srsDb.saveWord({ word: wd.base, furi: wd.furi, translation: wd.trans_base, status: newStatus });
+                        closePopup();
+                        if (!isLibraryView) renderBlock(currentBlockIndex);
+                        sessionStorage.setItem('srs-dirty', '1');
+                    }
+                });
             } catch(e) {}
         }
     });
@@ -772,51 +756,6 @@ async function triggerGeneration(choiceText) {
             await triggerGeneration(capturedChoice);
         });
     }
-}
-
-// POPUP LOGIC
-function openWordPopup(wordData) {
-    activeWordData = wordData;
-    document.getElementById('popup-term').textContent = wordData.surface;
-
-    const furiEl = document.getElementById('popup-furi');
-    const romaEl = document.getElementById('popup-roma');
-
-    furiEl.textContent = (settings.showFurigana && wordData.furi) ? wordData.furi : '';
-    furiEl.style.display = (settings.showFurigana && wordData.furi) ? 'inline' : 'none';
-
-    if (romaEl) {
-        romaEl.textContent = (settings.showRomaji && wordData.roma) ? wordData.roma : '';
-        romaEl.style.display = (settings.showRomaji && wordData.roma) ? 'inline' : 'none';
-    }
-
-    document.getElementById('popup-base').textContent = wordData.base;
-    document.getElementById('popup-trans-base').textContent = wordData.trans_base;
-    document.getElementById('popup-trans-context').textContent = wordData.trans_context;
-    
-    const noteEl = document.getElementById('popup-note');
-    if (wordData.note) { noteEl.textContent = wordData.note; noteEl.style.display = 'block'; }
-    else { noteEl.style.display = 'none'; }
-
-    const trainerZone = document.getElementById('popup-trainer-zone');
-    if (trainerZone) trainerZone.classList.add('hidden');
-
-    const srsEntry = srsDb.getWord(wordData.base);
-    const currentStatus = srsEntry ? srsEntry.status : 0;
-    
-    statusButtons.forEach(btn => {
-        btn.style.border = (parseInt(btn.getAttribute('data-status')) === currentStatus) ? '3px solid var(--text-main)' : 'none';
-    });
-    popupOverlay.classList.remove('hidden');
-}
-
-function closeWordPopup() { popupOverlay.classList.add('hidden'); activeWordData = null; }
-
-function handleStatusClick(newStatus) {
-    if (!activeWordData) return;
-    srsDb.saveWord({ word: activeWordData.base, furi: activeWordData.furi, translation: activeWordData.trans_base, status: newStatus });
-    closeWordPopup();
-    if (!isLibraryView) renderBlock(currentBlockIndex);
 }
 
 // PROGRESS / LOADING
