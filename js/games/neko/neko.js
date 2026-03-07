@@ -902,6 +902,8 @@ function _initGameDOM() {
 
     </div>
 
+    <div class="nk-footer"></div>
+
     <div class="nk-toasts" id="nk-toasts"></div>
 
     <!-- Wipe popup -->
@@ -1650,10 +1652,18 @@ function _toast(msg, color = '#333') {
 .nk-content-pane {
     flex: 1;
     overflow-y: auto;
-    padding: 15px 15px 60px;
+    padding: 15px;
     background: #fffdf9;
     position: relative;
-    -webkit-overflow-scrolling: touch; 
+    -webkit-overflow-scrolling: touch;
+    min-height: 0;
+}
+
+.nk-footer {
+    flex-shrink: 0;
+    height: 40px;
+    background: var(--nk-panel);
+    border-top: 1px solid rgba(0,0,0,0.06);
 }
 
 .nk-tab-content { display: none; height: 100%; }
@@ -1908,6 +1918,7 @@ function _toast(msg, color = '#333') {
 [data-theme="dark"] .nk-speech-bubble::after { border-color: transparent #f0d9c0 transparent transparent; }
 [data-theme="dark"] .nk-speech-bubble::before { border-color: transparent #3d2b1a transparent transparent; }
 [data-theme="dark"] .nk-content-pane { background: #261a0f; }
+[data-theme="dark"] .nk-footer { background: #3d2b1a; border-top-color: #5a3e2b; }
 [data-theme="dark"] .nk-quiz-btn { background: #3d2b1a; border-color: #5a3e2b; color: #f0d9c0; }
 [data-theme="dark"] .nk-nav-btn.active { background: rgba(255,255,255,0.05); }
 [data-theme="dark"] .nk-subtab-btn { background: #3d2b1a; border-color: #5a3e2b; color: #aaa; }
