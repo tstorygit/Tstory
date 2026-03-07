@@ -97,11 +97,29 @@ function _startGame() {
     _show('game');
     _loadGame();
 
+    // ── Vocab slot logic (Option B) ──────────────────────────────────────────
+    // Words in _g.srs that ARE in the new queue → stay active, keep SRS progress.
+    // Words in _g.srs that are NOT in the new queue → go dormant (kept in save,
+    //   invisible to reviews, happy-bonus, and multiplier).
+    // For each orphaned slot, one unlearned word from the new queue gets a free
+    //   fresh SRS entry (no fish cost) — up to the number of orphaned slots.
+    // Switching back to an old set re-activates dormant words with full history.
+    const newIds     = new Set(_vocabQueue.map(v => v.id));
+    const knownIds   = new Set(_g.srs.map(s => s.id));
+    const orphanCount = _g.srs.filter(s => !newIds.has(s.id)).length;
+    const freshPool  = _vocabQueue.filter(v => !knownIds.has(v.id));
+
+    const toAdd = Math.min(orphanCount, freshPool.length);
+    for (let i = 0; i < toAdd; i++) {
+        const w = freshPool[i];
+        _g.srs.push({ id: w.id, nextReview: Date.now(), interval: 8, ease: 1.5 });
+    }
+
     // Give 3 free starter words on a brand-new save
     if (_g.srs.length === 0 && _vocabQueue.length >= 3) {
         for (let i = 0; i < 3; i++) {
             const w = _vocabQueue[i];
-            _g.srs.push({ id: w.id, nextReview: Date.now(), interval: 8, ease: 1.5 });
+            _g.srs.push({ id: w.id, kanji: w.kanji, kana: w.kana, eng: w.eng, nextReview: Date.now(), interval: 8, ease: 1.5 });
         }
         _g.stats.wordsLearned += 3;
     }
@@ -136,42 +154,54 @@ const _defaultIdleUpgrades = () => ({
 });
 
 const _defaultClickUpgrades = () => ({
-    // Click power ≈ 2s of idle at equivalent tier
-    finger:   { name: 'Cat Training',      desc: '+1 Fish/Click',     cost: 120,        costYarn: 0,    count: 0, effect: 1 },
-    laser:    { name: 'Laser Pointer',     desc: '+4 Fish/Click',     cost: 800,        costYarn: 0,    count: 0, effect: 4 },
-    mouse:    { name: 'Golden Mouse',      desc: '+15 Fish/Click',    cost: 4000,       costYarn: 3,    count: 0, effect: 15 },
-    tuna:     { name: 'Tuna Treats',       desc: '+60 Fish/Click',    cost: 20000,      costYarn: 10,   count: 0, effect: 60 },
-    collar:   { name: 'Diamond Collar',    desc: '+250 Fish/Click',   cost: 100000,     costYarn: 25,   count: 0, effect: 250 },
-    spray:    { name: 'Catnip Spray',      desc: '+1,000 Fish/Click', cost: 700000,     costYarn: 60,   count: 0, effect: 1000 },
-    robot:    { name: 'Robot Arm',         desc: '+4,000 Fish/Click', cost: 3500000,    costYarn: 150,  count: 0, effect: 4000 },
-    keyboard: { name: 'Neko Keyboard',     desc: '+16k Fish/Click',   cost: 18000000,   costYarn: 350,  count: 0, effect: 16000 },
-    godhand:  { name: 'God Hand',          desc: '+65k Fish/Click',   cost: 90000000,   costYarn: 700,  count: 0, effect: 65000 },
-    hologram: { name: 'Holographic Cat',   desc: '+260k Fish/Click',  cost: 450000000,  costYarn: 2000, count: 0, effect: 260000 },
-    quantum:  { name: 'Quantum Paw',       desc: '+1M Fish/Click',    cost: 2500000000, costYarn: 6000, count: 0, effect: 1000000 },
+    // Click vocab tiers: 1, 4, 8, 13, 19, 27, 36, 47, 59, 73, 88, 105
+    finger:   { name: 'Cat Training',      desc: '+1 Fish/Click',      cost: 120,        costYarn: 0,    count: 0, effect: 1,       vocabReq: 1  },
+    laser:    { name: 'Laser Pointer',     desc: '+4 Fish/Click',      cost: 800,        costYarn: 0,    count: 0, effect: 4,       vocabReq: 4  },
+    mouse:    { name: 'Golden Mouse',      desc: '+15 Fish/Click',     cost: 4000,       costYarn: 3,    count: 0, effect: 15,      vocabReq: 8  },
+    tuna:     { name: 'Tuna Treats',       desc: '+60 Fish/Click',     cost: 20000,      costYarn: 10,   count: 0, effect: 60,      vocabReq: 13 },
+    collar:   { name: 'Diamond Collar',    desc: '+250 Fish/Click',    cost: 100000,     costYarn: 25,   count: 0, effect: 250,     vocabReq: 19 },
+    spray:    { name: 'Catnip Spray',      desc: '+1,000 Fish/Click',  cost: 700000,     costYarn: 60,   count: 0, effect: 1000,    vocabReq: 27 },
+    robot:    { name: 'Robot Arm',         desc: '+4,000 Fish/Click',  cost: 3500000,    costYarn: 150,  count: 0, effect: 4000,    vocabReq: 36 },
+    keyboard: { name: 'Neko Keyboard',     desc: '+16k Fish/Click',    cost: 18000000,   costYarn: 350,  count: 0, effect: 16000,   vocabReq: 47 },
+    godhand:  { name: 'God Hand',          desc: '+65k Fish/Click',    cost: 90000000,   costYarn: 700,  count: 0, effect: 65000,   vocabReq: 59 },
+    hologram: { name: 'Holographic Cat',   desc: '+260k Fish/Click',   cost: 450000000,  costYarn: 2000, count: 0, effect: 260000,  vocabReq: 73 },
+    quantum:  { name: 'Quantum Paw',       desc: '+1M Fish/Click',     cost: 2500000000, costYarn: 6000, count: 0, effect: 1000000, vocabReq: 88 },
+    infinity: { name: 'Infinity Claw',     desc: '+4M Fish/Click',     cost: 15000000000,costYarn: 12000,count: 0, effect: 4000000, vocabReq: 105},
 });
 
 const _defaultBellUpgrades = () => ({
-    paw:      { name: 'Golden Paw',    desc: '+100% Click Power',           cost: 1,  count: 0, effect: 2.0 },
-    tuna:     { name: 'Golden Tuna',   desc: '+100% Idle Power',            cost: 1,  count: 0, effect: 2.0 },
-    scholar:  { name: 'Scholar Hat',   desc: '-10% Learn Cost',             cost: 2,  count: 0, effect: 0.9 },
-    weaver:   { name: 'Yarn Weaver',   desc: '10% Double Yarn Chance',      cost: 3,  count: 0, effect: 0.1 },
-    luck:     { name: 'Omikuji Luck',  desc: '5% Crit Chance (5x)',         cost: 5,  count: 0, effect: 0.05 },
-    bank:     { name: 'Maneki Bank',   desc: '+0.1% Interest/Sec',          cost: 10, count: 0, effect: 0.001 },
-    discount: { name: 'Merchant Cat',  desc: 'Upgrades 5% Cheaper',         cost: 15, count: 0, effect: 0.95 },
-    warp:     { name: 'Time Warp',     desc: '+20% Game Speed (Simulated)', cost: 30, count: 0, effect: 1.2 },
-    nap:      { name: 'Cat Nap',       desc: '+50% Passive Prod',           cost: 40, count: 0, effect: 1.5 },
-    thread:   { name: 'Golden Thread', desc: '+50% Yarn Gain',              cost: 45, count: 0, effect: 1.5 },
-    auto:     { name: 'Auto-Petter',   desc: 'Auto Clicks 10x/sec',         cost: 50, count: 0, effect: 10 },
-    charm:    { name: 'Lucky Charm',   desc: 'Crits deal x10 Dmg (not x5)',cost: 75, count: 0, effect: 1 },
+    paw:         { name: 'Golden Paw',      desc: '+100% Click Power',                    cost: 1,   count: 0, effect: 2.0   },
+    tuna:        { name: 'Golden Tuna',     desc: '+100% Idle Power',                     cost: 1,   count: 0, effect: 2.0   },
+    scholar:     { name: 'Scholar Hat',     desc: '-10% Learn Cost',                      cost: 2,   count: 0, effect: 0.9   },
+    weaver:      { name: 'Yarn Weaver',     desc: '10% Double Yarn Chance',               cost: 3,   count: 0, effect: 0.1   },
+    luck:        { name: 'Omikuji Luck',    desc: '5% Lucky Catch (×5 Fish)',             cost: 5,   count: 0, effect: 0.05  },
+    purr:        { name: 'Purring Strike',  desc: '8% chance: pet makes cat happy (10s)', cost: 7,   count: 0, effect: 0.08  },
+    bank:        { name: 'Maneki Bank',     desc: '+0.1% Interest/Sec',                   cost: 10,  count: 0, effect: 0.001 },
+    sunspot:     { name: 'Sunspot Nap',     desc: '+15% Idle when cat is happy',          cost: 12,  count: 0, effect: 1.15  },
+    discount:    { name: 'Merchant Cat',    desc: 'Upgrades 5% Cheaper',                  cost: 15,  count: 0, effect: 0.95  },
+    combo_saver: { name: 'Combo Collar',    desc: 'Wrong answer: combo ÷1.5 not ÷2',      cost: 18,  count: 0, effect: 1.5   },
+    warp:        { name: 'Time Warp',       desc: '+20% Game Speed (Simulated)',           cost: 30,  count: 0, effect: 1.2   },
+    nap:         { name: 'Cat Nap',         desc: '+50% Passive Prod',                    cost: 40,  count: 0, effect: 1.5   },
+    thread:      { name: 'Golden Thread',   desc: '+50% Yarn Gain',                       cost: 45,  count: 0, effect: 1.5   },
+    auto:        { name: 'Auto-Petter',     desc: 'Auto Clicks 10x/sec',                  cost: 50,  count: 0, effect: 10    },
+    echo:        { name: 'Echo Paw',        desc: 'Lucky Catch also bursts 3s of idle',   cost: 60,  count: 0, effect: 3     },
+    charm:       { name: 'Lucky Charm',     desc: 'Lucky Catch deals ×10 not ×5',         cost: 75,  count: 0, effect: 1     },
+    focus:       { name: 'Study Focus',     desc: '+1 Yarn per correct answer',            cost: 90,  count: 0, effect: 1     },
+    sensei:      { name: 'Cat Sensei',      desc: 'Combo decays 30% slower',              cost: 120, count: 0, effect: 0.7   },
+    surge:       { name: 'Fish Surge',      desc: '2% chance: click grants 30s of idle',  cost: 150, count: 0, effect: 0.02  },
 });
 
 const _defaultRebirthUpgrades = () => ({
-    eternal:     { name: 'Eternal Wealth',   desc: 'Keep 5% Fish/Yarn on Ascend',   cost: 1,  count: 0, effect: 0.05 },
-    wisdom:      { name: 'Divine Wisdom',    desc: '-20% Word Learn Cost',           cost: 3,  count: 0, effect: 0.8 },
-    bloom:       { name: 'Spirit Bloom',     desc: 'Word bonus: 2%→5%, +3%/lvl',    cost: 5,  count: 0, effect: 0.05 },
-    weaver_soul: { name: 'Soul Weaver',      desc: 'Triple Yarn Gain (Passive)',     cost: 8,  count: 0, effect: 3 },
-    starter:     { name: 'Ancestral Start',  desc: 'Start Ascend w/ 10 Boxes',      cost: 10, count: 0, effect: 10 },
-    guide:       { name: 'Spirit Guide',     desc: 'Global x2.5 Multiplier',         cost: 15, count: 0, effect: 2.5 },
+    eternal:     { name: 'Eternal Wealth',   desc: 'Keep 5% Fish/Yarn on Ascend',        cost: 1,  count: 0, effect: 0.05 },
+    wisdom:      { name: 'Divine Wisdom',    desc: '-20% Word Learn Cost',               cost: 3,  count: 0, effect: 0.8  },
+    bloom:       { name: 'Spirit Bloom',     desc: 'Word bonus: 2%→5%, +3%/lvl',         cost: 5,  count: 0, effect: 0.05 },
+    weaver_soul: { name: 'Soul Weaver',      desc: 'Triple Yarn Gain (Passive)',          cost: 8,  count: 0, effect: 3    },
+    starter:     { name: 'Ancestral Start',  desc: 'Start Ascend w/ 10 Boxes',           cost: 10, count: 0, effect: 10   },
+    purr_soul:   { name: 'Purr Soul',        desc: 'Happy Boost lasts 3× longer',        cost: 12, count: 0, effect: 3    },
+    click_words: { name: 'Word Paw',         desc: '+0.5% Click Power per word learned', cost: 14, count: 0, effect: 0.005},
+    guide:       { name: 'Spirit Guide',     desc: 'Global ×2.5 Multiplier',              cost: 15, count: 0, effect: 2.5  },
+    surge_soul:  { name: 'Surge Soul',       desc: 'Fish Surge: 60s instead of 30s',     cost: 18, count: 0, effect: 2    },
+    echo_soul:   { name: 'Echo Soul',        desc: 'Echo Paw bursts 6s instead of 3s',   cost: 20, count: 0, effect: 2    },
 });
 
 let _g = null;   // game state
@@ -185,6 +215,7 @@ let _cooldownEndTime = 0;
 let _isDebug = false;
 let _rafId   = null;
 let _saveInterval = null;
+let _happyBoostEnd = 0; // timestamp until purring strike happy boost is active
 
 // ─── Number Formatting ────────────────────────────────────────────────────────
 // 'suffix' → 1.23 M  |  'sci' → 1.23e6
@@ -257,13 +288,18 @@ function _getFishPerSec() {
     m *= (1 + (_g.bells * 0.05)); // +5% prod per bell (was 10%)
     
     // ── Word Bonus: always-on 2%/word, bloom upgrades it ──
-    const bloomLvl = _g.rebirthUpgrades.bloom.count;
-    const wordPct  = bloomLvl === 0 ? 0.02 : 0.05 + (bloomLvl - 1) * 0.03;
-    m *= (1 + _g.srs.length * wordPct);
+    const bloomLvl   = _g.rebirthUpgrades.bloom.count;
+    const wordPct    = bloomLvl === 0 ? 0.02 : 0.05 + (bloomLvl - 1) * 0.03;
+    const activeIds  = new Set(_vocabQueue.map(v => v.id));
+    const activeWords = _g.srs.filter(s => activeIds.has(s.id)).length;
+    m *= (1 + activeWords * wordPct);
     m *= Math.pow(_g.rebirthUpgrades.guide.effect, _g.rebirthUpgrades.guide.count);
 
     // ── Happy Cat Logic ──
-    const isHappy = _pendingReviews.length === 0;
+    const isHappy = _pendingReviews.length === 0 || Date.now() < _happyBoostEnd;
+    const sunspotBonus = (isHappy && _g.bellUpgrades.sunspot.count > 0)
+        ? Math.pow(_g.bellUpgrades.sunspot.effect, _g.bellUpgrades.sunspot.count)
+        : 1;
     const moodMult = isHappy ? 1.25 : 0.75;
     
     // ── Combo Logic ──
@@ -271,7 +307,7 @@ function _getFishPerSec() {
 
     if (_isDebug) m *= 1000;
     
-    return base * m * moodMult * comboMult;
+    return base * m * moodMult * sunspotBonus * comboMult;
 }
 
 function _getClickPower() {
@@ -283,16 +319,20 @@ function _getClickPower() {
     m *= Math.pow(_g.rebirthUpgrades.guide.effect, _g.rebirthUpgrades.guide.count);
 
     // Happy Cat and Combo also apply to clicks
-    const isHappy = _pendingReviews.length === 0;
+    const isHappy = _pendingReviews.length === 0 || Date.now() < _happyBoostEnd;
     m *= isHappy ? 1.25 : 0.75;
     m *= 1 + Math.log2(1 + _g.combo);
+    // Word Paw rebirth bonus
+    if (_g.rebirthUpgrades.click_words) {
+        m *= 1 + (_g.srs.length * _g.rebirthUpgrades.click_words.effect * _g.rebirthUpgrades.click_words.count);
+    }
     
     if (_isDebug) m *= 1000;
     return base * m;
 }
 
 function _getMultiplierBreakdown() {
-    const isHappy   = _pendingReviews.length === 0;
+    const isHappy   = _pendingReviews.length === 0 || Date.now() < _happyBoostEnd;
     const moodMult  = isHappy ? 1.25 : 0.75;
     const comboMult = 1 + Math.log2(1 + _g.combo);
 
@@ -312,21 +352,25 @@ function _getMultiplierBreakdown() {
     const warp    = Math.pow(_g.bellUpgrades.warp.effect, _g.bellUpgrades.warp.count);
     const nap     = Math.pow(_g.bellUpgrades.nap.effect, _g.bellUpgrades.nap.count);
     const bells   = 1 + (_g.bells * 0.05);
-    const bloomLvl = _g.rebirthUpgrades.bloom.count;
-    const wordPct  = bloomLvl === 0 ? 0.02 : 0.05 + (bloomLvl - 1) * 0.03;
-    const bloom    = 1 + _g.srs.length * wordPct;
-    const guide   = Math.pow(_g.rebirthUpgrades.guide.effect, _g.rebirthUpgrades.guide.count);
+    const bloomLvl   = _g.rebirthUpgrades.bloom.count;
+    const wordPct    = bloomLvl === 0 ? 0.02 : 0.05 + (bloomLvl - 1) * 0.03;
+    const _activeIds = new Set(_vocabQueue.map(v => v.id));
+    const activeWords = _g.srs.filter(s => _activeIds.has(s.id)).length;
+    const bloom      = 1 + activeWords * wordPct;
+    const guide    = Math.pow(_g.rebirthUpgrades.guide.effect, _g.rebirthUpgrades.guide.count);
+    const sunspot  = (isHappy && _g.bellUpgrades.sunspot.count > 0)
+        ? Math.pow(_g.bellUpgrades.sunspot.effect, _g.bellUpgrades.sunspot.count) : 1;
 
     // ── Click-specific multipliers ──
     const paw = Math.pow(_g.bellUpgrades.paw.effect, _g.bellUpgrades.paw.count);
 
-    const idleMultTotal  = catnip * tuna * warp * nap * bells * bloom * guide * moodMult * comboMult;
+    const idleMultTotal  = catnip * tuna * warp * nap * bells * bloom * guide * moodMult * sunspot * comboMult;
     const clickMultTotal = paw * guide * moodMult * comboMult;
 
     return {
-        isHappy, moodMult, comboMult, wordPct,
-        idle:  { base: idleBase,  catnip, tuna, warp, nap, bells, bloom, guide, multTotal: idleMultTotal,  finalFps:   idleBase  * idleMultTotal },
-        click: { base: clickBase, paw, guide,                                   multTotal: clickMultTotal, finalClick: clickBase * clickMultTotal },
+        isHappy, moodMult, comboMult, wordPct, activeWords,
+        idle:  { base: idleBase,  catnip, tuna, warp, nap, bells, bloom, sunspot, guide, multTotal: idleMultTotal,  finalFps:   idleBase  * idleMultTotal },
+        click: { base: clickBase, paw, guide,                                              multTotal: clickMultTotal, finalClick: clickBase * clickMultTotal },
     };
 }
 
@@ -420,7 +464,10 @@ function _startGameLoop() {
         // Combo Decay: only when cards are due AND player is not in cooldown (actively ignoring the queue)
         // Frozen while: no cards due (cat napping) OR between-card cooldown pause
         if (_g.combo > 0 && _pendingReviews.length > 0 && !_isCooldown) {
-            const decayRate = 0.1 + (_g.combo * 0.05);
+            const senseiMod = _g.bellUpgrades.sensei.count > 0
+                ? Math.pow(_g.bellUpgrades.sensei.effect, _g.bellUpgrades.sensei.count)
+                : 1;
+            const decayRate = (0.1 + (_g.combo * 0.05)) * senseiMod;
             _g.combo = Math.max(0, _g.combo - (decayRate * delta));
         }
 
@@ -494,18 +541,48 @@ function _stopGameLoop() {
 // ─── Interactions ─────────────────────────────────────────────────────────────
 
 function _petCat(e) {
-    let power  = _getClickPower();
-    let isCrit = false;
-    const critChance = _g.bellUpgrades.luck.count * _g.bellUpgrades.luck.effect;
-    if (Math.random() < critChance) {
-        power  *= (_g.bellUpgrades.charm.count > 0) ? 10 : 5;
-        isCrit  = true;
+    let power    = _getClickPower();
+    let isLucky  = false;
+    const luckChance = _g.bellUpgrades.luck.count * _g.bellUpgrades.luck.effect;
+    if (Math.random() < luckChance) {
+        const mult = _g.bellUpgrades.charm.count > 0 ? 10 : 5;
+        power   *= mult;
+        isLucky  = true;
     }
     _g.fish += power;
     _g.stats.fishEarned += power;
     _g.stats.clicks++;
 
-    _spawnFloatingText(e.clientX, e.clientY, `+${Math.floor(power).toLocaleString()}`, isCrit ? '#ff4b4b' : null, isCrit ? 24 : 18);
+    _spawnFloatingText(e.clientX, e.clientY, `+${_fmtN(power)}`, isLucky ? '#ff9900' : null, isLucky ? 24 : 18);
+    if (isLucky) setTimeout(() => _spawnFloatingText(e.clientX, e.clientY - 30, '🎣 Lucky!', '#ff9900', 13), 80);
+
+    // Echo Paw: lucky catch also bursts N seconds of idle
+    if (isLucky && _g.bellUpgrades.echo.count > 0) {
+        const echoSec = _g.bellUpgrades.echo.effect * (_g.rebirthUpgrades.echo_soul?.count > 0 ? _g.rebirthUpgrades.echo_soul.effect : 1);
+        const burst   = _getFishPerSec() * echoSec;
+        _g.fish += burst;
+        _g.stats.fishEarned += burst;
+        setTimeout(() => _spawnFloatingText(e.clientX, e.clientY - 50, `⚡+${_fmtN(burst)}`, '#a29bfe', 13), 120);
+    }
+
+    // Fish Surge: chance to burst 30s (or 60s) of idle
+    const surgeChance = _g.bellUpgrades.surge?.count > 0 ? _g.bellUpgrades.surge.effect : 0;
+    if (surgeChance > 0 && Math.random() < surgeChance) {
+        const surgeSec = 30 * (_g.rebirthUpgrades.surge_soul?.count > 0 ? _g.rebirthUpgrades.surge_soul.effect : 1);
+        const burst    = _getFishPerSec() * surgeSec;
+        _g.fish += burst;
+        _g.stats.fishEarned += burst;
+        setTimeout(() => _spawnFloatingText(e.clientX, e.clientY - 55, `🌊 Surge! +${_fmtN(burst)}`, '#0984e3', 14), 160);
+    }
+
+    // Purring Strike: chance to grant Happy Boost (forces happy mood for N seconds)
+    const purrChance = _g.bellUpgrades.purr.count * _g.bellUpgrades.purr.effect;
+    if (purrChance > 0 && Math.random() < purrChance) {
+        const boostSec = 10 * (_g.rebirthUpgrades.purr_soul?.count > 0 ? _g.rebirthUpgrades.purr_soul.effect : 1);
+        _happyBoostEnd = Date.now() + boostSec * 1000;
+        setTimeout(() => _spawnFloatingText(e.clientX, e.clientY - 55, `😻 Happy! ${boostSec}s`, 'var(--nk-success)', 14), 160);
+    }
+
     _updateUI();
 }
 
@@ -541,8 +618,9 @@ function _buyUpgrade(shopType, key) {
         const discount = Math.pow(_g.bellUpgrades.discount.effect, _g.bellUpgrades.discount.count);
         const costFish = Math.floor(upg.cost * Math.pow(1.18, upg.count) * discount);
         const vocabReq = upg.vocabReq || 0;
-        if (_g.srs.length < vocabReq) {
-            _toast(`Needs ${vocabReq} words learned (have ${_g.srs.length})`, '#e17055');
+        const activeCount = _g.srs.filter(s => new Set(_vocabQueue.map(v => v.id)).has(s.id)).length;
+        if (activeCount < vocabReq) {
+            _toast(`Needs ${vocabReq} active words (have ${activeCount})`, '#e17055');
             return;
         }
         if (_g.fish >= costFish && _g.yarn >= upg.costYarn) {
@@ -617,13 +695,13 @@ function _learnNewWord() {
     if (_g.fish < cost) { _toast('Not enough fish!', '#ff6b6b'); return; }
 
     const learnedIds = new Set(_g.srs.map(s => s.id));
+    // Only offer words from the current active queue that aren't already in SRS
+    // (dormant words from old sessions are already in learnedIds and are excluded)
     const available  = _vocabQueue.filter(v => !learnedIds.has(v.id));
     if (available.length === 0) { _toast('All words learned!', 'var(--nk-success)'); return; }
 
     _g.fish -= cost;
     const w = available[0];
-    
-    // Start interval small in seconds to keep game flowing quickly
     _g.srs.push({ id: w.id, nextReview: Date.now(), interval: 8, ease: 1.5 });
     
     _g.stats.wordsLearned++;
@@ -704,6 +782,7 @@ function _checkAnswer(selectedId, btnEl, correctId, event) {
         if (Math.random() < (_g.bellUpgrades.weaver.count * _g.bellUpgrades.weaver.effect)) yarn *= 2;
         if (_g.bellUpgrades.thread.count > 0) yarn = Math.ceil(yarn * Math.pow(_g.bellUpgrades.thread.effect, _g.bellUpgrades.thread.count));
         if (_g.rebirthUpgrades.weaver_soul.count > 0) yarn *= 3;
+        if (_g.bellUpgrades.focus.count > 0) yarn += _g.bellUpgrades.focus.count;
         
         _g.yarn += yarn;
         _g.combo += 1;
@@ -739,7 +818,8 @@ function _checkAnswer(selectedId, btnEl, correctId, event) {
         srsItem.ease       = Math.max(1.3, srsItem.ease - 0.2);
         srsItem.nextReview = Date.now() + 15000;
         
-        _g.combo = Math.floor(_g.combo / 2); // Halve the combo instead of full reset
+        const comboDiv = _g.bellUpgrades.combo_saver.count > 0 ? 1.5 : 2;
+        _g.combo = Math.floor(_g.combo / comboDiv);
         _g.stats.wrong++;
 
         if (event) _spawnFloatingText(event.clientX, event.clientY, `❌`, '#ff4b4b', 28);
@@ -1014,7 +1094,7 @@ function _renderShop(shopKey, containerId, prefix, isBell, isRebirth) {
     for (const key in _g[shopKey]) {
         const upg = _g[shopKey][key];
         const vocabReq = upg.vocabReq || 0;
-        const vocabNote = (shopKey === 'upgrades' && vocabReq > 0)
+        const vocabNote = ((shopKey === 'upgrades' || shopKey === 'clickUpgrades') && vocabReq > 0)
             ? `<span class="nk-upg-vocab" id="nk-vocab-${prefix}-${key}">📚 ${vocabReq} words</span>`
             : '';
         const div = document.createElement('div');
@@ -1227,7 +1307,8 @@ function _renderMultiplierPopup() {
             ${row('⏩ Time Warp', b.idle.warp)}
             ${row('😴 Cat Nap',  b.idle.nap)}
             ${row('🔔 Bells',    b.idle.bells)}
-            ${row(`📚 Words (${_g.srs.length}×${(b.wordPct*100).toFixed(0)}%)`, b.idle.bloom)}
+            ${row('☀️ Sunspot',  b.idle.sunspot)}
+            ${row(`📚 Words (${b.activeWords}×${(b.wordPct*100).toFixed(0)}%)`, b.idle.bloom)}
             ${row('👻 Guide',    b.idle.guide)}
             ${totalRow('= Total /s', b.idle.finalFps)}
         </div>
@@ -1342,9 +1423,10 @@ function _updateUI() {
 
     const learnBtn = g.querySelector('#nk-learn-btn');
     if (learnBtn) {
-        const cost     = _getLearnCost();
-        const mastered = _g.srs.length >= _vocabQueue.length;
-        if (mastered) {
+        const cost       = _getLearnCost();
+        const learnedIds = new Set(_g.srs.map(s => s.id));
+        const remaining  = _vocabQueue.filter(v => !learnedIds.has(v.id)).length;
+        if (remaining === 0) {
             learnBtn.textContent = 'Mastery Achieved!';
             learnBtn.disabled    = true;
         } else {
@@ -1357,7 +1439,7 @@ function _updateUI() {
 function _updateShopBtns(shopKey, prefix) {
     const g        = _screens.game;
     const discount = Math.pow(_g.bellUpgrades.discount.effect, _g.bellUpgrades.discount.count);
-    const learnedCount = _g.srs.length;
+    const learnedCount = _g.srs.filter(s => new Set(_vocabQueue.map(v => v.id)).has(s.id)).length;
     for (const key in _g[shopKey]) {
         const upg       = _g[shopKey][key];
         const costFish  = Math.floor(upg.cost * Math.pow(1.15, upg.count) * discount);
@@ -1661,7 +1743,7 @@ function _toast(msg, color = '#333') {
 
 .nk-footer {
     flex-shrink: 0;
-    height: 40px;
+    height: 60px;
     background: var(--nk-panel);
     border-top: 1px solid rgba(0,0,0,0.06);
 }
