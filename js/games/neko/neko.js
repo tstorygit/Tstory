@@ -186,6 +186,36 @@ let _isDebug = false;
 let _rafId   = null;
 let _saveInterval = null;
 
+// ─── Number Formatting ────────────────────────────────────────────────────────
+// 'suffix' → 1.23 M  |  'sci' → 1.23e6
+let _numFmtStyle = localStorage.getItem('neko_numfmt') || 'suffix';
+
+const _NUM_SUFFIXES = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi', 'Sx', 'Sp', 'Oc', 'No', 'Dc', 'Ud', 'Dd'];
+
+function _fmtN(n) {
+    n = Math.floor(n);
+    if (isNaN(n) || !isFinite(n)) return '0';
+    if (_numFmtStyle === 'sci') {
+        if (Math.abs(n) < 10000) return n.toLocaleString();
+        const exp = Math.floor(Math.log10(Math.abs(n)));
+        const coeff = n / Math.pow(10, exp);
+        return coeff.toFixed(2) + 'e' + exp;
+    }
+    // suffix style
+    if (Math.abs(n) < 10000) return n.toLocaleString();
+    const tier = Math.min(Math.floor(Math.log10(Math.abs(n)) / 3), _NUM_SUFFIXES.length - 1);
+    const scaled = n / Math.pow(10, tier * 3);
+    return scaled.toFixed(2) + ' ' + _NUM_SUFFIXES[tier];
+}
+
+function _toggleNumFmt() {
+    _numFmtStyle = _numFmtStyle === 'suffix' ? 'sci' : 'suffix';
+    localStorage.setItem('neko_numfmt', _numFmtStyle);
+    const btn = _screens.game?.querySelector('#nk-numfmt-btn');
+    if (btn) btn.textContent = _numFmtStyle === 'suffix' ? '1.2 M' : '1.2e6';
+    _updateUI();
+}
+
 function _freshGame() {
     return {
         fish: 0, yarn: 0, bells: 0, karma: 0,
@@ -410,19 +440,43 @@ function _startGameLoop() {
         // ── Update Dojo Timers ──
         if (_pendingReviews.length === 0) {
             const nextTimer = document.getElementById('nk-next-review-timer');
-            if (nextTimer) {
-                if (_g.srs.length > 0) {
-                    const next = Math.min(..._g.srs.map(s => s.nextReview));
-                    const diffSec = (next - now) / 1000;
-                    if (diffSec <= 0) {
-                        nextTimer.textContent = "Cat is waking up...";
-                    } else {
-                        nextTimer.textContent = `Next cat in: ${_formatTime(diffSec)}`;
-                    }
-                } else {
-                    nextTimer.textContent = "Learn a word to start!";
+            const wakeupPill  = _screens.game?.querySelector('#nk-wakeup-pill');
+            const wakeupLabel = _screens.game?.querySelector('#nk-wakeup-label');
+            const wakeupBar   = _screens.game?.querySelector('#nk-wakeup-bar');
+
+            if (_g.srs.length > 0) {
+                const activeIds = new Set(_vocabQueue.map(v => v.id));
+                const activeSrs = _g.srs.filter(s => activeIds.has(s.id));
+                const next = activeSrs.length > 0 ? Math.min(...activeSrs.map(s => s.nextReview)) : Infinity;
+                const diffSec = (next - now) / 1000;
+
+                if (nextTimer) {
+                    nextTimer.textContent = diffSec <= 0 ? "Cat is waking up..." : `Next cat in: ${_formatTime(diffSec)}`;
                 }
+
+                // Wakeup countdown pill: show in last 10 seconds
+                if (wakeupPill && wakeupLabel && wakeupBar) {
+                    if (diffSec > 0 && diffSec <= 10) {
+                        wakeupPill.style.display = 'flex';
+                        wakeupLabel.textContent = `🐱 ${Math.ceil(diffSec)}s`;
+                        const pct = ((10 - diffSec) / 10) * 100;
+                        wakeupBar.style.width = pct + '%';
+                        // Color shifts: green → orange → red
+                        const hue = Math.round(diffSec * 12); // 120=green at 10s, 0=red at 0s
+                        wakeupBar.style.background = `hsl(${hue}, 80%, 48%)`;
+                    } else {
+                        wakeupPill.style.display = 'none';
+                    }
+                }
+            } else {
+                if (nextTimer) nextTimer.textContent = "Learn a word to start!";
+                const wakeupPill = _screens.game?.querySelector('#nk-wakeup-pill');
+                if (wakeupPill) wakeupPill.style.display = 'none';
             }
+        } else {
+            // Hide wakeup pill when cats are already hungry
+            const wakeupPill = _screens.game?.querySelector('#nk-wakeup-pill');
+            if (wakeupPill) wakeupPill.style.display = 'none';
         }
 
         _updateUI();
@@ -708,6 +762,7 @@ function _initGameDOM() {
     <div class="nk-topbar">
         <div class="nk-topbar-title">🐾 NekoNihongo</div>
         <div class="nk-topbar-btns">
+            <button class="nk-hbtn nk-hbtn-fmt" id="nk-numfmt-btn" title="Toggle number format">1.2 M</button>
             <button class="nk-hbtn nk-hbtn-gold" id="nk-ascend-btn">Ascend</button>
             <button class="nk-hbtn nk-hbtn-spirit" id="nk-rebirth-btn" style="display:${showSpirit?'inline-block':'none'};">Rebirth</button>
             <button class="nk-hbtn" id="nk-save-btn">Save</button>
@@ -725,6 +780,10 @@ function _initGameDOM() {
                 <div class="nk-stat-pill nk-bell-color">🔔 <span class="nk-val-bells">0</span></div>
                 <div class="nk-stat-pill nk-spirit-color" id="nk-karma-pill" style="display:${showSpirit?'flex':'none'};">👻 <span class="nk-val-karma">0</span></div>
                 <div class="nk-stat-pill nk-hungry-pill" id="nk-hungry-pill" style="display:none;">🐱 <span class="nk-val-hungry">0</span> hungry</div>
+                <div class="nk-stat-pill nk-wakeup-pill" id="nk-wakeup-pill" style="display:none;">
+                    <span id="nk-wakeup-label">🐱 3s</span>
+                    <div class="nk-wakeup-bar-wrap"><div class="nk-wakeup-bar" id="nk-wakeup-bar"></div></div>
+                </div>
             </div>
             <div class="nk-stat-sub">
                 <span class="nk-val-fps">0</span>/s • <span class="nk-val-cpc">1</span>/click • Combo: <span class="nk-val-combo">0</span>
@@ -836,6 +895,10 @@ function _initGameDOM() {
 </div>`;
 
     el.querySelector('#nk-save-btn').addEventListener('click', () => _saveGame(true));
+    el.querySelector('#nk-numfmt-btn').addEventListener('click', _toggleNumFmt);
+    // Set correct label on init
+    const fmtBtn = el.querySelector('#nk-numfmt-btn');
+    if (fmtBtn) fmtBtn.textContent = _numFmtStyle === 'suffix' ? '1.2 M' : '1.2e6';
     el.querySelector('#nk-ascend-btn').addEventListener('click', _ascend);
     el.querySelector('#nk-rebirth-btn').addEventListener('click', _rebirth);
     el.querySelector('#nk-learn-btn').addEventListener('click', _learnNewWord);
@@ -916,12 +979,12 @@ function _renderStats() {
                             + Object.values(_g.clickUpgrades).reduce((s,u) => s + u.count, 0);
         const discount = Math.pow(_g.bellUpgrades.discount.effect, _g.bellUpgrades.discount.count);
         econ.innerHTML = `
-            <div class="nk-stat-row"><span>🐟 Fish (current)</span><span>${Math.floor(_g.fish).toLocaleString()}</span></div>
-            <div class="nk-stat-row"><span>🐟 Total Fish Earned</span><span>${Math.floor(_g.stats.fishEarned).toLocaleString()}</span></div>
-            <div class="nk-stat-row"><span>🧶 Yarn (current)</span><span>${_g.yarn.toLocaleString()}</span></div>
-            <div class="nk-stat-row"><span>🧶 Total Yarn Earned</span><span>${_g.stats.yarnEarned.toLocaleString()}</span></div>
-            <div class="nk-stat-row"><span>🔔 Bells</span><span>${_g.bells.toLocaleString()}</span></div>
-            <div class="nk-stat-row"><span>👻 Spirits</span><span>${_g.karma.toLocaleString()}</span></div>
+            <div class="nk-stat-row"><span>🐟 Fish (current)</span><span>${_fmtN(_g.fish)}</span></div>
+            <div class="nk-stat-row"><span>🐟 Total Fish Earned</span><span>${_fmtN(_g.stats.fishEarned)}</span></div>
+            <div class="nk-stat-row"><span>🧶 Yarn (current)</span><span>${_fmtN(_g.yarn)}</span></div>
+            <div class="nk-stat-row"><span>🧶 Total Yarn Earned</span><span>${_fmtN(_g.stats.yarnEarned)}</span></div>
+            <div class="nk-stat-row"><span>🔔 Bells</span><span>${_fmtN(_g.bells)}</span></div>
+            <div class="nk-stat-row"><span>👻 Spirits</span><span>${_fmtN(_g.karma)}</span></div>
             <div class="nk-stat-row"><span>🛒 Upgrades Purchased</span><span>${totalUpgrades}</span></div>
             <div class="nk-stat-row"><span>🏷️ Shop Discount</span><span>${Math.round((1 - discount) * 100)}%</span></div>
         `;
@@ -938,11 +1001,11 @@ function _renderStats() {
         const autoClicks = _g.bellUpgrades.auto.count * _g.bellUpgrades.auto.effect;
         const effectiveCps = fps + (cpc * autoClicks);
         prod.innerHTML = `
-            <div class="nk-stat-row"><span>⚡ Fish / Second</span><span>${Math.floor(fps).toLocaleString()}</span></div>
-            <div class="nk-stat-row"><span>👆 Fish / Click</span><span>${Math.floor(cpc).toLocaleString()}</span></div>
-            <div class="nk-stat-row"><span>🤖 Auto-Clicks / Sec</span><span>${autoClicks > 0 ? autoClicks.toLocaleString() : '—'}</span></div>
-            <div class="nk-stat-row"><span>📈 Effective Total / Sec</span><span>${Math.floor(effectiveCps).toLocaleString()}</span></div>
-            <div class="nk-stat-row"><span>👆 Total Clicks</span><span>${_g.stats.clicks.toLocaleString()}</span></div>
+            <div class="nk-stat-row"><span>⚡ Fish / Second</span><span>${_fmtN(fps)}</span></div>
+            <div class="nk-stat-row"><span>👆 Fish / Click</span><span>${_fmtN(cpc)}</span></div>
+            <div class="nk-stat-row"><span>🤖 Auto-Clicks / Sec</span><span>${autoClicks > 0 ? _fmtN(autoClicks) : '—'}</span></div>
+            <div class="nk-stat-row"><span>📈 Effective Total / Sec</span><span>${_fmtN(effectiveCps)}</span></div>
+            <div class="nk-stat-row"><span>👆 Total Clicks</span><span>${_fmtN(_g.stats.clicks)}</span></div>
             <div class="nk-stat-row"><span>${isHappy ? '😺' : '😾'} Cat Mood Multiplier</span><span>${isHappy ? '×1.25 (Happy!)' : '×0.75 (Hungry)'}</span></div>
             <div class="nk-stat-row"><span>🔥 Combo</span><span>${_g.combo.toFixed(1)} (×${comboMult.toFixed(2)})</span></div>
             <div class="nk-stat-row"><span>🏆 Highest Combo</span><span>${Math.floor(_g.stats.highestCombo)}</span></div>
@@ -986,10 +1049,10 @@ function _renderStats() {
             <div class="nk-stat-row"><span>⏳ Reviews Due Now</span><span>${due > 0 ? '<span style="color:#e17055;font-weight:bold;">' + due + '</span>' : '0'}</span></div>
             <div class="nk-stat-row"><span>⏱️ Next Review In</span><span id="nk-stats-next-review">${nextReviewText}</span></div>
             <div class="nk-stat-row"><span>⏸️ Cooldown</span><span id="nk-stats-cooldown">${cooldownText}</span></div>
-            <div class="nk-stat-row"><span>✅ Correct Answers</span><span>${_g.stats.correct.toLocaleString()}</span></div>
-            <div class="nk-stat-row"><span>❌ Wrong Answers</span><span>${_g.stats.wrong.toLocaleString()}</span></div>
+            <div class="nk-stat-row"><span>✅ Correct Answers</span><span>${_fmtN(_g.stats.correct)}</span></div>
+            <div class="nk-stat-row"><span>❌ Wrong Answers</span><span>${_fmtN(_g.stats.wrong)}</span></div>
             <div class="nk-stat-row"><span>🎯 Accuracy</span><span>${accuracy}%</span></div>
-            <div class="nk-stat-row"><span>💰 Next Learn Cost</span><span>${learnCost.toLocaleString()} 🐟</span></div>
+            <div class="nk-stat-row"><span>💰 Next Learn Cost</span><span>${_fmtN(learnCost)} 🐟</span></div>
             <div class="nk-stat-row"><span>📝 Words Studied (Total)</span><span>${_g.stats.wordsLearned}</span></div>
         `;
     }
@@ -1003,10 +1066,10 @@ function _renderStats() {
         const nextBells     = _calcBells();
         const nextSpirits   = _calcSpirits();
         progEl.innerHTML = `
-            <div class="nk-stat-row"><span>🔔 Ascension Bells Earned</span><span>${_g.bells.toLocaleString()}</span></div>
+            <div class="nk-stat-row"><span>🔔 Ascension Bells Earned</span><span>${_fmtN(_g.bells)}</span></div>
             <div class="nk-stat-row"><span>🔔 Next Ascend Reward</span><span>+${nextBells} Bell${nextBells !== 1 ? 's' : ''}</span></div>
             <div class="nk-stat-row"><span>📊 Ascend Progress</span><span>${bellProgress}% (need 50k 🐟)</span></div>
-            <div class="nk-stat-row"><span>👻 Spirits (Karma)</span><span>${_g.karma.toLocaleString()}</span></div>
+            <div class="nk-stat-row"><span>👻 Spirits (Karma)</span><span>${_fmtN(_g.karma)}</span></div>
             <div class="nk-stat-row"><span>👻 Next Rebirth Reward</span><span>${nextSpirits > 0 ? '+' + nextSpirits + ' Spirit' + (nextSpirits !== 1 ? 's' : '') : 'Need 100 Bells'}</span></div>
             <div class="nk-stat-row"><span>📈 Global Prod. Multiplier</span><span>×${(1 + (_g.bells * 0.1)).toFixed(2)} (from bells)</span></div>
         `;
@@ -1074,17 +1137,15 @@ function _renderMultiplierPopup() {
     if (!popup) return;
     const b = _getMultiplierBreakdown();
     const fmt = v => v.toFixed(2);
-
-    const fmtN = v => Math.floor(v).toLocaleString();
     const row = (label, val, color = '') => {
-        if (val === 1) return ''; // skip trivial ×1.00 rows
+        if (val === 1) return '';
         const style = color ? `style="color:${color};"` : '';
         return `<div class="nk-mp-row" ${style}><span>${label}</span><span>×${fmt(val)}</span></div>`;
     };
     const baseRow = (label, val) =>
-        `<div class="nk-mp-row nk-mp-base"><span>${label}</span><span>${fmtN(val)}</span></div>`;
+        `<div class="nk-mp-row nk-mp-base"><span>${label}</span><span>${_fmtN(val)}</span></div>`;
     const totalRow = (label, val) =>
-        `<div class="nk-mp-row nk-mp-final"><span>${label}</span><span>${fmtN(val)}</span></div>`;
+        `<div class="nk-mp-row nk-mp-final"><span>${label}</span><span>${_fmtN(val)}</span></div>`;
 
     const happyLabel = b.isHappy ? '✨ Happy Bonus' : '😾 Hungry Penalty';
     const happyColor = b.isHappy ? 'var(--nk-success)' : '#e17055';
@@ -1124,12 +1185,12 @@ function _updateUI() {
 
     const setTxt = (sel, val) => { const el = g.querySelector(sel); if (el) el.textContent = val; };
 
-    setTxt('.nk-val-fish',  Math.floor(_g.fish).toLocaleString());
-    setTxt('.nk-val-yarn',  _g.yarn.toLocaleString());
-    setTxt('.nk-val-bells', _g.bells.toLocaleString());
-    setTxt('.nk-val-karma', _g.karma.toLocaleString());
-    setTxt('.nk-val-fps',   Math.floor(_getFishPerSec()).toLocaleString());
-    setTxt('.nk-val-cpc',   Math.floor(_getClickPower()).toLocaleString());
+    setTxt('.nk-val-fish',  _fmtN(_g.fish));
+    setTxt('.nk-val-yarn',  _fmtN(_g.yarn));
+    setTxt('.nk-val-bells', _fmtN(_g.bells));
+    setTxt('.nk-val-karma', _fmtN(_g.karma));
+    setTxt('.nk-val-fps',   _fmtN(_getFishPerSec()));
+    setTxt('.nk-val-cpc',   _fmtN(_getClickPower()));
     setTxt('.nk-val-combo', _g.combo.toFixed(1)); // Show decimal to make decay visible
 
     // Multiplier badge
@@ -1235,7 +1296,7 @@ function _updateUI() {
             learnBtn.textContent = 'Mastery Achieved!';
             learnBtn.disabled    = true;
         } else {
-            learnBtn.textContent = `Study (${cost.toLocaleString()} 🐟)`;
+            learnBtn.textContent = `Study (${_fmtN(cost)} 🐟)`;
             learnBtn.disabled    = _g.fish < cost;
         }
     }
@@ -1251,7 +1312,7 @@ function _updateShopBtns(shopKey, prefix) {
         const lvl      = g?.querySelector(`#nk-lvl-${prefix}-${key}`);
         if (lvl) lvl.textContent = `(Lvl ${upg.count})`;
         if (btn) {
-            btn.textContent = `${costFish.toLocaleString()}🐟${upg.costYarn > 0 ? ` ${upg.costYarn}🧶` : ''}`;
+            btn.textContent = `${_fmtN(costFish)}🐟${upg.costYarn > 0 ? ` ${upg.costYarn}🧶` : ''}`;
             btn.disabled    = (_g.fish < costFish || _g.yarn < upg.costYarn);
         }
     }
@@ -1338,6 +1399,32 @@ function _toast(msg, color = '#333') {
 .nk-hbtn-gold        { background: var(--nk-gold);   color: #333; }
 .nk-hbtn-spirit      { background: var(--nk-spirit); }
 .nk-hbtn-danger      { background: #888; }
+.nk-hbtn-fmt         { background: #e8e8e8; color: #555; font-size: 11px; padding: 5px 8px; }
+
+/* Wakeup countdown pill */
+.nk-wakeup-pill {
+    background: #fff8e1 !important;
+    color: #e17055 !important;
+    border: 1px solid #ffe0b2 !important;
+    font-weight: bold;
+    flex-direction: column !important;
+    gap: 2px !important;
+    padding: 3px 8px 4px !important;
+    min-width: 52px;
+}
+.nk-wakeup-bar-wrap {
+    width: 100%;
+    height: 3px;
+    background: rgba(0,0,0,0.1);
+    border-radius: 2px;
+    overflow: hidden;
+}
+.nk-wakeup-bar {
+    height: 100%;
+    border-radius: 2px;
+    width: 0%;
+    transition: width 0.25s linear, background 0.5s;
+}
 
 /* Stats Header */
 .nk-stats-header {
