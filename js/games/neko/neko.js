@@ -34,8 +34,7 @@ function _show(name) {
         if (!el) return;
         
         if (k === name) {
-            // If showing the game screen, we must override the app's default .content-scroll 
-            // padding/overflow so our internal fixed layout doesn't get pushed off screen.
+            // Override padding/overflow for the game screen to allow full-height layout
             if (name === 'game') {
                 el.style.display = 'flex';
                 el.style.flexDirection = 'column';
@@ -43,7 +42,7 @@ function _show(name) {
                 el.style.overflow = 'hidden';
             } else {
                 el.style.display = 'block';
-                el.style.padding = ''; // restore default
+                el.style.padding = ''; 
                 el.style.overflow = ''; 
             }
         } else {
@@ -659,7 +658,6 @@ function _checkAnswer(selectedId, btnEl, correctId, event) {
 
         if (event) _spawnFloatingText(event.clientX, event.clientY, `❌`, '#ff4b4b', 28);
 
-        // Keep the card visible slightly longer so they register the mistake
         setTimeout(() => {
             _g.currentCardId = null;
             _isCooldown = false; 
@@ -705,6 +703,16 @@ function _initGameDOM() {
             </div>
             <div class="nk-buff-row" style="display:none;"></div>
         </div>
+    </div>
+
+    <!-- NEW LOCATION: Bottom Tab Bar Moved to Top (below stats) -->
+    <div class="nk-tab-bar">
+        <button class="nk-nav-btn active" data-target="click">👆 Click</button>
+        <button class="nk-nav-btn" data-target="idle">📦 Idle</button>
+        <button class="nk-nav-btn" data-target="dojo">🧠 Dojo</button>
+        <button class="nk-nav-btn" data-target="bells">🔔 Bell</button>
+        <button class="nk-nav-btn" data-target="stats">📊 Stats</button>
+        <button class="nk-nav-btn" data-target="spirit" id="nk-nav-spirit" style="display:${showSpirit?'block':'none'}; color:#a55eea;">👻 Spirit</button>
     </div>
 
     <!-- Content Area -->
@@ -782,16 +790,6 @@ function _initGameDOM() {
             <div class="nk-upgrades" id="nk-upg-rebirth"></div>
         </div>
 
-    </div>
-
-    <!-- Bottom Tab Bar -->
-    <div class="nk-tab-bar">
-        <button class="nk-nav-btn active" data-target="click">👆 Click</button>
-        <button class="nk-nav-btn" data-target="idle">📦 Idle</button>
-        <button class="nk-nav-btn" data-target="dojo">🧠 Dojo</button>
-        <button class="nk-nav-btn" data-target="bells">🔔 Bell</button>
-        <button class="nk-nav-btn" data-target="stats">📊 Stats</button>
-        <button class="nk-nav-btn" data-target="spirit" id="nk-nav-spirit" style="display:${showSpirit?'block':'none'}; color:#a55eea;">👻 Spirit</button>
     </div>
 
     <div class="nk-toasts" id="nk-toasts"></div>
@@ -1104,6 +1102,33 @@ function _toast(msg, color = '#333') {
     align-items: center;
 }
 
+/* Nav Bar (Tabs) - Moved to Top below Stats */
+.nk-tab-bar {
+    background: white;
+    border-bottom: 1px solid rgba(0,0,0,0.1);
+    display: flex;
+    flex-shrink: 0;
+    overflow-x: auto; /* Allow horizontal scroll if tabs overflow on small screens */
+}
+.nk-nav-btn {
+    flex: 1;
+    background: none;
+    border: none;
+    padding: 12px 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: #888;
+    cursor: pointer;
+    border-bottom: 3px solid transparent;
+    white-space: nowrap;
+    min-width: 60px;
+}
+.nk-nav-btn.active {
+    color: var(--nk-text);
+    border-bottom-color: var(--nk-btn);
+    background: rgba(255,179,71,0.1);
+}
+
 /* Main Content Pane */
 .nk-content-pane {
     flex: 1;
@@ -1111,35 +1136,12 @@ function _toast(msg, color = '#333') {
     padding: 15px;
     background: #fffdf9;
     position: relative;
+    /* Important for mobile scroll behavior */
+    -webkit-overflow-scrolling: touch; 
 }
 
 .nk-tab-content { display: none; height: 100%; }
 .nk-tab-content.active { display: block; }
-
-/* Bottom Nav Bar */
-.nk-tab-bar {
-    background: white;
-    border-top: 1px solid rgba(0,0,0,0.1);
-    display: flex;
-    padding-bottom: env(safe-area-inset-bottom);
-    flex-shrink: 0;
-}
-.nk-nav-btn {
-    flex: 1;
-    background: none;
-    border: none;
-    padding: 10px 0;
-    font-size: 11px;
-    font-weight: 600;
-    color: #888;
-    cursor: pointer;
-    border-top: 3px solid transparent;
-}
-.nk-nav-btn.active {
-    color: var(--nk-text);
-    border-top-color: var(--nk-btn);
-    background: rgba(255,179,71,0.1);
-}
 
 /* Shops */
 .nk-shop-title {
