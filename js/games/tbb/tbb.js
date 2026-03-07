@@ -114,6 +114,7 @@ function _initGameState() {
         correctIdx:           -1,
         answerDisabled:       false,
         answerTimeLeft:       1.0, // fraction 0-1
+        combo:                0,   // consecutive correct answers
         // derived (computed)
         playerHp:0, playerAtk:0, playerDef:0, playerSpd:0, answerSecs:0, expToNext:0, _pb:null,
         // ui helpers
@@ -513,6 +514,15 @@ function _onAnswer(idx, timedOut = false) {
     // Highlight buttons
     _markMcButtons(idx, isCorrect);
 
+    // Combo tracking
+    if (isCorrect) {
+        _g.combo++;
+    } else {
+        _g.combo = 0;
+    }
+    const comboMult = _g.combo > 1 ? (1 + 0.1 * Math.log2(_g.combo)) : 1.0;
+    _updateComboDisplay();
+
     if (_g.phase === 'player_attack') {
         const { dmg, narration, feedback } = handlePlayerAttack(_g, word, isCorrect, _g.attackType);
         _g.enemy.hp = undefined; // enemy hp tracked separately
@@ -523,6 +533,7 @@ function _onAnswer(idx, timedOut = false) {
 
         let rawExp = actionExp(enemy.expYield, isCorrect);
         rawExp = timeAdjustExp(rawExp, timeFrac);
+        rawExp = Math.round(rawExp * comboMult);
         _addExp(applyExpBonuses(rawExp, _g._pb.additiveExpPct, _g._pb.multExpPct));
     } else {
         const { dmg, narration, feedback } = handlePlayerDefense(_g, isCorrect);
@@ -533,6 +544,7 @@ function _onAnswer(idx, timedOut = false) {
 
         let rawExp = actionExp(enemy.expYield, isCorrect);
         rawExp = timeAdjustExp(rawExp, timeFrac);
+        rawExp = Math.round(rawExp * comboMult);
         _addExp(applyExpBonuses(rawExp, _g._pb.additiveExpPct, _g._pb.multExpPct));
     }
 
@@ -668,6 +680,7 @@ function _buildGameDOM() {
     </div>
 
     <div class="tbb-phase-label" id="tbb-phase-label">⚔️ Your Attack</div>
+    <div class="tbb-combo-display" id="tbb-combo-display" style="display:none"></div>
 
     <div class="tbb-challenge-area">
         <div class="tbb-word-display" id="tbb-word-display">
@@ -730,6 +743,7 @@ function _buildGameDOM() {
         floatPlayer:  root.querySelector('#tbb-float-player'),
         floatEnemy:   root.querySelector('#tbb-float-enemy'),
         overlay:      root.querySelector('#tbb-overlay'),
+        comboDisplay: root.querySelector('#tbb-combo-display'),
     };
 
     // Wire MC buttons
@@ -757,6 +771,20 @@ function _buildGameDOM() {
 }
 
 // ─── Render Helpers ───────────────────────────────────────────────────────────
+function _updateComboDisplay() {
+    if (!_dom.comboDisplay) return;
+    const combo = _g.combo;
+    if (combo < 2) {
+        _dom.comboDisplay.style.display = 'none';
+        return;
+    }
+    const bonusPct = Math.round((0.1 * Math.log2(combo)) * 100);
+    const cls = combo >= 10 ? 'tbb-combo-hot' : combo >= 5 ? 'tbb-combo-warm' : 'tbb-combo-cool';
+    _dom.comboDisplay.className = `tbb-combo-display ${cls}`;
+    _dom.comboDisplay.style.display = 'flex';
+    _dom.comboDisplay.textContent = `🔥 ${combo}× COMBO  +${bonusPct}% EXP`;
+}
+
 function _renderAll() {
     _updateHpBars();
     _updateExpBar();
@@ -1579,6 +1607,22 @@ function _injectStyles() {
 .tbb-red     { color: var(--tbb-accent); }
 .tbb-unlocked { color: #2ecc71; font-weight: 700; }
 .tbb-rebirth-info { color: #9b59b6; font-weight: 700; }
+.tbb-combo-display {
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 0.05em;
+    padding: 3px 10px;
+    border-radius: 20px;
+    margin: 0 12px 4px;
+    animation: tbbPulse 0.4s ease-out;
+    flex-shrink: 0;
+}
+.tbb-combo-cool { background: rgba(245,166,35,0.18); color: #f5a623; border: 1px solid rgba(245,166,35,0.4); }
+.tbb-combo-warm { background: rgba(230,126,34,0.20); color: #e67e22; border: 1px solid rgba(230,126,34,0.5); }
+.tbb-combo-hot  { background: rgba(231,76,60,0.22);  color: #e74c3c; border: 1px solid rgba(231,76,60,0.5); }
+
 .tbb-explore-btn {
     background: none;
     border: 1px solid var(--tbb-border);
