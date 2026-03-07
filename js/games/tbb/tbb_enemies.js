@@ -34,12 +34,39 @@ export const ENEMIES = [
     { name: 'Dragon Whelp',      emoji: '🐉', baseLvl: 25, baseHp: 200, baseAtk: 42, baseDef: 9, baseSpdMod: 4,  expYield: 340, weakTo: 'slash',  resists: 'magic'  },
     { name: 'Lich Acolyte',      emoji: '💎', baseLvl: 25, baseHp: 175, baseAtk: 45, baseDef: 7, baseSpdMod: 2,  expYield: 350, weakTo: 'pierce', resists: 'magic'  },
     // ── Tier 10 (Floor 50+) ───────────────────────────────────────
-    { name: 'Ancient Hydra',     emoji: '🌊', baseLvl: 30, baseHp: 260, baseAtk: 50, baseDef:11, baseSpdMod: 1,  expYield: 430, weakTo: 'magic',  resists: 'pierce' },
-    { name: 'Demon Overlord',    emoji: '😈', baseLvl: 30, baseHp: 240, baseAtk: 55, baseDef:10, baseSpdMod: 5,  expYield: 450, weakTo: 'slash',  resists: 'pierce' },
+    { name: 'Ancient Hydra',     emoji: '🌊', baseLvl: 30, baseHp: 260,  baseAtk: 50,  baseDef: 11, baseSpdMod: 1,  expYield: 430,  weakTo: 'magic',  resists: 'pierce' },
+    { name: 'Demon Overlord',    emoji: '😈', baseLvl: 30, baseHp: 240,  baseAtk: 55,  baseDef: 10, baseSpdMod: 5,  expYield: 450,  weakTo: 'slash',  resists: 'pierce' },
+    // ── Tier 11 (Floor 55+) ───────────────────────────────────────
+    { name: 'Storm Phoenix',     emoji: '🦜', baseLvl: 34, baseHp: 290,  baseAtk: 60,  baseDef: 10, baseSpdMod: 10, expYield: 540,  weakTo: 'pierce', resists: 'magic'  },
+    { name: 'Plague Zombie',     emoji: '🧟', baseLvl: 34, baseHp: 340,  baseAtk: 55,  baseDef: 15, baseSpdMod: -3, expYield: 560,  weakTo: 'slash',  resists: 'magic'  },
+    // ── Tier 12 (Floor 60+) ───────────────────────────────────────
+    { name: 'Frost Giant',       emoji: '🏔️', baseLvl: 38, baseHp: 400,  baseAtk: 63,  baseDef: 18, baseSpdMod: -2, expYield: 660,  weakTo: 'magic',  resists: 'slash'  },
+    { name: 'Wyvern Scout',      emoji: '🪽', baseLvl: 38, baseHp: 320,  baseAtk: 70,  baseDef: 10, baseSpdMod: 12, expYield: 680,  weakTo: 'pierce', resists: 'slash'  },
+    // ── Tier 13 (Floor 65+) ───────────────────────────────────────
+    { name: 'Abyssal Fiend',     emoji: '👿', baseLvl: 42, baseHp: 370,  baseAtk: 76,  baseDef: 13, baseSpdMod: 4,  expYield: 800,  weakTo: 'slash',  resists: 'pierce' },
+    { name: 'Coral Leviathan',   emoji: '🐋', baseLvl: 42, baseHp: 480,  baseAtk: 68,  baseDef: 20, baseSpdMod: 0,  expYield: 820,  weakTo: 'magic',  resists: 'slash'  },
+    // ── Tier 14 (Floor 70+) ───────────────────────────────────────
+    { name: 'Runic Titan',       emoji: '🗿', baseLvl: 46, baseHp: 560,  baseAtk: 72,  baseDef: 25, baseSpdMod: -4, expYield: 980,  weakTo: 'magic',  resists: 'pierce' },
+    { name: 'Tempest Drake',     emoji: '🌪️', baseLvl: 46, baseHp: 420,  baseAtk: 85,  baseDef: 12, baseSpdMod: 14, expYield: 1000, weakTo: 'pierce', resists: 'magic'  },
+    // ── Tier 15 (Floor 75+) ───────────────────────────────────────
+    { name: 'Soul Harvester',    emoji: '💀', baseLvl: 50, baseHp: 500,  baseAtk: 92,  baseDef: 16, baseSpdMod: 6,  expYield: 1200, weakTo: 'slash',  resists: 'magic'  },
+    { name: 'Crystal Golem',     emoji: '💠', baseLvl: 50, baseHp: 650,  baseAtk: 78,  baseDef: 30, baseSpdMod: -5, expYield: 1220, weakTo: 'magic',  resists: 'pierce' },
+    // ── Tier 16 (Floor 80+) ───────────────────────────────────────
+    { name: 'Inferno Arch-Djinn',emoji: '🔥', baseLvl: 55, baseHp: 580,  baseAtk: 100, baseDef: 18, baseSpdMod: 8,  expYield: 1450, weakTo: 'pierce', resists: 'slash'  },
+    { name: 'Undead Colossus',   emoji: '☠️', baseLvl: 55, baseHp: 760,  baseAtk: 88,  baseDef: 28, baseSpdMod: -2, expYield: 1480, weakTo: 'slash',  resists: 'magic'  },
+    // ── Tier 17 (Floor 85+) ───────────────────────────────────────
+    { name: 'Void Archon',       emoji: '🌌', baseLvl: 60, baseHp: 680,  baseAtk: 112, baseDef: 20, baseSpdMod: 9,  expYield: 1750, weakTo: 'magic',  resists: 'slash'  },
+    { name: 'Elder Basilisk',    emoji: '🐊', baseLvl: 60, baseHp: 820,  baseAtk: 98,  baseDef: 32, baseSpdMod: 2,  expYield: 1780, weakTo: 'pierce', resists: 'magic'  },
+    // ── Tier 18 (Floor 90+) ───────────────────────────────────────
+    { name: 'Celestial Seraph',  emoji: '👼', baseLvl: 65, baseHp: 750,  baseAtk: 125, baseDef: 22, baseSpdMod: 13, expYield: 2100, weakTo: 'slash',  resists: 'pierce' },
+    { name: 'Primordial Golem',  emoji: '🌋', baseLvl: 65, baseHp: 980,  baseAtk: 108, baseDef: 38, baseSpdMod: -4, expYield: 2150, weakTo: 'magic',  resists: 'slash'  },
+    // ── Tier 19 (Floor 95+) ───────────────────────────────────────
+    { name: 'Chaos Dragon',      emoji: '🐲', baseLvl: 70, baseHp: 900,  baseAtk: 140, baseDef: 25, baseSpdMod: 11, expYield: 2600, weakTo: 'pierce', resists: 'magic'  },
+    { name: 'The Final Lich',    emoji: '🔮', baseLvl: 70, baseHp: 1100, baseAtk: 130, baseDef: 30, baseSpdMod: 5,  expYield: 2700, weakTo: 'slash',  resists: 'pierce' },
 ];
 
-// How many enemies per tier (mirrors Dart _enemiesInTier)
-const TIER_SIZES = [3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2];
+// How many enemies per tier (Tiers 0-19)
+const TIER_SIZES = [3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2];
 const TIER_UNLOCK_INTERVAL = 5; // new tier every 5 floors
 const BASE_SPD = 10;
 

@@ -33,15 +33,27 @@ function _pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
  */
 export function handlePlayerAttack(g, word, isCorrect, attackType) {
     const enemy = g.enemy;
+    const pb    = g._pb ?? {};
     let mod = 1.0;
     let feedback = null;
     let narration = '';
 
     if (isCorrect) {
-        if (enemy.weakTo  === attackType) { mod = 1.75; feedback = 'weakness'; }
-        else if (enemy.resists === attackType) { mod = 0.5;  feedback = 'resist';   }
-        const isCrit = !feedback && Math.random() < 0.10;
+        // Weakness/resist check (weakness amp perk adds to the 1.75 base)
+        if (enemy.weakTo  === attackType) {
+            mod = 1.75 + (pb.weaknessAmpBonus ?? 0) / 100;
+            feedback = 'weakness';
+        } else if (enemy.resists === attackType) {
+            mod = 0.5;
+            feedback = 'resist';
+        }
+        // Crit chance: base 10% + perk bonus
+        const critChance = 0.10 + (pb.critChanceBonus ?? 0) / 100;
+        const isCrit = !feedback && Math.random() < critChance;
         if (isCrit) feedback = 'crit';
+        // Transcendence: flat +10% to all damage
+        if (pb.transcendence) mod *= 1.10;
+
         narration = _pick(_attackNarrations);
         if (feedback === 'weakness') narration += ' ⚡ Super effective!';
         if (feedback === 'resist')   narration += ' 🛡 Not very effective…';
@@ -51,9 +63,11 @@ export function handlePlayerAttack(g, word, isCorrect, attackType) {
         narration = _pick(_missNarrations);
     }
 
-    const baseDmg = g.playerAtk;
-    const eff     = Math.max(1, Math.round(baseDmg * mod) - enemy.def);
-    const dmg     = Math.max(isCorrect ? 1 : 0, eff);
+    const baseDmg   = g.playerAtk;
+    // DEF penetration perk reduces effective enemy DEF
+    const enemyDef  = Math.max(0, enemy.def - (pb.defPenBonus ?? 0));
+    const eff       = Math.max(1, Math.round(baseDmg * mod) - enemyDef);
+    const dmg       = Math.max(isCorrect ? 1 : 0, eff);
 
     return { dmg, narration, feedback };
 }
@@ -66,6 +80,7 @@ export function handlePlayerAttack(g, word, isCorrect, attackType) {
  */
 export function handlePlayerDefense(g, isCorrect) {
     const enemy     = g.enemy;
+    const pb        = g._pb ?? {};
     const isCrit    = Math.random() < 0.20;
     let enemyAtk    = enemy.atk;
     let feedback    = null;
@@ -77,7 +92,9 @@ export function handlePlayerDefense(g, isCorrect) {
     let dmg;
 
     if (isCorrect) {
-        dmg = Math.max(1, Math.round(afterDef * 0.5));
+        // parryBoostBonus adds extra % reduction (base 50%, perk adds up to 50% more)
+        const parryFrac = Math.max(0.01, 0.5 - (pb.parryBoostBonus ?? 0) / 100);
+        dmg = Math.max(1, Math.round(afterDef * parryFrac));
         narration = _pick(_defNarrations) + ` Damage reduced to ${dmg}!`;
         if (isCrit) narration = '⚠️ Critical parried! ' + narration;
     } else {
@@ -109,9 +126,9 @@ export function applyExpBonuses(rawExp, additiveExpPct, multExpPct) {
     return Math.round(afterAdd * (1 + multExpPct / 100));
 }
 
-/** EXP needed for next level (quadratic scaling) */
+/** EXP needed for next level — matches Dart: 150 * level^2 */
 export function expToNextLevel(level) {
-    return Math.round(100 * Math.pow(level, 1.6));
+    return Math.max(150, Math.round(150 * Math.pow(level, 2)));
 }
 
 /** Generate 4 MC options (1 correct + 3 distractors) from vocabQueue */

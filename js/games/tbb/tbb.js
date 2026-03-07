@@ -3,7 +3,7 @@
 
 import { mountVocabSelector } from '../../vocab_selector.js';
 import { spawnEnemy }         from './tbb_enemies.js';
-import { getFloorAction }     from './tbb_floors.js';
+import { getFloorData }            from './tbb_floors.js';
 import { PERK_DEFS, REBIRTH_MIN_LEVEL, REBIRTH_AP_DIVIDER,
          totalApSpent, canSpendAp, computePerkBonuses, calcRebirthAp } from './tbb_ascension.js';
 import { handlePlayerAttack, handlePlayerDefense, actionExp,
@@ -52,6 +52,8 @@ function _defaultSave() {
         highestFloor:         0,
         totalEnemiesDefeated: 0,
         ascensionCount:       0,
+        floorActionsDone:     {},   // floor# -> true, persisted so unlock/repeat logic survives sessions
+        unlockedFeatures:     {},   // featureKey -> true
     };
 }
 
@@ -78,6 +80,8 @@ function _writeSave() {
         highestFloor:         Math.max(_g.maxUnlockedFloor, _g.currentFloor),
         totalEnemiesDefeated: _g.totalEnemiesDefeated,
         ascensionCount:       _g.ascensionCount,
+        floorActionsDone:     Object.assign({}, _g.floorActionsDone),
+        unlockedFeatures:     Object.assign({}, _g.unlockedFeatures),
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(s));
 }
@@ -89,7 +93,6 @@ function _computeDerivedStats() {
     _g.playerAtk = BASE_ATK + pb.atkBonus + _g.allocatedStr * STR_ATK;
     _g.playerDef = BASE_DEF + pb.defBonus + _g.allocatedEnd * END_DEF;
     _g.playerSpd = BASE_SPD + pb.spdBonus + _g.allocatedAgi * AGI_SPD;
-    _g.answerSecs = Math.max(MIN_ANSWER_SECS, BASE_ANSWER_SECS + pb.answerTimeSecs);
     _g.expToNext  = expToNextLevel(_g.playerLevel);
 }
 
@@ -100,7 +103,7 @@ function _initGameState() {
         currentHp:            0,
         enemy:                null,
         enemyHp:              0,
-        currentFloor:         0,
+        currentFloor:         sv.maxUnlockedFloor,  // start at highest unlocked floor, like Dart
         enemiesOnFloorKilled: 0,
         phase:                'idle',  // idle|player_attack|player_defense|summary|game_over|floor_action
         narration:            'Entering the dungeon…',
@@ -198,17 +201,187 @@ function _startGame() {
 }
 
 let _timerInterval  = null;
-let _pauseTimer     = false;
+let _timerPaused    = false;   // true while any overlay is open
+let _timerElapsedMs = 0;       // ms consumed before current resume
+let _timerStartMs   = 0;       // wall-clock time of last resume
 
 function _spawnEnemyAndBegin() {
     _g.enemy   = spawnEnemy(_g.currentFloor);
     _g.enemyHp = _g.enemy.maxHp;
-    _g.narration = `${_g.enemy.emoji} ${_g.enemy.name} appears! (Lv.${_g.enemy.level})`;
     _g.enemiesOnFloorKilled = 0;
     const playerFirst = _g.playerSpd >= _g.enemy.spd;
     _g.phase = playerFirst ? 'player_attack' : 'player_defense';
-    _prepareChallenge();
-    _renderAll();
+
+    // Show floor action narrative overlay before starting combat
+    _showFloorActionOverlay(() => {
+        _g.narration = `${_g.enemy.emoji} ${_g.enemy.name} appears! (Lv.${_g.enemy.level})`;
+        _prepareChallenge();
+        _renderAll();
+    });
+}
+
+function _showFloorActionOverlay(onDismiss) {
+    const fd    = getFloorData(_g.currentFloor);
+    const done  = !!_g.floorActionsDone[_g.currentFloor];
+    const isUnlockEffect = fd.effectKey.startsWith('unlock_');
+    const alreadyUnlocked = isUnlockEffect && !!_g.unlockedFeatures[fd.effectKey];
+    const showRepeat = done || alreadyUnlocked;
+
+    _showOverlay(`
+        <div class="tbb-dialog tbb-floor-dialog">
+            <div class="tbb-dialog-title">${fd.title}</div>
+            <div class="tbb-floor-desc">${fd.description}</div>
+            ${showRepeat ? `<div class="tbb-floor-repeat">${fd.repeatText}</div>` : ''}
+            <div class="tbb-dialog-actions">
+                ${!showRepeat
+                    ? `<button class="tbb-dialog-btn tbb-dialog-btn-primary" id="tbb-floor-act-btn">${fd.action}</button>`
+                    : `<button class="tbb-dialog-btn tbb-dialog-btn-secondary" id="tbb-floor-act-btn">${fd.action}</button>`
+                }
+                <button class="tbb-dialog-btn" id="tbb-floor-skip-btn">⚔️ Skip — Fight!</button>
+            </div>
+            <div class="tbb-floor-result" id="tbb-floor-result" style="display:none"></div>
+        </div>
+    `);
+
+    _dom.overlay.querySelector('#tbb-floor-skip-btn').addEventListener('click', () => {
+        _closeOverlay();
+        onDismiss();
+    });
+
+    _dom.overlay.querySelector('#tbb-floor-act-btn').addEventListener('click', () => {
+        const resultEl = _dom.overlay.querySelector('#tbb-floor-result');
+        const actBtn   = _dom.overlay.querySelector('#tbb-floor-act-btn');
+        const skipBtn  = _dom.overlay.querySelector('#tbb-floor-skip-btn');
+
+        const msg = showRepeat
+            ? fd.repeatText
+            : _executeFloorEffect(fd.effectKey, _g.currentFloor);
+
+        resultEl.textContent = msg;
+        resultEl.style.display = 'block';
+        actBtn.disabled  = true;
+        actBtn.textContent = '✓ Done';
+        skipBtn.textContent = '⚔️ Continue to Battle';
+
+        _updateHpBars();
+        _updateExpBar();
+        _updateStats();
+    });
+}
+
+// ─── Floor Effect Execution ───────────────────────────────────────────────────
+
+// Feature keys that require floor actions to unlock perk slots
+const UNLOCK_PERK_GATES = {
+    unlock_sharpened_edge: { perkKey: 'critChanceT1',    label: 'Sharpened Edge I', desc: 'Crit chance perk unlocked!' },
+    unlock_ice_focus:      { perkKey: 'defPenT1',        label: 'Armor Pierce I',   desc: 'Enemy DEF reduction perk unlocked!' },
+    unlock_lava_core:      { perkKey: 'weaknessAmpT2',   label: 'Exploit Weakness', desc: 'Weakness amplifier perk unlocked!' },
+    unlock_forged_steel:   { perkKey: 'parryBoostT2',    label: 'Iron Guard',       desc: 'Enhanced parry perk unlocked!' },
+    unlock_scribe_wisdom:  { perkKey: 'multExpGainT3',   label: 'Enlightenment',    desc: 'Multiplicative EXP perk unlocked!' },
+    unlock_maze_key:       { perkKey: 'survivorT3',      label: 'Last Stand',       desc: 'Low-HP survival perk unlocked!' },
+    unlock_core_power:     { perkKey: 'ultimateT5',      label: 'Transcendence',    desc: 'Ultimate perk Transcendence unlocked!' },
+    unlock_floor_jump:     null,  // special: handled separately
+};
+
+function _executeFloorEffect(effectKey, floor) {
+    _g.floorActionsDone[floor] = true;
+
+    switch (effectKey) {
+        case 'heal_small': {
+            const amt = Math.max(1, Math.round(_g.playerHp * 0.15));
+            const prev = _g.currentHp;
+            _g.currentHp = Math.min(_g.playerHp, _g.currentHp + amt);
+            _writeSave();
+            return _g.currentHp === prev
+                ? 'You\'re already at full health. Nothing to restore.'
+                : `✨ Restored ${_g.currentHp - prev} HP. (${_g.currentHp}/${_g.playerHp})`;
+        }
+        case 'heal_medium': {
+            const amt = Math.max(1, Math.round(_g.playerHp * 0.35));
+            const prev = _g.currentHp;
+            _g.currentHp = Math.min(_g.playerHp, _g.currentHp + amt);
+            _writeSave();
+            return _g.currentHp === prev
+                ? 'You\'re already at full health. Nothing to restore.'
+                : `💚 Restored ${_g.currentHp - prev} HP. (${_g.currentHp}/${_g.playerHp})`;
+        }
+        case 'heal_full': {
+            const prev = _g.currentHp;
+            _g.currentHp = _g.playerHp;
+            _writeSave();
+            return prev === _g.playerHp
+                ? 'You were already at full health. You feel refreshed nonetheless.'
+                : `❤️ Fully healed! HP restored to ${_g.playerHp}.`;
+        }
+        case 'gain_exp_small': {
+            const xp = Math.max(5, Math.round(_g.expToNext * 0.08));
+            _addExp(xp);
+            _writeSave();
+            return `📘 Gained ${xp} EXP from your find!`;
+        }
+        case 'gain_exp_medium': {
+            const xp = Math.max(10, Math.round(_g.expToNext * 0.20));
+            _addExp(xp);
+            _writeSave();
+            return `📗 Gained ${xp} EXP. Knowledge grows.`;
+        }
+        case 'gain_exp_large': {
+            const xp = Math.max(20, Math.round(_g.expToNext * 0.40));
+            _addExp(xp);
+            _writeSave();
+            return `📕 Gained ${xp} EXP! A significant insight!`;
+        }
+        case 'gain_statpoint': {
+            _g.statPointsToAllocate++;
+            _writeSave();
+            return `⬆️ You gained 1 Stat Point! Open 📊 Stats to allocate it.`;
+        }
+        case 'random_boon': {
+            const roll = Math.random();
+            let result;
+            if (roll < 0.33) {
+                const amt = Math.max(1, Math.round(_g.playerHp * 0.5));
+                const prev = _g.currentHp;
+                _g.currentHp = Math.min(_g.playerHp, _g.currentHp + amt);
+                result = `💖 Boon: Restored ${_g.currentHp - prev} HP.`;
+            } else if (roll < 0.66) {
+                const xp = Math.max(15, Math.round(_g.expToNext * 0.30));
+                _addExp(xp);
+                result = `✨ Boon: Gained ${xp} EXP!`;
+            } else {
+                _g.statPointsToAllocate++;
+                result = `🌟 Boon: Gained 1 Stat Point!`;
+            }
+            _writeSave();
+            return result;
+        }
+        case 'unlock_floor_jump': {
+            if (_g.unlockedFeatures['unlock_floor_jump']) {
+                return 'The map is familiar. Floor jumping was already enabled.';
+            }
+            _g.unlockedFeatures['unlock_floor_jump'] = true;
+            _writeSave();
+            return '🗺️ Floor Jump unlocked! You can now jump to any unlocked floor from the ☰ Menu.';
+        }
+        default: {
+            // Handle unlock_* perk gates
+            if (effectKey.startsWith('unlock_')) {
+                const gate = UNLOCK_PERK_GATES[effectKey];
+                if (!gate) {
+                    _writeSave();
+                    return '❓ You found something mysterious. Nothing happened.';
+                }
+                if (_g.unlockedFeatures[effectKey]) {
+                    return `${gate.label} was already unlocked. The item holds no further power.`;
+                }
+                _g.unlockedFeatures[effectKey] = true;
+                _writeSave();
+                return `🔓 ${gate.desc} The perk "${gate.label}" is now available in the Ascension Perk shop.`;
+            }
+            _writeSave();
+            return 'Nothing happens.';
+        }
+    }
 }
 
 function _prepareChallenge() {
@@ -223,25 +396,42 @@ function _prepareChallenge() {
 }
 
 function _startAnswerTimer() {
-    if (_timerInterval) clearInterval(_timerInterval);
-    _pauseTimer = false;
-    const totalMs = _g.answerSecs * 1000;
-    const startMs = Date.now();
+    _stopTimer();
+    _timerPaused    = false;
+    _timerElapsedMs = 0;
+    _timerStartMs   = Date.now();
+    const totalMs   = _calcAnswerSecs() * 1000;
+
     _timerInterval = setInterval(() => {
-        if (_pauseTimer) return;
-        const elapsed  = Date.now() - startMs;
+        if (_timerPaused) return;
+        const elapsed = _timerElapsedMs + (Date.now() - _timerStartMs);
         _g.answerTimeLeft = Math.max(0, 1 - elapsed / totalMs);
         _updateTimerBar();
         if (_g.answerTimeLeft <= 0) {
             clearInterval(_timerInterval);
+            _timerInterval = null;
             _onAnswer(-1, true); // timeout
         }
     }, 80);
 }
 
+function _pauseAnswerTimer() {
+    if (_timerPaused || !_timerInterval) return;
+    _timerElapsedMs += Date.now() - _timerStartMs;  // bank elapsed time
+    _timerPaused = true;
+}
+
+function _resumeAnswerTimer() {
+    if (!_timerPaused || !_timerInterval) return;
+    _timerStartMs = Date.now();   // reset wall-clock anchor
+    _timerPaused  = false;
+}
+
 function _stopTimer() {
     if (_timerInterval) clearInterval(_timerInterval);
-    _timerInterval = null;
+    _timerInterval  = null;
+    _timerPaused    = false;
+    _timerElapsedMs = 0;
 }
 
 // ─── Answer Handling ──────────────────────────────────────────────────────────
@@ -588,11 +778,11 @@ function _spawnFloatEnemy(text, color)  { _spawnFloat(_dom.floatEnemy,  text, co
 function _showOverlay(html) {
     _dom.overlay.innerHTML = html;
     _dom.overlay.style.display = 'flex';
-    _pauseTimer = true;
+    _pauseAnswerTimer();
 }
 function _closeOverlay() {
     _dom.overlay.style.display = 'none';
-    _pauseTimer = false;
+    _resumeAnswerTimer();
 }
 
 function _renderSummaryOverlay() {
@@ -744,7 +934,30 @@ function _allocateStat(stat) {
 
 function _showPerksPanel() {
     const apSpent = totalApSpent(_g.perkLevels);
+
+    // Perks that require a floor action unlock before appearing in the shop
+    const FLOOR_GATED = {
+        critChanceT1:  'unlock_sharpened_edge',
+        critChanceT2:  'unlock_sharpened_edge',
+        defPenT1:      'unlock_ice_focus',
+        weaknessAmpT2: 'unlock_lava_core',
+        parryBoostT2:  'unlock_forged_steel',
+        multExpGainT3: 'unlock_scribe_wisdom',
+        survivorT3:    'unlock_maze_key',
+        ultimateT5:    'unlock_core_power',
+    };
+
     const rows = Object.entries(PERK_DEFS).map(([key, def]) => {
+        // Hide if gated by a floor unlock not yet earned
+        const gateKey = FLOOR_GATED[key];
+        if (gateKey && !_g.unlockedFeatures[gateKey]) {
+            return `<div class="tbb-perk-row tbb-perk-locked tbb-perk-hidden">
+                <div class="tbb-perk-info">
+                    <b>???</b> <span class="tbb-muted">(T${def.tier})</span><br>
+                    <span class="tbb-muted">🔒 Discover via floor exploration</span>
+                </div>
+            </div>`;
+        }
         const current  = _g.perkLevels[key] ?? 0;
         const unlocked = apSpent >= def.apReq;
         const maxed    = current >= def.maxLvl;
@@ -764,6 +977,7 @@ function _showPerksPanel() {
             <div class="tbb-dialog-title">🌟 Ascension Perks (${_g.ascensionPoints} AP)</div>
             <div class="tbb-dialog-body tbb-perk-list">${rows}</div>
             <div class="tbb-dialog-actions">
+                ${totalApSpent(_g.perkLevels) > 0 ? `<button class="tbb-dialog-btn tbb-respec-btn" id="tbb-perk-respec-btn">↩ Respec Perks (costs 1 AP)</button>` : ''}
                 <button class="tbb-dialog-btn tbb-dialog-btn-primary" id="tbb-perks-close">Back</button>
             </div>
         </div>
@@ -780,6 +994,22 @@ function _showPerksPanel() {
             _closeOverlay();
             _showPerksPanel();
         });
+    });
+
+    // Respec button — costs 1 AP, refunds all spent AP
+    const respecBtn = _dom.overlay.querySelector('#tbb-perk-respec-btn');
+    if (respecBtn) respecBtn.addEventListener('click', () => {
+        const spent = totalApSpent(_g.perkLevels);
+        if (spent === 0) return;
+        if (_g.ascensionPoints < 1) { alert('Need at least 1 AP to respec.'); return; }
+        _g.ascensionPoints -= 1;         // respec cost
+        _g.ascensionPoints += spent;     // refund all
+        _g.perkLevels = {};
+        _computeDerivedStats();
+        _g.currentHp = Math.min(_g.currentHp, _g.playerHp);
+        _writeSave();
+        _closeOverlay();
+        _showPerksPanel();
     });
     _dom.overlay.querySelector('#tbb-perks-close').addEventListener('click', () => { _closeOverlay(); _showStatsPanel(); });
 }
@@ -804,20 +1034,22 @@ function _renderRebirthConfirm() {
 }
 
 function _showMenuOverlay() {
+    const jumpUnlocked = !!_g.unlockedFeatures['unlock_floor_jump'];
     _showOverlay(`
         <div class="tbb-dialog">
             <div class="tbb-dialog-title">☰ Menu</div>
             <div class="tbb-dialog-body">
                 <p>Floor: ${_g.currentFloor} / ${_g.maxUnlockedFloor} unlocked</p>
                 <p>Total enemies defeated: ${_g.totalEnemiesDefeated}</p>
+                ${jumpUnlocked ? `
                 <div class="tbb-floor-selector">
                     <label>Jump to Floor:</label>
                     <input type="range" id="tbb-floor-range" min="0" max="${_g.maxUnlockedFloor}" value="${_g.currentFloor}" step="1">
                     <span id="tbb-floor-range-val">${_g.currentFloor}</span>
-                </div>
+                </div>` : `<p class="tbb-muted">🗺️ <i>Find the Cartographer's Table (Floor 18) to unlock floor jumping.</i></p>`}
             </div>
             <div class="tbb-dialog-actions">
-                <button class="tbb-dialog-btn tbb-dialog-btn-primary" id="tbb-floor-go">Go to Floor</button>
+                ${jumpUnlocked ? `<button class="tbb-dialog-btn tbb-dialog-btn-primary" id="tbb-floor-go">Go to Floor</button>` : ''}
                 <button class="tbb-dialog-btn" id="tbb-menu-exit">Exit Game</button>
                 <button class="tbb-dialog-btn" id="tbb-menu-close">Close</button>
             </div>
@@ -825,8 +1057,9 @@ function _showMenuOverlay() {
     `);
     const range = _dom.overlay.querySelector('#tbb-floor-range');
     const val   = _dom.overlay.querySelector('#tbb-floor-range-val');
-    range.addEventListener('input', () => { val.textContent = range.value; });
-    _dom.overlay.querySelector('#tbb-floor-go').addEventListener('click', () => {
+    if (range) range.addEventListener('input', () => { val.textContent = range.value; });
+    const goBtn = _dom.overlay.querySelector('#tbb-floor-go');
+    if (goBtn) goBtn.addEventListener('click', () => {
         _g.currentFloor = parseInt(range.value);
         _closeOverlay();
         _spawnEnemyAndBegin();
@@ -1192,9 +1425,40 @@ function _injectStyles() {
 .tbb-dialog-btn:hover { background: rgba(255,255,255,0.08); }
 .tbb-dialog-btn-primary { background: var(--tbb-accent); border-color: var(--tbb-accent); }
 .tbb-dialog-btn-primary:hover { background: #c73652; }
+.tbb-dialog-btn-secondary { background: var(--tbb-card); border-color: var(--tbb-border); opacity: 0.7; }
+.tbb-dialog-btn:disabled { opacity: 0.5; cursor: default; }
 .tbb-rebirth-btn { background: #6c3483; border-color: #8e44ad; }
 .tbb-rebirth-btn:hover { background: #8e44ad; }
 .tbb-respec-btn  { background: rgba(255,255,255,0.04); }
+
+/* ── Floor Dialog ────────────────────────────────────────────────────────── */
+.tbb-floor-dialog { max-width: 380px; gap: 12px; }
+.tbb-floor-desc {
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--tbb-muted);
+    border-left: 3px solid var(--tbb-accent2);
+    padding-left: 10px;
+    margin: 0;
+    font-style: italic;
+}
+.tbb-floor-repeat {
+    font-size: 12px;
+    color: #7f8c8d;
+    background: rgba(255,255,255,0.04);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin: 0;
+}
+.tbb-floor-result {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--tbb-accent2);
+    background: rgba(245,166,35,0.12);
+    border-radius: 8px;
+    padding: 10px 12px;
+    text-align: center;
+}
 
 /* ── Stats Panel ────────────────────────────────────────────────────────── */
 .tbb-stats-dialog { max-width: 320px; }
