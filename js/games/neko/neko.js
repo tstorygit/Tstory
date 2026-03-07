@@ -80,8 +80,8 @@ function _startGame() {
     }));
 
     _show('game');
-    _initGameDOM();
     _loadGame();
+    _initGameDOM(); // Render DOM *after* loading game to check for Spirit unlock
     _initShops();
     _updateSRSQueue();
     _updateUI();
@@ -154,7 +154,19 @@ let _saveInterval = null;
 
 function _freshGame() {
     return {
-        fish: 0, yarn: 0, bells: 0, karma: 0, lastTick: Date.now(),
+        fish: 0, yarn: 0, bells: 0, karma: 0,
+        combo: 0, // Current dojo combo
+        lastTick: Date.now(),
+        // Stats
+        stats: {
+            clicks: 0,
+            fishEarned: 0,
+            yarnEarned: 0,
+            wordsLearned: 0,
+            correct: 0,
+            wrong: 0,
+            highestCombo: 0
+        },
         upgrades:        _defaultIdleUpgrades(),
         clickUpgrades:   _defaultClickUpgrades(),
         bellUpgrades:    _defaultBellUpgrades(),
@@ -171,18 +183,36 @@ function _getFishPerSec() {
     for (const key in _g.upgrades) {
         if (key !== 'catnip') base += _g.upgrades[key].count * _g.upgrades[key].effect;
     }
+    
+    // Apply multipliers
     let m = 1;
     m += (_g.upgrades.catnip.count        * _g.upgrades.catnip.effect);
     m += (_g.bellUpgrades.tuna.count      * _g.bellUpgrades.tuna.effect);
     m += (_g.bellUpgrades.warp.count      * _g.bellUpgrades.warp.effect);
     m += (_g.bellUpgrades.nap.count       * _g.bellUpgrades.nap.effect);
     m += (_g.bells                        * 0.1);
+    
     if (_g.rebirthUpgrades.bloom.count > 0) {
         m *= 1 + (_g.srs.length * (_g.rebirthUpgrades.bloom.count * _g.rebirthUpgrades.bloom.effect));
     }
     m *= Math.pow(_g.rebirthUpgrades.guide.effect, _g.rebirthUpgrades.guide.count);
+
+    // ── Happy Cat Logic ──
+    // Base Efficiency is low (0.25). 
+    // If no pending reviews, it jumps to 1.25 (x5 bonus).
+    const isHappy = _pendingReviews.length === 0;
+    const moodMult = isHappy ? 1.25 : 0.25;
+    
+    // ── Combo Logic ──
+    // Multiplier = 1 + log2(1 + combo)
+    // Combo 0 -> 1x
+    // Combo 1 -> 2x
+    // Combo 3 -> 3x
+    const comboMult = 1 + Math.log2(1 + _g.combo);
+
     if (_isDebug) m *= 1000;
-    return base * m;
+    
+    return base * m * moodMult * comboMult;
 }
 
 function _getClickPower() {
@@ -210,7 +240,7 @@ function _calcSpirits() { return _g.bells < 100     ? 0 : Math.floor(_g.bells / 
 function _saveGame(manual = false) {
     _g.lastTick = Date.now();
     localStorage.setItem(SAVE_KEY, JSON.stringify(_g));
-    if (manual) _toast('Saved!', 'var(--success)');
+    if (manual) _toast('Saved!', 'var(--nk-success)');
 }
 
 function _loadGame() {
@@ -223,7 +253,10 @@ function _loadGame() {
         _g.yarn  = p.yarn  || 0;
         _g.bells = p.bells || 0;
         _g.karma = p.karma || 0;
+        _g.combo = p.combo || 0;
         _g.srs   = p.srs   || [];
+        
+        if (p.stats) _g.stats = { ..._g.stats, ...p.stats };
 
         // Only restore counts that still exist in the defaults (schema safety)
         ['upgrades','clickUpgrades','bellUpgrades','rebirthUpgrades'].forEach(type => {
@@ -262,17 +295,22 @@ function _startGameLoop() {
 
         // Auto-petter
         const autoClicks = _g.bellUpgrades.auto.count * _g.bellUpgrades.auto.effect;
-        if (autoClicks > 0) _g.fish += (_getClickPower() * autoClicks) * delta;
+        if (autoClicks > 0) {
+            const gain = (_getClickPower() * autoClicks) * delta;
+            _g.fish += gain;
+            _g.stats.fishEarned += gain;
+        }
 
-        // Passive income
-        const fps        = _getFishPerSec();
-        const efficiency = _pendingReviews.length > 0 ? 0.2 : 1.0;
-        let earned       = fps * efficiency * delta;
+        // Passive income (includes Combo & Happy Bonus)
+        const fps    = _getFishPerSec();
+        let earned   = fps * delta;
 
+        // Bank Interest
         const interestRate = _g.bellUpgrades.bank.count * _g.bellUpgrades.bank.effect;
-        if (interestRate > 0 && efficiency === 1.0) earned += (_g.fish * interestRate) * delta;
+        if (interestRate > 0 && _pendingReviews.length === 0) earned += (_g.fish * interestRate) * delta;
 
         _g.fish += earned;
+        _g.stats.fishEarned += earned;
 
         // Update SRS queue every ~2 real seconds
         if (Math.floor(now / 1000) % 2 === 0) _updateSRSQueue();
@@ -299,22 +337,32 @@ function _petCat(e) {
         isCrit  = true;
     }
     _g.fish += power;
+    _g.stats.fishEarned += power;
+    _g.stats.clicks++;
 
-    // Floating number effect
-    const wrap = _screens.game?.querySelector('.nk-clicker-wrap');
-    if (e && wrap) {
-        const rect = wrap.getBoundingClientRect();
-        const fx   = document.createElement('div');
-        fx.className  = 'nk-click-effect';
-        fx.textContent = `+${Math.floor(power).toLocaleString()}${isCrit ? '!' : ''}`;
-        // Position relative to the game panel
-        fx.style.left = (e.clientX - rect.left - 20) + 'px';
-        fx.style.top  = (e.clientY - rect.top  - 40) + 'px';
-        if (isCrit) { fx.style.color = '#ff4b4b'; fx.style.fontSize = '24px'; }
-        wrap.appendChild(fx);
-        setTimeout(() => fx.remove(), 1000);
-    }
+    _spawnFloatingText(e.clientX, e.clientY, `+${Math.floor(power).toLocaleString()}`, isCrit ? '#ff4b4b' : null, isCrit ? 24 : 18);
     _updateUI();
+}
+
+function _spawnFloatingText(x, y, text, color, fontSize = 18) {
+    const wrap = _screens.game; // Append to game container so it overlays everything
+    if (!wrap) return;
+    
+    // Adjust coordinates to be relative to the viewport/game container
+    // We'll use fixed positioning for the effect to keep it simple with e.clientX/Y
+    
+    const fx = document.createElement('div');
+    fx.className  = 'nk-click-effect';
+    fx.textContent = text;
+    fx.style.left = (x - 20) + 'px';
+    fx.style.top  = (y - 40) + 'px';
+    fx.style.position = 'fixed'; // Override class relative pos
+    fx.style.zIndex = '9999';
+    fx.style.color = color || 'var(--nk-btn)';
+    fx.style.fontSize = fontSize + 'px';
+    
+    wrap.appendChild(fx);
+    setTimeout(() => fx.remove(), 1000);
 }
 
 function _buyUpgrade(shopType, key) {
@@ -347,12 +395,13 @@ function _ascend() {
     _g.bells += earned;
     _g.fish   = Math.floor(_g.fish * keep);
     _g.yarn   = Math.floor(_g.yarn * keep);
+    _g.combo  = 0; // Reset combo
     for (const k in _g.upgrades)      _g.upgrades[k].count      = 0;
     for (const k in _g.clickUpgrades) _g.clickUpgrades[k].count = 0;
     if (_g.rebirthUpgrades.starter.count > 0) _g.upgrades.box.count = 10;
     _saveGame();
     _updateUI();
-    _toast(`Ascended! +${earned} Bells`, 'var(--gold, #ffd32a)');
+    _toast(`Ascended! +${earned} Bells`, 'var(--nk-gold)');
 }
 
 function _rebirth() {
@@ -363,6 +412,7 @@ function _rebirth() {
     _g.fish   = 0;
     _g.yarn   = 0;
     _g.bells  = 0;
+    _g.combo  = 0;
     for (const k in _g.upgrades)        _g.upgrades[k].count        = 0;
     for (const k in _g.clickUpgrades)   _g.clickUpgrades[k].count   = 0;
     for (const k in _g.bellUpgrades)    _g.bellUpgrades[k].count     = 0;
@@ -370,7 +420,30 @@ function _rebirth() {
     _saveGame();
     _updateUI();
     _switchTab('rebirth');
-    _toast(`REBIRTH! +${earned} Spirits`, '#a55eea');
+    _toast(`REBIRTH! +${earned} Spirits`, 'var(--nk-spirit)');
+}
+
+function _banWord(word) {
+    if (!confirm(`Ban "${word}"? It will stop appearing in the Dojo.`)) return;
+    
+    // Add to persistent ban list
+    const banned = JSON.parse(localStorage.getItem(BANNED_KEY)) || [];
+    if (!banned.includes(word)) {
+        banned.push(word);
+        localStorage.setItem(BANNED_KEY, JSON.stringify(banned));
+    }
+
+    // Remove from active game SRS
+    // Find ID
+    const qWord = _vocabQueue.find(v => v.kanji === word);
+    if (qWord) {
+        _g.srs = _g.srs.filter(s => s.id !== qWord.id);
+        if (_g.currentCardId === qWord.id) _g.currentCardId = null;
+    }
+    
+    _updateSRSQueue();
+    _renderStats(); // Refresh stats list
+    _toast(`Banned "${word}"`, '#ff4b4b');
 }
 
 // ─── SRS ──────────────────────────────────────────────────────────────────────
@@ -381,11 +454,12 @@ function _learnNewWord() {
 
     const learnedIds = new Set(_g.srs.map(s => s.id));
     const available  = _vocabQueue.filter(v => !learnedIds.has(v.id));
-    if (available.length === 0) { _toast('All words learned!', '#4cd137'); return; }
+    if (available.length === 0) { _toast('All words learned!', 'var(--nk-success)'); return; }
 
     _g.fish -= cost;
     const w = available[0];
     _g.srs.push({ id: w.id, nextReview: Date.now(), interval: 1, ease: 2.5 });
+    _g.stats.wordsLearned++;
     _updateSRSQueue();
     _updateUI();
 }
@@ -395,25 +469,31 @@ function _updateSRSQueue() {
     _pendingReviews = _g.srs.filter(s => s.nextReview <= now);
 
     const pendingEl  = _screens.game?.querySelector('.nk-pending-count');
-    const statusEl   = _screens.game?.querySelector('.nk-srs-status');
+    const buffEl     = _screens.game?.querySelector('.nk-buff-row');
     const noRevEl    = _screens.game?.querySelector('.nk-no-reviews');
     const fcEl       = _screens.game?.querySelector('.nk-flashcard-area');
-    const debuffEl   = _screens.game?.querySelector('.nk-debuff-row');
-    if (!pendingEl) return;
+    
+    if (pendingEl) pendingEl.textContent = _pendingReviews.length;
 
-    pendingEl.textContent = _pendingReviews.length;
+    // Happy Cat Buff UI
+    if (buffEl) {
+        const isHappy = _pendingReviews.length === 0;
+        if (isHappy) {
+            buffEl.innerHTML = `<span>✨ Happy Cat:</span><span>5x Production!</span>`;
+            buffEl.style.color = 'var(--nk-success)';
+            buffEl.style.display = 'flex';
+        } else {
+            buffEl.style.display = 'none';
+        }
+    }
 
     if (_pendingReviews.length > 0) {
-        statusEl?.classList.add('nk-srs-danger');
         if (noRevEl) noRevEl.style.display = 'none';
         if (fcEl)    fcEl.style.display    = 'flex';
-        if (debuffEl) debuffEl.style.display = 'flex';
         if (!_g.currentCardId) _loadFlashcard();
     } else {
-        statusEl?.classList.remove('nk-srs-danger');
         if (noRevEl) noRevEl.style.display = 'flex';
         if (fcEl)    fcEl.style.display    = 'none';
-        if (debuffEl) debuffEl.style.display = 'none';
         _g.currentCardId = null;
     }
 }
@@ -426,16 +506,15 @@ function _loadFlashcard() {
     const correct     = _vocabQueue.find(v => v.id === srsItem.id);
     if (!correct) return;
 
+    // Dojo Tab Elements
     const kanjiEl = _screens.game?.querySelector('.nk-fc-kanji');
-    const kanaEl  = _screens.game?.querySelector('.nk-fc-kana');
     const gridEl  = _screens.game?.querySelector('.nk-quiz-grid');
-    if (!kanjiEl || !kanaEl || !gridEl) return;
+    if (!kanjiEl || !gridEl) return;
 
-    kanjiEl.textContent = correct.kanji;
-    kanaEl.textContent  = correct.kana;
+    kanjiEl.textContent = correct.kanji; // Shows in speech bubble
 
     // 3 distractors from the rest of the learned+queue pool
-    const pool       = _vocabQueue.filter(v => v.id !== correct.id);
+    const pool        = _vocabQueue.filter(v => v.id !== correct.id);
     const distractors = pool.sort(() => 0.5 - Math.random()).slice(0, 3);
     const options     = [...distractors, correct].sort(() => 0.5 - Math.random());
 
@@ -444,38 +523,78 @@ function _loadFlashcard() {
         const btn       = document.createElement('button');
         btn.className   = 'nk-quiz-btn';
         btn.textContent = opt.eng;
-        btn.addEventListener('click', () => _checkAnswer(opt.id, btn, correct.id));
+        btn.addEventListener('click', (e) => _checkAnswer(opt.id, btn, correct.id, e));
         gridEl.appendChild(btn);
     });
 }
 
-function _checkAnswer(selectedId, btnEl, correctId) {
+function _checkAnswer(selectedId, btnEl, correctId, event) {
     if (_isProcessingAnswer) return;
     _isProcessingAnswer = true;
     const srsItem = _g.srs.find(s => s.id === _g.currentCardId);
 
     if (selectedId === correctId) {
+        // Correct
         btnEl.classList.add('nk-quiz-correct');
+        
         let yarn = 1;
         if (Math.random() < (_g.bellUpgrades.weaver.count * _g.bellUpgrades.weaver.effect)) yarn *= 2;
         if (_g.bellUpgrades.thread.count > 0) yarn = Math.ceil(yarn * (1 + _g.bellUpgrades.thread.count * _g.bellUpgrades.thread.effect));
         if (_g.rebirthUpgrades.weaver_soul.count > 0) yarn *= 3;
+        
+        // Log Combo Gain (Logarithmic logic handled in _getFishPerSec, here we just incr)
         _g.yarn += yarn;
+        _g.combo++;
+        if (_g.combo > _g.stats.highestCombo) _g.stats.highestCombo = _g.combo;
+        _g.stats.correct++;
+        _g.stats.yarnEarned += yarn;
+
         srsItem.interval   = Math.max(1, Math.round(srsItem.interval * srsItem.ease));
         srsItem.nextReview = Date.now() + srsItem.interval * 60 * 1000;
+
+        // Visual Feedback
+        if (event) {
+            _spawnFloatingText(event.clientX, event.clientY, `+${yarn} 🧶`, 'var(--nk-success)', 22);
+            // Also spawn combo text if significant
+            if (_g.combo > 1) {
+                setTimeout(() => {
+                    _spawnFloatingText(event.clientX, event.clientY - 30, `${_g.combo}x Combo!`, 'var(--nk-gold)', 16);
+                }, 150);
+            }
+        }
+
+        // Delay logic: Fast next card based on unlocked count
+        const baseCooldown = 3000; 
+        const reduction = _g.srs.length * 50; 
+        const delay = Math.max(200, baseCooldown - reduction);
+
+        setTimeout(() => {
+            _g.currentCardId = null;
+            _updateSRSQueue();
+            _loadFlashcard();
+            _updateUI();
+        }, delay);
+
     } else {
+        // Wrong
         btnEl.classList.add('nk-quiz-wrong');
         srsItem.interval   = 1;
         srsItem.ease       = Math.max(1.3, srsItem.ease - 0.2);
         srsItem.nextReview = Date.now() + 60 * 1000;
-    }
+        
+        _g.combo = 0; // Combo reset
+        _g.stats.wrong++;
 
-    setTimeout(() => {
-        _g.currentCardId = null;
-        _updateSRSQueue();
-        _loadFlashcard();
-        _updateUI();
-    }, 1000);
+        if (event) _spawnFloatingText(event.clientX, event.clientY, `❌`, '#ff4b4b', 28);
+
+        // Longer delay for wrong answers to register mistake
+        setTimeout(() => {
+            _g.currentCardId = null;
+            _updateSRSQueue();
+            _loadFlashcard();
+            _updateUI();
+        }, 1200);
+    }
 }
 
 // ─── DOM Construction ─────────────────────────────────────────────────────────
@@ -484,91 +603,128 @@ function _initGameDOM() {
     const el = _screens.game;
     if (!el) return;
 
+    // Determine if Spirit tab should be shown
+    const showSpirit = (_g.karma > 0 || _g.bells > 50);
+
     el.innerHTML = `
 <div class="nk-root">
 
-    <!-- header bar -->
+    <!-- 1. Top Bar -->
     <div class="nk-topbar">
         <div class="nk-topbar-title">🐾 NekoNihongo</div>
         <div class="nk-topbar-btns">
             <button class="nk-hbtn" id="nk-save-btn">💾 Save</button>
-            <button class="nk-hbtn nk-hbtn-gold" id="nk-ascend-btn">Ascend</button>
-            <button class="nk-hbtn nk-hbtn-spirit" id="nk-rebirth-btn" style="display:none;">👻 Rebirth</button>
             <button class="nk-hbtn nk-hbtn-danger" id="nk-quit-btn">✕ Quit</button>
         </div>
     </div>
 
-    <div class="nk-body">
+    <!-- 2. Global Stats Header -->
+    <div class="nk-stats-header">
+        <div class="nk-stat-pill">🐟 <span class="nk-val-fish">0</span></div>
+        <div class="nk-stat-pill">🧶 <span class="nk-val-yarn">0</span></div>
+        <div class="nk-stat-pill nk-bell-color">🔔 <span class="nk-val-bells">0</span></div>
+        <div class="nk-stat-pill nk-spirit-color" id="nk-karma-pill" style="display:${showSpirit?'flex':'none'};">👻 <span class="nk-val-karma">0</span></div>
+        <div class="nk-stat-sub">
+            <span class="nk-val-fps">0</span>/s • Combo: <span class="nk-val-combo">0</span>
+        </div>
+        <div class="nk-buff-row" style="display:none; width:100%; justify-content:center; gap:8px; margin-top:4px; font-weight:bold; font-size:12px;"></div>
+    </div>
 
-        <!-- ── LEFT: Idle game ──────────────────────────── -->
-        <div class="nk-left">
-            <div class="nk-stats-box">
-                <div class="nk-currency"><span>🐟 Fish:</span>   <span class="nk-val-fish">0</span></div>
-                <div class="nk-currency"><span>🧶 Yarn:</span>   <span class="nk-val-yarn">0</span></div>
-                <div class="nk-currency nk-bell-color"><span>🔔 Bells:</span>  <span class="nk-val-bells">0</span></div>
-                <div class="nk-currency nk-spirit-color" id="nk-karma-row" style="display:none;">
-                    <span>👻 Spirits:</span> <span class="nk-val-karma">0</span>
-                </div>
-                <hr style="border-color:rgba(0,0,0,0.1); margin:8px 0;">
-                <div class="nk-sub-stat"><span>Fish/Sec:</span>  <span class="nk-val-fps">0</span></div>
-                <div class="nk-sub-stat"><span>Fish/Click:</span><span class="nk-val-cpc">1</span></div>
-                <div class="nk-currency nk-debuff-row" style="display:none; color:#ff6b6b; font-size:13px; margin-top:5px; font-weight:bold;">
-                    <span>⚠️ Hungry Cats:</span><span>-80% Income!</span>
-                </div>
-            </div>
-
+    <!-- 3. Content Area (Swappable) -->
+    <div class="nk-content-pane">
+        
+        <!-- CLICK TAB -->
+        <div class="nk-tab-content active" id="nk-tab-click">
             <div class="nk-clicker-wrap">
                 <div class="nk-cat" id="nk-cat">🐱</div>
             </div>
-
-            <!-- tabs -->
-            <div class="nk-tabs">
-                <button class="nk-tab active" data-tab="click">👆 Click</button>
-                <button class="nk-tab"        data-tab="idle">📦 Idle</button>
-                <button class="nk-tab nk-tab-bell"   data-tab="bells">🔔 Bell</button>
-                <button class="nk-tab nk-tab-spirit" data-tab="rebirth" id="nk-tab-rebirth" style="display:none;">👻 Spirit</button>
+            <div class="nk-sub-stat" style="text-align:center; margin-bottom:10px;">
+                Fish/Click: <span class="nk-val-cpc">1</span>
             </div>
-
-            <div class="nk-shop-wrap">
-                <div class="nk-shop active" id="nk-shop-click"><div class="nk-upgrades" id="nk-upg-click"></div></div>
-                <div class="nk-shop"        id="nk-shop-idle"><div class="nk-upgrades"  id="nk-upg-idle"></div></div>
-                <div class="nk-shop"        id="nk-shop-bells"><div class="nk-upgrades" id="nk-upg-bells"></div></div>
-                <div class="nk-shop"        id="nk-shop-rebirth"><div class="nk-upgrades" id="nk-upg-rebirth"></div></div>
-            </div>
+            <div class="nk-shop-title">Tools</div>
+            <div class="nk-upgrades" id="nk-upg-click"></div>
         </div>
 
-        <!-- ── RIGHT: SRS Dojo ──────────────────────────── -->
-        <div class="nk-right">
-            <h2 style="margin:0 0 12px; font-size:20px;">🧠 Vocabulary Dojo</h2>
+        <!-- IDLE TAB -->
+        <div class="nk-tab-content" id="nk-tab-idle">
+            <div class="nk-shop-title">Structures</div>
+            <div class="nk-upgrades" id="nk-upg-idle"></div>
+        </div>
 
+        <!-- DOJO TAB (SRS) -->
+        <div class="nk-tab-content" id="nk-tab-dojo">
             <div class="nk-srs-status">
-                Hungry Cats (Reviews): <span class="nk-pending-count">0</span>
+                <span class="nk-pending-count">0</span> Hungry Cats waiting!
             </div>
 
+            <!-- Empty State -->
+            <div class="nk-no-reviews" style="display:none;">
+                <div style="font-size:50px;">💤</div>
+                <p style="font-weight:bold; margin:10px 0;">Cat is napping.</p>
+                <p style="color:#888;">You have the Happy Bonus!</p>
+                <div class="nk-learn-area">
+                    <button class="nk-learn-btn" id="nk-learn-btn">Study New Word</button>
+                </div>
+            </div>
+
+            <!-- Quiz State -->
             <div class="nk-flashcard-area" style="display:none;">
-                <div class="nk-fc-kanji">猫</div>
-                <div class="nk-fc-kana">ねこ</div>
+                <div class="nk-cat-avatar-wrap">
+                    <div class="nk-cat-avatar">🐱</div>
+                    <div class="nk-speech-bubble"><span class="nk-fc-kanji">...</span></div>
+                </div>
                 <div class="nk-quiz-grid"></div>
             </div>
-
-            <div class="nk-no-reviews" style="display:flex;">
-                <div style="font-size:50px;">💤</div>
-                <p style="font-size:17px; font-weight:bold; margin:8px 0 4px;">Sanctuary is Peaceful</p>
-                <p style="color:#888; margin:0;">No reviews pending.</p>
-            </div>
-
-            <div class="nk-learn-area">
-                <button class="nk-learn-btn" id="nk-learn-btn">Study New Word</button>
-            </div>
         </div>
 
-    </div><!-- /nk-body -->
+        <!-- BELL TAB -->
+        <div class="nk-tab-content" id="nk-tab-bells">
+            <div style="text-align:center; padding:15px; background:var(--surface-color); border-radius:8px; margin-bottom:15px; border:1px solid var(--border-color);">
+                <div style="font-size:14px; color:var(--text-muted);">Current Bells</div>
+                <div style="font-size:24px; font-weight:bold; color:#b8860b;"><span class="nk-val-bells">0</span> 🔔</div>
+                <button class="nk-hbtn nk-hbtn-gold" id="nk-ascend-btn" style="width:100%; margin-top:10px; font-size:14px;">Ascend</button>
+            </div>
+            <div class="nk-shop-title">Artifacts</div>
+            <div class="nk-upgrades" id="nk-upg-bells"></div>
+        </div>
 
-    <!-- toast container -->
+        <!-- STATS TAB -->
+        <div class="nk-tab-content" id="nk-tab-stats">
+            <div class="nk-shop-title">Statistics</div>
+            <div class="nk-stats-list" id="nk-stats-general"></div>
+            
+            <div class="nk-shop-title" style="margin-top:20px;">Active Vocabulary</div>
+            <div id="nk-vocab-list" class="nk-vocab-list"></div>
+        </div>
+
+        <!-- SPIRIT TAB -->
+        <div class="nk-tab-content" id="nk-tab-spirit">
+            <div style="text-align:center; padding:15px; background:#f3f0ff; border-radius:8px; margin-bottom:15px; border:1px solid #a55eea;">
+                <div style="font-size:14px; color:#7158e2;">Karma Spirits</div>
+                <div style="font-size:24px; font-weight:bold; color:#a55eea;"><span class="nk-val-karma">0</span> 👻</div>
+                <button class="nk-hbtn nk-hbtn-spirit" id="nk-rebirth-btn" style="width:100%; margin-top:10px; font-size:14px;">Rebirth</button>
+            </div>
+            <div class="nk-shop-title">Divine Upgrades</div>
+            <div class="nk-upgrades" id="nk-upg-rebirth"></div>
+        </div>
+
+    </div>
+
+    <!-- 4. Bottom Tab Bar -->
+    <div class="nk-tab-bar">
+        <button class="nk-nav-btn active" data-target="click">👆 Click</button>
+        <button class="nk-nav-btn" data-target="idle">📦 Idle</button>
+        <button class="nk-nav-btn" data-target="dojo">🧠 Dojo</button>
+        <button class="nk-nav-btn" data-target="bells">🔔 Bell</button>
+        <button class="nk-nav-btn" data-target="stats">📊 Stats</button>
+        <button class="nk-nav-btn" data-target="spirit" id="nk-nav-spirit" style="display:${showSpirit?'block':'none'}; color:#a55eea;">👻 Spirit</button>
+    </div>
+
+    <!-- Toast container -->
     <div class="nk-toasts" id="nk-toasts"></div>
 </div>`;
 
-    // ── Wire static events ────────────────────────────────────────────────────
+    // ── Wire events ────────────────────────────────────────────────────
     el.querySelector('#nk-save-btn').addEventListener('click', () => _saveGame(true));
     el.querySelector('#nk-ascend-btn').addEventListener('click', _ascend);
     el.querySelector('#nk-rebirth-btn').addEventListener('click', _rebirth);
@@ -584,8 +740,8 @@ function _initGameDOM() {
     });
 
     // Tab switching
-    el.querySelectorAll('.nk-tab').forEach(btn => {
-        btn.addEventListener('click', () => _switchTab(btn.getAttribute('data-tab')));
+    el.querySelectorAll('.nk-nav-btn').forEach(btn => {
+        btn.addEventListener('click', () => _switchTab(btn.getAttribute('data-target')));
     });
 }
 
@@ -618,6 +774,46 @@ function _renderShop(shopKey, containerId, prefix, isBell, isRebirth) {
     }
 }
 
+// ─── Stats DOM ────────────────────────────────────────────────────────────────
+
+function _renderStats() {
+    const genList = _screens.game?.querySelector('#nk-stats-general');
+    const vocList = _screens.game?.querySelector('#nk-vocab-list');
+    if (!genList || !vocList) return;
+
+    // General Stats
+    genList.innerHTML = `
+        <div class="nk-stat-row"><span>Total Fish Earned:</span> <span>${Math.floor(_g.stats.fishEarned).toLocaleString()}</span></div>
+        <div class="nk-stat-row"><span>Total Clicks:</span> <span>${_g.stats.clicks.toLocaleString()}</span></div>
+        <div class="nk-stat-row"><span>Yarn Earned:</span> <span>${_g.stats.yarnEarned.toLocaleString()}</span></div>
+        <div class="nk-stat-row"><span>Highest Combo:</span> <span>${_g.stats.highestCombo}</span></div>
+        <div class="nk-stat-row"><span>Correct / Wrong:</span> <span>${_g.stats.correct} / ${_g.stats.wrong}</span></div>
+    `;
+
+    // Vocab List
+    vocList.innerHTML = '';
+    if (_g.srs.length === 0) {
+        vocList.innerHTML = `<div style="text-align:center; padding:20px; color:var(--text-muted);">No words learned yet. Go to the Dojo!</div>`;
+    } else {
+        _g.srs.forEach(item => {
+            const wordData = _vocabQueue.find(v => v.id === item.id);
+            if (!wordData) return;
+            
+            const row = document.createElement('div');
+            row.className = 'nk-vocab-row';
+            row.innerHTML = `
+                <div>
+                    <span style="font-weight:bold; font-size:16px;">${wordData.kanji}</span>
+                    <span style="font-size:12px; color:var(--text-muted); margin-left:4px;">${wordData.kana}</span>
+                </div>
+                <button class="nk-ban-btn" title="Ban from Dojo">🚫</button>
+            `;
+            row.querySelector('.nk-ban-btn').addEventListener('click', () => _banWord(wordData.kanji));
+            vocList.appendChild(row);
+        });
+    }
+}
+
 // ─── UI Update ────────────────────────────────────────────────────────────────
 
 function _updateUI() {
@@ -630,48 +826,53 @@ function _updateUI() {
     setTxt('.nk-val-yarn',  _g.yarn.toLocaleString());
     setTxt('.nk-val-bells', _g.bells.toLocaleString());
     setTxt('.nk-val-karma', _g.karma.toLocaleString());
-    setTxt('.nk-val-fps',   _getFishPerSec().toLocaleString(undefined, { maximumFractionDigits: 1 }));
-    setTxt('.nk-val-cpc',   _getClickPower().toLocaleString(undefined, { maximumFractionDigits: 1 }));
+    setTxt('.nk-val-fps',   Math.floor(_getFishPerSec()).toLocaleString());
+    setTxt('.nk-val-cpc',   Math.floor(_getClickPower()).toLocaleString());
+    setTxt('.nk-val-combo', _g.combo.toLocaleString());
 
-    // Show karma row + rebirth tab + rebirth header button if earned
+    // Show spirit elements if unlocked
     if (_g.karma > 0 || _g.bells > 50) {
-        const karmaRow  = g.querySelector('#nk-karma-row');
-        const tabRebirth = g.querySelector('#nk-tab-rebirth');
-        const btnRebirth = g.querySelector('#nk-rebirth-btn');
-        if (karmaRow)   karmaRow.style.display  = 'flex';
-        if (tabRebirth) tabRebirth.style.display = 'block';
-        if (btnRebirth) btnRebirth.style.display = 'inline-block';
+        const karmaPill = g.querySelector('#nk-karma-pill');
+        const navSpirit = g.querySelector('#nk-nav-spirit');
+        if (karmaPill) karmaPill.style.display = 'flex';
+        if (navSpirit) navSpirit.style.display = 'block';
     }
 
-    // Ascend / Rebirth button labels
-    setTxt('#nk-ascend-btn',  `Ascend (+${_calcBells()} 🔔)`);
-    setTxt('#nk-rebirth-btn', `Rebirth (+${_calcSpirits()} 👻)`);
-
-    // Shop buttons — fish/yarn
-    _updateShopBtns('clickUpgrades', 'c');
-    _updateShopBtns('upgrades',      'i');
-
-    // Bell upgrades
-    for (const key in _g.bellUpgrades) {
-        const upg  = _g.bellUpgrades[key];
-        const cost = upg.cost + upg.count;
-        const btn  = g.querySelector(`#nk-btn-b-${key}`);
-        const lvl  = g.querySelector(`#nk-lvl-b-${key}`);
-        if (lvl) lvl.textContent = `(Lvl ${upg.count})`;
-        if (btn) { btn.textContent = `${cost} 🔔`; btn.disabled = _g.bells < cost; }
+    // Update buttons in active shop
+    const activeTab = g.querySelector('.nk-tab-content.active');
+    if (activeTab) {
+        if (activeTab.id === 'nk-tab-click') _updateShopBtns('clickUpgrades', 'c');
+        if (activeTab.id === 'nk-tab-idle')  _updateShopBtns('upgrades', 'i');
+        if (activeTab.id === 'nk-tab-bells') {
+             // Bell upgrades
+            for (const key in _g.bellUpgrades) {
+                const upg  = _g.bellUpgrades[key];
+                const cost = upg.cost + upg.count;
+                const btn  = g.querySelector(`#nk-btn-b-${key}`);
+                const lvl  = g.querySelector(`#nk-lvl-b-${key}`);
+                if (lvl) lvl.textContent = `(Lvl ${upg.count})`;
+                if (btn) { btn.textContent = `${cost} 🔔`; btn.disabled = _g.bells < cost; }
+            }
+            setTxt('#nk-ascend-btn', `Ascend (+${_calcBells()} 🔔)`);
+        }
+        if (activeTab.id === 'nk-tab-spirit') {
+            // Spirit upgrades
+            for (const key in _g.rebirthUpgrades) {
+                const upg  = _g.rebirthUpgrades[key];
+                const cost = upg.cost * Math.pow(2, upg.count);
+                const btn  = g.querySelector(`#nk-btn-r-${key}`);
+                const lvl  = g.querySelector(`#nk-lvl-r-${key}`);
+                if (lvl) lvl.textContent = `(Lvl ${upg.count})`;
+                if (btn) { btn.textContent = `${cost} 👻`; btn.disabled = _g.karma < cost; }
+            }
+            setTxt('#nk-rebirth-btn', `Rebirth (+${_calcSpirits()} 👻)`);
+        }
+        if (activeTab.id === 'nk-tab-stats') {
+            _renderStats(); // Refresh stats when looking at them
+        }
     }
 
-    // Rebirth upgrades
-    for (const key in _g.rebirthUpgrades) {
-        const upg  = _g.rebirthUpgrades[key];
-        const cost = upg.cost * Math.pow(2, upg.count);
-        const btn  = g.querySelector(`#nk-btn-r-${key}`);
-        const lvl  = g.querySelector(`#nk-lvl-r-${key}`);
-        if (lvl) lvl.textContent = `(Lvl ${upg.count})`;
-        if (btn) { btn.textContent = `${cost} 👻`; btn.disabled = _g.karma < cost; }
-    }
-
-    // Learn button
+    // Learn button state
     const learnBtn = g.querySelector('#nk-learn-btn');
     if (learnBtn) {
         const cost     = _getLearnCost();
@@ -706,13 +907,17 @@ function _updateShopBtns(shopKey, prefix) {
 
 function _switchTab(tabName) {
     const g = _screens.game;
-    g?.querySelectorAll('.nk-shop').forEach(s => s.classList.remove('active'));
-    g?.querySelectorAll('.nk-tab').forEach(b => b.classList.remove('active'));
-    g?.querySelector(`#nk-shop-${tabName}`)?.classList.add('active');
-    // find button by data-tab
-    g?.querySelectorAll('.nk-tab').forEach(b => {
-        if (b.getAttribute('data-tab') === tabName) b.classList.add('active');
-    });
+    if (!g) return;
+    
+    // Switch Content
+    g.querySelectorAll('.nk-tab-content').forEach(c => c.classList.remove('active'));
+    g.querySelector(`#nk-tab-${tabName}`)?.classList.add('active');
+    
+    // Switch Nav Button
+    g.querySelectorAll('.nk-nav-btn').forEach(b => b.classList.remove('active'));
+    g.querySelector(`.nk-nav-btn[data-target="${tabName}"]`)?.classList.add('active');
+    
+    _updateUI(); // Immediate refresh of new tab content
 }
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
@@ -729,7 +934,6 @@ function _toast(msg, color = '#333') {
 }
 
 // ─── CSS injection ────────────────────────────────────────────────────────────
-// Injected once; scoped entirely to .nk-root so it never bleeds into the app.
 
 (function _injectStyles() {
     if (document.getElementById('neko-game-styles')) return;
@@ -759,233 +963,230 @@ function _toast(msg, color = '#333') {
 /* top bar */
 .nk-topbar {
     background: var(--nk-panel);
-    padding: 8px 16px;
+    padding: 8px 12px;
     display: flex;
     justify-content: space-between;
     align-items: center;
     box-shadow: 0 2px 5px rgba(0,0,0,0.1);
     flex-shrink: 0;
-    flex-wrap: wrap;
-    gap: 6px;
 }
-.nk-topbar-title { font-size: 20px; font-weight: bold; }
-.nk-topbar-btns  { display: flex; gap: 6px; flex-wrap: wrap; }
+.nk-topbar-title { font-size: 18px; font-weight: bold; }
+.nk-topbar-btns  { display: flex; gap: 6px; }
 .nk-hbtn {
     background: var(--nk-btn); border: none; padding: 6px 10px;
     border-radius: 5px; color: white; cursor: pointer; font-weight: bold; font-size: 12px;
 }
-.nk-hbtn:hover       { background: var(--nk-btnhov); }
 .nk-hbtn-gold        { background: var(--nk-gold);   color: #333; }
-.nk-hbtn-gold:hover  { background: #e6be00; }
 .nk-hbtn-spirit      { background: var(--nk-spirit); }
 .nk-hbtn-danger      { background: #888; }
-.nk-hbtn-danger:hover{ background: #666; }
 
-/* body split */
-.nk-body {
-    display: flex;
-    flex: 1;
-    overflow: hidden;
-}
-.nk-left, .nk-right {
-    flex: 1;
-    padding: 14px;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-}
-.nk-left  { border-right: 3px dashed var(--nk-btn); background: #fffdf9; }
-.nk-right { background: #fdf5e6; }
-
-/* stats box */
-.nk-stats-box {
+/* Stats Header */
+.nk-stats-header {
     background: white;
-    padding: 12px;
-    border-radius: 10px;
-    box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-    margin-bottom: 12px;
-    font-size: 15px;
+    padding: 10px;
+    border-bottom: 1px solid rgba(0,0,0,0.05);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+    align-items: center;
     flex-shrink: 0;
 }
-.nk-currency  { display: flex; justify-content: space-between; margin-bottom: 4px; }
+.nk-stat-pill {
+    background: var(--nk-bg);
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 13px;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.nk-stat-sub {
+    width: 100%;
+    text-align: center;
+    font-size: 11px;
+    color: #888;
+    margin-top: -2px;
+}
 .nk-bell-color { color: #b8860b; }
 .nk-spirit-color { color: #a55eea; }
-.nk-sub-stat  { font-size: 12px; color: #888; display: flex; justify-content: space-between; }
-.nk-debuff-row { display:none; }
 
-/* cat clicker */
-.nk-clicker-wrap {
-    text-align: center;
-    margin: 10px 0;
+/* Main Content Pane */
+.nk-content-pane {
+    flex: 1;
+    overflow-y: auto;
+    padding: 15px;
+    background: #fffdf9;
     position: relative;
-    min-height: 120px;
+}
+
+.nk-tab-content { display: none; height: 100%; }
+.nk-tab-content.active { display: block; }
+
+/* Bottom Nav Bar */
+.nk-tab-bar {
+    background: white;
+    border-top: 1px solid rgba(0,0,0,0.1);
+    display: flex;
+    padding-bottom: env(safe-area-inset-bottom);
     flex-shrink: 0;
 }
+.nk-nav-btn {
+    flex: 1;
+    background: none;
+    border: none;
+    padding: 10px 0;
+    font-size: 11px;
+    font-weight: 600;
+    color: #888;
+    cursor: pointer;
+    border-top: 3px solid transparent;
+}
+.nk-nav-btn.active {
+    color: var(--nk-text);
+    border-top-color: var(--nk-btn);
+    background: rgba(255,179,71,0.1);
+}
+
+/* Shops */
+.nk-shop-title {
+    font-size: 14px;
+    text-transform: uppercase;
+    color: #888;
+    font-weight: bold;
+    margin-bottom: 8px;
+    letter-spacing: 0.05em;
+}
+.nk-upgrade {
+    background: white; padding: 10px; border-radius: 8px; margin-bottom: 8px;
+    display: flex; justify-content: space-between; align-items: center;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.03);
+    border: 1px solid rgba(0,0,0,0.05);
+}
+.nk-upg-info { flex: 1; padding-right: 8px; font-size: 13px; }
+.nk-upg-lvl  { font-size: 11px; opacity: 0.6; }
+.nk-upg-btn {
+    background: var(--nk-btn); border: none; padding: 8px 10px; border-radius: 6px;
+    color: white; font-weight: bold; min-width: 80px; font-size: 12px; cursor: pointer;
+}
+.nk-upg-btn:disabled { background: #e0e0e0; color: #aaa; }
+
+/* Clicker */
+.nk-clicker-wrap {
+    text-align: center;
+    margin: 20px 0;
+    position: relative;
+    min-height: 120px;
+}
 .nk-cat {
-    font-size: 80px;
+    font-size: 90px;
     cursor: pointer;
     user-select: none;
     display: inline-block;
     filter: drop-shadow(0 5px 5px rgba(0,0,0,0.1));
     transition: transform 0.05s;
 }
-.nk-cat:active { transform: scale(0.9); }
-.nk-click-effect {
-    position: absolute;
-    font-weight: bold;
-    font-size: 18px;
-    pointer-events: none;
-    color: var(--nk-btn);
-    animation: nkFloat 1s forwards;
-}
-@keyframes nkFloat {
-    0%   { opacity:1; transform:translateY(0); }
-    100% { opacity:0; transform:translateY(-50px); }
-}
+.nk-cat:active { transform: scale(0.95); }
 
-/* tabs */
-.nk-tabs { display: flex; gap: 4px; margin-bottom: 0; flex-shrink: 0; }
-.nk-tab {
-    flex: 1; padding: 8px 4px; border: none; background: #e0e0e0;
-    cursor: pointer; border-radius: 5px 5px 0 0;
-    font-weight: bold; color: #666; font-size: 12px; transition: 0.2s;
-}
-.nk-tab.active         { background: var(--nk-btn); color: white; }
-.nk-tab-bell           { background: #ffeaa7; color: #b8860b; }
-.nk-tab-bell.active    { background: var(--nk-gold); color: #333; }
-.nk-tab-spirit         { background: #dcdde1; color: #7158e2; }
-.nk-tab-spirit.active  { background: var(--nk-spirit); color: white; }
-
-/* shop */
-.nk-shop-wrap { flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
-.nk-shop      { display: none; flex: 1; overflow-y: auto; }
-.nk-shop.active { display: block; }
-.nk-upgrades  { padding: 4px 0; }
-
-.nk-upgrade {
-    background: white; padding: 8px 10px; border-radius: 8px; margin-bottom: 6px;
-    display: flex; justify-content: space-between; align-items: center;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-}
-.nk-upg-bell    { background: #fffcf0; border: 1px solid var(--nk-gold); }
-.nk-upg-rebirth { background: #f3f0ff; border: 1px solid var(--nk-spirit); }
-.nk-upg-info    { flex: 1; padding-right: 8px; font-size: 13px; }
-.nk-upg-lvl     { font-size: 11px; opacity: 0.6; margin-left: 4px; }
-.nk-upg-btn {
-    background: var(--nk-btn); border: none; padding: 6px 4px; border-radius: 5px;
-    color: white; cursor: pointer; font-weight: bold; min-width: 80px; font-size: 11px;
-}
-.nk-upg-btn:disabled { background: #e0e0e0; color: #999; cursor: not-allowed; }
-.nk-upg-bell .nk-upg-btn    { background: var(--nk-gold); color: #333; }
-.nk-upg-rebirth .nk-upg-btn { background: var(--nk-spirit); color: white; }
-
-/* SRS / right panel */
+/* Dojo / Quiz */
 .nk-srs-status {
-    text-align: center; padding: 8px; border-radius: 10px;
-    background: white; margin-bottom: 14px; font-weight: bold; font-size: 14px;
-    flex-shrink: 0;
+    text-align: center; padding: 8px; border-radius: 8px;
+    background: #fff0f0; color: #d63031; border: 1px solid #fab1a0;
+    margin-bottom: 15px; font-weight: bold; font-size: 13px;
 }
-.nk-srs-danger {
-    background: var(--nk-accent); color: white;
-    animation: nkPulse 2s infinite;
+.nk-no-reviews {
+    text-align: center; padding: 40px 20px; background: white; border-radius: 12px;
+    border: 1px dashed #ccc;
 }
-@keyframes nkPulse {
-    0%   { transform: scale(1); }
-    50%  { transform: scale(1.02); }
-    100% { transform: scale(1); }
+.nk-learn-area { margin-top: 15px; }
+.nk-learn-btn {
+    background: var(--nk-success); color: white; border: none; padding: 12px 20px;
+    border-radius: 20px; font-weight: bold; font-size: 14px; cursor: pointer;
+    box-shadow: 0 3px 0 #329929;
+}
+.nk-learn-btn:active { transform: translateY(3px); box-shadow: none; }
+
+/* Avatar & Bubble */
+.nk-cat-avatar-wrap {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    margin-bottom: 20px;
+    height: 140px;
+}
+.nk-cat-avatar { font-size: 60px; margin-right: 10px; line-height: 1; transform: scaleX(-1); }
+.nk-speech-bubble {
+    background: white;
+    border: 2px solid var(--nk-text);
+    border-radius: 20px 20px 20px 0;
+    padding: 15px 25px;
+    font-size: 32px;
+    font-weight: bold;
+    color: var(--nk-text);
+    box-shadow: 4px 4px 0 rgba(0,0,0,0.1);
+    position: relative;
+    top: -20px;
 }
 
-.nk-flashcard-area {
-    flex: 1; flex-direction: column; align-items: center; justify-content: center;
-    background: white; border-radius: 10px; padding: 16px;
-    box-shadow: 0 8px 15px rgba(0,0,0,0.05); min-height: 320px;
-}
-.nk-fc-kanji   { font-size: 72px; margin-bottom: 4px; color: #333; text-align: center; }
-.nk-fc-kana    { font-size: 24px; color: #888; margin-bottom: 24px; text-align: center; }
-.nk-quiz-grid  {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
-    width: 100%; max-width: 420px;
+.nk-quiz-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
 }
 .nk-quiz-btn {
-    background: #f0f0f0; border: 2px solid #ddd; padding: 16px;
-    border-radius: 10px; font-size: 16px; cursor: pointer; color: #555;
-    font-weight: bold; transition: all 0.1s;
+    background: white; border: 2px solid #eee; padding: 15px;
+    border-radius: 10px; font-size: 15px; font-weight: bold; color: #666;
+    cursor: pointer; transition: all 0.1s;
 }
-.nk-quiz-btn:hover   { background: #e8e8e8; transform: translateY(-2px); }
-.nk-quiz-correct     { background: #4cd137 !important; color: white !important; border-color: #4cd137 !important; }
-.nk-quiz-wrong       { background: #ff6b6b !important; color: white !important; border-color: #ff6b6b !important; }
+.nk-quiz-btn:active { transform: scale(0.98); }
+.nk-quiz-correct { background: var(--nk-success) !important; color: white !important; border-color: var(--nk-success) !important; }
+.nk-quiz-wrong { background: #ff4b4b !important; color: white !important; border-color: #ff4b4b !important; }
 
-.nk-no-reviews {
-    flex: 1; flex-direction: column; align-items: center; justify-content: center;
-    background: white; border-radius: 10px; padding: 20px;
-    box-shadow: 0 8px 15px rgba(0,0,0,0.05); min-height: 200px;
-    text-align: center;
+/* Stats List */
+.nk-stats-list { background: white; border-radius: 8px; padding: 10px; border: 1px solid rgba(0,0,0,0.05); }
+.nk-stat-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; font-size: 14px; }
+.nk-stat-row:last-child { border-bottom: none; }
+
+.nk-vocab-list { display: flex; flex-direction: column; gap: 6px; }
+.nk-vocab-row {
+    display: flex; justify-content: space-between; align-items: center;
+    background: white; padding: 8px 12px; border-radius: 6px; border: 1px solid #eee;
+}
+.nk-ban-btn { background: none; border: none; cursor: pointer; font-size: 16px; opacity: 0.5; }
+.nk-ban-btn:hover { opacity: 1; transform: scale(1.2); }
+
+/* Float Effect */
+.nk-click-effect {
+    pointer-events: none;
+    font-weight: bold;
+    text-shadow: 1px 1px 0 white;
+    animation: nkFloat 0.8s forwards ease-out;
+}
+@keyframes nkFloat {
+    0%   { opacity: 1; transform: translateY(0) scale(1); }
+    100% { opacity: 0; transform: translateY(-40px) scale(1.2); }
 }
 
-.nk-learn-area { margin-top: 14px; flex-shrink: 0; }
-.nk-learn-btn {
-    background: var(--nk-spirit); border: none; padding: 14px;
-    border-radius: 8px; color: white; cursor: pointer;
-    width: 100%; font-size: 15px; font-weight: bold;
-}
-.nk-learn-btn:disabled { background: #ccc; cursor: not-allowed; }
-
-/* toasts */
-.nk-toasts {
-    position: absolute; top: 60px; right: 16px; z-index: 200; pointer-events: none;
-}
+/* Toast */
+.nk-toasts { position: absolute; top: 60px; right: 20px; z-index: 1000; pointer-events: none; }
 .nk-toast {
-    background: rgba(0,0,0,0.85); color: white; padding: 10px 20px;
-    border-radius: 50px; margin-bottom: 8px; font-weight: bold; font-size: 13px;
-    animation: nkFadeOut 4s forwards;
-}
-@keyframes nkFadeOut {
-    0%   { opacity: 1; }
-    80%  { opacity: 1; }
-    100% { opacity: 0; }
+    background: rgba(0,0,0,0.8); color: white; padding: 8px 16px;
+    border-radius: 20px; margin-bottom: 5px; font-size: 12px;
+    animation: nkFloat 3s forwards;
 }
 
-/* ── Mobile: stack vertically, let page scroll naturally ── */
-@media (max-width: 600px) {
-    .nk-root {
-        height: auto;
-        overflow: visible;
-    }
-    .nk-body {
-        flex-direction: column;
-        overflow: visible;
-    }
-    .nk-left, .nk-right {
-        overflow-y: visible;
-        flex: none;
-    }
-    .nk-left {
-        border-right: none;
-        border-bottom: 3px dashed var(--nk-btn);
-    }
-    .nk-shop-wrap {
-        overflow: visible;
-        min-height: 0;
-    }
-    .nk-shop.active {
-        overflow-y: visible;
-    }
-    .nk-flashcard-area { min-height: auto; }
-    .nk-no-reviews     { min-height: auto; }
-}
-
-/* dark theme compatibility */
+/* Dark Mode */
 [data-theme="dark"] .nk-root   { --nk-bg: #2a1f14; --nk-text: #f0d9c0; --nk-panel: #3d2b1a; }
-[data-theme="dark"] .nk-stats-box,
-[data-theme="dark"] .nk-flashcard-area,
-[data-theme="dark"] .nk-no-reviews { background: #3d2b1a; color: #f0d9c0; }
-[data-theme="dark"] .nk-upgrade        { background: #3d2b1a; }
-[data-theme="dark"] .nk-upg-bell       { background: #3d2910; }
-[data-theme="dark"] .nk-upg-rebirth    { background: #2d2040; }
-[data-theme="dark"] .nk-quiz-btn       { background: #3d2b1a; border-color: #5a3e2b; color: #f0d9c0; }
-[data-theme="dark"] .nk-quiz-btn:hover { background: #4d3b2a; }
-[data-theme="dark"] .nk-left  { background: #261a0f; }
-[data-theme="dark"] .nk-right { background: #2a1f14; }
+[data-theme="dark"] .nk-stats-header,
+[data-theme="dark"] .nk-tab-bar,
+[data-theme="dark"] .nk-upgrade,
+[data-theme="dark"] .nk-no-reviews,
+[data-theme="dark"] .nk-stats-list,
+[data-theme="dark"] .nk-vocab-row { background: #3d2b1a; border-color: #5a3e2b; }
+[data-theme="dark"] .nk-stat-pill { background: #2a1f14; }
+[data-theme="dark"] .nk-speech-bubble { background: #3d2b1a; color: white; border-color: #f0d9c0; }
+[data-theme="dark"] .nk-content-pane { background: #261a0f; }
+[data-theme="dark"] .nk-quiz-btn { background: #3d2b1a; border-color: #5a3e2b; color: #f0d9c0; }
+[data-theme="dark"] .nk-nav-btn.active { background: rgba(255,255,255,0.05); }
 `;
     document.head.appendChild(style);
 })();
