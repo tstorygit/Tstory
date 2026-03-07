@@ -216,6 +216,7 @@ function _spawnEnemyAndBegin() {
     _g.narration = `${_g.enemy.emoji} ${_g.enemy.name} appears! (Lv.${_g.enemy.level})`;
     _prepareChallenge();
     _renderAll();
+    _updateComboDisplay();
 }
 
 function _showFloorLandingOverlay(onDismiss) {
@@ -520,7 +521,7 @@ function _onAnswer(idx, timedOut = false) {
     } else {
         _g.combo = 0;
     }
-    const comboMult = _g.combo > 1 ? (1 + 0.1 * Math.log2(_g.combo)) : 1.0;
+    const comboMult = _g.combo > 1 ? (1 + 0.2 * Math.log2(_g.combo)) : 1.0;
     _updateComboDisplay();
 
     if (_g.phase === 'player_attack') {
@@ -552,6 +553,11 @@ function _onAnswer(idx, timedOut = false) {
     _updateHpBars();
     _updateNarration();
     _updateStats();
+
+    // Stop timer immediately if this action ends the fight (no countdown during victory pause)
+    const fightOver = (_g.phase === 'player_attack' && _g.enemyHp <= 0)
+                   || (_g.phase === 'player_defense' && _g.currentHp <= 0);
+    if (fightOver) _stopTimer();
 
     // Advance after short pause
     setTimeout(() => _advanceTurn(), 1200);
@@ -778,7 +784,7 @@ function _updateComboDisplay() {
         _dom.comboDisplay.style.display = 'none';
         return;
     }
-    const bonusPct = Math.round((0.1 * Math.log2(combo)) * 100);
+    const bonusPct = Math.round((0.2 * Math.log2(combo)) * 100);
     const cls = combo >= 10 ? 'tbb-combo-hot' : combo >= 5 ? 'tbb-combo-warm' : 'tbb-combo-cool';
     _dom.comboDisplay.className = `tbb-combo-display ${cls}`;
     _dom.comboDisplay.style.display = 'flex';
@@ -886,12 +892,16 @@ function _closeOverlay() {
 
 function _renderSummaryOverlay() {
     const e = _g.enemy;
+    const comboLine = _g.combo >= 2
+        ? `<p style="color:#f5a623;font-weight:800;">🔥 ${_g.combo}× Combo streak continues!</p>`
+        : '';
     _showOverlay(`
         <div class="tbb-dialog">
             <div class="tbb-dialog-title">⚔️ Victory!</div>
             <div class="tbb-dialog-body">
                 <p>${e.emoji} <b>${e.name}</b> (Lv.${e.level}) defeated!</p>
                 <p>Floor: ${_g.currentFloor} | Enemies: ${_g.totalEnemiesDefeated}</p>
+                ${comboLine}
                 ${_g.maxUnlockedFloor > _g.currentFloor ? `<p class="tbb-unlocked">🗺️ Floor ${_g.maxUnlockedFloor} unlocked!</p>` : ''}
             </div>
             <div class="tbb-dialog-actions">
@@ -936,6 +946,8 @@ function _renderGameOverOverlay() {
         _computeDerivedStats();
         _g.currentHp = _g.playerHp;
         _g.currentFloor = 0;
+        _g.combo = 0;
+        _updateComboDisplay();
         _spawnEnemyAndBegin();
     });
     const rebirthBtn = _dom.overlay.querySelector('#tbb-rebirth-btn');
@@ -961,6 +973,7 @@ function _doRebirth() {
     _g.statPointsToAllocate = _g._pb.bonusStatPts;
     _g.currentHp = _g.playerHp;
     _g.currentFloor = 0;
+    _g.combo = 0;
     _writeSave();
     _spawnEnemyAndBegin();
 }
