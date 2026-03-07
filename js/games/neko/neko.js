@@ -945,6 +945,35 @@ function _toast(msg, color = '#333') {
     100% { opacity: 0; }
 }
 
+/* ── Mobile: stack vertically, let page scroll naturally ── */
+@media (max-width: 600px) {
+    .nk-root {
+        height: auto;
+        overflow: visible;
+    }
+    .nk-body {
+        flex-direction: column;
+        overflow: visible;
+    }
+    .nk-left, .nk-right {
+        overflow-y: visible;
+        flex: none;
+    }
+    .nk-left {
+        border-right: none;
+        border-bottom: 3px dashed var(--nk-btn);
+    }
+    .nk-shop-wrap {
+        overflow: visible;
+        min-height: 0;
+    }
+    .nk-shop.active {
+        overflow-y: visible;
+    }
+    .nk-flashcard-area { min-height: auto; }
+    .nk-no-reviews     { min-height: auto; }
+}
+
 /* dark theme compatibility */
 [data-theme="dark"] .nk-root   { --nk-bg: #2a1f14; --nk-text: #f0d9c0; --nk-panel: #3d2b1a; }
 [data-theme="dark"] .nk-stats-box,
