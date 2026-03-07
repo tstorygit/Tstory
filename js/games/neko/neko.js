@@ -101,7 +101,7 @@ function _startGame() {
     if (_g.srs.length === 0 && _vocabQueue.length >= 3) {
         for (let i = 0; i < 3; i++) {
             const w = _vocabQueue[i];
-            _g.srs.push({ id: w.id, nextReview: Date.now(), interval: 30, ease: 2.5 });
+            _g.srs.push({ id: w.id, nextReview: Date.now(), interval: 8, ease: 1.5 });
         }
         _g.stats.wordsLearned += 3;
     }
@@ -250,12 +250,46 @@ function _getClickPower() {
     let m = 1;
     m *= Math.pow(_g.bellUpgrades.paw.effect, _g.bellUpgrades.paw.count);
     m *= Math.pow(_g.rebirthUpgrades.guide.effect, _g.rebirthUpgrades.guide.count);
+
+    // Happy Cat and Combo also apply to clicks
+    const isHappy = _pendingReviews.length === 0;
+    m *= isHappy ? 1.25 : 0.75;
+    m *= 1 + Math.log2(1 + _g.combo);
     
     if (_isDebug) m *= 1000;
     return base * m;
 }
 
-function _getLearnCost() {
+function _getMultiplierBreakdown() {
+    const isHappy   = _pendingReviews.length === 0;
+    const moodMult  = isHappy ? 1.25 : 0.75;
+    const comboMult = 1 + Math.log2(1 + _g.combo);
+
+    // ── Idle-specific components ──
+    const catnip  = Math.pow(_g.upgrades.catnip.effect, _g.upgrades.catnip.count);
+    const tuna    = Math.pow(_g.bellUpgrades.tuna.effect, _g.bellUpgrades.tuna.count);
+    const warp    = Math.pow(_g.bellUpgrades.warp.effect, _g.bellUpgrades.warp.count);
+    const nap     = Math.pow(_g.bellUpgrades.nap.effect, _g.bellUpgrades.nap.count);
+    const bells   = 1 + (_g.bells * 0.05);
+    const bloom   = _g.rebirthUpgrades.bloom.count > 0
+        ? Math.pow(1 + (_g.srs.length * _g.rebirthUpgrades.bloom.effect), _g.rebirthUpgrades.bloom.count)
+        : 1;
+    const guide   = Math.pow(_g.rebirthUpgrades.guide.effect, _g.rebirthUpgrades.guide.count);
+
+    // ── Click-specific components ──
+    const paw = Math.pow(_g.bellUpgrades.paw.effect, _g.bellUpgrades.paw.count);
+
+    const idleTotal  = catnip * tuna * warp * nap * bells * bloom * guide * moodMult * comboMult;
+    const clickTotal = paw * guide * moodMult * comboMult;
+
+    return {
+        isHappy, moodMult, comboMult,
+        idle:  { catnip, tuna, warp, nap, bells, bloom, guide, total: idleTotal },
+        click: { paw, guide, total: clickTotal },
+    };
+}
+
+
     // Quadratic scaling: word 1=250, word 5=1450, word 10=5200, word 20=20200
     const n      = _g.srs.filter(s => new Set(_vocabQueue.map(v=>v.id)).has(s.id)).length;
     const base   = 200 + (n * n * 50);
@@ -519,7 +553,7 @@ function _learnNewWord() {
     const w = available[0];
     
     // Start interval small in seconds to keep game flowing quickly
-    _g.srs.push({ id: w.id, nextReview: Date.now(), interval: 30, ease: 2.5 });
+    _g.srs.push({ id: w.id, nextReview: Date.now(), interval: 8, ease: 1.5 });
     
     _g.stats.wordsLearned++;
     _updateSRSQueue();
@@ -696,7 +730,9 @@ function _initGameDOM() {
             </div>
             <div class="nk-stat-sub">
                 <span class="nk-val-fps">0</span>/s • <span class="nk-val-cpc">1</span>/click • Combo: <span class="nk-val-combo">0</span>
+                <button id="nk-mult-btn" class="nk-mult-btn" title="Click for multiplier breakdown">×1.00</button>
             </div>
+            <div id="nk-mult-popup" class="nk-mult-popup" style="display:none;"></div>
             <div class="nk-buff-row" style="display:none;"></div>
         </div>
     </div>
@@ -807,6 +843,22 @@ function _initGameDOM() {
     el.querySelector('#nk-rebirth-btn').addEventListener('click', _rebirth);
     el.querySelector('#nk-learn-btn').addEventListener('click', _learnNewWord);
     el.querySelector('#nk-cat').addEventListener('click', (e) => _petCat(e));
+
+    el.querySelector('#nk-mult-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        const popup = el.querySelector('#nk-mult-popup');
+        if (!popup) return;
+        if (popup.style.display === 'none') {
+            _renderMultiplierPopup();
+            popup.style.display = 'block';
+        } else {
+            popup.style.display = 'none';
+        }
+    });
+    document.addEventListener('click', () => {
+        const popup = el.querySelector('#nk-mult-popup');
+        if (popup) popup.style.display = 'none';
+    });
 
     el.querySelector('#nk-quit-btn').addEventListener('click', () => {
         if (confirm('Quit to Games menu? Your progress is saved.')) {
@@ -1020,7 +1072,45 @@ function _renderVocabList() {
     });
 }
 
-// ─── UI Update ────────────────────────────────────────────────────────────────
+function _renderMultiplierPopup() {
+    const popup = _screens.game?.querySelector('#nk-mult-popup');
+    if (!popup) return;
+    const b = _getMultiplierBreakdown();
+    const fmt = v => v.toFixed(2);
+
+    const row = (label, val, color = '') => {
+        if (val === 1) return ''; // skip trivial ×1.00 rows
+        const style = color ? `style="color:${color};"` : '';
+        return `<div class="nk-mp-row" ${style}><span>${label}</span><span>×${fmt(val)}</span></div>`;
+    };
+
+    const happyLabel = b.isHappy ? '✨ Happy Bonus' : '😾 Hungry Penalty';
+    const happyColor = b.isHappy ? 'var(--nk-success)' : '#e17055';
+
+    popup.innerHTML = `
+        <div class="nk-mp-section">
+            <div class="nk-mp-title">🐟 Total Idle  <span class="nk-mp-total">×${fmt(b.idle.total)}</span></div>
+            ${row(happyLabel,    b.moodMult,    happyColor)}
+            ${row('🔥 Combo (' + _g.combo.toFixed(1) + ')', b.comboMult, '#e17055')}
+            ${row('🌿 Catnip',   b.idle.catnip)}
+            ${row('🐟 Tuna Bell',b.idle.tuna)}
+            ${row('⏩ Time Warp', b.idle.warp)}
+            ${row('😴 Cat Nap',  b.idle.nap)}
+            ${row('🔔 Bells',    b.idle.bells)}
+            ${row('🌸 Bloom',    b.idle.bloom)}
+            ${row('👻 Guide',    b.idle.guide)}
+        </div>
+        <div class="nk-mp-section" style="margin-top:8px;">
+            <div class="nk-mp-title">👆 Total Click <span class="nk-mp-total">×${fmt(b.click.total)}</span></div>
+            ${row(happyLabel,    b.moodMult,    happyColor)}
+            ${row('🔥 Combo (' + _g.combo.toFixed(1) + ')', b.comboMult, '#e17055')}
+            ${row('🐾 Paw Bell', b.click.paw)}
+            ${row('👻 Guide',    b.click.guide)}
+        </div>
+    `;
+}
+
+
 
 function _updateUI() {
     const g = _screens.game;
@@ -1035,6 +1125,19 @@ function _updateUI() {
     setTxt('.nk-val-fps',   Math.floor(_getFishPerSec()).toLocaleString());
     setTxt('.nk-val-cpc',   Math.floor(_getClickPower()).toLocaleString());
     setTxt('.nk-val-combo', _g.combo.toFixed(1)); // Show decimal to make decay visible
+
+    // Multiplier badge
+    const multBtn = g.querySelector('#nk-mult-btn');
+    if (multBtn) {
+        const b = _getMultiplierBreakdown();
+        const isHappy = b.isHappy;
+        multBtn.textContent = `×${b.idle.total.toFixed(2)}`;
+        multBtn.style.color = isHappy ? 'var(--nk-success)' : '#e17055';
+        multBtn.style.borderColor = isHappy ? 'var(--nk-success)' : '#e17055';
+        // If popup is open, keep it live
+        const popup = g.querySelector('#nk-mult-popup');
+        if (popup && popup.style.display !== 'none') _renderMultiplierPopup();
+    }
 
     // Hungry cats indicator
     const hungryCount  = _pendingReviews.length;
@@ -1239,6 +1342,7 @@ function _toast(msg, color = '#333') {
     align-items: center;
     flex-shrink: 0;
     gap: 15px;
+    position: relative;
 }
 .nk-header-cat {
     font-size: 40px;
@@ -1274,7 +1378,60 @@ function _toast(msg, color = '#333') {
 .nk-stat-sub {
     font-size: 11px;
     color: #888;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-wrap: wrap;
 }
+.nk-mult-btn {
+    font-size: 11px;
+    font-weight: bold;
+    background: none;
+    border: 1px solid #888;
+    border-radius: 8px;
+    padding: 1px 6px;
+    cursor: pointer;
+    color: #888;
+    line-height: 1.4;
+    transition: color 0.2s, border-color 0.2s;
+}
+.nk-mult-btn:hover { opacity: 0.8; }
+.nk-mult-popup {
+    position: absolute;
+    top: 105px;
+    left: 12px;
+    z-index: 100;
+    background: white;
+    border: 1px solid rgba(0,0,0,0.12);
+    border-radius: 10px;
+    padding: 10px 12px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.14);
+    font-size: 12px;
+    min-width: 200px;
+    max-width: 240px;
+}
+.nk-mp-section { display: flex; flex-direction: column; gap: 3px; }
+.nk-mp-title {
+    font-weight: bold;
+    font-size: 12px;
+    margin-bottom: 4px;
+    display: flex;
+    justify-content: space-between;
+    border-bottom: 1px solid rgba(0,0,0,0.07);
+    padding-bottom: 3px;
+}
+.nk-mp-total { font-weight: bold; color: var(--nk-btn); }
+.nk-mp-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 1px 4px;
+    color: #666;
+}
+[data-theme="dark"] .nk-mult-popup {
+    background: #3d2b1a; border-color: #5a3e2b; color: #f0d9c0;
+}
+[data-theme="dark"] .nk-mp-row { color: #c8a882; }
+[data-theme="dark"] .nk-mp-title { border-bottom-color: #5a3e2b; }
 .nk-bell-color { color: #b8860b; }
 .nk-spirit-color { color: #a55eea; }
 .nk-buff-row {
