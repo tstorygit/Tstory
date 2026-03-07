@@ -4,11 +4,11 @@
 import { mountVocabSelector } from '../../vocab_selector.js';
 import { spawnEnemy }         from './tbb_enemies.js';
 import { getFloorAction }     from './tbb_floors.js';
-import { PERK_DEFS, ATTACK_TYPES, REBIRTH_MIN_LEVEL, REBIRTH_AP_DIVIDER,
+import { PERK_DEFS, REBIRTH_MIN_LEVEL, REBIRTH_AP_DIVIDER,
          totalApSpent, canSpendAp, computePerkBonuses, calcRebirthAp } from './tbb_ascension.js';
 import { handlePlayerAttack, handlePlayerDefense, actionExp,
          timeAdjustExp, applyExpBonuses, expToNextLevel,
-         generateMcOptions, CRIT_MULT } from './tbb_battle.js';
+         generateMcOptions } from './tbb_battle.js';
 
 // ─── Module State ─────────────────────────────────────────────────────────────
 let _screens  = null;
