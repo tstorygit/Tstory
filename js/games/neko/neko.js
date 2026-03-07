@@ -766,6 +766,7 @@ function _initGameDOM() {
             <button class="nk-hbtn nk-hbtn-gold" id="nk-ascend-btn" title="Ascend">⬆</button>
             <button class="nk-hbtn nk-hbtn-spirit" id="nk-rebirth-btn" title="Rebirth" style="display:${showSpirit?'inline-block':'none'};">♻</button>
             <button class="nk-hbtn" id="nk-save-btn" title="Save">💾</button>
+            <button class="nk-hbtn nk-hbtn-wipe" id="nk-wipe-btn" title="Wipe progress">🗑</button>
             <button class="nk-hbtn nk-hbtn-danger" id="nk-quit-btn" title="Quit">✕</button>
         </div>
     </div>
@@ -896,6 +897,23 @@ function _initGameDOM() {
     </div>
 
     <div class="nk-toasts" id="nk-toasts"></div>
+
+    <!-- Wipe popup -->
+    <div id="nk-wipe-overlay" class="nk-wipe-overlay" style="display:none;">
+        <div class="nk-wipe-dialog">
+            <div class="nk-wipe-title">🗑 Wipe Progress</div>
+            <p class="nk-wipe-desc">Choose what to reset. This cannot be undone.</p>
+            <button class="nk-wipe-opt nk-wipe-opt-partial" id="nk-wipe-partial">
+                <span class="nk-wipe-opt-label">Reset game progress</span>
+                <span class="nk-wipe-opt-sub">Keeps all vocabulary SRS data</span>
+            </button>
+            <button class="nk-wipe-opt nk-wipe-opt-full" id="nk-wipe-full">
+                <span class="nk-wipe-opt-label">Reset everything</span>
+                <span class="nk-wipe-opt-sub">Deletes vocabulary progress too</span>
+            </button>
+            <button class="nk-wipe-cancel" id="nk-wipe-cancel">Cancel</button>
+        </div>
+    </div>
 </div>`;
 
     el.querySelector('#nk-save-btn').addEventListener('click', () => _saveGame(true));
@@ -930,6 +948,37 @@ function _initGameDOM() {
             _stopGameLoop();
             _onExit();
         }
+    });
+
+    el.querySelector('#nk-wipe-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        el.querySelector('#nk-wipe-overlay').style.display = 'flex';
+    });
+    el.querySelector('#nk-wipe-cancel').addEventListener('click', () => {
+        el.querySelector('#nk-wipe-overlay').style.display = 'none';
+    });
+    el.querySelector('#nk-wipe-partial').addEventListener('click', () => {
+        if (!confirm('Reset all game progress? Vocabulary SRS data will be kept.')) return;
+        const srsBackup = JSON.parse(JSON.stringify(_g.srs));
+        _g = _freshGame();
+        _g.srs = srsBackup;
+        _saveGame();
+        el.querySelector('#nk-wipe-overlay').style.display = 'none';
+        _initShops();
+        _updateSRSQueue();
+        _updateUI();
+        _toast('Game progress wiped. Vocabulary kept.', '#e17055');
+    });
+    el.querySelector('#nk-wipe-full').addEventListener('click', () => {
+        if (!confirm('Delete EVERYTHING including vocabulary progress? This cannot be undone.')) return;
+        localStorage.removeItem(SAVE_KEY);
+        _g = _freshGame();
+        _saveGame();
+        el.querySelector('#nk-wipe-overlay').style.display = 'none';
+        _initShops();
+        _updateSRSQueue();
+        _updateUI();
+        _toast('All progress wiped.', '#d63031');
     });
 
     el.querySelectorAll('.nk-nav-btn').forEach(btn => {
@@ -1574,10 +1623,9 @@ function _toast(msg, color = '#333') {
 .nk-content-pane {
     flex: 1;
     overflow-y: auto;
-    padding: 15px;
+    padding: 15px 15px 60px;
     background: #fffdf9;
     position: relative;
-    /* Important for mobile scroll behavior */
     -webkit-overflow-scrolling: touch; 
 }
 
@@ -1778,6 +1826,43 @@ function _toast(msg, color = '#333') {
     border-radius: 20px; margin-bottom: 5px; font-size: 12px;
     animation: nkFloat 3s forwards;
 }
+
+/* Wipe button */
+.nk-hbtn-wipe { background: #c0392b; }
+
+/* Wipe overlay + dialog */
+.nk-wipe-overlay {
+    position: absolute; inset: 0; z-index: 200;
+    background: rgba(0,0,0,0.55);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+}
+.nk-wipe-dialog {
+    background: white; border-radius: 14px; padding: 20px;
+    width: 100%; max-width: 300px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+    display: flex; flex-direction: column; gap: 10px;
+}
+.nk-wipe-title { font-size: 16px; font-weight: bold; color: #c0392b; }
+.nk-wipe-desc  { font-size: 12px; color: #888; margin: 0; }
+.nk-wipe-opt {
+    background: white; border: 2px solid #eee; border-radius: 10px;
+    padding: 12px 14px; cursor: pointer; text-align: left;
+    display: flex; flex-direction: column; gap: 2px;
+    transition: border-color 0.15s, background 0.15s;
+}
+.nk-wipe-opt:hover { background: #fafafa; }
+.nk-wipe-opt-label { font-size: 13px; font-weight: bold; color: #333; }
+.nk-wipe-opt-sub   { font-size: 11px; color: #888; }
+.nk-wipe-opt-partial:hover { border-color: #e17055; }
+.nk-wipe-opt-partial:hover .nk-wipe-opt-label { color: #e17055; }
+.nk-wipe-opt-full:hover { border-color: #c0392b; }
+.nk-wipe-opt-full:hover .nk-wipe-opt-label { color: #c0392b; }
+.nk-wipe-cancel {
+    background: none; border: none; color: #aaa; font-size: 13px;
+    cursor: pointer; padding: 4px; text-align: center;
+}
+.nk-wipe-cancel:hover { color: #555; }
 
 /* Dark Mode */
 [data-theme="dark"] .nk-root   { --nk-bg: #2a1f14; --nk-text: #f0d9c0; --nk-panel: #3d2b1a; }
