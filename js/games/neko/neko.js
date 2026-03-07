@@ -87,8 +87,8 @@ function _startGame() {
     if (!queue.length) return;
 
     // Convert vocab_selector format → neko internal format
-    _vocabQueue = queue.map((w, i) => ({
-        id:    i + 1,
+    _vocabQueue = queue.map((w) => ({
+        id:    w.word,   // stable string ID — survives reordering & restarts
         kanji: w.word,
         kana:  w.furi  || w.word,
         eng:   w.trans || '—',
@@ -107,34 +107,37 @@ function _startGame() {
 // ─── Game State ───────────────────────────────────────────────────────────────
 
 const _defaultIdleUpgrades = () => ({
-    box:       { name: 'Cardboard Box',    desc: '+1 Fish/sec',       cost: 50,         costYarn: 0,     count: 0, effect: 1 },
-    toy:       { name: 'Feather Wand',     desc: '+5 Fish/sec',       cost: 300,        costYarn: 0,     count: 0, effect: 5 },
-    tree:      { name: 'Cat Tree',         desc: '+25 Fish/sec',      cost: 1500,       costYarn: 0,     count: 0, effect: 25 },
-    castle:    { name: 'Cardboard Castle', desc: '+100 Fish/sec',     cost: 7500,       costYarn: 2,     count: 0, effect: 100 },
-    cafe:      { name: 'Cat Cafe',         desc: '+500 Fish/sec',     cost: 40000,      costYarn: 10,    count: 0, effect: 500 },
-    shrine:    { name: 'Cat Shrine',       desc: '+2,000 Fish/sec',   cost: 250000,     costYarn: 50,    count: 0, effect: 2000 },
-    cyber:     { name: 'Cyber-Neko',       desc: '+10,000 Fish/sec',  cost: 1000000,    costYarn: 200,   count: 0, effect: 10000 },
-    cloud:     { name: 'Cloud Condo',      desc: '+50k Fish/sec',     cost: 5000000,    costYarn: 500,   count: 0, effect: 50000 },
-    moon:      { name: 'Moon Base',        desc: '+200k Fish/sec',    cost: 25000000,   costYarn: 1000,  count: 0, effect: 200000 },
-    station:   { name: 'Space Station',    desc: '+1M Fish/sec',      cost: 100000000,  costYarn: 2500,  count: 0, effect: 1000000 },
-    galaxy:    { name: 'Cat Galaxy',       desc: '+5M Fish/sec',      cost: 500000000,  costYarn: 5000,  count: 0, effect: 5000000 },
-    sphere:    { name: 'Dyson Sphere',     desc: '+25M Fish/sec',     cost: 2500000000, costYarn: 10000, count: 0, effect: 25000000 },
-    dimension: { name: 'Multiverse Box',   desc: '+100M Fish/sec',    cost: 15000000000,costYarn: 50000, count: 0, effect: 100000000 },
-    catnip:    { name: 'Catnip Garden',    desc: '+10% Idle Multiplier',cost: 5000,     costYarn: 5,     count: 0, effect: 1.1 },
+    // Each tier costs ~100× its own effect in fish (payoff ~100s at base rate)
+    // Level scaling ×1.18 per purchase keeps curves tight
+    box:       { name: 'Cardboard Box',    desc: '+1 Fish/sec',        cost: 80,          costYarn: 0,     count: 0, effect: 1 },
+    toy:       { name: 'Feather Wand',     desc: '+4 Fish/sec',        cost: 500,         costYarn: 0,     count: 0, effect: 4 },
+    tree:      { name: 'Cat Tree',         desc: '+15 Fish/sec',       cost: 2500,        costYarn: 0,     count: 0, effect: 15 },
+    castle:    { name: 'Cardboard Castle', desc: '+60 Fish/sec',       cost: 12000,       costYarn: 3,     count: 0, effect: 60 },
+    cafe:      { name: 'Cat Cafe',         desc: '+250 Fish/sec',      cost: 60000,       costYarn: 8,     count: 0, effect: 250 },
+    shrine:    { name: 'Cat Shrine',       desc: '+1,000 Fish/sec',    cost: 400000,      costYarn: 30,    count: 0, effect: 1000 },
+    cyber:     { name: 'Cyber-Neko',       desc: '+4,000 Fish/sec',    cost: 2000000,     costYarn: 100,   count: 0, effect: 4000 },
+    cloud:     { name: 'Cloud Condo',      desc: '+16,000 Fish/sec',   cost: 10000000,    costYarn: 300,   count: 0, effect: 16000 },
+    moon:      { name: 'Moon Base',        desc: '+65,000 Fish/sec',   cost: 50000000,    costYarn: 700,   count: 0, effect: 65000 },
+    station:   { name: 'Space Station',    desc: '+260,000 Fish/sec',  cost: 250000000,   costYarn: 1500,  count: 0, effect: 260000 },
+    galaxy:    { name: 'Cat Galaxy',       desc: '+1M Fish/sec',       cost: 1250000000,  costYarn: 4000,  count: 0, effect: 1000000 },
+    sphere:    { name: 'Dyson Sphere',     desc: '+4M Fish/sec',       cost: 6000000000,  costYarn: 8000,  count: 0, effect: 4000000 },
+    dimension: { name: 'Multiverse Box',   desc: '+16M Fish/sec',      cost: 30000000000, costYarn: 20000, count: 0, effect: 16000000 },
+    catnip:    { name: 'Catnip Garden',    desc: '+8% Idle Multiplier', cost: 8000,        costYarn: 8,     count: 0, effect: 1.08 },
 });
 
 const _defaultClickUpgrades = () => ({
-    finger:   { name: 'Cat Training',      desc: '+1 Fish/Click',    cost: 100,        costYarn: 0,     count: 0, effect: 1 },
-    laser:    { name: 'Laser Pointer',     desc: '+5 Fish/Click',    cost: 1000,       costYarn: 1,     count: 0, effect: 5 },
-    mouse:    { name: 'Golden Mouse',      desc: '+20 Fish/Click',   cost: 7500,       costYarn: 5,     count: 0, effect: 20 },
-    tuna:     { name: 'Tuna Treats',       desc: '+100 Fish/Click',  cost: 30000,      costYarn: 20,    count: 0, effect: 100 },
-    collar:   { name: 'Diamond Collar',    desc: '+500 Fish/Click',  cost: 150000,     costYarn: 50,    count: 0, effect: 500 },
-    spray:    { name: 'Catnip Spray',      desc: '+2k Fish/Click',   cost: 500000,     costYarn: 100,   count: 0, effect: 2000 },
-    robot:    { name: 'Robot Arm',         desc: '+10k Fish/Click',  cost: 2000000,    costYarn: 300,   count: 0, effect: 10000 },
-    keyboard: { name: 'Neko Keyboard',     desc: '+25k Fish/Click',  cost: 10000000,   costYarn: 500,   count: 0, effect: 25000 },
-    godhand:  { name: 'God Hand',          desc: '+50k Fish/Click',  cost: 50000000,   costYarn: 1000,  count: 0, effect: 50000 },
-    hologram: { name: 'Holographic Cat',   desc: '+250k Fish/Click', cost: 300000000,  costYarn: 3000,  count: 0, effect: 250000 },
-    quantum:  { name: 'Quantum Paw',       desc: '+1M Fish/Click',   cost: 2000000000, costYarn: 10000, count: 0, effect: 1000000 },
+    // Click power ≈ 2s of idle at equivalent tier
+    finger:   { name: 'Cat Training',      desc: '+1 Fish/Click',     cost: 120,        costYarn: 0,    count: 0, effect: 1 },
+    laser:    { name: 'Laser Pointer',     desc: '+4 Fish/Click',     cost: 800,        costYarn: 0,    count: 0, effect: 4 },
+    mouse:    { name: 'Golden Mouse',      desc: '+15 Fish/Click',    cost: 4000,       costYarn: 3,    count: 0, effect: 15 },
+    tuna:     { name: 'Tuna Treats',       desc: '+60 Fish/Click',    cost: 20000,      costYarn: 10,   count: 0, effect: 60 },
+    collar:   { name: 'Diamond Collar',    desc: '+250 Fish/Click',   cost: 100000,     costYarn: 25,   count: 0, effect: 250 },
+    spray:    { name: 'Catnip Spray',      desc: '+1,000 Fish/Click', cost: 700000,     costYarn: 60,   count: 0, effect: 1000 },
+    robot:    { name: 'Robot Arm',         desc: '+4,000 Fish/Click', cost: 3500000,    costYarn: 150,  count: 0, effect: 4000 },
+    keyboard: { name: 'Neko Keyboard',     desc: '+16k Fish/Click',   cost: 18000000,   costYarn: 350,  count: 0, effect: 16000 },
+    godhand:  { name: 'God Hand',          desc: '+65k Fish/Click',   cost: 90000000,   costYarn: 700,  count: 0, effect: 65000 },
+    hologram: { name: 'Holographic Cat',   desc: '+260k Fish/Click',  cost: 450000000,  costYarn: 2000, count: 0, effect: 260000 },
+    quantum:  { name: 'Quantum Paw',       desc: '+1M Fish/Click',    cost: 2500000000, costYarn: 6000, count: 0, effect: 1000000 },
 });
 
 const _defaultBellUpgrades = () => ({
@@ -211,7 +214,7 @@ function _getFishPerSec() {
     m *= Math.pow(_g.bellUpgrades.tuna.effect, _g.bellUpgrades.tuna.count);
     m *= Math.pow(_g.bellUpgrades.warp.effect, _g.bellUpgrades.warp.count);
     m *= Math.pow(_g.bellUpgrades.nap.effect, _g.bellUpgrades.nap.count);
-    m *= (1 + (_g.bells * 0.1)); // Additive base from bells
+    m *= (1 + (_g.bells * 0.05)); // +5% prod per bell (was 10%)
     
     if (_g.rebirthUpgrades.bloom.count > 0) {
         m *= Math.pow(1 + (_g.srs.length * _g.rebirthUpgrades.bloom.effect), _g.rebirthUpgrades.bloom.count);
@@ -243,13 +246,15 @@ function _getClickPower() {
 }
 
 function _getLearnCost() {
-    const base    = 50 + (_g.srs.length * 125);
+    // Quadratic scaling: word 1=250, word 5=1450, word 10=5200, word 20=20200
+    const n      = _g.srs.filter(s => new Set(_vocabQueue.map(v=>v.id)).has(s.id)).length;
+    const base   = 200 + (n * n * 50);
     const scholar = Math.pow(_g.bellUpgrades.scholar.effect, _g.bellUpgrades.scholar.count);
     const wisdom  = Math.pow(_g.rebirthUpgrades.wisdom.effect, _g.rebirthUpgrades.wisdom.count);
-    return Math.max(10, Math.floor(base * scholar * wisdom));
+    return Math.max(50, Math.floor(base * scholar * wisdom));
 }
 
-function _calcBells()   { return _g.fish < 10000    ? 0 : Math.floor(Math.pow(_g.fish  / 10000, 0.5)); }
+function _calcBells()   { return _g.fish < 50000   ? 0 : Math.floor(Math.pow(_g.fish  / 50000, 0.5)); }
 function _calcSpirits() { return _g.bells < 100     ? 0 : Math.floor(_g.bells / 50); }
 
 // ─── Helper: Time Formatter ───────────────────────────────────────────────────
@@ -293,8 +298,9 @@ function _loadGame() {
             }
         });
 
-        const validIds = new Set(_vocabQueue.map(v => v.id));
-        _g.srs = _g.srs.filter(s => validIds.has(s.id));
+        // Do NOT filter _g.srs here — words outside current vocab set are kept
+        // in the save and simply skipped at review time. Filtering here would
+        // permanently destroy progress whenever the vocab set changes.
 
     } catch { _g = _freshGame(); }
 }
@@ -429,7 +435,7 @@ function _buyUpgrade(shopType, key) {
         if (_g.karma >= cost) { _g.karma -= cost; upg.count++; _updateUI(); }
     } else {
         const discount = Math.pow(_g.bellUpgrades.discount.effect, _g.bellUpgrades.discount.count);
-        const costFish = Math.floor(upg.cost * Math.pow(1.15, upg.count) * discount);
+        const costFish = Math.floor(upg.cost * Math.pow(1.18, upg.count) * discount);
         if (_g.fish >= costFish && _g.yarn >= upg.costYarn) {
             _g.fish -= costFish;
             _g.yarn -= upg.costYarn;
@@ -441,7 +447,7 @@ function _buyUpgrade(shopType, key) {
 
 function _ascend() {
     const earned = _calcBells();
-    if (earned <= 0) { alert('Need 10,000 Fish to Ascend!'); return; }
+    if (earned <= 0) { alert('Need 50,000 Fish to Ascend!'); return; }
     if (!confirm(`Ascend for +${earned} 🔔? Resets Fish/Yarn/Basic Upgrades.`)) return;
     const keep = _g.rebirthUpgrades.eternal.count * _g.rebirthUpgrades.eternal.effect;
     _g.bells += earned;
@@ -509,7 +515,7 @@ function _learnNewWord() {
     const w = available[0];
     
     // Start interval small in seconds to keep game flowing quickly
-    _g.srs.push({ id: w.id, nextReview: Date.now(), interval: 15, ease: 2.5 });
+    _g.srs.push({ id: w.id, nextReview: Date.now(), interval: 30, ease: 2.5 });
     
     _g.stats.wordsLearned++;
     _updateSRSQueue();
@@ -518,7 +524,8 @@ function _learnNewWord() {
 
 function _updateSRSQueue() {
     const now    = Date.now();
-    _pendingReviews = _g.srs.filter(s => s.nextReview <= now);
+    const _activeIds = new Set(_vocabQueue.map(v => v.id));
+    _pendingReviews = _g.srs.filter(s => _activeIds.has(s.id) && s.nextReview <= now);
 
     const pendingEl  = _screens.game?.querySelector('.nk-pending-count');
     const buffEl     = _screens.game?.querySelector('.nk-buff-row');
@@ -611,7 +618,7 @@ function _checkAnswer(selectedId, btnEl, correctId, event) {
         _g.stats.yarnEarned += yarn;
 
         // Interval math in seconds
-        srsItem.interval   = Math.round(srsItem.interval * srsItem.ease * 1.5);
+        srsItem.interval   = Math.round(srsItem.interval * srsItem.ease);
         srsItem.nextReview = Date.now() + srsItem.interval * 1000;
 
         if (event) {
@@ -623,9 +630,7 @@ function _checkAnswer(selectedId, btnEl, correctId, event) {
             }
         }
 
-        const baseCooldown = 3000; 
-        const reduction = _g.srs.length * 50; 
-        const delay = Math.max(0, baseCooldown - reduction);
+        const delay = 2000; // fixed 2s think-pause after each correct answer
 
         if (delay > 200) {
             _isCooldown = true;
@@ -951,7 +956,7 @@ function _renderStats() {
     // ── Progression ───────────────────────────────────────────────────────────
     const progEl = g.querySelector('#nk-stats-progression');
     if (progEl) {
-        const bellsNeeded  = 10000;
+        const bellsNeeded  = 50000;
         const spiritsNeeded = 100;
         const bellProgress  = Math.min(100, Math.floor((_g.fish / bellsNeeded) * 100));
         const nextBells     = _calcBells();
@@ -959,7 +964,7 @@ function _renderStats() {
         progEl.innerHTML = `
             <div class="nk-stat-row"><span>🔔 Ascension Bells Earned</span><span>${_g.bells.toLocaleString()}</span></div>
             <div class="nk-stat-row"><span>🔔 Next Ascend Reward</span><span>+${nextBells} Bell${nextBells !== 1 ? 's' : ''}</span></div>
-            <div class="nk-stat-row"><span>📊 Ascend Progress</span><span>${bellProgress}% (need 10k 🐟)</span></div>
+            <div class="nk-stat-row"><span>📊 Ascend Progress</span><span>${bellProgress}% (need 50k 🐟)</span></div>
             <div class="nk-stat-row"><span>👻 Spirits (Karma)</span><span>${_g.karma.toLocaleString()}</span></div>
             <div class="nk-stat-row"><span>👻 Next Rebirth Reward</span><span>${nextSpirits > 0 ? '+' + nextSpirits + ' Spirit' + (nextSpirits !== 1 ? 's' : '') : 'Need 100 Bells'}</span></div>
             <div class="nk-stat-row"><span>📈 Global Prod. Multiplier</span><span>×${(1 + (_g.bells * 0.1)).toFixed(2)} (from bells)</span></div>
