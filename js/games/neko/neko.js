@@ -81,8 +81,9 @@ function _startGame() {
 
     _show('game');
     _loadGame();
-    _initGameDOM(); // Render DOM *after* loading game to check for Spirit unlock
+    _initGameDOM(); 
     _initShops();
+    _isCooldown = false; // reset cooldown state
     _updateSRSQueue();
     _updateUI();
     _startGameLoop();
@@ -104,7 +105,7 @@ const _defaultIdleUpgrades = () => ({
     galaxy:    { name: 'Cat Galaxy',       desc: '+5M Fish/sec',      cost: 500000000,  costYarn: 5000,  count: 0, effect: 5000000 },
     sphere:    { name: 'Dyson Sphere',     desc: '+25M Fish/sec',     cost: 2500000000, costYarn: 10000, count: 0, effect: 25000000 },
     dimension: { name: 'Multiverse Box',   desc: '+100M Fish/sec',    cost: 15000000000,costYarn: 50000, count: 0, effect: 100000000 },
-    catnip:    { name: 'Catnip Garden',    desc: '+10% Idle Multiplier',cost: 5000,     costYarn: 5,     count: 0, effect: 0.1 },
+    catnip:    { name: 'Catnip Garden',    desc: '+10% Idle Multiplier',cost: 5000,     costYarn: 5,     count: 0, effect: 1.1 },
 });
 
 const _defaultClickUpgrades = () => ({
@@ -122,16 +123,16 @@ const _defaultClickUpgrades = () => ({
 });
 
 const _defaultBellUpgrades = () => ({
-    paw:      { name: 'Golden Paw',    desc: '+100% Click Power',           cost: 1,  count: 0, effect: 1 },
-    tuna:     { name: 'Golden Tuna',   desc: '+100% Idle Power',            cost: 1,  count: 0, effect: 1 },
+    paw:      { name: 'Golden Paw',    desc: '+100% Click Power',           cost: 1,  count: 0, effect: 2.0 },
+    tuna:     { name: 'Golden Tuna',   desc: '+100% Idle Power',            cost: 1,  count: 0, effect: 2.0 },
     scholar:  { name: 'Scholar Hat',   desc: '-10% Learn Cost',             cost: 2,  count: 0, effect: 0.9 },
     weaver:   { name: 'Yarn Weaver',   desc: '10% Double Yarn Chance',      cost: 3,  count: 0, effect: 0.1 },
     luck:     { name: 'Omikuji Luck',  desc: '5% Crit Chance (5x)',         cost: 5,  count: 0, effect: 0.05 },
     bank:     { name: 'Maneki Bank',   desc: '+0.1% Interest/Sec',          cost: 10, count: 0, effect: 0.001 },
     discount: { name: 'Merchant Cat',  desc: 'Upgrades 5% Cheaper',         cost: 15, count: 0, effect: 0.95 },
-    warp:     { name: 'Time Warp',     desc: '+20% Game Speed (Simulated)', cost: 30, count: 0, effect: 0.2 },
-    nap:      { name: 'Cat Nap',       desc: '+50% Passive Prod',           cost: 40, count: 0, effect: 0.5 },
-    thread:   { name: 'Golden Thread', desc: '+50% Yarn Gain',              cost: 45, count: 0, effect: 0.5 },
+    warp:     { name: 'Time Warp',     desc: '+20% Game Speed (Simulated)', cost: 30, count: 0, effect: 1.2 },
+    nap:      { name: 'Cat Nap',       desc: '+50% Passive Prod',           cost: 40, count: 0, effect: 1.5 },
+    thread:   { name: 'Golden Thread', desc: '+50% Yarn Gain',              cost: 45, count: 0, effect: 1.5 },
     auto:     { name: 'Auto-Petter',   desc: 'Auto Clicks 10x/sec',         cost: 50, count: 0, effect: 10 },
     charm:    { name: 'Lucky Charm',   desc: 'Crits deal x10 Dmg (not x5)',cost: 75, count: 0, effect: 1 },
 });
@@ -148,6 +149,11 @@ const _defaultRebirthUpgrades = () => ({
 let _g = null;   // game state
 let _pendingReviews = [];
 let _isProcessingAnswer = false;
+
+// Cooldown state machine variables
+let _isCooldown = false;
+let _cooldownEndTime = 0; 
+
 let _isDebug = false;
 let _rafId   = null;
 let _saveInterval = null;
@@ -184,30 +190,24 @@ function _getFishPerSec() {
         if (key !== 'catnip') base += _g.upgrades[key].count * _g.upgrades[key].effect;
     }
     
-    // Apply multipliers
+    // Apply multiplicative bonuses
     let m = 1;
-    m += (_g.upgrades.catnip.count        * _g.upgrades.catnip.effect);
-    m += (_g.bellUpgrades.tuna.count      * _g.bellUpgrades.tuna.effect);
-    m += (_g.bellUpgrades.warp.count      * _g.bellUpgrades.warp.effect);
-    m += (_g.bellUpgrades.nap.count       * _g.bellUpgrades.nap.effect);
-    m += (_g.bells                        * 0.1);
+    m *= Math.pow(_g.upgrades.catnip.effect, _g.upgrades.catnip.count);
+    m *= Math.pow(_g.bellUpgrades.tuna.effect, _g.bellUpgrades.tuna.count);
+    m *= Math.pow(_g.bellUpgrades.warp.effect, _g.bellUpgrades.warp.count);
+    m *= Math.pow(_g.bellUpgrades.nap.effect, _g.bellUpgrades.nap.count);
+    m *= (1 + (_g.bells * 0.1)); // Additive base from bells
     
     if (_g.rebirthUpgrades.bloom.count > 0) {
-        m *= 1 + (_g.srs.length * (_g.rebirthUpgrades.bloom.count * _g.rebirthUpgrades.bloom.effect));
+        m *= Math.pow(1 + (_g.srs.length * _g.rebirthUpgrades.bloom.effect), _g.rebirthUpgrades.bloom.count);
     }
     m *= Math.pow(_g.rebirthUpgrades.guide.effect, _g.rebirthUpgrades.guide.count);
 
     // ── Happy Cat Logic ──
-    // Base Efficiency is low (0.25). 
-    // If no pending reviews, it jumps to 1.25 (x5 bonus).
     const isHappy = _pendingReviews.length === 0;
     const moodMult = isHappy ? 1.25 : 0.25;
     
     // ── Combo Logic ──
-    // Multiplier = 1 + log2(1 + combo)
-    // Combo 0 -> 1x
-    // Combo 1 -> 2x
-    // Combo 3 -> 3x
     const comboMult = 1 + Math.log2(1 + _g.combo);
 
     if (_isDebug) m *= 1000;
@@ -218,9 +218,11 @@ function _getFishPerSec() {
 function _getClickPower() {
     let base = 1;
     for (const key in _g.clickUpgrades) base += _g.clickUpgrades[key].count * _g.clickUpgrades[key].effect;
+    
     let m = 1;
-    m += (_g.bellUpgrades.paw.count * _g.bellUpgrades.paw.effect);
+    m *= Math.pow(_g.bellUpgrades.paw.effect, _g.bellUpgrades.paw.count);
     m *= Math.pow(_g.rebirthUpgrades.guide.effect, _g.rebirthUpgrades.guide.count);
+    
     if (_isDebug) m *= 1000;
     return base * m;
 }
@@ -234,6 +236,16 @@ function _getLearnCost() {
 
 function _calcBells()   { return _g.fish < 10000    ? 0 : Math.floor(Math.pow(_g.fish  / 10000, 0.5)); }
 function _calcSpirits() { return _g.bells < 100     ? 0 : Math.floor(_g.bells / 50); }
+
+// ─── Helper: Time Formatter ───────────────────────────────────────────────────
+
+function _formatTime(sec) {
+    if (sec <= 0) return 'Ready';
+    if (sec < 60) return Math.floor(sec) + 's';
+    if (sec < 3600) return Math.floor(sec/60) + 'm ' + Math.floor(sec%60) + 's';
+    if (sec < 86400) return Math.floor(sec/3600) + 'h ' + Math.floor((sec%3600)/60) + 'm';
+    return Math.floor(sec/86400) + 'd ' + Math.floor((sec%86400)/3600) + 'h';
+}
 
 // ─── Persistence ──────────────────────────────────────────────────────────────
 
@@ -258,7 +270,6 @@ function _loadGame() {
         
         if (p.stats) _g.stats = { ..._g.stats, ...p.stats };
 
-        // Only restore counts that still exist in the defaults (schema safety)
         ['upgrades','clickUpgrades','bellUpgrades','rebirthUpgrades'].forEach(type => {
             if (p[type]) {
                 for (const k in p[type]) {
@@ -267,7 +278,6 @@ function _loadGame() {
             }
         });
 
-        // Filter saved SRS to only words still in the current vocab queue
         const validIds = new Set(_vocabQueue.map(v => v.id));
         _g.srs = _g.srs.filter(s => validIds.has(s.id));
 
@@ -283,7 +293,6 @@ function _startGameLoop() {
     _saveInterval = setInterval(() => _saveGame(false), 10000);
 
     function loop() {
-        // Only run if the game screen is visible
         if (!_screens.game || _screens.game.style.display === 'none') {
             _rafId = requestAnimationFrame(loop);
             return;
@@ -301,7 +310,15 @@ function _startGameLoop() {
             _g.stats.fishEarned += gain;
         }
 
-        // Passive income (includes Combo & Happy Bonus)
+        // Combo Decay (Only decays if there are active reviews pending)
+        // If the queue is empty (Cat is napping), the player is rewarded by keeping their combo frozen!
+        if (_g.combo > 0 && _pendingReviews.length > 0) {
+            // Decay scales slightly with combo height so you can't reach infinite easily
+            const decayRate = 0.1 + (_g.combo * 0.05); 
+            _g.combo = Math.max(0, _g.combo - (decayRate * delta));
+        }
+
+        // Passive income
         const fps    = _getFishPerSec();
         let earned   = fps * delta;
 
@@ -312,8 +329,32 @@ function _startGameLoop() {
         _g.fish += earned;
         _g.stats.fishEarned += earned;
 
-        // Update SRS queue every ~2 real seconds
+        // Ensure SRS updates without disrupting cooldown animations
         if (Math.floor(now / 1000) % 2 === 0) _updateSRSQueue();
+
+        // ── Update Dojo Timers ──
+        if (_isCooldown) {
+            const cdTimer = document.getElementById('nk-cooldown-timer');
+            if (cdTimer) {
+                const remaining = (_cooldownEndTime - now) / 1000;
+                if (remaining > 0) cdTimer.textContent = remaining.toFixed(1) + 's';
+            }
+        } else if (_pendingReviews.length === 0) {
+            const nextTimer = document.getElementById('nk-next-review-timer');
+            if (nextTimer) {
+                if (_g.srs.length > 0) {
+                    const next = Math.min(..._g.srs.map(s => s.nextReview));
+                    const diffSec = (next - now) / 1000;
+                    if (diffSec <= 0) {
+                        nextTimer.textContent = "Cat is waking up...";
+                    } else {
+                        nextTimer.textContent = `Next cat in: ${_formatTime(diffSec)}`;
+                    }
+                } else {
+                    nextTimer.textContent = "Learn a word to start!";
+                }
+            }
+        }
 
         _updateUI();
         _rafId = requestAnimationFrame(loop);
@@ -345,18 +386,15 @@ function _petCat(e) {
 }
 
 function _spawnFloatingText(x, y, text, color, fontSize = 18) {
-    const wrap = _screens.game; // Append to game container so it overlays everything
+    const wrap = _screens.game; 
     if (!wrap) return;
-    
-    // Adjust coordinates to be relative to the viewport/game container
-    // We'll use fixed positioning for the effect to keep it simple with e.clientX/Y
     
     const fx = document.createElement('div');
     fx.className  = 'nk-click-effect';
     fx.textContent = text;
     fx.style.left = (x - 20) + 'px';
     fx.style.top  = (y - 40) + 'px';
-    fx.style.position = 'fixed'; // Override class relative pos
+    fx.style.position = 'fixed'; 
     fx.style.zIndex = '9999';
     fx.style.color = color || 'var(--nk-btn)';
     fx.style.fontSize = fontSize + 'px';
@@ -395,7 +433,7 @@ function _ascend() {
     _g.bells += earned;
     _g.fish   = Math.floor(_g.fish * keep);
     _g.yarn   = Math.floor(_g.yarn * keep);
-    _g.combo  = 0; // Reset combo
+    _g.combo  = 0;
     for (const k in _g.upgrades)      _g.upgrades[k].count      = 0;
     for (const k in _g.clickUpgrades) _g.clickUpgrades[k].count = 0;
     if (_g.rebirthUpgrades.starter.count > 0) _g.upgrades.box.count = 10;
@@ -426,15 +464,12 @@ function _rebirth() {
 function _banWord(word) {
     if (!confirm(`Ban "${word}"? It will stop appearing in the Dojo.`)) return;
     
-    // Add to persistent ban list
     const banned = JSON.parse(localStorage.getItem(BANNED_KEY)) || [];
     if (!banned.includes(word)) {
         banned.push(word);
         localStorage.setItem(BANNED_KEY, JSON.stringify(banned));
     }
 
-    // Remove from active game SRS
-    // Find ID
     const qWord = _vocabQueue.find(v => v.kanji === word);
     if (qWord) {
         _g.srs = _g.srs.filter(s => s.id !== qWord.id);
@@ -442,7 +477,7 @@ function _banWord(word) {
     }
     
     _updateSRSQueue();
-    _renderStats(); // Refresh stats list
+    _renderStats(); 
     _toast(`Banned "${word}"`, '#ff4b4b');
 }
 
@@ -458,7 +493,10 @@ function _learnNewWord() {
 
     _g.fish -= cost;
     const w = available[0];
-    _g.srs.push({ id: w.id, nextReview: Date.now(), interval: 1, ease: 2.5 });
+    
+    // Start interval small in seconds to keep game flowing quickly
+    _g.srs.push({ id: w.id, nextReview: Date.now(), interval: 15, ease: 2.5 });
+    
     _g.stats.wordsLearned++;
     _updateSRSQueue();
     _updateUI();
@@ -470,8 +508,6 @@ function _updateSRSQueue() {
 
     const pendingEl  = _screens.game?.querySelector('.nk-pending-count');
     const buffEl     = _screens.game?.querySelector('.nk-buff-row');
-    const noRevEl    = _screens.game?.querySelector('.nk-no-reviews');
-    const fcEl       = _screens.game?.querySelector('.nk-flashcard-area');
     
     if (pendingEl) pendingEl.textContent = _pendingReviews.length;
 
@@ -487,13 +523,23 @@ function _updateSRSQueue() {
         }
     }
 
-    if (_pendingReviews.length > 0) {
-        if (noRevEl) noRevEl.style.display = 'none';
-        if (fcEl)    fcEl.style.display    = 'flex';
+    const sleepScrn = _screens.game?.querySelector('#nk-dojo-sleep');
+    const coolScrn  = _screens.game?.querySelector('#nk-dojo-cooldown');
+    const quizScrn  = _screens.game?.querySelector('#nk-dojo-quiz');
+
+    if (!sleepScrn || !coolScrn || !quizScrn) return;
+
+    sleepScrn.style.display = 'none';
+    coolScrn.style.display = 'none';
+    quizScrn.style.display = 'none';
+
+    if (_isCooldown) {
+        coolScrn.style.display = 'flex';
+    } else if (_pendingReviews.length > 0) {
+        quizScrn.style.display = 'flex';
         if (!_g.currentCardId) _loadFlashcard();
     } else {
-        if (noRevEl) noRevEl.style.display = 'flex';
-        if (fcEl)    fcEl.style.display    = 'none';
+        sleepScrn.style.display = 'flex';
         _g.currentCardId = null;
     }
 }
@@ -506,14 +552,15 @@ function _loadFlashcard() {
     const correct     = _vocabQueue.find(v => v.id === srsItem.id);
     if (!correct) return;
 
-    // Dojo Tab Elements
     const kanjiEl = _screens.game?.querySelector('.nk-fc-kanji');
+    const furiEl  = _screens.game?.querySelector('.nk-fc-furi');
     const gridEl  = _screens.game?.querySelector('.nk-quiz-grid');
     if (!kanjiEl || !gridEl) return;
 
-    kanjiEl.textContent = correct.kanji; // Shows in speech bubble
+    kanjiEl.textContent = correct.kanji; 
+    if (furiEl) furiEl.textContent = correct.kana;
 
-    // 3 distractors from the rest of the learned+queue pool
+    // 3 distractors
     const pool        = _vocabQueue.filter(v => v.id !== correct.id);
     const distractors = pool.sort(() => 0.5 - Math.random()).slice(0, 3);
     const options     = [...distractors, correct].sort(() => 0.5 - Math.random());
@@ -531,6 +578,7 @@ function _loadFlashcard() {
 function _checkAnswer(selectedId, btnEl, correctId, event) {
     if (_isProcessingAnswer) return;
     _isProcessingAnswer = true;
+
     const srsItem = _g.srs.find(s => s.id === _g.currentCardId);
 
     if (selectedId === correctId) {
@@ -539,59 +587,67 @@ function _checkAnswer(selectedId, btnEl, correctId, event) {
         
         let yarn = 1;
         if (Math.random() < (_g.bellUpgrades.weaver.count * _g.bellUpgrades.weaver.effect)) yarn *= 2;
-        if (_g.bellUpgrades.thread.count > 0) yarn = Math.ceil(yarn * (1 + _g.bellUpgrades.thread.count * _g.bellUpgrades.thread.effect));
+        if (_g.bellUpgrades.thread.count > 0) yarn = Math.ceil(yarn * Math.pow(_g.bellUpgrades.thread.effect, _g.bellUpgrades.thread.count));
         if (_g.rebirthUpgrades.weaver_soul.count > 0) yarn *= 3;
         
-        // Log Combo Gain (Logarithmic logic handled in _getFishPerSec, here we just incr)
         _g.yarn += yarn;
-        _g.combo++;
+        _g.combo += 1;
         if (_g.combo > _g.stats.highestCombo) _g.stats.highestCombo = _g.combo;
         _g.stats.correct++;
         _g.stats.yarnEarned += yarn;
 
-        srsItem.interval   = Math.max(1, Math.round(srsItem.interval * srsItem.ease));
-        srsItem.nextReview = Date.now() + srsItem.interval * 60 * 1000;
+        // Interval math in seconds
+        srsItem.interval   = Math.round(srsItem.interval * srsItem.ease * 1.5);
+        srsItem.nextReview = Date.now() + srsItem.interval * 1000;
 
-        // Visual Feedback
         if (event) {
             _spawnFloatingText(event.clientX, event.clientY, `+${yarn} 🧶`, 'var(--nk-success)', 22);
-            // Also spawn combo text if significant
             if (_g.combo > 1) {
                 setTimeout(() => {
-                    _spawnFloatingText(event.clientX, event.clientY - 30, `${_g.combo}x Combo!`, 'var(--nk-gold)', 16);
+                    _spawnFloatingText(event.clientX, event.clientY - 30, `${Math.floor(_g.combo)}x Combo!`, 'var(--nk-gold)', 16);
                 }, 150);
             }
         }
 
-        // Delay logic: Fast next card based on unlocked count
         const baseCooldown = 3000; 
         const reduction = _g.srs.length * 50; 
-        const delay = Math.max(200, baseCooldown - reduction);
+        const delay = Math.max(0, baseCooldown - reduction);
 
-        setTimeout(() => {
+        if (delay > 200) {
+            _isCooldown = true;
+            _cooldownEndTime = Date.now() + delay;
+            _updateSRSQueue(); // Show cooldown screen
+            
+            setTimeout(() => {
+                _g.currentCardId = null;
+                _isCooldown = false;
+                _updateSRSQueue();
+                _updateUI();
+            }, delay);
+        } else {
+            // Skip cooldown screen entirely if it's too fast
             _g.currentCardId = null;
             _updateSRSQueue();
-            _loadFlashcard();
             _updateUI();
-        }, delay);
+        }
 
     } else {
         // Wrong
         btnEl.classList.add('nk-quiz-wrong');
-        srsItem.interval   = 1;
+        srsItem.interval   = 15; // Reset to 15 seconds
         srsItem.ease       = Math.max(1.3, srsItem.ease - 0.2);
-        srsItem.nextReview = Date.now() + 60 * 1000;
+        srsItem.nextReview = Date.now() + 15000;
         
-        _g.combo = 0; // Combo reset
+        _g.combo = Math.floor(_g.combo / 2); // Halve the combo instead of full reset
         _g.stats.wrong++;
 
         if (event) _spawnFloatingText(event.clientX, event.clientY, `❌`, '#ff4b4b', 28);
 
-        // Longer delay for wrong answers to register mistake
+        // Keep the card visible slightly longer so they register the mistake
         setTimeout(() => {
             _g.currentCardId = null;
+            _isCooldown = false; 
             _updateSRSQueue();
-            _loadFlashcard();
             _updateUI();
         }, 1200);
     }
@@ -603,41 +659,43 @@ function _initGameDOM() {
     const el = _screens.game;
     if (!el) return;
 
-    // Determine if Spirit tab should be shown
     const showSpirit = (_g.karma > 0 || _g.bells > 50);
 
     el.innerHTML = `
 <div class="nk-root">
 
-    <!-- 1. Top Bar -->
     <div class="nk-topbar">
         <div class="nk-topbar-title">🐾 NekoNihongo</div>
         <div class="nk-topbar-btns">
-            <button class="nk-hbtn" id="nk-save-btn">💾 Save</button>
-            <button class="nk-hbtn nk-hbtn-danger" id="nk-quit-btn">✕ Quit</button>
+            <button class="nk-hbtn nk-hbtn-gold" id="nk-ascend-btn">Ascend</button>
+            <button class="nk-hbtn nk-hbtn-spirit" id="nk-rebirth-btn" style="display:${showSpirit?'inline-block':'none'};">Rebirth</button>
+            <button class="nk-hbtn" id="nk-save-btn">Save</button>
+            <button class="nk-hbtn nk-hbtn-danger" id="nk-quit-btn">✕</button>
         </div>
     </div>
 
-    <!-- 2. Global Stats Header -->
+    <!-- Stats Header with Clicker Cat -->
     <div class="nk-stats-header">
-        <div class="nk-stat-pill">🐟 <span class="nk-val-fish">0</span></div>
-        <div class="nk-stat-pill">🧶 <span class="nk-val-yarn">0</span></div>
-        <div class="nk-stat-pill nk-bell-color">🔔 <span class="nk-val-bells">0</span></div>
-        <div class="nk-stat-pill nk-spirit-color" id="nk-karma-pill" style="display:${showSpirit?'flex':'none'};">👻 <span class="nk-val-karma">0</span></div>
-        <div class="nk-stat-sub">
-            <span class="nk-val-fps">0</span>/s • Combo: <span class="nk-val-combo">0</span>
+        <div id="nk-cat" class="nk-header-cat">🐱</div>
+        <div class="nk-stats-wrapper">
+            <div class="nk-stat-row-top">
+                <div class="nk-stat-pill">🐟 <span class="nk-val-fish">0</span></div>
+                <div class="nk-stat-pill">🧶 <span class="nk-val-yarn">0</span></div>
+                <div class="nk-stat-pill nk-bell-color">🔔 <span class="nk-val-bells">0</span></div>
+                <div class="nk-stat-pill nk-spirit-color" id="nk-karma-pill" style="display:${showSpirit?'flex':'none'};">👻 <span class="nk-val-karma">0</span></div>
+            </div>
+            <div class="nk-stat-sub">
+                <span class="nk-val-fps">0</span>/s • Combo: <span class="nk-val-combo">0</span>
+            </div>
+            <div class="nk-buff-row" style="display:none;"></div>
         </div>
-        <div class="nk-buff-row" style="display:none; width:100%; justify-content:center; gap:8px; margin-top:4px; font-weight:bold; font-size:12px;"></div>
     </div>
 
-    <!-- 3. Content Area (Swappable) -->
+    <!-- Content Area -->
     <div class="nk-content-pane">
         
         <!-- CLICK TAB -->
         <div class="nk-tab-content active" id="nk-tab-click">
-            <div class="nk-clicker-wrap">
-                <div class="nk-cat" id="nk-cat">🐱</div>
-            </div>
             <div class="nk-sub-stat" style="text-align:center; margin-bottom:10px;">
                 Fish/Click: <span class="nk-val-cpc">1</span>
             </div>
@@ -657,21 +715,32 @@ function _initGameDOM() {
                 <span class="nk-pending-count">0</span> Hungry Cats waiting!
             </div>
 
-            <!-- Empty State -->
-            <div class="nk-no-reviews" style="display:none;">
+            <!-- 1. Sleep State -->
+            <div id="nk-dojo-sleep" style="display:none;" class="nk-dojo-screen">
                 <div style="font-size:50px;">💤</div>
-                <p style="font-weight:bold; margin:10px 0;">Cat is napping.</p>
+                <p style="font-weight:bold; margin-top:10px;">Cat is napping.</p>
                 <p style="color:#888;">You have the Happy Bonus!</p>
+                <div id="nk-next-review-timer" style="margin: 15px 0; font-weight: bold; color: var(--nk-btn); font-size: 14px;">Next cat in: --</div>
                 <div class="nk-learn-area">
                     <button class="nk-learn-btn" id="nk-learn-btn">Study New Word</button>
                 </div>
             </div>
 
-            <!-- Quiz State -->
-            <div class="nk-flashcard-area" style="display:none;">
+            <!-- 2. Cooldown State -->
+            <div id="nk-dojo-cooldown" style="display:none;" class="nk-dojo-screen">
+                <div style="font-size:50px; animation: nkPulse 1s infinite;">⏳</div>
+                <p style="font-weight:bold; margin-top:15px;">Cat is thinking...</p>
+                <div id="nk-cooldown-timer" style="font-size:24px; font-weight:bold; color:var(--nk-btn); margin-top:10px;">3.0s</div>
+            </div>
+
+            <!-- 3. Quiz State -->
+            <div id="nk-dojo-quiz" style="display:none;" class="nk-dojo-screen" style="border:none; padding:0; background:transparent;">
                 <div class="nk-cat-avatar-wrap">
                     <div class="nk-cat-avatar">🐱</div>
-                    <div class="nk-speech-bubble"><span class="nk-fc-kanji">...</span></div>
+                    <div class="nk-speech-bubble">
+                        <div class="nk-fc-kanji">...</div>
+                        <div class="nk-fc-furi">...</div>
+                    </div>
                 </div>
                 <div class="nk-quiz-grid"></div>
             </div>
@@ -679,11 +748,6 @@ function _initGameDOM() {
 
         <!-- BELL TAB -->
         <div class="nk-tab-content" id="nk-tab-bells">
-            <div style="text-align:center; padding:15px; background:var(--surface-color); border-radius:8px; margin-bottom:15px; border:1px solid var(--border-color);">
-                <div style="font-size:14px; color:var(--text-muted);">Current Bells</div>
-                <div style="font-size:24px; font-weight:bold; color:#b8860b;"><span class="nk-val-bells">0</span> 🔔</div>
-                <button class="nk-hbtn nk-hbtn-gold" id="nk-ascend-btn" style="width:100%; margin-top:10px; font-size:14px;">Ascend</button>
-            </div>
             <div class="nk-shop-title">Artifacts</div>
             <div class="nk-upgrades" id="nk-upg-bells"></div>
         </div>
@@ -692,25 +756,19 @@ function _initGameDOM() {
         <div class="nk-tab-content" id="nk-tab-stats">
             <div class="nk-shop-title">Statistics</div>
             <div class="nk-stats-list" id="nk-stats-general"></div>
-            
             <div class="nk-shop-title" style="margin-top:20px;">Active Vocabulary</div>
             <div id="nk-vocab-list" class="nk-vocab-list"></div>
         </div>
 
         <!-- SPIRIT TAB -->
         <div class="nk-tab-content" id="nk-tab-spirit">
-            <div style="text-align:center; padding:15px; background:#f3f0ff; border-radius:8px; margin-bottom:15px; border:1px solid #a55eea;">
-                <div style="font-size:14px; color:#7158e2;">Karma Spirits</div>
-                <div style="font-size:24px; font-weight:bold; color:#a55eea;"><span class="nk-val-karma">0</span> 👻</div>
-                <button class="nk-hbtn nk-hbtn-spirit" id="nk-rebirth-btn" style="width:100%; margin-top:10px; font-size:14px;">Rebirth</button>
-            </div>
             <div class="nk-shop-title">Divine Upgrades</div>
             <div class="nk-upgrades" id="nk-upg-rebirth"></div>
         </div>
 
     </div>
 
-    <!-- 4. Bottom Tab Bar -->
+    <!-- Bottom Tab Bar -->
     <div class="nk-tab-bar">
         <button class="nk-nav-btn active" data-target="click">👆 Click</button>
         <button class="nk-nav-btn" data-target="idle">📦 Idle</button>
@@ -720,11 +778,9 @@ function _initGameDOM() {
         <button class="nk-nav-btn" data-target="spirit" id="nk-nav-spirit" style="display:${showSpirit?'block':'none'}; color:#a55eea;">👻 Spirit</button>
     </div>
 
-    <!-- Toast container -->
     <div class="nk-toasts" id="nk-toasts"></div>
 </div>`;
 
-    // ── Wire events ────────────────────────────────────────────────────
     el.querySelector('#nk-save-btn').addEventListener('click', () => _saveGame(true));
     el.querySelector('#nk-ascend-btn').addEventListener('click', _ascend);
     el.querySelector('#nk-rebirth-btn').addEventListener('click', _rebirth);
@@ -739,7 +795,6 @@ function _initGameDOM() {
         }
     });
 
-    // Tab switching
     el.querySelectorAll('.nk-nav-btn').forEach(btn => {
         btn.addEventListener('click', () => _switchTab(btn.getAttribute('data-target')));
     });
@@ -781,30 +836,37 @@ function _renderStats() {
     const vocList = _screens.game?.querySelector('#nk-vocab-list');
     if (!genList || !vocList) return;
 
-    // General Stats
     genList.innerHTML = `
         <div class="nk-stat-row"><span>Total Fish Earned:</span> <span>${Math.floor(_g.stats.fishEarned).toLocaleString()}</span></div>
         <div class="nk-stat-row"><span>Total Clicks:</span> <span>${_g.stats.clicks.toLocaleString()}</span></div>
         <div class="nk-stat-row"><span>Yarn Earned:</span> <span>${_g.stats.yarnEarned.toLocaleString()}</span></div>
-        <div class="nk-stat-row"><span>Highest Combo:</span> <span>${_g.stats.highestCombo}</span></div>
+        <div class="nk-stat-row"><span>Highest Combo:</span> <span>${Math.floor(_g.stats.highestCombo)}</span></div>
         <div class="nk-stat-row"><span>Correct / Wrong:</span> <span>${_g.stats.correct} / ${_g.stats.wrong}</span></div>
     `;
 
-    // Vocab List
     vocList.innerHTML = '';
     if (_g.srs.length === 0) {
         vocList.innerHTML = `<div style="text-align:center; padding:20px; color:var(--text-muted);">No words learned yet. Go to the Dojo!</div>`;
     } else {
-        _g.srs.forEach(item => {
+        // Sort by next review time (closest first)
+        const sortedSrs = [..._g.srs].sort((a,b) => a.nextReview - b.nextReview);
+
+        sortedSrs.forEach(item => {
             const wordData = _vocabQueue.find(v => v.id === item.id);
             if (!wordData) return;
             
+            const intervalText = _formatTime(item.interval);
+
             const row = document.createElement('div');
             row.className = 'nk-vocab-row';
             row.innerHTML = `
-                <div>
-                    <span style="font-weight:bold; font-size:16px;">${wordData.kanji}</span>
-                    <span style="font-size:12px; color:var(--text-muted); margin-left:4px;">${wordData.kana}</span>
+                <div style="flex:1;">
+                    <div style="font-weight:bold; font-size:16px;">${wordData.kanji}</div>
+                    <div style="font-size:12px; color:var(--text-muted);">${wordData.kana}</div>
+                </div>
+                <div style="text-align:right; margin-right: 15px;">
+                    <div style="font-size:10px; color:#888;">Interval</div>
+                    <div style="font-size:13px; font-weight:bold; color:var(--primary-color);">${intervalText}</div>
                 </div>
                 <button class="nk-ban-btn" title="Ban from Dojo">🚫</button>
             `;
@@ -828,23 +890,22 @@ function _updateUI() {
     setTxt('.nk-val-karma', _g.karma.toLocaleString());
     setTxt('.nk-val-fps',   Math.floor(_getFishPerSec()).toLocaleString());
     setTxt('.nk-val-cpc',   Math.floor(_getClickPower()).toLocaleString());
-    setTxt('.nk-val-combo', _g.combo.toLocaleString());
+    setTxt('.nk-val-combo', _g.combo.toFixed(1)); // Show decimal to make decay visible
 
-    // Show spirit elements if unlocked
     if (_g.karma > 0 || _g.bells > 50) {
         const karmaPill = g.querySelector('#nk-karma-pill');
         const navSpirit = g.querySelector('#nk-nav-spirit');
+        const rebBtn    = g.querySelector('#nk-rebirth-btn');
         if (karmaPill) karmaPill.style.display = 'flex';
         if (navSpirit) navSpirit.style.display = 'block';
+        if (rebBtn)    rebBtn.style.display    = 'inline-block';
     }
 
-    // Update buttons in active shop
     const activeTab = g.querySelector('.nk-tab-content.active');
     if (activeTab) {
         if (activeTab.id === 'nk-tab-click') _updateShopBtns('clickUpgrades', 'c');
         if (activeTab.id === 'nk-tab-idle')  _updateShopBtns('upgrades', 'i');
         if (activeTab.id === 'nk-tab-bells') {
-             // Bell upgrades
             for (const key in _g.bellUpgrades) {
                 const upg  = _g.bellUpgrades[key];
                 const cost = upg.cost + upg.count;
@@ -853,10 +914,9 @@ function _updateUI() {
                 if (lvl) lvl.textContent = `(Lvl ${upg.count})`;
                 if (btn) { btn.textContent = `${cost} 🔔`; btn.disabled = _g.bells < cost; }
             }
-            setTxt('#nk-ascend-btn', `Ascend (+${_calcBells()} 🔔)`);
+            setTxt('#nk-ascend-btn', `Ascend (+${_calcBells()})`);
         }
         if (activeTab.id === 'nk-tab-spirit') {
-            // Spirit upgrades
             for (const key in _g.rebirthUpgrades) {
                 const upg  = _g.rebirthUpgrades[key];
                 const cost = upg.cost * Math.pow(2, upg.count);
@@ -865,14 +925,14 @@ function _updateUI() {
                 if (lvl) lvl.textContent = `(Lvl ${upg.count})`;
                 if (btn) { btn.textContent = `${cost} 👻`; btn.disabled = _g.karma < cost; }
             }
-            setTxt('#nk-rebirth-btn', `Rebirth (+${_calcSpirits()} 👻)`);
+            setTxt('#nk-rebirth-btn', `Rebirth (+${_calcSpirits()})`);
         }
         if (activeTab.id === 'nk-tab-stats') {
-            _renderStats(); // Refresh stats when looking at them
+            // Only update dynamic numbers instead of full re-render to prevent list scrolling jumps
+            setTxt('#nk-stats-general span:nth-child(2)', Math.floor(_g.stats.fishEarned).toLocaleString());
         }
     }
 
-    // Learn button state
     const learnBtn = g.querySelector('#nk-learn-btn');
     if (learnBtn) {
         const cost     = _getLearnCost();
@@ -903,24 +963,19 @@ function _updateShopBtns(shopKey, prefix) {
     }
 }
 
-// ─── Tab Switching ────────────────────────────────────────────────────────────
-
 function _switchTab(tabName) {
     const g = _screens.game;
     if (!g) return;
     
-    // Switch Content
     g.querySelectorAll('.nk-tab-content').forEach(c => c.classList.remove('active'));
     g.querySelector(`#nk-tab-${tabName}`)?.classList.add('active');
     
-    // Switch Nav Button
     g.querySelectorAll('.nk-nav-btn').forEach(b => b.classList.remove('active'));
     g.querySelector(`.nk-nav-btn[data-target="${tabName}"]`)?.classList.add('active');
     
-    _updateUI(); // Immediate refresh of new tab content
+    if (tabName === 'stats') _renderStats(); // Full render on enter
+    _updateUI();
 }
-
-// ─── Toast ────────────────────────────────────────────────────────────────────
 
 function _toast(msg, color = '#333') {
     const area = _screens.game?.querySelector('#nk-toasts');
@@ -940,7 +995,6 @@ function _toast(msg, color = '#333') {
     const style = document.createElement('style');
     style.id = 'neko-game-styles';
     style.textContent = `
-/* ── NekoNihongo scoped styles ──────────────────────────────────────────── */
 .nk-root {
     --nk-bg:      #fff5e6;
     --nk-text:    #5c4033;
@@ -969,6 +1023,7 @@ function _toast(msg, color = '#333') {
     align-items: center;
     box-shadow: 0 2px 5px rgba(0,0,0,0.1);
     flex-shrink: 0;
+    z-index: 20;
 }
 .nk-topbar-title { font-size: 18px; font-weight: bold; }
 .nk-topbar-btns  { display: flex; gap: 6px; }
@@ -986,15 +1041,34 @@ function _toast(msg, color = '#333') {
     padding: 10px;
     border-bottom: 1px solid rgba(0,0,0,0.05);
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    justify-content: center;
     align-items: center;
     flex-shrink: 0;
+    gap: 15px;
+}
+.nk-header-cat {
+    font-size: 40px;
+    cursor: pointer;
+    user-select: none;
+    line-height: 1;
+    filter: drop-shadow(0 2px 3px rgba(0,0,0,0.1));
+    transition: transform 0.05s;
+}
+.nk-header-cat:active { transform: scale(0.9); }
+
+.nk-stats-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.nk-stat-row-top {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
 }
 .nk-stat-pill {
     background: var(--nk-bg);
-    padding: 4px 8px;
+    padding: 3px 8px;
     border-radius: 12px;
     font-size: 13px;
     font-weight: bold;
@@ -1003,14 +1077,16 @@ function _toast(msg, color = '#333') {
     gap: 4px;
 }
 .nk-stat-sub {
-    width: 100%;
-    text-align: center;
     font-size: 11px;
     color: #888;
-    margin-top: -2px;
 }
 .nk-bell-color { color: #b8860b; }
 .nk-spirit-color { color: #a55eea; }
+.nk-buff-row {
+    width: 100%; justify-content: flex-start; gap:8px;
+    margin-top:2px; font-weight:bold; font-size:11px;
+    align-items: center;
+}
 
 /* Main Content Pane */
 .nk-content-pane {
@@ -1072,69 +1148,108 @@ function _toast(msg, color = '#333') {
 }
 .nk-upg-btn:disabled { background: #e0e0e0; color: #aaa; }
 
-/* Clicker */
-.nk-clicker-wrap {
-    text-align: center;
-    margin: 20px 0;
-    position: relative;
-    min-height: 120px;
-}
-.nk-cat {
-    font-size: 90px;
-    cursor: pointer;
-    user-select: none;
-    display: inline-block;
-    filter: drop-shadow(0 5px 5px rgba(0,0,0,0.1));
-    transition: transform 0.05s;
-}
-.nk-cat:active { transform: scale(0.95); }
-
 /* Dojo / Quiz */
 .nk-srs-status {
     text-align: center; padding: 8px; border-radius: 8px;
     background: #fff0f0; color: #d63031; border: 1px solid #fab1a0;
     margin-bottom: 15px; font-weight: bold; font-size: 13px;
 }
-.nk-no-reviews {
-    text-align: center; padding: 40px 20px; background: white; border-radius: 12px;
+
+.nk-dojo-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center; 
+    padding: 30px 20px; 
+    background: white; 
+    border-radius: 12px;
     border: 1px dashed #ccc;
+    min-height: 250px;
+    width: 100%;
 }
-.nk-learn-area { margin-top: 15px; }
+/* Remove dashed border specifically for the active quiz screen */
+#nk-dojo-quiz {
+    border: none;
+    padding: 10px 0;
+    background: transparent;
+}
+
+.nk-learn-area { margin-top: 10px; width: 100%; max-width: 200px; }
 .nk-learn-btn {
     background: var(--nk-success); color: white; border: none; padding: 12px 20px;
     border-radius: 20px; font-weight: bold; font-size: 14px; cursor: pointer;
     box-shadow: 0 3px 0 #329929;
+    width: 100%;
 }
 .nk-learn-btn:active { transform: translateY(3px); box-shadow: none; }
 
-/* Avatar & Bubble */
+/* Avatar & Bubble - Horizontal Layout */
 .nk-cat-avatar-wrap {
     display: flex;
-    align-items: flex-end;
+    flex-direction: row;
+    align-items: center;
     justify-content: center;
-    margin-bottom: 20px;
-    height: 140px;
+    margin-bottom: 25px;
+    gap: 15px;
 }
-.nk-cat-avatar { font-size: 60px; margin-right: 10px; line-height: 1; transform: scaleX(-1); }
+.nk-cat-avatar {
+    font-size: 40px;
+    line-height: 1;
+}
 .nk-speech-bubble {
     background: white;
     border: 2px solid var(--nk-text);
-    border-radius: 20px 20px 20px 0;
+    border-radius: 16px;
     padding: 15px 25px;
-    font-size: 32px;
-    font-weight: bold;
     color: var(--nk-text);
     box-shadow: 4px 4px 0 rgba(0,0,0,0.1);
     position: relative;
-    top: -20px;
+    min-width: 140px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
 }
+
+/* Speech bubble tail pointing left to cat */
+.nk-speech-bubble::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: -14px;
+    transform: translateY(-50%);
+    border-width: 10px 14px 10px 0;
+    border-style: solid;
+    border-color: transparent var(--nk-text) transparent transparent;
+    display: block;
+    width: 0;
+}
+.nk-speech-bubble::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: -10px;
+    transform: translateY(-50%);
+    border-width: 8px 11px 8px 0;
+    border-style: solid;
+    border-color: transparent white transparent transparent;
+    display: block;
+    width: 0;
+    z-index: 1;
+}
+
+.nk-fc-kanji { font-size: 26px; font-weight: bold; line-height: 1.2; }
+.nk-fc-furi  { font-size: 12px; color: #888; margin-top: 2px; }
 
 .nk-quiz-grid {
     display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+    width: 100%;
+    max-width: 400px;
 }
 .nk-quiz-btn {
     background: white; border: 2px solid #eee; padding: 15px;
-    border-radius: 10px; font-size: 15px; font-weight: bold; color: #666;
+    border-radius: 10px; font-size: 14px; font-weight: bold; color: #555;
     cursor: pointer; transition: all 0.1s;
 }
 .nk-quiz-btn:active { transform: scale(0.98); }
@@ -1153,6 +1268,12 @@ function _toast(msg, color = '#333') {
 }
 .nk-ban-btn { background: none; border: none; cursor: pointer; font-size: 16px; opacity: 0.5; }
 .nk-ban-btn:hover { opacity: 1; transform: scale(1.2); }
+
+@keyframes nkPulse {
+    0%   { transform: scale(1); }
+    50%  { transform: scale(1.1); }
+    100% { transform: scale(1); }
+}
 
 /* Float Effect */
 .nk-click-effect {
@@ -1179,11 +1300,13 @@ function _toast(msg, color = '#333') {
 [data-theme="dark"] .nk-stats-header,
 [data-theme="dark"] .nk-tab-bar,
 [data-theme="dark"] .nk-upgrade,
-[data-theme="dark"] .nk-no-reviews,
+[data-theme="dark"] .nk-dojo-screen,
 [data-theme="dark"] .nk-stats-list,
 [data-theme="dark"] .nk-vocab-row { background: #3d2b1a; border-color: #5a3e2b; }
 [data-theme="dark"] .nk-stat-pill { background: #2a1f14; }
 [data-theme="dark"] .nk-speech-bubble { background: #3d2b1a; color: white; border-color: #f0d9c0; }
+[data-theme="dark"] .nk-speech-bubble::after { border-color: transparent #f0d9c0 transparent transparent; }
+[data-theme="dark"] .nk-speech-bubble::before { border-color: transparent #3d2b1a transparent transparent; }
 [data-theme="dark"] .nk-content-pane { background: #261a0f; }
 [data-theme="dark"] .nk-quiz-btn { background: #3d2b1a; border-color: #5a3e2b; color: #f0d9c0; }
 [data-theme="dark"] .nk-nav-btn.active { background: rgba(255,255,255,0.05); }
