@@ -212,7 +212,7 @@ function _toggleNumFmt() {
     _numFmtStyle = _numFmtStyle === 'suffix' ? 'sci' : 'suffix';
     localStorage.setItem('neko_numfmt', _numFmtStyle);
     const btn = _screens.game?.querySelector('#nk-numfmt-btn');
-    if (btn) btn.textContent = _numFmtStyle === 'suffix' ? '1.2 M' : '1.2e6';
+    if (btn) btn.textContent = _numFmtStyle === 'suffix' ? 'M' : 'e';
     _updateUI();
 }
 
@@ -760,13 +760,13 @@ function _initGameDOM() {
 <div class="nk-root">
 
     <div class="nk-topbar">
-        <div class="nk-topbar-title">🐾 NekoNihongo</div>
+        <div class="nk-topbar-title">🐾</div>
         <div class="nk-topbar-btns">
-            <button class="nk-hbtn nk-hbtn-fmt" id="nk-numfmt-btn" title="Toggle number format">1.2 M</button>
-            <button class="nk-hbtn nk-hbtn-gold" id="nk-ascend-btn">Ascend</button>
-            <button class="nk-hbtn nk-hbtn-spirit" id="nk-rebirth-btn" style="display:${showSpirit?'inline-block':'none'};">Rebirth</button>
-            <button class="nk-hbtn" id="nk-save-btn">Save</button>
-            <button class="nk-hbtn nk-hbtn-danger" id="nk-quit-btn">✕</button>
+            <button class="nk-hbtn nk-hbtn-fmt" id="nk-numfmt-btn" title="Toggle number format">M</button>
+            <button class="nk-hbtn nk-hbtn-gold" id="nk-ascend-btn" title="Ascend">⬆</button>
+            <button class="nk-hbtn nk-hbtn-spirit" id="nk-rebirth-btn" title="Rebirth" style="display:${showSpirit?'inline-block':'none'};">♻</button>
+            <button class="nk-hbtn" id="nk-save-btn" title="Save">💾</button>
+            <button class="nk-hbtn nk-hbtn-danger" id="nk-quit-btn" title="Quit">✕</button>
         </div>
     </div>
 
@@ -786,7 +786,11 @@ function _initGameDOM() {
                 </div>
             </div>
             <div class="nk-stat-sub">
-                <span class="nk-val-fps">0</span>/s • <span class="nk-val-cpc">1</span>/click • Combo: <span class="nk-val-combo">0</span>
+                <span class="nk-val-fps">0</span>/s
+                <span class="nk-stat-sep">·</span>
+                <span class="nk-val-cpc">1</span>/cl
+                <span class="nk-stat-sep">·</span>
+                🔥<span class="nk-val-combo">0</span>
                 <button id="nk-mult-btn" class="nk-mult-btn" title="Click for multiplier breakdown">×1.00</button>
             </div>
             <div id="nk-mult-popup" class="nk-mult-popup" style="display:none;"></div>
@@ -898,7 +902,7 @@ function _initGameDOM() {
     el.querySelector('#nk-numfmt-btn').addEventListener('click', _toggleNumFmt);
     // Set correct label on init
     const fmtBtn = el.querySelector('#nk-numfmt-btn');
-    if (fmtBtn) fmtBtn.textContent = _numFmtStyle === 'suffix' ? '1.2 M' : '1.2e6';
+    if (fmtBtn) fmtBtn.textContent = _numFmtStyle === 'suffix' ? 'M' : 'e';
     el.querySelector('#nk-ascend-btn').addEventListener('click', _ascend);
     el.querySelector('#nk-rebirth-btn').addEventListener('click', _rebirth);
     el.querySelector('#nk-learn-btn').addEventListener('click', _learnNewWord);
@@ -1244,7 +1248,7 @@ function _updateUI() {
                 if (lvl) lvl.textContent = `(Lvl ${upg.count})`;
                 if (btn) { btn.textContent = `${cost} 🔔`; btn.disabled = _g.bells < cost; }
             }
-            setTxt('#nk-ascend-btn', `Ascend (+${_calcBells()})`);
+            setTxt('#nk-ascend-btn', `⬆+${_calcBells()}`);
         } else {
             // Keep bell buttons disabled state current even when tab not active
             for (const key in _g.bellUpgrades) {
@@ -1261,7 +1265,7 @@ function _updateUI() {
                 if (lvl) lvl.textContent = `(Lvl ${upg.count})`;
                 if (btn) { btn.textContent = `${cost} 👻`; btn.disabled = _g.karma < cost; }
             }
-            setTxt('#nk-rebirth-btn', `Rebirth (+${_calcSpirits()})`);
+            setTxt('#nk-rebirth-btn', `♻+${_calcSpirits()}`);
         }
         if (activeTab.id === 'nk-tab-stats') {
             // Live-tick the timers inside stats without full re-render
@@ -1382,7 +1386,7 @@ function _toast(msg, color = '#333') {
 /* top bar */
 .nk-topbar {
     background: var(--nk-panel);
-    padding: 8px 12px;
+    padding: 5px 8px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -1390,16 +1394,17 @@ function _toast(msg, color = '#333') {
     flex-shrink: 0;
     z-index: 20;
 }
-.nk-topbar-title { font-size: 18px; font-weight: bold; }
-.nk-topbar-btns  { display: flex; gap: 6px; }
+.nk-topbar-title { font-size: 16px; font-weight: bold; line-height: 1; }
+.nk-topbar-btns  { display: flex; gap: 4px; }
 .nk-hbtn {
-    background: var(--nk-btn); border: none; padding: 6px 10px;
-    border-radius: 5px; color: white; cursor: pointer; font-weight: bold; font-size: 12px;
+    background: var(--nk-btn); border: none; padding: 4px 8px;
+    border-radius: 5px; color: white; cursor: pointer; font-weight: bold; font-size: 11px;
+    min-width: 28px; text-align: center;
 }
 .nk-hbtn-gold        { background: var(--nk-gold);   color: #333; }
 .nk-hbtn-spirit      { background: var(--nk-spirit); }
 .nk-hbtn-danger      { background: #888; }
-.nk-hbtn-fmt         { background: #e8e8e8; color: #555; font-size: 11px; padding: 5px 8px; }
+.nk-hbtn-fmt         { background: #e0e0e0; color: #555; }
 
 /* Wakeup countdown pill */
 .nk-wakeup-pill {
@@ -1409,8 +1414,8 @@ function _toast(msg, color = '#333') {
     font-weight: bold;
     flex-direction: column !important;
     gap: 2px !important;
-    padding: 3px 8px 4px !important;
-    min-width: 52px;
+    padding: 2px 6px 3px !important;
+    min-width: 44px;
 }
 .nk-wakeup-bar-wrap {
     width: 100%;
@@ -1429,70 +1434,77 @@ function _toast(msg, color = '#333') {
 /* Stats Header */
 .nk-stats-header {
     background: white;
-    padding: 10px;
+    padding: 6px 8px;
     border-bottom: 1px solid rgba(0,0,0,0.05);
     display: flex;
     align-items: center;
     flex-shrink: 0;
-    gap: 15px;
+    gap: 8px;
     position: relative;
 }
 .nk-header-cat {
-    font-size: 40px;
+    font-size: 28px;
     cursor: pointer;
     user-select: none;
     line-height: 1;
     filter: drop-shadow(0 2px 3px rgba(0,0,0,0.1));
     transition: transform 0.05s;
+    flex-shrink: 0;
 }
 .nk-header-cat:active { transform: scale(0.9); }
 
 .nk-stats-wrapper {
     flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 3px;
 }
 .nk-stat-row-top {
     display: flex;
-    gap: 6px;
+    gap: 4px;
     flex-wrap: wrap;
 }
 .nk-stat-pill {
     background: var(--nk-bg);
-    padding: 3px 8px;
-    border-radius: 12px;
-    font-size: 13px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-size: 11px;
     font-weight: bold;
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 3px;
+    white-space: nowrap;
 }
 .nk-stat-sub {
-    font-size: 11px;
+    font-size: 10px;
     color: #888;
     display: flex;
     align-items: center;
-    gap: 5px;
-    flex-wrap: wrap;
+    gap: 3px;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+    overflow: hidden;
 }
+.nk-stat-sep { opacity: 0.4; }
 .nk-mult-btn {
-    font-size: 11px;
+    font-size: 10px;
     font-weight: bold;
     background: none;
     border: 1px solid #888;
-    border-radius: 8px;
-    padding: 1px 6px;
+    border-radius: 6px;
+    padding: 1px 4px;
     cursor: pointer;
     color: #888;
-    line-height: 1.4;
+    line-height: 1.3;
+    flex-shrink: 0;
     transition: color 0.2s, border-color 0.2s;
 }
 .nk-mult-btn:hover { opacity: 0.8; }
 .nk-mult-popup {
     position: absolute;
-    top: 105px;
-    left: 12px;
+    top: 80px;
+    left: 8px;
     z-index: 100;
     background: white;
     border: 1px solid rgba(0,0,0,0.12);
