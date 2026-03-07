@@ -290,6 +290,7 @@ function _getMultiplierBreakdown() {
 }
 
 
+function _getLearnCost() {
     // Quadratic scaling: word 1=250, word 5=1450, word 10=5200, word 20=20200
     const n      = _g.srs.filter(s => new Set(_vocabQueue.map(v=>v.id)).has(s.id)).length;
     const base   = 200 + (n * n * 50);
