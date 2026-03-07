@@ -220,7 +220,7 @@ function _getFishPerSec() {
 
     // ── Happy Cat Logic ──
     const isHappy = _pendingReviews.length === 0;
-    const moodMult = isHappy ? 1.25 : 0.25;
+    const moodMult = isHappy ? 1.25 : 0.75;
     
     // ── Combo Logic ──
     const comboMult = 1 + Math.log2(1 + _g.combo);
@@ -325,11 +325,10 @@ function _startGameLoop() {
             _g.stats.fishEarned += gain;
         }
 
-        // Combo Decay (Only decays if there are active reviews pending)
-        // If the queue is empty (Cat is napping), the player is rewarded by keeping their combo frozen!
-        if (_g.combo > 0 && _pendingReviews.length > 0) {
-            // Decay scales slightly with combo height so you can't reach infinite easily
-            const decayRate = 0.1 + (_g.combo * 0.05); 
+        // Combo Decay: only when cards are due AND player is not in cooldown (actively ignoring the queue)
+        // Frozen while: no cards due (cat napping) OR between-card cooldown pause
+        if (_g.combo > 0 && _pendingReviews.length > 0 && !_isCooldown) {
+            const decayRate = 0.1 + (_g.combo * 0.05);
             _g.combo = Math.max(0, _g.combo - (decayRate * delta));
         }
 
@@ -530,7 +529,7 @@ function _updateSRSQueue() {
     if (buffEl) {
         const isHappy = _pendingReviews.length === 0;
         if (isHappy) {
-            buffEl.innerHTML = `<span>✨ Happy Cat:</span><span>5x Production!</span>`;
+            buffEl.innerHTML = `<span>✨ Happy Cat:</span><span>+25% Production</span>`;
             buffEl.style.color = 'var(--nk-success)';
             buffEl.style.display = 'flex';
         } else {
@@ -699,7 +698,7 @@ function _initGameDOM() {
                 <div class="nk-stat-pill nk-spirit-color" id="nk-karma-pill" style="display:${showSpirit?'flex':'none'};">👻 <span class="nk-val-karma">0</span></div>
             </div>
             <div class="nk-stat-sub">
-                <span class="nk-val-fps">0</span>/s • Combo: <span class="nk-val-combo">0</span>
+                <span class="nk-val-fps">0</span>/s • <span class="nk-val-cpc">1</span>/click • Combo: <span class="nk-val-combo">0</span>
             </div>
             <div class="nk-buff-row" style="display:none;"></div>
         </div>
@@ -711,8 +710,8 @@ function _initGameDOM() {
         <button class="nk-nav-btn" data-target="idle">📦 Idle</button>
         <button class="nk-nav-btn" data-target="dojo">🧠 Dojo</button>
         <button class="nk-nav-btn" data-target="bells">🔔 Bell</button>
-        <button class="nk-nav-btn" data-target="stats">📊 Stats</button>
         <button class="nk-nav-btn" data-target="spirit" id="nk-nav-spirit" style="display:${showSpirit?'block':'none'}; color:#a55eea;">👻 Spirit</button>
+        <button class="nk-nav-btn" data-target="stats">📊 Stats</button>
     </div>
 
     <!-- Content Area -->
@@ -720,9 +719,6 @@ function _initGameDOM() {
         
         <!-- CLICK TAB -->
         <div class="nk-tab-content active" id="nk-tab-click">
-            <div class="nk-sub-stat" style="text-align:center; margin-bottom:10px;">
-                Fish/Click: <span class="nk-val-cpc">1</span>
-            </div>
             <div class="nk-shop-title">Tools</div>
             <div class="nk-upgrades" id="nk-upg-click"></div>
         </div>
@@ -778,10 +774,24 @@ function _initGameDOM() {
 
         <!-- STATS TAB -->
         <div class="nk-tab-content" id="nk-tab-stats">
-            <div class="nk-shop-title">Statistics</div>
-            <div class="nk-stats-list" id="nk-stats-general"></div>
-            <div class="nk-shop-title" style="margin-top:20px;">Active Vocabulary</div>
-            <div id="nk-vocab-list" class="nk-vocab-list"></div>
+            <div class="nk-subtab-bar">
+                <button class="nk-subtab-btn active" data-subtarget="statistics">📊 Statistics</button>
+                <button class="nk-subtab-btn" data-subtarget="vocabulary">📖 Vocabulary</button>
+            </div>
+            <div class="nk-subtab-content active" id="nk-subtab-statistics">
+                <div class="nk-shop-title">Economy</div>
+                <div class="nk-stats-list" id="nk-stats-economy"></div>
+                <div class="nk-shop-title" style="margin-top:14px;">Production</div>
+                <div class="nk-stats-list" id="nk-stats-production"></div>
+                <div class="nk-shop-title" style="margin-top:14px;">Dojo</div>
+                <div class="nk-stats-list" id="nk-stats-dojo"></div>
+                <div class="nk-shop-title" style="margin-top:14px;">Progression</div>
+                <div class="nk-stats-list" id="nk-stats-progression"></div>
+            </div>
+            <div class="nk-subtab-content" id="nk-subtab-vocabulary">
+                <div id="nk-vocab-summary" class="nk-stats-list" style="margin-bottom:12px;"></div>
+                <div id="nk-vocab-list" class="nk-vocab-list"></div>
+            </div>
         </div>
 
         <!-- SPIRIT TAB -->
@@ -811,6 +821,10 @@ function _initGameDOM() {
 
     el.querySelectorAll('.nk-nav-btn').forEach(btn => {
         btn.addEventListener('click', () => _switchTab(btn.getAttribute('data-target')));
+    });
+
+    el.querySelectorAll('.nk-subtab-btn').forEach(btn => {
+        btn.addEventListener('click', () => _switchSubtab(btn.getAttribute('data-subtarget')));
     });
 }
 
@@ -846,48 +860,167 @@ function _renderShop(shopKey, containerId, prefix, isBell, isRebirth) {
 // ─── Stats DOM ────────────────────────────────────────────────────────────────
 
 function _renderStats() {
-    const genList = _screens.game?.querySelector('#nk-stats-general');
-    const vocList = _screens.game?.querySelector('#nk-vocab-list');
-    if (!genList || !vocList) return;
+    const g = _screens.game;
+    if (!g) return;
 
-    genList.innerHTML = `
-        <div class="nk-stat-row"><span>Total Fish Earned:</span> <span>${Math.floor(_g.stats.fishEarned).toLocaleString()}</span></div>
-        <div class="nk-stat-row"><span>Total Clicks:</span> <span>${_g.stats.clicks.toLocaleString()}</span></div>
-        <div class="nk-stat-row"><span>Yarn Earned:</span> <span>${_g.stats.yarnEarned.toLocaleString()}</span></div>
-        <div class="nk-stat-row"><span>Highest Combo:</span> <span>${Math.floor(_g.stats.highestCombo)}</span></div>
-        <div class="nk-stat-row"><span>Correct / Wrong:</span> <span>${_g.stats.correct} / ${_g.stats.wrong}</span></div>
-    `;
+    // ── Economy ──────────────────────────────────────────────────────────────
+    const econ = g.querySelector('#nk-stats-economy');
+    if (econ) {
+        const totalUpgrades = Object.values(_g.upgrades).reduce((s,u) => s + u.count, 0)
+                            + Object.values(_g.clickUpgrades).reduce((s,u) => s + u.count, 0);
+        const discount = Math.pow(_g.bellUpgrades.discount.effect, _g.bellUpgrades.discount.count);
+        econ.innerHTML = `
+            <div class="nk-stat-row"><span>🐟 Fish (current)</span><span>${Math.floor(_g.fish).toLocaleString()}</span></div>
+            <div class="nk-stat-row"><span>🐟 Total Fish Earned</span><span>${Math.floor(_g.stats.fishEarned).toLocaleString()}</span></div>
+            <div class="nk-stat-row"><span>🧶 Yarn (current)</span><span>${_g.yarn.toLocaleString()}</span></div>
+            <div class="nk-stat-row"><span>🧶 Total Yarn Earned</span><span>${_g.stats.yarnEarned.toLocaleString()}</span></div>
+            <div class="nk-stat-row"><span>🔔 Bells</span><span>${_g.bells.toLocaleString()}</span></div>
+            <div class="nk-stat-row"><span>👻 Spirits</span><span>${_g.karma.toLocaleString()}</span></div>
+            <div class="nk-stat-row"><span>🛒 Upgrades Purchased</span><span>${totalUpgrades}</span></div>
+            <div class="nk-stat-row"><span>🏷️ Shop Discount</span><span>${Math.round((1 - discount) * 100)}%</span></div>
+        `;
+    }
 
+    // ── Production ────────────────────────────────────────────────────────────
+    const prod = g.querySelector('#nk-stats-production');
+    if (prod) {
+        const fps      = _getFishPerSec();
+        const cpc      = _getClickPower();
+        const isHappy  = _pendingReviews.length === 0;
+        const moodMult = isHappy ? 1.25 : 0.75;
+        const comboMult = 1 + Math.log2(1 + _g.combo);
+        const autoClicks = _g.bellUpgrades.auto.count * _g.bellUpgrades.auto.effect;
+        const effectiveCps = fps + (cpc * autoClicks);
+        prod.innerHTML = `
+            <div class="nk-stat-row"><span>⚡ Fish / Second</span><span>${Math.floor(fps).toLocaleString()}</span></div>
+            <div class="nk-stat-row"><span>👆 Fish / Click</span><span>${Math.floor(cpc).toLocaleString()}</span></div>
+            <div class="nk-stat-row"><span>🤖 Auto-Clicks / Sec</span><span>${autoClicks > 0 ? autoClicks.toLocaleString() : '—'}</span></div>
+            <div class="nk-stat-row"><span>📈 Effective Total / Sec</span><span>${Math.floor(effectiveCps).toLocaleString()}</span></div>
+            <div class="nk-stat-row"><span>👆 Total Clicks</span><span>${_g.stats.clicks.toLocaleString()}</span></div>
+            <div class="nk-stat-row"><span>${isHappy ? '😺' : '😾'} Cat Mood Multiplier</span><span>${isHappy ? '×1.25 (Happy!)' : '×0.75 (Hungry)'}</span></div>
+            <div class="nk-stat-row"><span>🔥 Combo</span><span>${_g.combo.toFixed(1)} (×${comboMult.toFixed(2)})</span></div>
+            <div class="nk-stat-row"><span>🏆 Highest Combo</span><span>${Math.floor(_g.stats.highestCombo)}</span></div>
+        `;
+    }
+
+    // ── Dojo ──────────────────────────────────────────────────────────────────
+    const dojoEl = g.querySelector('#nk-stats-dojo');
+    if (dojoEl) {
+        const total     = _vocabQueue.length;
+        const learned   = _g.srs.length;
+        const remaining = total - learned;
+        const accuracy  = (_g.stats.correct + _g.stats.wrong) > 0
+            ? Math.round((_g.stats.correct / (_g.stats.correct + _g.stats.wrong)) * 100)
+            : 0;
+        const now = Date.now();
+        const pending  = _pendingReviews.length;
+        const due      = _g.srs.filter(s => s.nextReview <= now).length;
+
+        // Next review countdown
+        let nextReviewText = '—';
+        if (learned > 0 && pending === 0) {
+            const nextTime = Math.min(..._g.srs.map(s => s.nextReview));
+            const diffSec  = (nextTime - now) / 1000;
+            nextReviewText = diffSec <= 0 ? 'Now!' : _formatTime(diffSec);
+        } else if (pending > 0) {
+            nextReviewText = 'Now!';
+        }
+
+        // Cooldown status
+        let cooldownText = '—';
+        if (_isCooldown) {
+            const remaining = (_cooldownEndTime - now) / 1000;
+            cooldownText = remaining > 0 ? remaining.toFixed(1) + 's' : 'Done';
+        }
+
+        const learnCost = _getLearnCost();
+        dojoEl.innerHTML = `
+            <div class="nk-stat-row"><span>📚 Words Learned</span><span>${learned} / ${total}</span></div>
+            <div class="nk-stat-row"><span>➕ Words Remaining</span><span>${remaining}</span></div>
+            <div class="nk-stat-row"><span>⏳ Reviews Due Now</span><span>${due > 0 ? '<span style="color:#e17055;font-weight:bold;">' + due + '</span>' : '0'}</span></div>
+            <div class="nk-stat-row"><span>⏱️ Next Review In</span><span id="nk-stats-next-review">${nextReviewText}</span></div>
+            <div class="nk-stat-row"><span>⏸️ Cooldown</span><span id="nk-stats-cooldown">${cooldownText}</span></div>
+            <div class="nk-stat-row"><span>✅ Correct Answers</span><span>${_g.stats.correct.toLocaleString()}</span></div>
+            <div class="nk-stat-row"><span>❌ Wrong Answers</span><span>${_g.stats.wrong.toLocaleString()}</span></div>
+            <div class="nk-stat-row"><span>🎯 Accuracy</span><span>${accuracy}%</span></div>
+            <div class="nk-stat-row"><span>💰 Next Learn Cost</span><span>${learnCost.toLocaleString()} 🐟</span></div>
+            <div class="nk-stat-row"><span>📝 Words Studied (Total)</span><span>${_g.stats.wordsLearned}</span></div>
+        `;
+    }
+
+    // ── Progression ───────────────────────────────────────────────────────────
+    const progEl = g.querySelector('#nk-stats-progression');
+    if (progEl) {
+        const bellsNeeded  = 10000;
+        const spiritsNeeded = 100;
+        const bellProgress  = Math.min(100, Math.floor((_g.fish / bellsNeeded) * 100));
+        const nextBells     = _calcBells();
+        const nextSpirits   = _calcSpirits();
+        progEl.innerHTML = `
+            <div class="nk-stat-row"><span>🔔 Ascension Bells Earned</span><span>${_g.bells.toLocaleString()}</span></div>
+            <div class="nk-stat-row"><span>🔔 Next Ascend Reward</span><span>+${nextBells} Bell${nextBells !== 1 ? 's' : ''}</span></div>
+            <div class="nk-stat-row"><span>📊 Ascend Progress</span><span>${bellProgress}% (need 10k 🐟)</span></div>
+            <div class="nk-stat-row"><span>👻 Spirits (Karma)</span><span>${_g.karma.toLocaleString()}</span></div>
+            <div class="nk-stat-row"><span>👻 Next Rebirth Reward</span><span>${nextSpirits > 0 ? '+' + nextSpirits + ' Spirit' + (nextSpirits !== 1 ? 's' : '') : 'Need 100 Bells'}</span></div>
+            <div class="nk-stat-row"><span>📈 Global Prod. Multiplier</span><span>×${(1 + (_g.bells * 0.1)).toFixed(2)} (from bells)</span></div>
+        `;
+    }
+
+    // ── Vocabulary subtab ─────────────────────────────────────────────────────
+    _renderVocabList();
+}
+
+function _renderVocabList() {
+    const g = _screens.game;
+    if (!g) return;
+
+    const now    = Date.now();
+    const total  = _vocabQueue.length;
+    const learned = _g.srs.length;
+    const due    = _g.srs.filter(s => s.nextReview <= now).length;
+
+    const summaryEl = g.querySelector('#nk-vocab-summary');
+    if (summaryEl) {
+        summaryEl.innerHTML = `
+            <div class="nk-stat-row"><span>📚 Total Vocabulary</span><span>${total}</span></div>
+            <div class="nk-stat-row"><span>✅ Learned</span><span>${learned}</span></div>
+            <div class="nk-stat-row"><span>🔓 Unleaned</span><span>${total - learned}</span></div>
+            <div class="nk-stat-row"><span>⏳ Due for Review</span><span>${due > 0 ? '<span style="color:#e17055;font-weight:bold;">' + due + '</span>' : '0'}</span></div>
+        `;
+    }
+
+    const vocList = g.querySelector('#nk-vocab-list');
+    if (!vocList) return;
     vocList.innerHTML = '';
     if (_g.srs.length === 0) {
         vocList.innerHTML = `<div style="text-align:center; padding:20px; color:var(--text-muted);">No words learned yet. Go to the Dojo!</div>`;
-    } else {
-        // Sort by next review time (closest first)
-        const sortedSrs = [..._g.srs].sort((a,b) => a.nextReview - b.nextReview);
-
-        sortedSrs.forEach(item => {
-            const wordData = _vocabQueue.find(v => v.id === item.id);
-            if (!wordData) return;
-            
-            const intervalText = _formatTime(item.interval);
-
-            const row = document.createElement('div');
-            row.className = 'nk-vocab-row';
-            row.innerHTML = `
-                <div style="flex:1;">
-                    <div style="font-weight:bold; font-size:16px;">${wordData.kanji}</div>
-                    <div style="font-size:12px; color:var(--text-muted);">${wordData.kana}</div>
-                </div>
-                <div style="text-align:right; margin-right: 15px;">
-                    <div style="font-size:10px; color:#888;">Interval</div>
-                    <div style="font-size:13px; font-weight:bold; color:var(--primary-color);">${intervalText}</div>
-                </div>
-                <button class="nk-ban-btn" title="Ban from Dojo">🚫</button>
-            `;
-            row.querySelector('.nk-ban-btn').addEventListener('click', () => _banWord(wordData.kanji));
-            vocList.appendChild(row);
-        });
+        return;
     }
+
+    const sortedSrs = [..._g.srs].sort((a,b) => a.nextReview - b.nextReview);
+    sortedSrs.forEach(item => {
+        const wordData = _vocabQueue.find(v => v.id === item.id);
+        if (!wordData) return;
+        const isDue      = item.nextReview <= now;
+        const waitText   = isDue ? 'Due now!' : _formatTime((item.nextReview - now) / 1000);
+        const intervalText = _formatTime(item.interval);
+        const row = document.createElement('div');
+        row.className = 'nk-vocab-row';
+        row.innerHTML = `
+            <div style="flex:1;">
+                <div style="font-weight:bold; font-size:16px;">${wordData.kanji}</div>
+                <div style="font-size:12px; color:var(--text-muted);">${wordData.kana} · ${wordData.eng}</div>
+            </div>
+            <div style="text-align:right; margin-right: 12px; min-width:80px;">
+                <div style="font-size:10px; color:#888;">Next review</div>
+                <div style="font-size:12px; font-weight:bold; color:${isDue ? '#e17055' : 'var(--nk-btn)'};">${waitText}</div>
+                <div style="font-size:10px; color:#aaa;">interval: ${intervalText}</div>
+            </div>
+            <button class="nk-ban-btn" title="Ban from Dojo">🚫</button>
+        `;
+        row.querySelector('.nk-ban-btn').addEventListener('click', () => _banWord(wordData.kanji));
+        vocList.appendChild(row);
+    });
 }
 
 // ─── UI Update ────────────────────────────────────────────────────────────────
@@ -942,8 +1075,27 @@ function _updateUI() {
             setTxt('#nk-rebirth-btn', `Rebirth (+${_calcSpirits()})`);
         }
         if (activeTab.id === 'nk-tab-stats') {
-            // Only update dynamic numbers instead of full re-render to prevent list scrolling jumps
-            setTxt('#nk-stats-general span:nth-child(2)', Math.floor(_g.stats.fishEarned).toLocaleString());
+            // Live-tick the timers inside stats without full re-render
+            const now = Date.now();
+            const nextRevEl = g.querySelector('#nk-stats-next-review');
+            if (nextRevEl) {
+                if (_pendingReviews.length > 0) {
+                    nextRevEl.textContent = 'Now!';
+                } else if (_g.srs.length > 0) {
+                    const nextTime = Math.min(..._g.srs.map(s => s.nextReview));
+                    const diff = (nextTime - now) / 1000;
+                    nextRevEl.textContent = diff <= 0 ? 'Now!' : _formatTime(diff);
+                }
+            }
+            const cdEl = g.querySelector('#nk-stats-cooldown');
+            if (cdEl) {
+                if (_isCooldown) {
+                    const rem = (_cooldownEndTime - now) / 1000;
+                    cdEl.textContent = rem > 0 ? rem.toFixed(1) + 's' : 'Done';
+                } else {
+                    cdEl.textContent = '—';
+                }
+            }
         }
     }
 
@@ -987,8 +1139,18 @@ function _switchTab(tabName) {
     g.querySelectorAll('.nk-nav-btn').forEach(b => b.classList.remove('active'));
     g.querySelector(`.nk-nav-btn[data-target="${tabName}"]`)?.classList.add('active');
     
-    if (tabName === 'stats') _renderStats(); // Full render on enter
+    if (tabName === 'stats') _renderStats();
     _updateUI();
+}
+
+function _switchSubtab(subName) {
+    const g = _screens.game;
+    if (!g) return;
+    g.querySelectorAll('.nk-subtab-content').forEach(c => c.classList.remove('active'));
+    g.querySelector(`#nk-subtab-${subName}`)?.classList.add('active');
+    g.querySelectorAll('.nk-subtab-btn').forEach(b => b.classList.remove('active'));
+    g.querySelector(`.nk-subtab-btn[data-subtarget="${subName}"]`)?.classList.add('active');
+    _renderStats();
 }
 
 function _toast(msg, color = '#333') {
@@ -1274,6 +1436,21 @@ function _toast(msg, color = '#333') {
 .nk-quiz-correct { background: var(--nk-success) !important; color: white !important; border-color: var(--nk-success) !important; }
 .nk-quiz-wrong { background: #ff4b4b !important; color: white !important; border-color: #ff4b4b !important; }
 
+/* Subtab bar */
+.nk-subtab-bar {
+    display: flex; gap: 6px; margin-bottom: 12px;
+}
+.nk-subtab-btn {
+    flex: 1; padding: 7px 10px; border: 2px solid #e0dbd3; border-radius: 8px;
+    background: white; font-size: 12px; font-weight: bold; color: #888; cursor: pointer;
+    transition: all 0.15s;
+}
+.nk-subtab-btn.active {
+    background: var(--nk-btn); color: white; border-color: var(--nk-btn);
+}
+.nk-subtab-content { display: none; }
+.nk-subtab-content.active { display: block; }
+
 /* Stats List */
 .nk-stats-list { background: white; border-radius: 8px; padding: 10px; border: 1px solid rgba(0,0,0,0.05); }
 .nk-stat-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; font-size: 14px; }
@@ -1328,6 +1505,8 @@ function _toast(msg, color = '#333') {
 [data-theme="dark"] .nk-content-pane { background: #261a0f; }
 [data-theme="dark"] .nk-quiz-btn { background: #3d2b1a; border-color: #5a3e2b; color: #f0d9c0; }
 [data-theme="dark"] .nk-nav-btn.active { background: rgba(255,255,255,0.05); }
+[data-theme="dark"] .nk-subtab-btn { background: #3d2b1a; border-color: #5a3e2b; color: #aaa; }
+[data-theme="dark"] .nk-subtab-btn.active { background: var(--nk-btn); color: white; border-color: var(--nk-btn); }
 `;
     document.head.appendChild(style);
 })();
