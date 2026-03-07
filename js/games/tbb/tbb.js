@@ -212,12 +212,9 @@ function _spawnEnemyAndBegin() {
     const playerFirst = _g.playerSpd >= _g.enemy.spd;
     _g.phase = playerFirst ? 'player_attack' : 'player_defense';
 
-    // Show floor landing screen — player must press a button to act or fight
-    _showFloorLandingOverlay(() => {
-        _g.narration = `${_g.enemy.emoji} ${_g.enemy.name} appears! (Lv.${_g.enemy.level})`;
-        _prepareChallenge();
-        _renderAll();
-    });
+    _g.narration = `${_g.enemy.emoji} ${_g.enemy.name} appears! (Lv.${_g.enemy.level})`;
+    _prepareChallenge();
+    _renderAll();
 }
 
 function _showFloorLandingOverlay(onDismiss) {
@@ -628,7 +625,7 @@ function _buildGameDOM() {
 
     root.innerHTML = `
     <div class="tbb-header">
-        <span class="tbb-floor-label">Floor <span id="tbb-floor">0</span></span>
+        <span class="tbb-floor-label">Floor <span id="tbb-floor">0</span> <button class="tbb-explore-btn" id="tbb-explore-btn" title="Explore Floor">🗺️</button></span>
         <span class="tbb-narration" id="tbb-narration">—</span>
         <button class="tbb-menu-btn" id="tbb-menu-btn">☰</button>
     </div>
@@ -751,6 +748,12 @@ function _buildGameDOM() {
     // Stats panel
     root.querySelector('#tbb-stats-btn').addEventListener('click', _showStatsPanel);
     root.querySelector('#tbb-menu-btn').addEventListener('click', _showMenuOverlay);
+
+    // Explore / floor description button
+    root.querySelector('#tbb-explore-btn').addEventListener('click', () => {
+        _pauseAnswerTimer();
+        _showFloorLandingOverlay(() => { _resumeAnswerTimer(); });
+    });
 }
 
 // ─── Render Helpers ───────────────────────────────────────────────────────────
@@ -1576,6 +1579,19 @@ function _injectStyles() {
 .tbb-red     { color: var(--tbb-accent); }
 .tbb-unlocked { color: #2ecc71; font-weight: 700; }
 .tbb-rebirth-info { color: #9b59b6; font-weight: 700; }
+.tbb-explore-btn {
+    background: none;
+    border: 1px solid var(--tbb-border);
+    border-radius: 6px;
+    padding: 1px 6px;
+    font-size: 13px;
+    cursor: pointer;
+    color: var(--tbb-text);
+    vertical-align: middle;
+    margin-left: 4px;
+    transition: background 0.15s;
+}
+.tbb-explore-btn:hover { background: var(--tbb-card); }
 .tbb-floor-selector { display:flex; align-items:center; gap:8px; font-size:12px; margin-top:6px; }
 .tbb-floor-selector input { flex:1; }
 
