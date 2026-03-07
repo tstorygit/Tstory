@@ -779,7 +779,7 @@ function _initGameDOM() {
                 <div class="nk-stat-pill">🧶 <span class="nk-val-yarn">0</span></div>
                 <div class="nk-stat-pill nk-bell-color">🔔 <span class="nk-val-bells">0</span></div>
                 <div class="nk-stat-pill nk-spirit-color" id="nk-karma-pill" style="display:${showSpirit?'flex':'none'};">👻 <span class="nk-val-karma">0</span></div>
-                <div class="nk-stat-pill nk-hungry-pill" id="nk-hungry-pill" style="display:none;">🐱 <span class="nk-val-hungry">0</span> hungry</div>
+                <div class="nk-stat-pill nk-hungry-pill" id="nk-hungry-pill" style="display:none;">🐱 <span class="nk-val-hungry">0</span></div>
                 <div class="nk-stat-pill nk-wakeup-pill" id="nk-wakeup-pill" style="display:none;">
                     <span id="nk-wakeup-label">🐱 3s</span>
                     <div class="nk-wakeup-bar-wrap"><div class="nk-wakeup-bar" id="nk-wakeup-bar"></div></div>
@@ -1443,7 +1443,7 @@ function _toast(msg, color = '#333') {
     position: relative;
 }
 .nk-header-cat {
-    font-size: 28px;
+    font-size: 40px;
     cursor: pointer;
     user-select: none;
     line-height: 1;
