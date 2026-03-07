@@ -96,9 +96,19 @@ function _startGame() {
 
     _show('game');
     _loadGame();
+
+    // Give 3 free starter words on a brand-new save
+    if (_g.srs.length === 0 && _vocabQueue.length >= 3) {
+        for (let i = 0; i < 3; i++) {
+            const w = _vocabQueue[i];
+            _g.srs.push({ id: w.id, nextReview: Date.now(), interval: 30, ease: 2.5 });
+        }
+        _g.stats.wordsLearned += 3;
+    }
+
     _initGameDOM(); 
     _initShops();
-    _isCooldown = false; // reset cooldown state
+    _isCooldown = false;
     _updateSRSQueue();
     _updateUI();
     _startGameLoop();
@@ -353,13 +363,7 @@ function _startGameLoop() {
         if (Math.floor(now / 1000) % 2 === 0) _updateSRSQueue();
 
         // ── Update Dojo Timers ──
-        if (_isCooldown) {
-            const cdTimer = document.getElementById('nk-cooldown-timer');
-            if (cdTimer) {
-                const remaining = (_cooldownEndTime - now) / 1000;
-                if (remaining > 0) cdTimer.textContent = remaining.toFixed(1) + 's';
-            }
-        } else if (_pendingReviews.length === 0) {
+        if (_pendingReviews.length === 0) {
             const nextTimer = document.getElementById('nk-next-review-timer');
             if (nextTimer) {
                 if (_g.srs.length > 0) {
@@ -548,15 +552,13 @@ function _updateSRSQueue() {
     const coolScrn  = _screens.game?.querySelector('#nk-dojo-cooldown');
     const quizScrn  = _screens.game?.querySelector('#nk-dojo-quiz');
 
-    if (!sleepScrn || !coolScrn || !quizScrn) return;
+    if (!sleepScrn || !quizScrn) return;
 
     sleepScrn.style.display = 'none';
-    coolScrn.style.display = 'none';
+    if (coolScrn) coolScrn.style.display = 'none'; // always hidden — no wait time
     quizScrn.style.display = 'none';
 
-    if (_isCooldown) {
-        coolScrn.style.display = 'flex';
-    } else if (_pendingReviews.length > 0) {
+    if (_pendingReviews.length > 0) {
         quizScrn.style.display = 'flex';
         if (!_g.currentCardId) _loadFlashcard();
     } else {
@@ -630,25 +632,13 @@ function _checkAnswer(selectedId, btnEl, correctId, event) {
             }
         }
 
-        const delay = 2000; // fixed 2s think-pause after each correct answer
-
-        if (delay > 200) {
-            _isCooldown = true;
-            _cooldownEndTime = Date.now() + delay;
-            _updateSRSQueue(); // Show cooldown screen
-            
-            setTimeout(() => {
-                _g.currentCardId = null;
-                _isCooldown = false;
-                _updateSRSQueue();
-                _updateUI();
-            }, delay);
-        } else {
-            // Skip cooldown screen entirely if it's too fast
-            _g.currentCardId = null;
+        // Brief visual pause so player sees the green highlight, then move on
+        _g.currentCardId = null;
+        _isCooldown = false;
+        setTimeout(() => {
             _updateSRSQueue();
             _updateUI();
-        }
+        }, 400);
 
     } else {
         // Wrong
@@ -662,12 +652,13 @@ function _checkAnswer(selectedId, btnEl, correctId, event) {
 
         if (event) _spawnFloatingText(event.clientX, event.clientY, `❌`, '#ff4b4b', 28);
 
+        // Brief visual pause so player sees the red highlight, then move on
         setTimeout(() => {
             _g.currentCardId = null;
-            _isCooldown = false; 
+            _isCooldown = false;
             _updateSRSQueue();
             _updateUI();
-        }, 1200);
+        }, 600);
     }
 }
 
@@ -701,6 +692,7 @@ function _initGameDOM() {
                 <div class="nk-stat-pill">🧶 <span class="nk-val-yarn">0</span></div>
                 <div class="nk-stat-pill nk-bell-color">🔔 <span class="nk-val-bells">0</span></div>
                 <div class="nk-stat-pill nk-spirit-color" id="nk-karma-pill" style="display:${showSpirit?'flex':'none'};">👻 <span class="nk-val-karma">0</span></div>
+                <div class="nk-stat-pill nk-hungry-pill" id="nk-hungry-pill" style="display:none;">🐱 <span class="nk-val-hungry">0</span> hungry</div>
             </div>
             <div class="nk-stat-sub">
                 <span class="nk-val-fps">0</span>/s • <span class="nk-val-cpc">1</span>/click • Combo: <span class="nk-val-combo">0</span>
@@ -713,7 +705,7 @@ function _initGameDOM() {
     <div class="nk-tab-bar">
         <button class="nk-nav-btn active" data-target="click">👆 Click</button>
         <button class="nk-nav-btn" data-target="idle">📦 Idle</button>
-        <button class="nk-nav-btn" data-target="dojo">🧠 Dojo</button>
+        <button class="nk-nav-btn" data-target="dojo">🧠 Dojo<span class="nk-dojo-badge" id="nk-dojo-badge" style="display:none;"></span></button>
         <button class="nk-nav-btn" data-target="bells">🔔 Bell</button>
         <button class="nk-nav-btn" data-target="spirit" id="nk-nav-spirit" style="display:${showSpirit?'block':'none'}; color:#a55eea;">👻 Spirit</button>
         <button class="nk-nav-btn" data-target="stats">📊 Stats</button>
@@ -1044,6 +1036,22 @@ function _updateUI() {
     setTxt('.nk-val-cpc',   Math.floor(_getClickPower()).toLocaleString());
     setTxt('.nk-val-combo', _g.combo.toFixed(1)); // Show decimal to make decay visible
 
+    // Hungry cats indicator
+    const hungryCount  = _pendingReviews.length;
+    const hungryPill   = g.querySelector('#nk-hungry-pill');
+    const hungryVal    = g.querySelector('.nk-val-hungry');
+    const dojoBadge    = g.querySelector('#nk-dojo-badge');
+    if (hungryPill) hungryPill.style.display = hungryCount > 0 ? 'flex' : 'none';
+    if (hungryVal)  hungryVal.textContent    = hungryCount;
+    if (dojoBadge) {
+        if (hungryCount > 0) {
+            dojoBadge.textContent = hungryCount;
+            dojoBadge.style.display = 'inline-block';
+        } else {
+            dojoBadge.style.display = 'none';
+        }
+    }
+
     if (_g.karma > 0 || _g.bells > 50) {
         const karmaPill = g.querySelector('#nk-karma-pill');
         const navSpirit = g.querySelector('#nk-nav-spirit');
@@ -1067,6 +1075,12 @@ function _updateUI() {
                 if (btn) { btn.textContent = `${cost} 🔔`; btn.disabled = _g.bells < cost; }
             }
             setTxt('#nk-ascend-btn', `Ascend (+${_calcBells()})`);
+        } else {
+            // Keep bell buttons disabled state current even when tab not active
+            for (const key in _g.bellUpgrades) {
+                const btn = g.querySelector(`#nk-btn-b-${key}`);
+                if (btn) btn.disabled = _g.bells < (_g.bellUpgrades[key].cost + _g.bellUpgrades[key].count);
+            }
         }
         if (activeTab.id === 'nk-tab-spirit') {
             for (const key in _g.rebirthUpgrades) {
@@ -1440,6 +1454,16 @@ function _toast(msg, color = '#333') {
 .nk-quiz-btn:active { transform: scale(0.98); }
 .nk-quiz-correct { background: var(--nk-success) !important; color: white !important; border-color: var(--nk-success) !important; }
 .nk-quiz-wrong { background: #ff4b4b !important; color: white !important; border-color: #ff4b4b !important; }
+
+/* Hungry cats indicator pill */
+.nk-hungry-pill { background: #fff0f0 !important; color: #e17055 !important; border: 1px solid #fab1a0 !important; font-weight: bold; animation: nkPulse 2s infinite; }
+/* Dojo tab badge */
+.nk-dojo-badge {
+    display: inline-block; background: #e17055; color: white;
+    border-radius: 10px; font-size: 10px; font-weight: bold;
+    padding: 1px 5px; margin-left: 4px; vertical-align: middle; line-height: 1.4;
+    animation: nkPulse 2s infinite;
+}
 
 /* Subtab bar */
 .nk-subtab-bar {
