@@ -32,7 +32,23 @@ const _titles = {
 function _show(name) {
     Object.entries(_screens).forEach(([k, el]) => {
         if (!el) return;
-        el.style.display = (k === name) ? 'block' : 'none';
+        
+        if (k === name) {
+            // If showing the game screen, we must override the app's default .content-scroll 
+            // padding/overflow so our internal fixed layout doesn't get pushed off screen.
+            if (name === 'game') {
+                el.style.display = 'flex';
+                el.style.flexDirection = 'column';
+                el.style.padding = '0';
+                el.style.overflow = 'hidden';
+            } else {
+                el.style.display = 'block';
+                el.style.padding = ''; // restore default
+                el.style.overflow = ''; 
+            }
+        } else {
+            el.style.display = 'none';
+        }
     });
     const hdr = document.getElementById('games-header-title');
     if (hdr) hdr.textContent = _titles[name] || 'NekoNihongo';
