@@ -459,10 +459,10 @@ function _startGameLoop() {
                     if (diffSec > 0 && diffSec <= 10) {
                         wakeupPill.style.display = 'flex';
                         wakeupLabel.textContent = `🐱 ${Math.ceil(diffSec)}s`;
-                        const pct = ((10 - diffSec) / 10) * 100;
+                        const pct = (diffSec / 10) * 100; // full at 10s, empty at 0s
                         wakeupBar.style.width = pct + '%';
-                        // Color shifts: green → orange → red
-                        const hue = Math.round(diffSec * 12); // 120=green at 10s, 0=red at 0s
+                        // Color shifts: green at 10s → red at 0s
+                        const hue = Math.round(diffSec * 12);
                         wakeupBar.style.background = `hsl(${hue}, 80%, 48%)`;
                     } else {
                         wakeupPill.style.display = 'none';
@@ -779,7 +779,7 @@ function _initGameDOM() {
                 <div class="nk-stat-pill">🧶 <span class="nk-val-yarn">0</span></div>
                 <div class="nk-stat-pill nk-bell-color">🔔 <span class="nk-val-bells">0</span></div>
                 <div class="nk-stat-pill nk-spirit-color" id="nk-karma-pill" style="display:${showSpirit?'flex':'none'};">👻 <span class="nk-val-karma">0</span></div>
-                <div class="nk-stat-pill nk-hungry-pill" id="nk-hungry-pill" style="display:none;">🐱 <span class="nk-val-hungry">0</span></div>
+                <div class="nk-stat-pill nk-hungry-pill" id="nk-hungry-pill" style="display:none;">🐱</div>
                 <div class="nk-stat-pill nk-wakeup-pill" id="nk-wakeup-pill" style="display:none;">
                     <span id="nk-wakeup-label">🐱 3s</span>
                     <div class="nk-wakeup-bar-wrap"><div class="nk-wakeup-bar" id="nk-wakeup-bar"></div></div>
@@ -1268,26 +1268,12 @@ function _updateUI() {
             setTxt('#nk-rebirth-btn', `♻+${_calcSpirits()}`);
         }
         if (activeTab.id === 'nk-tab-stats') {
-            // Live-tick the timers inside stats without full re-render
+            // Full re-render once per second so vocab due-times stay live
             const now = Date.now();
-            const nextRevEl = g.querySelector('#nk-stats-next-review');
-            if (nextRevEl) {
-                if (_pendingReviews.length > 0) {
-                    nextRevEl.textContent = 'Now!';
-                } else if (_g.srs.length > 0) {
-                    const nextTime = Math.min(..._g.srs.map(s => s.nextReview));
-                    const diff = (nextTime - now) / 1000;
-                    nextRevEl.textContent = diff <= 0 ? 'Now!' : _formatTime(diff);
-                }
-            }
-            const cdEl = g.querySelector('#nk-stats-cooldown');
-            if (cdEl) {
-                if (_isCooldown) {
-                    const rem = (_cooldownEndTime - now) / 1000;
-                    cdEl.textContent = rem > 0 ? rem.toFixed(1) + 's' : 'Done';
-                } else {
-                    cdEl.textContent = '—';
-                }
+            const lastRender = parseInt(activeTab.dataset.lastRender || '0');
+            if (now - lastRender >= 1000) {
+                activeTab.dataset.lastRender = now;
+                _renderStats();
             }
         }
     }
