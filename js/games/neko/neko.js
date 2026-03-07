@@ -265,7 +265,17 @@ function _getMultiplierBreakdown() {
     const moodMult  = isHappy ? 1.25 : 0.75;
     const comboMult = 1 + Math.log2(1 + _g.combo);
 
-    // ── Idle-specific components ──
+    // ── Idle base (additive upgrades) ──
+    let idleBase = 0;
+    for (const key in _g.upgrades) {
+        if (key !== 'catnip') idleBase += _g.upgrades[key].count * _g.upgrades[key].effect;
+    }
+
+    // ── Click base (additive upgrades) ──
+    let clickBase = 1;
+    for (const key in _g.clickUpgrades) clickBase += _g.clickUpgrades[key].count * _g.clickUpgrades[key].effect;
+
+    // ── Idle-specific multipliers ──
     const catnip  = Math.pow(_g.upgrades.catnip.effect, _g.upgrades.catnip.count);
     const tuna    = Math.pow(_g.bellUpgrades.tuna.effect, _g.bellUpgrades.tuna.count);
     const warp    = Math.pow(_g.bellUpgrades.warp.effect, _g.bellUpgrades.warp.count);
@@ -276,16 +286,16 @@ function _getMultiplierBreakdown() {
         : 1;
     const guide   = Math.pow(_g.rebirthUpgrades.guide.effect, _g.rebirthUpgrades.guide.count);
 
-    // ── Click-specific components ──
+    // ── Click-specific multipliers ──
     const paw = Math.pow(_g.bellUpgrades.paw.effect, _g.bellUpgrades.paw.count);
 
-    const idleTotal  = catnip * tuna * warp * nap * bells * bloom * guide * moodMult * comboMult;
-    const clickTotal = paw * guide * moodMult * comboMult;
+    const idleMultTotal  = catnip * tuna * warp * nap * bells * bloom * guide * moodMult * comboMult;
+    const clickMultTotal = paw * guide * moodMult * comboMult;
 
     return {
         isHappy, moodMult, comboMult,
-        idle:  { catnip, tuna, warp, nap, bells, bloom, guide, total: idleTotal },
-        click: { paw, guide, total: clickTotal },
+        idle:  { base: idleBase,  catnip, tuna, warp, nap, bells, bloom, guide, multTotal: idleMultTotal,  finalFps:   idleBase  * idleMultTotal },
+        click: { base: clickBase, paw, guide,                                   multTotal: clickMultTotal, finalClick: clickBase * clickMultTotal },
     };
 }
 
@@ -567,21 +577,8 @@ function _updateSRSQueue() {
     _pendingReviews = _g.srs.filter(s => _activeIds.has(s.id) && s.nextReview <= now);
 
     const pendingEl  = _screens.game?.querySelector('.nk-pending-count');
-    const buffEl     = _screens.game?.querySelector('.nk-buff-row');
     
     if (pendingEl) pendingEl.textContent = _pendingReviews.length;
-
-    // Happy Cat Buff UI
-    if (buffEl) {
-        const isHappy = _pendingReviews.length === 0;
-        if (isHappy) {
-            buffEl.innerHTML = `<span>✨ Happy Cat:</span><span>+25% Production</span>`;
-            buffEl.style.color = 'var(--nk-success)';
-            buffEl.style.display = 'flex';
-        } else {
-            buffEl.style.display = 'none';
-        }
-    }
 
     const sleepScrn = _screens.game?.querySelector('#nk-dojo-sleep');
     const coolScrn  = _screens.game?.querySelector('#nk-dojo-cooldown');
@@ -734,7 +731,6 @@ function _initGameDOM() {
                 <button id="nk-mult-btn" class="nk-mult-btn" title="Click for multiplier breakdown">×1.00</button>
             </div>
             <div id="nk-mult-popup" class="nk-mult-popup" style="display:none;"></div>
-            <div class="nk-buff-row" style="display:none;"></div>
         </div>
     </div>
 
@@ -1079,18 +1075,24 @@ function _renderMultiplierPopup() {
     const b = _getMultiplierBreakdown();
     const fmt = v => v.toFixed(2);
 
+    const fmtN = v => Math.floor(v).toLocaleString();
     const row = (label, val, color = '') => {
         if (val === 1) return ''; // skip trivial ×1.00 rows
         const style = color ? `style="color:${color};"` : '';
         return `<div class="nk-mp-row" ${style}><span>${label}</span><span>×${fmt(val)}</span></div>`;
     };
+    const baseRow = (label, val) =>
+        `<div class="nk-mp-row nk-mp-base"><span>${label}</span><span>${fmtN(val)}</span></div>`;
+    const totalRow = (label, val) =>
+        `<div class="nk-mp-row nk-mp-final"><span>${label}</span><span>${fmtN(val)}</span></div>`;
 
     const happyLabel = b.isHappy ? '✨ Happy Bonus' : '😾 Hungry Penalty';
     const happyColor = b.isHappy ? 'var(--nk-success)' : '#e17055';
 
     popup.innerHTML = `
         <div class="nk-mp-section">
-            <div class="nk-mp-title">🐟 Total Idle  <span class="nk-mp-total">×${fmt(b.idle.total)}</span></div>
+            <div class="nk-mp-title">🐟 Idle Production</div>
+            ${baseRow('🏗️ Upgrades (base /s)', b.idle.base)}
             ${row(happyLabel,    b.moodMult,    happyColor)}
             ${row('🔥 Combo (' + _g.combo.toFixed(1) + ')', b.comboMult, '#e17055')}
             ${row('🌿 Catnip',   b.idle.catnip)}
@@ -1100,13 +1102,16 @@ function _renderMultiplierPopup() {
             ${row('🔔 Bells',    b.idle.bells)}
             ${row('🌸 Bloom',    b.idle.bloom)}
             ${row('👻 Guide',    b.idle.guide)}
+            ${totalRow('= Total /s', b.idle.finalFps)}
         </div>
         <div class="nk-mp-section" style="margin-top:8px;">
-            <div class="nk-mp-title">👆 Total Click <span class="nk-mp-total">×${fmt(b.click.total)}</span></div>
+            <div class="nk-mp-title">👆 Click Power</div>
+            ${baseRow('🛠️ Upgrades (base /click)', b.click.base)}
             ${row(happyLabel,    b.moodMult,    happyColor)}
             ${row('🔥 Combo (' + _g.combo.toFixed(1) + ')', b.comboMult, '#e17055')}
             ${row('🐾 Paw Bell', b.click.paw)}
             ${row('👻 Guide',    b.click.guide)}
+            ${totalRow('= Total /click', b.click.finalClick)}
         </div>
     `;
 }
@@ -1132,7 +1137,7 @@ function _updateUI() {
     if (multBtn) {
         const b = _getMultiplierBreakdown();
         const isHappy = b.isHappy;
-        multBtn.textContent = `×${b.idle.total.toFixed(2)}`;
+        multBtn.textContent = `×${b.idle.multTotal.toFixed(2)}`;
         multBtn.style.color = isHappy ? 'var(--nk-success)' : '#e17055';
         multBtn.style.borderColor = isHappy ? 'var(--nk-success)' : '#e17055';
         // If popup is open, keep it live
@@ -1428,6 +1433,22 @@ function _toast(msg, color = '#333') {
     padding: 1px 4px;
     color: #666;
 }
+.nk-mp-base {
+    color: #888;
+    font-style: italic;
+    border-bottom: 1px dashed rgba(0,0,0,0.08);
+    margin-bottom: 2px;
+    padding-bottom: 3px;
+}
+.nk-mp-final {
+    font-weight: bold;
+    color: var(--nk-btn);
+    border-top: 1px solid rgba(0,0,0,0.1);
+    margin-top: 2px;
+    padding-top: 3px;
+}
+[data-theme="dark"] .nk-mp-base  { color: #a08060; border-bottom-color: #5a3e2b; }
+[data-theme="dark"] .nk-mp-final { border-top-color: #5a3e2b; }
 [data-theme="dark"] .nk-mult-popup {
     background: #3d2b1a; border-color: #5a3e2b; color: #f0d9c0;
 }
@@ -1435,11 +1456,7 @@ function _toast(msg, color = '#333') {
 [data-theme="dark"] .nk-mp-title { border-bottom-color: #5a3e2b; }
 .nk-bell-color { color: #b8860b; }
 .nk-spirit-color { color: #a55eea; }
-.nk-buff-row {
-    width: 100%; justify-content: flex-start; gap:8px;
-    margin-top:2px; font-weight:bold; font-size:11px;
-    align-items: center;
-}
+
 
 /* Nav Bar (Tabs) - Moved to Top below Stats */
 .nk-tab-bar {
