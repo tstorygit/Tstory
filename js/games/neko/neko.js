@@ -119,20 +119,20 @@ function _startGame() {
 const _defaultIdleUpgrades = () => ({
     // Each tier costs ~100× its own effect in fish (payoff ~100s at base rate)
     // Level scaling ×1.18 per purchase keeps curves tight
-    box:       { name: 'Cardboard Box',    desc: '+1 Fish/sec',        cost: 80,          costYarn: 0,     count: 0, effect: 1 },
-    toy:       { name: 'Feather Wand',     desc: '+4 Fish/sec',        cost: 500,         costYarn: 0,     count: 0, effect: 4 },
-    tree:      { name: 'Cat Tree',         desc: '+15 Fish/sec',       cost: 2500,        costYarn: 0,     count: 0, effect: 15 },
-    castle:    { name: 'Cardboard Castle', desc: '+60 Fish/sec',       cost: 12000,       costYarn: 3,     count: 0, effect: 60 },
-    cafe:      { name: 'Cat Cafe',         desc: '+250 Fish/sec',      cost: 60000,       costYarn: 8,     count: 0, effect: 250 },
-    shrine:    { name: 'Cat Shrine',       desc: '+1,000 Fish/sec',    cost: 400000,      costYarn: 30,    count: 0, effect: 1000 },
-    cyber:     { name: 'Cyber-Neko',       desc: '+4,000 Fish/sec',    cost: 2000000,     costYarn: 100,   count: 0, effect: 4000 },
-    cloud:     { name: 'Cloud Condo',      desc: '+16,000 Fish/sec',   cost: 10000000,    costYarn: 300,   count: 0, effect: 16000 },
-    moon:      { name: 'Moon Base',        desc: '+65,000 Fish/sec',   cost: 50000000,    costYarn: 700,   count: 0, effect: 65000 },
-    station:   { name: 'Space Station',    desc: '+260,000 Fish/sec',  cost: 250000000,   costYarn: 1500,  count: 0, effect: 260000 },
-    galaxy:    { name: 'Cat Galaxy',       desc: '+1M Fish/sec',       cost: 1250000000,  costYarn: 4000,  count: 0, effect: 1000000 },
-    sphere:    { name: 'Dyson Sphere',     desc: '+4M Fish/sec',       cost: 6000000000,  costYarn: 8000,  count: 0, effect: 4000000 },
-    dimension: { name: 'Multiverse Box',   desc: '+16M Fish/sec',      cost: 30000000000, costYarn: 20000, count: 0, effect: 16000000 },
-    catnip:    { name: 'Catnip Garden',    desc: '+8% Idle Multiplier', cost: 8000,        costYarn: 8,     count: 0, effect: 1.08 },
+    box:       { name: 'Cardboard Box',    desc: '+1 Fish/sec',         cost: 80,          costYarn: 0,     count: 0, effect: 1,        vocabReq: 0  },
+    toy:       { name: 'Feather Wand',     desc: '+4 Fish/sec',         cost: 500,         costYarn: 0,     count: 0, effect: 4,        vocabReq: 3  },
+    tree:      { name: 'Cat Tree',         desc: '+15 Fish/sec',        cost: 2500,        costYarn: 0,     count: 0, effect: 15,       vocabReq: 5  },
+    castle:    { name: 'Cardboard Castle', desc: '+60 Fish/sec',        cost: 12000,       costYarn: 3,     count: 0, effect: 60,       vocabReq: 9  },
+    cafe:      { name: 'Cat Cafe',         desc: '+250 Fish/sec',       cost: 60000,       costYarn: 8,     count: 0, effect: 250,      vocabReq: 15 },
+    shrine:    { name: 'Cat Shrine',       desc: '+1,000 Fish/sec',     cost: 400000,      costYarn: 30,    count: 0, effect: 1000,     vocabReq: 22 },
+    cyber:     { name: 'Cyber-Neko',       desc: '+4,000 Fish/sec',     cost: 2000000,     costYarn: 100,   count: 0, effect: 4000,     vocabReq: 30 },
+    cloud:     { name: 'Cloud Condo',      desc: '+16,000 Fish/sec',    cost: 10000000,    costYarn: 300,   count: 0, effect: 16000,    vocabReq: 40 },
+    moon:      { name: 'Moon Base',        desc: '+65,000 Fish/sec',    cost: 50000000,    costYarn: 700,   count: 0, effect: 65000,    vocabReq: 52 },
+    station:   { name: 'Space Station',    desc: '+260,000 Fish/sec',   cost: 250000000,   costYarn: 1500,  count: 0, effect: 260000,   vocabReq: 65 },
+    galaxy:    { name: 'Cat Galaxy',       desc: '+1M Fish/sec',        cost: 1250000000,  costYarn: 4000,  count: 0, effect: 1000000,  vocabReq: 80 },
+    sphere:    { name: 'Dyson Sphere',     desc: '+4M Fish/sec',        cost: 6000000000,  costYarn: 8000,  count: 0, effect: 4000000,  vocabReq: 96 },
+    dimension: { name: 'Multiverse Box',   desc: '+16M Fish/sec',       cost: 30000000000, costYarn: 20000, count: 0, effect: 16000000, vocabReq: 115 },
+    catnip:    { name: 'Catnip Garden',    desc: '+8% Idle Multiplier', cost: 8000,        costYarn: 8,     count: 0, effect: 1.08,     vocabReq: 7  },
 });
 
 const _defaultClickUpgrades = () => ({
@@ -168,7 +168,7 @@ const _defaultBellUpgrades = () => ({
 const _defaultRebirthUpgrades = () => ({
     eternal:     { name: 'Eternal Wealth',   desc: 'Keep 5% Fish/Yarn on Ascend',   cost: 1,  count: 0, effect: 0.05 },
     wisdom:      { name: 'Divine Wisdom',    desc: '-20% Word Learn Cost',           cost: 3,  count: 0, effect: 0.8 },
-    bloom:       { name: 'Spirit Bloom',     desc: '+5% Prod per Word Learned',      cost: 5,  count: 0, effect: 0.05 },
+    bloom:       { name: 'Spirit Bloom',     desc: 'Word bonus: 2%→5%, +3%/lvl',    cost: 5,  count: 0, effect: 0.05 },
     weaver_soul: { name: 'Soul Weaver',      desc: 'Triple Yarn Gain (Passive)',     cost: 8,  count: 0, effect: 3 },
     starter:     { name: 'Ancestral Start',  desc: 'Start Ascend w/ 10 Boxes',      cost: 10, count: 0, effect: 10 },
     guide:       { name: 'Spirit Guide',     desc: 'Global x2.5 Multiplier',         cost: 15, count: 0, effect: 2.5 },
@@ -256,9 +256,10 @@ function _getFishPerSec() {
     m *= Math.pow(_g.bellUpgrades.nap.effect, _g.bellUpgrades.nap.count);
     m *= (1 + (_g.bells * 0.05)); // +5% prod per bell (was 10%)
     
-    if (_g.rebirthUpgrades.bloom.count > 0) {
-        m *= Math.pow(1 + (_g.srs.length * _g.rebirthUpgrades.bloom.effect), _g.rebirthUpgrades.bloom.count);
-    }
+    // ── Word Bonus: always-on 2%/word, bloom upgrades it ──
+    const bloomLvl = _g.rebirthUpgrades.bloom.count;
+    const wordPct  = bloomLvl === 0 ? 0.02 : 0.05 + (bloomLvl - 1) * 0.03;
+    m *= (1 + _g.srs.length * wordPct);
     m *= Math.pow(_g.rebirthUpgrades.guide.effect, _g.rebirthUpgrades.guide.count);
 
     // ── Happy Cat Logic ──
@@ -311,9 +312,9 @@ function _getMultiplierBreakdown() {
     const warp    = Math.pow(_g.bellUpgrades.warp.effect, _g.bellUpgrades.warp.count);
     const nap     = Math.pow(_g.bellUpgrades.nap.effect, _g.bellUpgrades.nap.count);
     const bells   = 1 + (_g.bells * 0.05);
-    const bloom   = _g.rebirthUpgrades.bloom.count > 0
-        ? Math.pow(1 + (_g.srs.length * _g.rebirthUpgrades.bloom.effect), _g.rebirthUpgrades.bloom.count)
-        : 1;
+    const bloomLvl = _g.rebirthUpgrades.bloom.count;
+    const wordPct  = bloomLvl === 0 ? 0.02 : 0.05 + (bloomLvl - 1) * 0.03;
+    const bloom    = 1 + _g.srs.length * wordPct;
     const guide   = Math.pow(_g.rebirthUpgrades.guide.effect, _g.rebirthUpgrades.guide.count);
 
     // ── Click-specific multipliers ──
@@ -323,7 +324,7 @@ function _getMultiplierBreakdown() {
     const clickMultTotal = paw * guide * moodMult * comboMult;
 
     return {
-        isHappy, moodMult, comboMult,
+        isHappy, moodMult, comboMult, wordPct,
         idle:  { base: idleBase,  catnip, tuna, warp, nap, bells, bloom, guide, multTotal: idleMultTotal,  finalFps:   idleBase  * idleMultTotal },
         click: { base: clickBase, paw, guide,                                   multTotal: clickMultTotal, finalClick: clickBase * clickMultTotal },
     };
@@ -539,6 +540,11 @@ function _buyUpgrade(shopType, key) {
     } else {
         const discount = Math.pow(_g.bellUpgrades.discount.effect, _g.bellUpgrades.discount.count);
         const costFish = Math.floor(upg.cost * Math.pow(1.18, upg.count) * discount);
+        const vocabReq = upg.vocabReq || 0;
+        if (_g.srs.length < vocabReq) {
+            _toast(`Needs ${vocabReq} words learned (have ${_g.srs.length})`, '#e17055');
+            return;
+        }
         if (_g.fish >= costFish && _g.yarn >= upg.costYarn) {
             _g.fish -= costFish;
             _g.yarn -= upg.costYarn;
@@ -1005,13 +1011,18 @@ function _renderShop(shopKey, containerId, prefix, isBell, isRebirth) {
     container.innerHTML = '';
     for (const key in _g[shopKey]) {
         const upg = _g[shopKey][key];
+        const vocabReq = upg.vocabReq || 0;
+        const vocabNote = (shopKey === 'upgrades' && vocabReq > 0)
+            ? `<span class="nk-upg-vocab" id="nk-vocab-${prefix}-${key}">📚 ${vocabReq} words</span>`
+            : '';
         const div = document.createElement('div');
         div.className = 'nk-upgrade' + (isBell ? ' nk-upg-bell' : isRebirth ? ' nk-upg-rebirth' : '');
+        div.id = `nk-upg-${prefix}-${key}`;
         div.innerHTML = `
             <div class="nk-upg-info">
                 <strong>${upg.name}</strong>
                 <span class="nk-upg-lvl" id="nk-lvl-${prefix}-${key}">(Lvl ${upg.count})</span><br>
-                <small>${upg.desc}</small>
+                <small>${upg.desc}</small>${vocabNote}
             </div>
             <button class="nk-upg-btn" id="nk-btn-${prefix}-${key}">Buy</button>`;
         div.querySelector('.nk-upg-btn').addEventListener('click', () => _buyUpgrade(shopKey, key));
@@ -1214,7 +1225,7 @@ function _renderMultiplierPopup() {
             ${row('⏩ Time Warp', b.idle.warp)}
             ${row('😴 Cat Nap',  b.idle.nap)}
             ${row('🔔 Bells',    b.idle.bells)}
-            ${row('🌸 Bloom',    b.idle.bloom)}
+            ${row(`📚 Words (${_g.srs.length}×${(b.wordPct*100).toFixed(0)}%)`, b.idle.bloom)}
             ${row('👻 Guide',    b.idle.guide)}
             ${totalRow('= Total /s', b.idle.finalFps)}
         </div>
@@ -1344,15 +1355,31 @@ function _updateUI() {
 function _updateShopBtns(shopKey, prefix) {
     const g        = _screens.game;
     const discount = Math.pow(_g.bellUpgrades.discount.effect, _g.bellUpgrades.discount.count);
+    const learnedCount = _g.srs.length;
     for (const key in _g[shopKey]) {
-        const upg      = _g[shopKey][key];
-        const costFish = Math.floor(upg.cost * Math.pow(1.15, upg.count) * discount);
-        const btn      = g?.querySelector(`#nk-btn-${prefix}-${key}`);
-        const lvl      = g?.querySelector(`#nk-lvl-${prefix}-${key}`);
+        const upg       = _g[shopKey][key];
+        const costFish  = Math.floor(upg.cost * Math.pow(1.15, upg.count) * discount);
+        const btn       = g?.querySelector(`#nk-btn-${prefix}-${key}`);
+        const lvl       = g?.querySelector(`#nk-lvl-${prefix}-${key}`);
+        const vocabNote = g?.querySelector(`#nk-vocab-${prefix}-${key}`);
+        const card      = g?.querySelector(`#nk-upg-${prefix}-${key}`);
+        const vocabReq  = upg.vocabReq || 0;
+        const vocabLocked = learnedCount < vocabReq;
+
         if (lvl) lvl.textContent = `(Lvl ${upg.count})`;
+        if (vocabNote) {
+            vocabNote.textContent = `📚 ${vocabReq} words`;
+            vocabNote.style.color = vocabLocked ? '#e17055' : 'var(--nk-success)';
+        }
+        if (card) card.style.opacity = vocabLocked ? '0.5' : '1';
         if (btn) {
-            btn.textContent = `${_fmtN(costFish)}🐟${upg.costYarn > 0 ? ` ${upg.costYarn}🧶` : ''}`;
-            btn.disabled    = (_g.fish < costFish || _g.yarn < upg.costYarn);
+            if (vocabLocked) {
+                btn.textContent = `🔒 ${vocabReq}w`;
+                btn.disabled    = true;
+            } else {
+                btn.textContent = `${_fmtN(costFish)}🐟${upg.costYarn > 0 ? ` ${upg.costYarn}🧶` : ''}`;
+                btn.disabled    = (_g.fish < costFish || _g.yarn < upg.costYarn);
+            }
         }
     }
 }
@@ -1649,6 +1676,10 @@ function _toast(msg, color = '#333') {
 }
 .nk-upg-info { flex: 1; padding-right: 8px; font-size: 13px; }
 .nk-upg-lvl  { font-size: 11px; opacity: 0.6; }
+.nk-upg-vocab {
+    display: inline-block; font-size: 10px; font-weight: bold;
+    margin-left: 5px; opacity: 0.8;
+}
 .nk-upg-btn {
     background: var(--nk-btn); border: none; padding: 8px 10px; border-radius: 6px;
     color: white; font-weight: bold; min-width: 80px; font-size: 12px; cursor: pointer;
