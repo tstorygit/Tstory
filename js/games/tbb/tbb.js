@@ -212,34 +212,34 @@ function _spawnEnemyAndBegin() {
     const playerFirst = _g.playerSpd >= _g.enemy.spd;
     _g.phase = playerFirst ? 'player_attack' : 'player_defense';
 
-    // Show floor action narrative overlay before starting combat
-    _showFloorActionOverlay(() => {
+    // Show floor landing screen — player must press a button to act or fight
+    _showFloorLandingOverlay(() => {
         _g.narration = `${_g.enemy.emoji} ${_g.enemy.name} appears! (Lv.${_g.enemy.level})`;
         _prepareChallenge();
         _renderAll();
     });
 }
 
-function _showFloorActionOverlay(onDismiss) {
-    const fd    = getFloorData(_g.currentFloor);
-    const done  = !!_g.floorActionsDone[_g.currentFloor];
-    const isUnlockEffect = fd.effectKey.startsWith('unlock_');
+function _showFloorLandingOverlay(onDismiss) {
+    const fd   = getFloorData(_g.currentFloor);
+    const done = !!_g.floorActionsDone[_g.currentFloor];
+    const isUnlockEffect  = fd.effectKey.startsWith('unlock_');
     const alreadyUnlocked = isUnlockEffect && !!_g.unlockedFeatures[fd.effectKey];
-    const showRepeat = done || alreadyUnlocked;
+    const showRepeat      = done || alreadyUnlocked;
 
     _showOverlay(`
         <div class="tbb-dialog tbb-floor-dialog">
             <div class="tbb-dialog-title">${fd.title}</div>
             <div class="tbb-floor-desc">${fd.description}</div>
             ${showRepeat ? `<div class="tbb-floor-repeat">${fd.repeatText}</div>` : ''}
+            <div class="tbb-floor-result" id="tbb-floor-result" style="display:none"></div>
             <div class="tbb-dialog-actions">
                 ${!showRepeat
                     ? `<button class="tbb-dialog-btn tbb-dialog-btn-primary" id="tbb-floor-act-btn">${fd.action}</button>`
-                    : `<button class="tbb-dialog-btn tbb-dialog-btn-secondary" id="tbb-floor-act-btn">${fd.action}</button>`
+                    : `<button class="tbb-dialog-btn tbb-dialog-btn-secondary" id="tbb-floor-act-btn" disabled>${fd.action}</button>`
                 }
-                <button class="tbb-dialog-btn" id="tbb-floor-skip-btn">⚔️ Skip — Fight!</button>
+                <button class="tbb-dialog-btn" id="tbb-floor-skip-btn">⚔️ Fight!</button>
             </div>
-            <div class="tbb-floor-result" id="tbb-floor-result" style="display:none"></div>
         </div>
     `);
 
@@ -248,25 +248,24 @@ function _showFloorActionOverlay(onDismiss) {
         onDismiss();
     });
 
-    _dom.overlay.querySelector('#tbb-floor-act-btn').addEventListener('click', () => {
-        const resultEl = _dom.overlay.querySelector('#tbb-floor-result');
-        const actBtn   = _dom.overlay.querySelector('#tbb-floor-act-btn');
-        const skipBtn  = _dom.overlay.querySelector('#tbb-floor-skip-btn');
+    if (!showRepeat) {
+        _dom.overlay.querySelector('#tbb-floor-act-btn').addEventListener('click', () => {
+            const resultEl = _dom.overlay.querySelector('#tbb-floor-result');
+            const actBtn   = _dom.overlay.querySelector('#tbb-floor-act-btn');
+            const skipBtn  = _dom.overlay.querySelector('#tbb-floor-skip-btn');
 
-        const msg = showRepeat
-            ? fd.repeatText
-            : _executeFloorEffect(fd.effectKey, _g.currentFloor);
+            const msg = _executeFloorEffect(fd.effectKey, _g.currentFloor);
+            resultEl.textContent = msg;
+            resultEl.style.display = 'block';
+            actBtn.disabled = true;
+            actBtn.textContent = '✓ Done';
+            skipBtn.textContent = '⚔️ Continue to Battle';
 
-        resultEl.textContent = msg;
-        resultEl.style.display = 'block';
-        actBtn.disabled  = true;
-        actBtn.textContent = '✓ Done';
-        skipBtn.textContent = '⚔️ Continue to Battle';
-
-        _updateHpBars();
-        _updateExpBar();
-        _updateStats();
-    });
+            _updateHpBars();
+            _updateExpBar();
+            _updateStats();
+        });
+    }
 }
 
 // ─── Floor Effect Execution ───────────────────────────────────────────────────
@@ -355,6 +354,70 @@ function _executeFloorEffect(effectKey, floor) {
             _writeSave();
             return result;
         }
+        case 'fishing': {
+            _g.floorActionsDone[_g.currentFloor] = true;
+            const roll = Math.random();
+            let result;
+            if (roll < 0.10) {
+                // Jackpot: stat point
+                _g.statPointsToAllocate++;
+                result = '🎉 A glittering fish pulls free — and a small chest is tangled in the line! Gained 1 Stat Point!';
+            } else if (roll < 0.30) {
+                // Big EXP
+                const xp = Math.max(10, Math.round(_g.expToNext * 0.25));
+                _addExp(xp);
+                result = `🐟 You land a magnificent fish! A wise fisherman nearby offers lore in exchange. +${xp} EXP!`;
+            } else if (roll < 0.55) {
+                // Medium heal
+                const amt = Math.max(1, Math.round(_g.playerHp * 0.35));
+                const prev = _g.currentHp;
+                _g.currentHp = Math.min(_g.playerHp, _g.currentHp + amt);
+                result = `🎣 You catch a plump river fish and cook it over the bank. Restored ${_g.currentHp - prev} HP.`;
+            } else if (roll < 0.75) {
+                // Small EXP
+                const xp = Math.max(5, Math.round(_g.expToNext * 0.08));
+                _addExp(xp);
+                result = `🐠 You catch a strange glowing fish. It wriggles free, but leaves behind a spark of insight. +${xp} EXP.`;
+            } else if (roll < 0.88) {
+                // Small heal
+                const amt = Math.max(1, Math.round(_g.playerHp * 0.12));
+                const prev = _g.currentHp;
+                _g.currentHp = Math.min(_g.playerHp, _g.currentHp + amt);
+                result = `🎣 A small catch — barely enough for a snack. Restored ${_g.currentHp - prev} HP.`;
+            } else {
+                // Bad luck
+                result = '🪝 You sit for a while. Nothing bites. At least it was peaceful.';
+            }
+            _writeSave();
+            return result;
+        }
+        case 'forage': {
+            _g.floorActionsDone[_g.currentFloor] = true;
+            const roll = Math.random();
+            let result;
+            if (roll < 0.15) {
+                _g.statPointsToAllocate++;
+                result = '🍀 Among the plants you find a four-leafed clover crackling with energy. Gained 1 Stat Point!';
+            } else if (roll < 0.45) {
+                const amt = Math.max(1, Math.round(_g.playerHp * 0.30));
+                const prev = _g.currentHp;
+                _g.currentHp = Math.min(_g.playerHp, _g.currentHp + amt);
+                result = `🌿 You find healing herbs and brew a quick tea. Restored ${_g.currentHp - prev} HP.`;
+            } else if (roll < 0.70) {
+                const xp = Math.max(5, Math.round(_g.expToNext * 0.12));
+                _addExp(xp);
+                result = `🍄 A rare mushroom with memory-enhancing spores. You feel sharper. +${xp} EXP.`;
+            } else if (roll < 0.88) {
+                const amt = Math.max(1, Math.round(_g.playerHp * 0.10));
+                const prev = _g.currentHp;
+                _g.currentHp = Math.min(_g.playerHp, _g.currentHp + amt);
+                result = `🫐 You find a handful of wild berries. Tart but nutritious. +${_g.currentHp - prev} HP.`;
+            } else {
+                result = '🍂 You find mostly dead leaves and thorns. Nothing useful this time.';
+            }
+            _writeSave();
+            return result;
+        }
         case 'unlock_floor_jump': {
             if (_g.unlockedFeatures['unlock_floor_jump']) {
                 return 'The map is familiar. Floor jumping was already enabled.';
@@ -393,6 +456,11 @@ function _prepareChallenge() {
     _g.answerDisabled = false;
     _g.answerTimeLeft = 1.0;
     _startAnswerTimer();
+}
+
+function _calcAnswerSecs() {
+    const pb = _g._pb ?? {};
+    return Math.max(MIN_ANSWER_SECS, BASE_ANSWER_SECS + (pb.answerTimeSecs ?? 0));
 }
 
 function _startAnswerTimer() {
