@@ -135,7 +135,7 @@ export function mountVocabSelector(screenEl, opts = {}) {
         bannedKey       = 'vocab_selector_banned',
         showCountPicker = true,
         defaultCounts   = [10, 20, 50, 100, 'All'],
-        defaultCount    = 20,
+        defaultCount    = 'All',
         title           = 'Setup',
     } = opts;
 
@@ -230,13 +230,13 @@ function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, 
                 <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
                     <label style="font-size:13px;color:var(--text-muted);">From</label>
                     <input type="number" class="vs-range-low"
-                           min="1" max="${wordList.length}" value="1"
+                           min="1" max="${wordList.length}" value="901"
                            style="width:70px;padding:5px 8px;border:1px solid var(--border-color);
                                   border-radius:6px;background:var(--bg-color);
                                   color:var(--text-color);font-size:14px;text-align:center;">
                     <label style="font-size:13px;color:var(--text-muted);">to</label>
                     <input type="number" class="vs-range-high"
-                           min="1" max="${wordList.length}" value="${wordList.length}"
+                           min="1" max="${wordList.length}" value="1000"
                            style="width:70px;padding:5px 8px;border:1px solid var(--border-color);
                                   border-radius:6px;background:var(--bg-color);
                                   color:var(--text-color);font-size:14px;text-align:center;">
