@@ -35,6 +35,11 @@ export function launch() {
 }
 
 function _show(viewName) {
+    // CRITICAL FIX: Ensure the outer wrapper is visible
+    if (_screens && _screens.setup) {
+        _screens.setup.style.display = 'block';
+    }
+
     _viewSetup.style.display = viewName === 'setup' ? 'block' : 'none';
     _viewGame.style.display = viewName === 'game' ? 'flex' : 'none';
     
