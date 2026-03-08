@@ -7,6 +7,7 @@ let _screens = null;
 let _onExit  = null;
 let _selector = null;
 let _vocabQueue = []; // words from vocab_selector: { word, furi, trans, status }
+let _STARTER_COUNT = 3; // set from queue size on first launch; used on full wipe
 
 const SAVE_KEY = 'neko_nihongo_save';
 const BANNED_KEY = 'neko_banned_words';
@@ -61,7 +62,7 @@ function _renderSetup() {
 
     _selector = mountVocabSelector(el, {
         bannedKey:    BANNED_KEY,
-        defaultCount: 'All',
+        defaultCount: 20,
         title:        'NekoNihongo — Choose Vocabulary',
     });
 
@@ -95,6 +96,7 @@ function _startGame() {
     }));
 
     _show('game');
+    _STARTER_COUNT = _vocabQueue.length; // capture before _loadGame so wipe can restore same amount
     _loadGame();
 
     // ── Vocab slot logic (Option B) ──────────────────────────────────────────
@@ -115,13 +117,14 @@ function _startGame() {
         _g.srs.push({ id: w.id, nextReview: Date.now(), interval: 8, ease: 1.5 });
     }
 
-    // Give 3 free starter words on a brand-new save
-    if (_g.srs.length === 0 && _vocabQueue.length >= 3) {
-        for (let i = 0; i < 3; i++) {
+    // Give starter words on a brand-new save — count matches queue size at launch
+    const _starterCount = Math.min(_STARTER_COUNT, _vocabQueue.length);
+    if (_g.srs.length === 0 && _starterCount > 0) {
+        for (let i = 0; i < _starterCount; i++) {
             const w = _vocabQueue[i];
             _g.srs.push({ id: w.id, kanji: w.kanji, kana: w.kana, eng: w.eng, nextReview: Date.now(), interval: 8, ease: 1.5 });
         }
-        _g.stats.wordsLearned += 3;
+        _g.stats.wordsLearned += _starterCount;
     }
 
     _initGameDOM(); 
@@ -1061,6 +1064,13 @@ function _initGameDOM() {
         if (!confirm('Delete EVERYTHING including vocabulary progress? This cannot be undone.')) return;
         localStorage.removeItem(SAVE_KEY);
         _g = _freshGame();
+        // Re-add the same number of starter words the player launched with
+        const starterCount = Math.min(_STARTER_COUNT, _vocabQueue.length);
+        for (let i = 0; i < starterCount; i++) {
+            const w = _vocabQueue[i];
+            _g.srs.push({ id: w.id, kanji: w.kanji, kana: w.kana, eng: w.eng, nextReview: Date.now(), interval: 8, ease: 1.5 });
+        }
+        _g.stats.wordsLearned += starterCount;
         _saveGame();
         el.querySelector('#nk-wipe-overlay').style.display = 'none';
         _initShops();
