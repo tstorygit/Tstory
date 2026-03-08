@@ -494,9 +494,17 @@ function _loadGame() {
         _g.combo = p.combo || 0;
         _g.srs   = p.srs   || [];
         _g.pauseTime  = p.pauseTime  || 0;
-        // If app was closed while paused, keep accumulated pause time but treat as unpaused on reload
-        _g.pauseStart = null;
-        _g._autoPaused = false;
+        // Restore pause state: if was paused when closed, stay paused on reload.
+        // We accumulate the time spent closed into pauseTime so the game clock
+        // doesn't drift, then leave pauseStart set so the game resumes paused.
+        if (p.pauseStart !== null && p.pauseStart !== undefined) {
+            // Was paused when closed — keep it paused (player must manually resume)
+            _g.pauseStart  = Date.now(); // fresh start timestamp, pause continues
+            _g._autoPaused = false;      // manual pause, not auto
+        } else {
+            _g.pauseStart  = null;
+            _g._autoPaused = false;
+        }
         
         if (p.stats) _g.stats = { ..._g.stats, ...p.stats };
 
@@ -973,17 +981,18 @@ function _initGameDOM() {
     <div class="nk-stats-header">
         <div id="nk-cat" class="nk-header-cat">🐱</div>
         <div class="nk-stats-wrapper">
+            <!-- Row 1: resource pills, fixed width so nothing jumps -->
             <div class="nk-stat-row-top">
                 <div class="nk-stat-pill">🐟 <span class="nk-val-fish">0</span></div>
                 <div class="nk-stat-pill">🧶 <span class="nk-val-yarn">0</span></div>
                 <div class="nk-stat-pill nk-bell-color">🔔 <span class="nk-val-bells">0</span></div>
                 <div class="nk-stat-pill nk-spirit-color" id="nk-karma-pill" style="display:${showSpirit?'flex':'none'};">👻 <span class="nk-val-karma">0</span></div>
-                <div class="nk-stat-pill nk-hungry-pill" id="nk-hungry-pill" style="display:none;">🐱</div>
                 <div class="nk-stat-pill nk-wakeup-pill" id="nk-wakeup-pill" style="display:none;">
                     <span id="nk-wakeup-label">🐱 3s</span>
                     <div class="nk-wakeup-bar-wrap"><div class="nk-wakeup-bar" id="nk-wakeup-bar"></div></div>
                 </div>
             </div>
+            <!-- Row 2 (sub-line): /s · /cl · 📚 · 🔥 · ×mult · 🐱hungry -->
             <div class="nk-stat-sub">
                 <span class="nk-val-fps">0</span>/s
                 <span class="nk-stat-sep">·</span>
@@ -991,9 +1000,10 @@ function _initGameDOM() {
                 <span class="nk-stat-sep">·</span>
                 📚<span class="nk-val-wordcount">0</span>
                 <span class="nk-stat-sep">·</span>
-                🔥<span class="nk-val-combo" title="Combo: each correct answer builds your combo. Higher combo = more fish production. Wrong answer halves it. Shown as xN on correct answers.">0</span>
+                🔥<span class="nk-val-combo" title="Combo: each correct answer builds your combo. Higher combo = more fish production. Wrong answer halves it.">0</span>
                 <span class="nk-stat-sep">·</span>
                 <button id="nk-mult-btn" class="nk-mult-btn" title="Click for multiplier breakdown">×1.00</button>
+                <span id="nk-hungry-pill" class="nk-hungry-inline" style="display:none;">🐱</span>
             </div>
             <div id="nk-mult-popup" class="nk-mult-popup" style="display:none;"></div>
         </div>
@@ -1571,13 +1581,11 @@ function _updateUI() {
         if (popup && popup.style.display !== 'none') _renderMultiplierPopup();
     }
 
-    // Hungry cats indicator
+    // Hungry cats indicator — inline 🐱 in sub-line
     const hungryCount  = _pendingReviews.length;
     const hungryPill   = g.querySelector('#nk-hungry-pill');
-    const hungryVal    = g.querySelector('.nk-val-hungry');
     const dojoBadge    = g.querySelector('#nk-dojo-badge');
-    if (hungryPill) hungryPill.style.display = hungryCount > 0 ? 'flex' : 'none';
-    if (hungryVal)  hungryVal.textContent    = hungryCount;
+    if (hungryPill) hungryPill.style.display = hungryCount > 0 ? 'inline' : 'none';
     if (dojoBadge) {
         if (hungryCount > 0) {
             dojoBadge.textContent = hungryCount;
@@ -1756,16 +1764,18 @@ function _toast(msg, color = '#333') {
     z-index: 20;
 }
 .nk-topbar-title { font-size: 16px; font-weight: bold; line-height: 1; }
-.nk-topbar-btns  { display: flex; gap: 4px; }
+.nk-topbar-btns  { display: flex; gap: 4px; align-items: center; }
+/* Base: small utility buttons */
 .nk-hbtn {
-    background: var(--nk-btn); border: none; padding: 4px 8px;
+    background: var(--nk-btn); border: none; padding: 4px 7px;
     border-radius: 5px; color: white; cursor: pointer; font-weight: bold; font-size: 11px;
-    min-width: 48px; text-align: center; white-space: nowrap;
+    min-width: 26px; text-align: center; white-space: nowrap;
 }
-.nk-hbtn-gold        { background: var(--nk-gold);   color: #333; }
-.nk-hbtn-spirit      { background: var(--nk-spirit); }
-.nk-hbtn-danger      { background: #888; }
-.nk-hbtn-fmt         { background: #e0e0e0; color: #555; }
+/* Ascend / Rebirth get larger padding and bigger font so counts are readable */
+.nk-hbtn-gold   { background: var(--nk-gold); color: #333; padding: 5px 10px; font-size: 12px; min-width: 56px; }
+.nk-hbtn-spirit { background: var(--nk-spirit);             padding: 5px 10px; font-size: 12px; min-width: 56px; }
+.nk-hbtn-danger { background: #888; }
+.nk-hbtn-fmt    { background: #e0e0e0; color: #555; }
 
 /* Wakeup countdown pill */
 .nk-wakeup-pill {
@@ -1825,6 +1835,7 @@ function _toast(msg, color = '#333') {
     display: flex;
     gap: 4px;
     flex-wrap: wrap;
+    align-items: center;
 }
 .nk-stat-pill {
     background: var(--nk-bg);
@@ -1838,7 +1849,9 @@ function _toast(msg, color = '#333') {
     white-space: nowrap;
     min-width: 72px;
     justify-content: flex-start;
+    box-sizing: border-box;
 }
+/* Row 2 sub-line: all inline, left-aligned */
 .nk-stat-sub {
     font-size: 10px;
     color: #888;
@@ -1847,24 +1860,32 @@ function _toast(msg, color = '#333') {
     gap: 3px;
     flex-wrap: nowrap;
     white-space: nowrap;
-    overflow: hidden;
-    min-height: 18px;
+    justify-content: flex-start;
+    min-height: 16px;
+    overflow: visible;
 }
-.nk-val-fps   { display: inline-block; min-width: 42px; text-align: right; }
-.nk-val-cpc   { display: inline-block; min-width: 42px; text-align: right; }
-.nk-val-combo { display: inline-block; min-width: 38px; text-align: right; }
+.nk-val-fps   { display: inline-block; min-width: 38px; text-align: right; }
+.nk-val-cpc   { display: inline-block; min-width: 38px; text-align: right; }
+.nk-val-combo { display: inline-block; min-width: 32px; text-align: right; }
+/* Hungry cat inline indicator in sub-line */
+.nk-hungry-inline {
+    color: #e17055;
+    font-size: 13px;
+    animation: nkPulse 1.5s infinite;
+    line-height: 1;
+}
 .nk-stat-sep { opacity: 0.4; }
 .nk-mult-btn {
     font-size: 10px;
     font-weight: bold;
     background: none;
-    border: 1px solid #888;
+    border: 1px solid #aaa;
     border-radius: 6px;
     padding: 1px 4px;
     cursor: pointer;
     color: #888;
     line-height: 1.3;
-    flex-shrink: 0;
+    white-space: nowrap;
     transition: color 0.2s, border-color 0.2s;
 }
 .nk-mult-btn:hover { opacity: 0.8; }
@@ -2115,8 +2136,6 @@ function _toast(msg, color = '#333') {
 .nk-quiz-correct { background: var(--nk-success) !important; color: white !important; border-color: var(--nk-success) !important; }
 .nk-quiz-wrong { background: #ff4b4b !important; color: white !important; border-color: #ff4b4b !important; }
 
-/* Hungry cats indicator pill */
-.nk-hungry-pill { background: #fff0f0 !important; color: #e17055 !important; border: 1px solid #fab1a0 !important; font-weight: bold; animation: nkPulse 2s infinite; }
 /* Dojo tab badge */
 .nk-dojo-badge {
     display: inline-block; background: #e17055; color: white;
