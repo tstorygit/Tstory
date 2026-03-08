@@ -11,9 +11,16 @@ let _viewSetup, _viewGame, _viewShop;
 
 export function init(screens, onExit) {
     const root = screens.setup; 
+    
+    // CRITICAL FIX: Force the root container to take full width and height
+    root.style.width = '100%';
+    root.style.height = '100%';
+    root.style.display = 'flex';
+    root.style.flexDirection = 'column';
+
     root.innerHTML = `
-        <div id="mem-container-setup"></div>
-        <div id="mem-container-game" style="display:none; height:100%; flex-direction:column;"></div>
+        <div id="mem-container-setup" style="width: 100%; flex: 1; overflow-y: auto;"></div>
+        <div id="mem-container-game" style="display:none; width: 100%; height: 100%; flex-direction: column; flex: 1; overflow: hidden;"></div>
         <div id="mem-container-shop" class="mem-shop-overlay" style="display:none;"></div>
     `;
 
@@ -35,9 +42,8 @@ export function launch() {
 }
 
 function _show(viewName) {
-    // CRITICAL FIX: Ensure the outer wrapper is visible
     if (_screens && _screens.setup) {
-        _screens.setup.style.display = 'block';
+        _screens.setup.style.display = 'flex';
     }
 
     _viewSetup.style.display = viewName === 'setup' ? 'block' : 'none';
