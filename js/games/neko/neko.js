@@ -1764,16 +1764,18 @@ function _toast(msg, color = '#333') {
     z-index: 20;
 }
 .nk-topbar-title { font-size: 16px; font-weight: bold; line-height: 1; }
-.nk-topbar-btns  { display: flex; gap: 4px; align-items: center; }
-/* Base: small utility buttons */
+.nk-topbar-btns  { display: flex; gap: 4px; align-items: stretch; }
+/* All buttons same height via consistent line-height + padding */
 .nk-hbtn {
-    background: var(--nk-btn); border: none; padding: 4px 7px;
+    background: var(--nk-btn); border: none;
+    height: 28px; padding: 0 7px;
     border-radius: 5px; color: white; cursor: pointer; font-weight: bold; font-size: 11px;
     min-width: 26px; text-align: center; white-space: nowrap;
+    display: inline-flex; align-items: center; justify-content: center;
 }
-/* Ascend / Rebirth get larger padding and bigger font so counts are readable */
-.nk-hbtn-gold   { background: var(--nk-gold); color: #333; padding: 5px 10px; font-size: 12px; min-width: 56px; }
-.nk-hbtn-spirit { background: var(--nk-spirit);             padding: 5px 10px; font-size: 12px; min-width: 56px; }
+/* Ascend / Rebirth: same height, just wider and different colour */
+.nk-hbtn-gold   { background: var(--nk-gold); color: #333; padding: 0 10px; font-size: 12px; min-width: 58px; }
+.nk-hbtn-spirit { background: var(--nk-spirit);             padding: 0 10px; font-size: 12px; min-width: 58px; }
 .nk-hbtn-danger { background: #888; }
 .nk-hbtn-fmt    { background: #e0e0e0; color: #555; }
 
@@ -1851,22 +1853,23 @@ function _toast(msg, color = '#333') {
     justify-content: flex-start;
     box-sizing: border-box;
 }
-/* Row 2 sub-line: all inline, left-aligned */
+/* Row 2 sub-line: all inline, left-aligned, natural spacing */
 .nk-stat-sub {
     font-size: 10px;
     color: #888;
     display: flex;
     align-items: center;
-    gap: 3px;
+    gap: 2px;
     flex-wrap: nowrap;
     white-space: nowrap;
     justify-content: flex-start;
     min-height: 16px;
     overflow: visible;
 }
-.nk-val-fps   { display: inline-block; min-width: 38px; text-align: right; }
-.nk-val-cpc   { display: inline-block; min-width: 38px; text-align: right; }
-.nk-val-combo { display: inline-block; min-width: 32px; text-align: right; }
+.nk-val-fps   { display: inline; }
+.nk-val-cpc   { display: inline; }
+.nk-val-combo { display: inline; }
+.nk-stat-sep { opacity: 0.4; }
 /* Hungry cat inline indicator in sub-line */
 .nk-hungry-inline {
     color: #e17055;
@@ -1874,7 +1877,6 @@ function _toast(msg, color = '#333') {
     animation: nkPulse 1.5s infinite;
     line-height: 1;
 }
-.nk-stat-sep { opacity: 0.4; }
 .nk-mult-btn {
     font-size: 10px;
     font-weight: bold;

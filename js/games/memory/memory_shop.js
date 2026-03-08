@@ -69,7 +69,6 @@ function _render() {
 
     _container.innerHTML = html;
 
-    // Attach Listeners
     _container.querySelector('#mem-close-shop').addEventListener('click', closeShop);
     
     _container.querySelectorAll('.mem-btn-buy').forEach(btn => {

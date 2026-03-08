@@ -3,7 +3,7 @@
 let Caro = null;
 let Neko = null;
 let Tbb  = null;
-let Memory = null;
+let memoryModule = null; // Renamed to avoid global object collisions
 
 async function loadCaro() {
     if (Caro) return Caro;
@@ -39,10 +39,11 @@ async function loadTbb() {
 }
 
 async function loadMemory() {
-    if (Memory) return Memory;
+    if (memoryModule) return memoryModule;
     try {
-        Memory = await import('./games/memory/memory.js');
-        return Memory;
+        // Cache buster appended to force the browser to load the newest file
+        memoryModule = await import(`./games/memory/memory.js?v=${Date.now()}`);
+        return memoryModule;
     } catch (e) {
         console.error('[Games] Failed to load Memory module:', e);
         return null;
@@ -152,7 +153,7 @@ function showList() {
     document.getElementById('btn-open-caro').addEventListener('click', async () => {
         const caro = await loadCaro();
         if (!caro) {
-            alert('Could not load the Caro game. Check the browser console for errors (likely a missing data/word_list_1000.js file).');
+            alert('Could not load the Caro game. Check the browser console for errors.');
             return;
         }
         caro.init({
@@ -168,8 +169,8 @@ function showList() {
     // ── Memory Match launch ────────────────────────────────────────────────────
     document.getElementById('btn-open-memory').addEventListener('click', async () => {
         const mem = await loadMemory();
-        if (!mem) {
-            alert('Could not load Memory Match. Check the browser console for errors.');
+        if (!mem || typeof mem.init !== 'function') {
+            alert('Could not load Memory Match. Make sure the file exists and exports "init".');
             return;
         }
         mem.init({ setup: document.getElementById('memory-screen') }, showList);

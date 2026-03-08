@@ -1,100 +1,171 @@
-// memory_setup.js
-import { mountVocabSelector } from '../../vocab_selector.js';
+// memory_board.js
+import { getState, addCoins, getEquippedIcon } from './memory_state.js';
 
 let _container = null;
-let _vocabSelector = null;
-let _onStart = null;
-let _onOpenShop = null;
+let _onQuit = null;
+let _cards = [];
+let _flippedCards = [];
+let _matchedPairs = 0;
+let _combo = 0;
+let _isLocked = false;
+let _sessionCoins = 0;
+let _config = null;
 
-const BANNED_KEY = 'memory_banned_words';
-
-export function initSetup(container, onStartCallback, onOpenShopCallback) {
+export function startBoard(container, validWords, config, onQuitCallback) {
     _container = container;
-    _onStart = onStartCallback;
-    _onOpenShop = onOpenShopCallback;
-    _render();
+    _config = config;
+    _onQuit = onQuitCallback;
+    _flippedCards = [];
+    _matchedPairs = 0;
+    _combo = 0;
+    _isLocked = false;
+    _sessionCoins = 0;
+
+    _generateDeck(validWords);
+    _renderBoard();
 }
 
-function _render() {
-    _vocabSelector = mountVocabSelector(_container, {
-        bannedKey: BANNED_KEY,
-        showCountPicker: false, // We control count via Layout
-        title: 'Memory — Vocabulary'
+function _generateDeck(validWords) {
+    const subset = [...validWords].sort(() => Math.random() - 0.5).slice(0, _config.layout / 2);
+    
+    let rawCards = [];
+    subset.forEach(w => {
+        rawCards.push({ id: w.word, text: w.word, type: 'kanji' });
+        const targetText = _config.mode === 'meaning' ? w.trans : w.furi;
+        rawCards.push({ id: w.word, text: targetText, type: 'target' });
     });
 
-    const actionsEl = _vocabSelector.getActionsEl();
+    _cards = rawCards.sort(() => Math.random() - 0.5).map((c, index) => ({
+        ...c,
+        instanceId: `card_${index}`,
+        isFlipped: false,
+        isMatched: false
+    }));
+}
 
-    const configHtml = document.createElement('div');
-    configHtml.innerHTML = `
-        <div class="mem-setup-box">
-            <label><strong>Game Mode</strong></label>
-            <div class="mem-radio-group" id="mem-mode-group">
-                <label><input type="radio" name="mem_mode" value="meaning" checked> Kanji ↔ Meaning</label>
-                <label><input type="radio" name="mem_mode" value="reading"> Kanji ↔ Reading</label>
-            </div>
-            
-            <label style="margin-top: 15px;"><strong>Layout (Pairs)</strong></label>
-            <div class="mem-radio-group" id="mem-layout-group">
-                <label><input type="radio" name="mem_layout" value="6"> 6 (3x2)</label>
-                <label><input type="radio" name="mem_layout" value="12" checked> 12 (3x4)</label>
-                <label><input type="radio" name="mem_layout" value="16"> 16 (4x4)</label>
-                <label><input type="radio" name="mem_layout" value="20"> 20 (4x5)</label>
-            </div>
+function _renderBoard() {
+    const icon = getEquippedIcon();
+    const state = getState();
 
-            <div id="mem-validation-msg" class="mem-validation-msg">Checking vocabulary...</div>
+    let html = `
+        <div class="mem-board-header">
+            <div>
+                <span class="mem-stat-label">Coins</span>
+                <span class="mem-stat-val" id="mem-hud-coins">🪙 ${state.coins.toLocaleString()}</span>
+            </div>
+            <div>
+                <span class="mem-stat-label">Combo</span>
+                <span class="mem-stat-val mem-combo-text" id="mem-hud-combo">${_combo}x</span>
+            </div>
+            <button class="caro-back-btn" style="width:auto; padding:4px 10px; margin:0;" id="mem-btn-quit">Quit</button>
         </div>
         
-        <div style="display:flex; gap:10px; margin-top: 15px;">
-            <button class="primary-btn" id="mem-btn-start" style="flex:2;">▶ Start Game</button>
-            <button class="primary-btn" id="mem-btn-shop" style="flex:1; background:var(--status-2); color:#333;">🛒 Shop</button>
+        <div class="mem-grid mem-grid-${_config.layout}" id="mem-grid">
+            ${_cards.map(c => `
+                <div class="mem-card" data-instance="${c.instanceId}">
+                    <div class="mem-card-inner">
+                        <div class="mem-face mem-face-down">${icon}</div>
+                        <div class="mem-face mem-face-up">
+                            <span class="${c.type === 'kanji' ? 'mem-text-large' : 'mem-text-small'}">${c.text}</span>
+                        </div>
+                    </div>
+                </div>
+            `).join('')}
+        </div>
+        
+        <div id="mem-victory-overlay" style="display:none;" class="mem-victory-overlay">
+            <div class="mem-victory-box">
+                <h2>🎉 Complete!</h2>
+                <p>You matched all pairs.</p>
+                <div class="mem-victory-coins">Earned: +<span id="mem-victory-earned">0</span> 🪙</div>
+                <button class="primary-btn" id="mem-btn-finish" style="margin-top:15px;">Return</button>
+            </div>
         </div>
     `;
 
-    actionsEl.appendChild(configHtml);
+    _container.innerHTML = html;
 
-    // Listeners
-    _container.addEventListener('change', validate);
-    _container.querySelector('#mem-btn-start').addEventListener('click', () => {
-        const config = _getConfig();
-        const validWords = _getValidWords(config.mode);
-        _onStart(validWords, config);
-    });
-    _container.querySelector('#mem-btn-shop').addEventListener('click', _onOpenShop);
-
-    validate(); // Initial check
-}
-
-function _getConfig() {
-    return {
-        mode: _container.querySelector('input[name="mem_mode"]:checked').value,
-        layout: parseInt(_container.querySelector('input[name="mem_layout"]:checked').value)
-    };
-}
-
-function _getValidWords(mode) {
-    const queue = _vocabSelector.getQueue();
-    if (mode === 'reading') {
-        // Exclude words where reading is identical to kanji or missing
-        return queue.filter(w => w.furi && w.furi !== w.word);
-    }
-    return queue.filter(w => w.trans && w.trans.trim() !== '');
-}
-
-function validate() {
-    const config = _getConfig();
-    const validWords = _getValidWords(config.mode);
-    const requiredPairs = config.layout / 2;
+    _container.querySelector('#mem-btn-quit').addEventListener('click', _onQuit);
     
-    const msgEl = _container.querySelector('#mem-validation-msg');
-    const startBtn = _container.querySelector('#mem-btn-start');
+    _container.querySelectorAll('.mem-card').forEach(el => {
+        el.addEventListener('click', (e) => _handleCardClick(e, el));
+    });
+}
 
-    if (validWords.length >= requiredPairs) {
-        msgEl.textContent = `✓ Ready! Found ${validWords.length} valid words.`;
-        msgEl.className = 'mem-validation-msg success';
-        startBtn.disabled = false;
-    } else {
-        msgEl.textContent = `❌ Not enough words! Need ${requiredPairs}, found ${validWords.length}. Adjust vocab or mode.`;
-        msgEl.className = 'mem-validation-msg error';
-        startBtn.disabled = true;
+function _handleCardClick(event, cardEl) {
+    if (_isLocked) return;
+    
+    const instanceId = cardEl.getAttribute('data-instance');
+    const cardData = _cards.find(c => c.instanceId === instanceId);
+
+    if (cardData.isFlipped || cardData.isMatched) return;
+
+    cardData.isFlipped = true;
+    cardEl.classList.add('flipped');
+    _flippedCards.push({ el: cardEl, data: cardData });
+
+    if (_flippedCards.length === 2) {
+        _isLocked = true;
+        _checkMatch(event.clientX, event.clientY);
     }
+}
+
+function _checkMatch(clickX, clickY) {
+    const [c1, c2] = _flippedCards;
+
+    if (c1.data.id === c2.data.id) {
+        c1.data.isMatched = true;
+        c2.data.isMatched = true;
+        _matchedPairs++;
+        _combo++;
+
+        const reward = 10 + (_combo * 5);
+        _sessionCoins += reward;
+        const newTotal = addCoins(reward);
+        
+        _container.querySelector('#mem-hud-coins').textContent = `🪙 ${newTotal.toLocaleString()}`;
+        _container.querySelector('#mem-hud-combo').textContent = `${_combo}x`;
+        _container.querySelector('#mem-hud-combo').classList.add('pop');
+        setTimeout(() => _container.querySelector('#mem-hud-combo').classList.remove('pop'), 300);
+
+        c1.el.classList.add('matched');
+        c2.el.classList.add('matched');
+        _spawnFloatingText(clickX, clickY, `+${reward} 🪙`);
+
+        _flippedCards = [];
+        _isLocked = false;
+
+        if (_matchedPairs === _config.layout / 2) {
+            setTimeout(_showVictory, 600);
+        }
+    } else {
+        _combo = 0;
+        _container.querySelector('#mem-hud-combo').textContent = `${_combo}x`;
+
+        setTimeout(() => {
+            c1.data.isFlipped = false;
+            c2.data.isFlipped = false;
+            c1.el.classList.remove('flipped');
+            c2.el.classList.remove('flipped');
+            
+            _flippedCards = [];
+            _isLocked = false;
+        }, 1000);
+    }
+}
+
+function _spawnFloatingText(x, y, text) {
+    const fx = document.createElement('div');
+    fx.className = 'mem-float-text';
+    fx.textContent = text;
+    fx.style.left = `${x}px`;
+    fx.style.top = `${y - 30}px`;
+    document.body.appendChild(fx); 
+    setTimeout(() => fx.remove(), 1000);
+}
+
+function _showVictory() {
+    _container.querySelector('#mem-victory-earned').textContent = _sessionCoins;
+    _container.querySelector('#mem-victory-overlay').style.display = 'flex';
+    _container.querySelector('#mem-btn-finish').addEventListener('click', _onQuit);
 }

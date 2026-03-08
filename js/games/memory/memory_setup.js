@@ -1,98 +1,99 @@
-// memory_shop.js
-import { getState, saveState, SHOP_ITEMS } from './memory_state.js';
+// memory_setup.js
+import { mountVocabSelector } from '../../vocab_selector.js';
 
 let _container = null;
-let _onClose = null;
+let _vocabSelector = null;
+let _onStart = null;
+let _onOpenShop = null;
 
-export function initShop(container) {
+const BANNED_KEY = 'memory_banned_words';
+
+export function initSetup(container, onStartCallback, onOpenShopCallback) {
     _container = container;
-}
-
-export function openShop(onCloseCallback) {
-    _onClose = onCloseCallback;
+    _onStart = onStartCallback;
+    _onOpenShop = onOpenShopCallback;
     _render();
-    _container.style.display = 'flex';
-}
-
-function closeShop() {
-    _container.style.display = 'none';
-    if (_onClose) _onClose();
 }
 
 function _render() {
-    const state = getState();
-    
-    let html = `
-        <div class="mem-shop-modal">
-            <div class="mem-shop-header">
-                <h2>Card Shop</h2>
-                <div class="mem-shop-coins">🪙 ${state.coins.toLocaleString()}</div>
-            </div>
-            <div class="mem-shop-body">
-    `;
+    _vocabSelector = mountVocabSelector(_container, {
+        bannedKey: BANNED_KEY,
+        showCountPicker: false, 
+        title: 'Memory — Vocabulary'
+    });
 
-    // Group items by tier
-    for (let tier = 1; tier <= 6; tier++) {
-        const items = SHOP_ITEMS.filter(i => i.tier === tier);
-        if (items.length === 0) continue;
-        
-        html += `<div class="mem-shop-tier">Tier ${tier}</div>`;
-        html += `<div class="mem-shop-grid">`;
-        
-        items.forEach(item => {
-            const isUnlocked = state.unlocked.includes(item.id);
-            const isEquipped = state.equipped === item.id;
+    const actionsEl = _vocabSelector.getActionsEl();
+
+    const configHtml = document.createElement('div');
+    configHtml.innerHTML = `
+        <div class="mem-setup-box">
+            <label><strong>Game Mode</strong></label>
+            <div class="mem-radio-group" id="mem-mode-group">
+                <label><input type="radio" name="mem_mode" value="meaning" checked> Kanji ↔ Meaning</label>
+                <label><input type="radio" name="mem_mode" value="reading"> Kanji ↔ Reading</label>
+            </div>
             
-            html += `
-                <div class="mem-shop-card ${isEquipped ? 'equipped' : ''} ${!isUnlocked ? 'locked' : ''}">
-                    <div class="mem-shop-icon">${item.icon}</div>
-                    <div class="mem-shop-name">${item.name}</div>
-                    ${isEquipped ? 
-                        `<button class="mem-btn-equipped" disabled>Equipped</button>` : 
-                     isUnlocked ? 
-                        `<button class="mem-btn-equip primary-btn" data-id="${item.id}">Equip</button>` :
-                        `<button class="mem-btn-buy" data-id="${item.id}" data-price="${item.price}">🪙 ${item.price.toLocaleString()}</button>`
-                    }
-                </div>
-            `;
-        });
-        html += `</div>`;
-    }
+            <label style="margin-top: 15px;"><strong>Layout (Pairs)</strong></label>
+            <div class="mem-radio-group" id="mem-layout-group">
+                <label><input type="radio" name="mem_layout" value="6"> 6 (3x2)</label>
+                <label><input type="radio" name="mem_layout" value="12" checked> 12 (3x4)</label>
+                <label><input type="radio" name="mem_layout" value="16"> 16 (4x4)</label>
+                <label><input type="radio" name="mem_layout" value="20"> 20 (4x5)</label>
+            </div>
 
-    html += `
-            </div>
-            <div class="mem-shop-footer">
-                <button class="caro-back-btn" id="mem-close-shop">Close Shop</button>
-            </div>
+            <div id="mem-validation-msg" class="mem-validation-msg">Checking vocabulary...</div>
+        </div>
+        
+        <div style="display:flex; gap:10px; margin-top: 15px;">
+            <button class="primary-btn" id="mem-btn-start" style="flex:2;">▶ Start Game</button>
+            <button class="primary-btn" id="mem-btn-shop" style="flex:1; background:var(--status-2); color:#333;">🛒 Shop</button>
         </div>
     `;
 
-    _container.innerHTML = html;
+    actionsEl.appendChild(configHtml);
 
-    // Attach Listeners
-    _container.querySelector('#mem-close-shop').addEventListener('click', closeShop);
+    // Listeners
+    _container.addEventListener('change', validate);
+    _container.querySelector('#mem-btn-start').addEventListener('click', () => {
+        const config = _getConfig();
+        const validWords = _getValidWords(config.mode);
+        _onStart(validWords, config);
+    });
+    _container.querySelector('#mem-btn-shop').addEventListener('click', _onOpenShop);
+
+    validate(); // Initial check
+}
+
+function _getConfig() {
+    return {
+        mode: _container.querySelector('input[name="mem_mode"]:checked').value,
+        layout: parseInt(_container.querySelector('input[name="mem_layout"]:checked').value)
+    };
+}
+
+function _getValidWords(mode) {
+    const queue = _vocabSelector.getQueue();
+    if (mode === 'reading') {
+        return queue.filter(w => w.furi && w.furi !== w.word);
+    }
+    return queue.filter(w => w.trans && w.trans.trim() !== '');
+}
+
+function validate() {
+    const config = _getConfig();
+    const validWords = _getValidWords(config.mode);
+    const requiredPairs = config.layout / 2;
     
-    _container.querySelectorAll('.mem-btn-buy').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const id = e.target.getAttribute('data-id');
-            const price = parseInt(e.target.getAttribute('data-price'));
-            if (state.coins >= price) {
-                state.coins -= price;
-                state.unlocked.push(id);
-                state.equipped = id;
-                saveState(state);
-                _render();
-            } else {
-                alert("Not enough coins!");
-            }
-        });
-    });
+    const msgEl = _container.querySelector('#mem-validation-msg');
+    const startBtn = _container.querySelector('#mem-btn-start');
 
-    _container.querySelectorAll('.mem-btn-equip').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            state.equipped = e.target.getAttribute('data-id');
-            saveState(state);
-            _render();
-        });
-    });
+    if (validWords.length >= requiredPairs) {
+        msgEl.textContent = `✓ Ready! Found ${validWords.length} valid words.`;
+        msgEl.className = 'mem-validation-msg success';
+        startBtn.disabled = false;
+    } else {
+        msgEl.textContent = `❌ Not enough words! Need ${requiredPairs}, found ${validWords.length}. Adjust vocab or mode.`;
+        msgEl.className = 'mem-validation-msg error';
+        startBtn.disabled = true;
+    }
 }
