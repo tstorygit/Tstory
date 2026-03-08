@@ -121,6 +121,20 @@ export function setBannedWords(bannedKey = 'vocab_selector_banned', list) {
     localStorage.setItem(bannedKey, JSON.stringify(list));
 }
 
+// ─── SETTINGS PERSISTENCE ────────────────────────────────────────────────────
+
+const SETTINGS_KEY = 'vocab_selector_settings';
+
+function _loadSettings() {
+    try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; }
+    catch { return {}; }
+}
+
+function _saveSettings(patch) {
+    const current = _loadSettings();
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...current, ...patch }));
+}
+
 // ─── MOUNT ───────────────────────────────────────────────────────────────────
 
 /**
@@ -164,6 +178,15 @@ function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, 
     const srsWords = srsDb.getAllWords();
     const hasSrs   = Object.keys(srsWords).length > 0;
     const banned   = getBannedWords(bannedKey);
+    const saved    = _loadSettings();
+
+    // Resolve persisted values (fall back to original defaults if no saved value)
+    const useSrsChecked  = saved.useSrs  !== undefined ? saved.useSrs  : hasSrs;
+    const useListChecked = saved.useList !== undefined ? saved.useList : true;
+    const savedStatuses  = saved.statuses !== undefined ? saved.statuses : [0,1,2,3];
+    const savedRangeLow  = saved.rangeLow  !== undefined ? saved.rangeLow  : 901;
+    const savedRangeHigh = saved.rangeHigh !== undefined ? saved.rangeHigh : 1000;
+    const savedCount     = saved.count !== undefined ? saved.count : defaultCount;
 
     let html = `<div class="caro-setup-panel vs-root">`;
 
@@ -173,7 +196,7 @@ function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, 
             <div class="caro-setup-section-title">Word Sources</div>
 
             <label class="settings-toggle" style="border-radius:8px 8px 0 0;">
-                <input type="checkbox" class="vs-use-srs" ${hasSrs ? 'checked' : ''}>
+                <input type="checkbox" class="vs-use-srs" ${useSrsChecked ? 'checked' : ''}>
                 <span class="settings-toggle-track"></span>
                 <span class="settings-toggle-text">
                     My SRS Vocabulary
@@ -186,7 +209,7 @@ function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, 
                 background:var(--surface-color);
                 border:1px solid var(--border-color);
                 border-top:none;
-                ${hasSrs ? '' : 'display:none;'}
+                ${useSrsChecked ? '' : 'display:none;'}
             ">
                 <div style="font-size:13px;font-weight:600;color:var(--text-muted);margin-bottom:8px;">
                     Include statuses:
@@ -197,7 +220,7 @@ function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, 
                             <input type="checkbox"
                                    class="vs-status-check"
                                    value="${s}"
-                                   ${s <= 3 ? 'checked' : ''}>
+                                   ${savedStatuses.includes(s) ? 'checked' : ''}>
                             <span class="status-btn" data-status="${s}"
                                   style="display:inline-flex;align-items:center;justify-content:center;
                                          width:32px;height:32px;border-radius:50%;cursor:pointer;
@@ -209,7 +232,7 @@ function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, 
             </div>
 
             <label class="settings-toggle" style="border-radius:0;border-top:1px solid var(--border-color);">
-                <input type="checkbox" class="vs-use-list" checked>
+                <input type="checkbox" class="vs-use-list" ${useListChecked ? 'checked' : ''}>
                 <span class="settings-toggle-track"></span>
                 <span class="settings-toggle-text">
                     Top 1000 Word List
@@ -230,13 +253,13 @@ function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, 
                 <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
                     <label style="font-size:13px;color:var(--text-muted);">From</label>
                     <input type="number" class="vs-range-low"
-                           min="1" max="${wordList.length}" value="901"
+                           min="1" max="${wordList.length}" value="${savedRangeLow}"
                            style="width:70px;padding:5px 8px;border:1px solid var(--border-color);
                                   border-radius:6px;background:var(--bg-color);
                                   color:var(--text-color);font-size:14px;text-align:center;">
                     <label style="font-size:13px;color:var(--text-muted);">to</label>
                     <input type="number" class="vs-range-high"
-                           min="1" max="${wordList.length}" value="1000"
+                           min="1" max="${wordList.length}" value="${savedRangeHigh}"
                            style="width:70px;padding:5px 8px;border:1px solid var(--border-color);
                                   border-radius:6px;background:var(--bg-color);
                                   color:var(--text-color);font-size:14px;text-align:center;">
@@ -254,7 +277,7 @@ function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, 
                         border-radius:8px;padding:14px 20px;">
                 <div class="vs-count-group" style="display:flex;gap:8px;flex-wrap:wrap;">
                     ${defaultCounts.map(n => `
-                        <button class="caro-count-btn ${n === defaultCount ? 'active' : ''}"
+                        <button class="caro-count-btn ${n === savedCount ? 'active' : ''}"
                                 data-count="${n}">
                             ${n}
                         </button>`).join('')}
@@ -297,29 +320,37 @@ function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, 
 function _wireEvents(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, title, opts }) {
     const root = el.querySelector('.vs-root');
 
-    // SRS toggle → show/hide status filter
+    // SRS toggle → show/hide status filter + save
     const srsToggle = root.querySelector('.vs-use-srs');
     const srsFilter = root.querySelector('.vs-srs-filter');
     srsToggle?.addEventListener('change', () => {
         if (srsFilter) srsFilter.style.display = srsToggle.checked ? 'block' : 'none';
+        _saveSettings({ useSrs: srsToggle.checked });
     });
 
-    // Status chips — opacity feedback
+    // Status chips — opacity feedback + save
     root.querySelectorAll('.vs-status-check').forEach(cb => {
         _chipOpacity(cb);
-        cb.addEventListener('change', () => _chipOpacity(cb));
+        cb.addEventListener('change', () => {
+            _chipOpacity(cb);
+            const checked = [...root.querySelectorAll('.vs-status-check:checked')].map(c => +c.value);
+            _saveSettings({ statuses: checked });
+        });
     });
 
-    // List toggle → show/hide range submenu
+    // List toggle → show/hide range submenu + save
     const listToggle = root.querySelector('.vs-use-list');
     const listRange  = root.querySelector('.vs-list-range');
     const _syncRangeVisibility = () => {
         if (listRange) listRange.style.display = listToggle?.checked ? 'block' : 'none';
     };
-    listToggle?.addEventListener('change', _syncRangeVisibility);
+    listToggle?.addEventListener('change', () => {
+        _syncRangeVisibility();
+        _saveSettings({ useList: listToggle.checked });
+    });
     _syncRangeVisibility();
 
-    // Range inputs → live word-count label
+    // Range inputs → live word-count label + save
     const lowInput   = root.querySelector('.vs-range-low');
     const highInput  = root.querySelector('.vs-range-high');
     const countLabel = root.querySelector('.vs-range-count');
@@ -331,16 +362,18 @@ function _wireEvents(el, { bannedKey, showCountPicker, defaultCounts, defaultCou
         countLabel.textContent = lo <= hi ? `(${n} word${n !== 1 ? 's' : ''})` : '⚠ lower > upper';
         countLabel.style.color = lo <= hi ? 'var(--text-muted)' : '#c0392b';
     };
-    lowInput?.addEventListener('input',  _syncRangeCount);
-    highInput?.addEventListener('input', _syncRangeCount);
+    lowInput?.addEventListener('input',  () => { _syncRangeCount(); _saveSettings({ rangeLow:  +lowInput.value  }); });
+    highInput?.addEventListener('input', () => { _syncRangeCount(); _saveSettings({ rangeHigh: +highInput.value }); });
     _syncRangeCount();
 
-    // Count picker
+    // Count picker + save
     root.querySelector('.vs-count-group')?.addEventListener('click', e => {
         const b = e.target.closest('.caro-count-btn');
         if (!b) return;
         root.querySelectorAll('.caro-count-btn').forEach(x => x.classList.remove('active'));
         b.classList.add('active');
+        const raw = b.getAttribute('data-count');
+        _saveSettings({ count: raw === 'All' ? 'All' : +raw });
     });
 
     // Clear bans — re-renders in place, then restores caller's action buttons

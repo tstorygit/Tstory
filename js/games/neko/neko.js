@@ -230,6 +230,8 @@ let _isDebug = false;
 let _rafId   = null;
 let _saveInterval = null;
 let _happyBoostEnd = 0; // timestamp until purring strike happy boost is active
+let _visibilityHandler   = null;
+let _beforeUnloadHandler = null;
 
 // ─── Number Formatting ────────────────────────────────────────────────────────
 // 'suffix' → 1.23 M  |  'sci' → 1.23e6
@@ -494,6 +496,7 @@ function _loadGame() {
         _g.pauseTime  = p.pauseTime  || 0;
         // If app was closed while paused, keep accumulated pause time but treat as unpaused on reload
         _g.pauseStart = null;
+        _g._autoPaused = false;
         
         if (p.stats) _g.stats = { ..._g.stats, ...p.stats };
 
@@ -519,6 +522,31 @@ function _startGameLoop() {
     if (_saveInterval) clearInterval(_saveInterval);
 
     _saveInterval = setInterval(() => _saveGame(false), 10000);
+
+    // Pause when tab/app goes to background or is closed
+    function _handleVisibilityChange() {
+        if (document.hidden && !_isPaused()) {
+            _g.pauseStart = Date.now();
+            _saveGame(false);
+        } else if (!document.hidden && _isPaused() && _g._autoPaused) {
+            _g.pauseTime  += Date.now() - _g.pauseStart;
+            _g.pauseStart  = null;
+            _g._autoPaused = false;
+            _g.lastTick    = Date.now();
+        }
+    }
+    function _handleBeforeUnload() {
+        if (!_isPaused()) {
+            _g.pauseStart = Date.now();
+            _g._autoPaused = true;
+        }
+        _saveGame(false);
+    }
+    document.addEventListener('visibilitychange', _handleVisibilityChange);
+    window.addEventListener('beforeunload', _handleBeforeUnload);
+    // Store refs for cleanup
+    _visibilityHandler  = _handleVisibilityChange;
+    _beforeUnloadHandler = _handleBeforeUnload;
 
     function loop() {
         if (!_screens.game || _screens.game.style.display === 'none') {
@@ -622,6 +650,8 @@ function _startGameLoop() {
 function _stopGameLoop() {
     if (_rafId) { cancelAnimationFrame(_rafId); _rafId = null; }
     if (_saveInterval) { clearInterval(_saveInterval); _saveInterval = null; }
+    if (_visibilityHandler)   { document.removeEventListener('visibilitychange', _visibilityHandler);   _visibilityHandler   = null; }
+    if (_beforeUnloadHandler) { window.removeEventListener('beforeunload', _beforeUnloadHandler); _beforeUnloadHandler = null; }
 }
 
 // ─── Interactions ─────────────────────────────────────────────────────────────
@@ -703,15 +733,16 @@ function _buyUpgrade(shopType, key) {
     } else {
         const discount = Math.pow(_g.bellUpgrades.discount.effect, _g.bellUpgrades.discount.count);
         const costFish = Math.floor(upg.cost * Math.pow(1.18, upg.count) * discount);
+        const costYarn = Math.floor((upg.costYarn || 0) * discount);
         const vocabReq = upg.vocabReq || 0;
         const activeCount = _g.srs.filter(s => new Set(_vocabQueue.map(v => v.id)).has(s.id)).length;
         if (activeCount < vocabReq) {
             _toast(`Needs ${vocabReq} active words (have ${activeCount})`, '#e17055');
             return;
         }
-        if (_g.fish >= costFish && _g.yarn >= upg.costYarn) {
+        if (_g.fish >= costFish && _g.yarn >= costYarn) {
             _g.fish -= costFish;
-            _g.yarn -= upg.costYarn;
+            _g.yarn -= costYarn;
             upg.count++;
             _updateUI();
         }
@@ -726,7 +757,6 @@ function _ascend() {
     _g.bells += earned;
     _g.fish   = Math.floor(_g.fish * keep);
     _g.yarn   = Math.floor(_g.yarn * keep);
-    _g.combo  = 0;
     for (const k in _g.upgrades)      _g.upgrades[k].count      = 0;
     for (const k in _g.clickUpgrades) _g.clickUpgrades[k].count = 0;
     if (_g.rebirthUpgrades.starter.count > 0) _g.upgrades.box.count = 10;
@@ -882,11 +912,6 @@ function _checkAnswer(selectedId, btnEl, correctId, event) {
 
         if (event) {
             _spawnFloatingText(event.clientX, event.clientY, `+${yarn} 🧶`, 'var(--nk-success)', 22);
-            if (_g.combo > 1) {
-                setTimeout(() => {
-                    _spawnFloatingText(event.clientX, event.clientY - 30, `${Math.floor(_g.combo)}x Combo!`, 'var(--nk-gold)', 16);
-                }, 150);
-            }
         }
 
         // Brief visual pause so player sees the green highlight, then move on
@@ -966,7 +991,8 @@ function _initGameDOM() {
                 <span class="nk-stat-sep">·</span>
                 📚<span class="nk-val-wordcount">0</span>
                 <span class="nk-stat-sep">·</span>
-                🔥<span class="nk-val-combo">0</span>
+                🔥<span class="nk-val-combo" title="Combo: each correct answer builds your combo. Higher combo = more fish production. Wrong answer halves it. Shown as xN on correct answers.">0</span>
+                <span class="nk-stat-sep">·</span>
                 <button id="nk-mult-btn" class="nk-mult-btn" title="Click for multiplier breakdown">×1.00</button>
             </div>
             <div id="nk-mult-popup" class="nk-mult-popup" style="display:none;"></div>
@@ -1465,6 +1491,8 @@ function _renderMultiplierPopup() {
     };
     const baseRow = (label, val) =>
         `<div class="nk-mp-row nk-mp-base"><span>${label}</span><span>${_fmtN(val)}</span></div>`;
+    const multRow = (label, val) =>
+        `<div class="nk-mp-row nk-mp-mult"><span>${label}</span><span>×${fmt(val)}</span></div>`;
     const totalRow = (label, val) =>
         `<div class="nk-mp-row nk-mp-final"><span>${label}</span><span>${_fmtN(val)}</span></div>`;
 
@@ -1486,6 +1514,7 @@ function _renderMultiplierPopup() {
             ${row(`📚 Words (${b.activeWords}×${(b.wordPct*100).toFixed(0)}%)`, b.idle.bloom)}
             ${row('👻 Guide',    b.idle.guide)}
             ${b.globalAmp > 1 ? row('🌌 Cosmic Amp', b.globalAmp, 'var(--nk-spirit)') : ''}
+            ${multRow('= Total ×Multiplier', b.idle.multTotal * (b.globalAmp > 1 ? b.globalAmp : 1))}
             ${totalRow('= Total /s', b.idle.finalFps)}
         </div>
         <div class="nk-mp-section" style="margin-top:8px;">
@@ -1496,6 +1525,7 @@ function _renderMultiplierPopup() {
             ${row('🐾 Paw Bell', b.click.paw)}
             ${row('👻 Guide',    b.click.guide)}
             ${b.globalAmp > 1 ? row('🌌 Cosmic Amp', b.globalAmp, 'var(--nk-spirit)') : ''}
+            ${multRow('= Total ×Multiplier', b.click.multTotal * (b.globalAmp > 1 ? b.globalAmp : 1))}
             ${totalRow('= Total /click', b.click.finalClick)}
         </div>
     `;
@@ -1516,6 +1546,12 @@ function _updateUI() {
     setTxt('.nk-val-fps',   _fmtN(_getFishPerSec()));
     setTxt('.nk-val-cpc',   _fmtN(_getClickPower()));
     setTxt('.nk-val-combo', _g.combo.toFixed(1)); // Show decimal to make decay visible
+
+    // Always keep ascend/rebirth button text current
+    const ascendBtn  = g.querySelector('#nk-ascend-btn');
+    const rebirthBtn = g.querySelector('#nk-rebirth-btn');
+    if (ascendBtn)  ascendBtn.textContent  = `⬆+${_calcBells()}`;
+    if (rebirthBtn) rebirthBtn.textContent = `♻+${_calcSpirits()}`;
 
     // Word count in sub-line (active learned words)
     const _wcActiveIds = new Set(_vocabQueue.map(v => v.id));
@@ -1573,9 +1609,6 @@ function _updateUI() {
                 if (lvl) lvl.textContent = `(Lvl ${upg.count})`;
                 if (btn) { btn.textContent = `${cost} 🔔`; btn.disabled = _g.bells < cost; }
             }
-            setTxt('#nk-ascend-btn', `⬆+${_calcBells()}`);
-        } else {
-            // Keep bell buttons disabled state current even when tab not active
             for (const key in _g.bellUpgrades) {
                 const btn = g.querySelector(`#nk-btn-b-${key}`);
                 if (btn) btn.disabled = _g.bells < (_g.bellUpgrades[key].cost + _g.bellUpgrades[key].count);
@@ -1590,7 +1623,6 @@ function _updateUI() {
                 if (lvl) lvl.textContent = `(Lvl ${upg.count})`;
                 if (btn) { btn.textContent = `${cost} 👻`; btn.disabled = _g.karma < cost; }
             }
-            setTxt('#nk-rebirth-btn', `♻+${_calcSpirits()}`);
         }
         if (activeTab.id === 'nk-tab-stats') {
             // Full re-render once per second so vocab due-times stay live
@@ -1625,6 +1657,7 @@ function _updateShopBtns(shopKey, prefix) {
     for (const key in _g[shopKey]) {
         const upg       = _g[shopKey][key];
         const costFish  = Math.floor(upg.cost * Math.pow(1.18, upg.count) * discount);
+        const costYarn  = Math.floor((upg.costYarn || 0) * discount);
         const btn       = g?.querySelector(`#nk-btn-${prefix}-${key}`);
         const lvl       = g?.querySelector(`#nk-lvl-${prefix}-${key}`);
         const vocabNote = g?.querySelector(`#nk-vocab-${prefix}-${key}`);
@@ -1643,8 +1676,8 @@ function _updateShopBtns(shopKey, prefix) {
                 btn.textContent = `🔒 ${vocabReq}w`;
                 btn.disabled    = true;
             } else {
-                btn.textContent = `${_fmtN(costFish)}🐟${upg.costYarn > 0 ? ` ${upg.costYarn}🧶` : ''}`;
-                btn.disabled    = (_g.fish < costFish || _g.yarn < upg.costYarn);
+                btn.textContent = `${_fmtN(costFish)}🐟${costYarn > 0 ? ` ${costYarn}🧶` : ''}`;
+                btn.disabled    = (_g.fish < costFish || _g.yarn < costYarn);
             }
         }
     }
@@ -1727,7 +1760,7 @@ function _toast(msg, color = '#333') {
 .nk-hbtn {
     background: var(--nk-btn); border: none; padding: 4px 8px;
     border-radius: 5px; color: white; cursor: pointer; font-weight: bold; font-size: 11px;
-    min-width: 28px; text-align: center;
+    min-width: 48px; text-align: center; white-space: nowrap;
 }
 .nk-hbtn-gold        { background: var(--nk-gold);   color: #333; }
 .nk-hbtn-spirit      { background: var(--nk-spirit); }
@@ -1803,6 +1836,8 @@ function _toast(msg, color = '#333') {
     align-items: center;
     gap: 3px;
     white-space: nowrap;
+    min-width: 72px;
+    justify-content: flex-start;
 }
 .nk-stat-sub {
     font-size: 10px;
@@ -1813,7 +1848,11 @@ function _toast(msg, color = '#333') {
     flex-wrap: nowrap;
     white-space: nowrap;
     overflow: hidden;
+    min-height: 18px;
 }
+.nk-val-fps   { display: inline-block; min-width: 42px; text-align: right; }
+.nk-val-cpc   { display: inline-block; min-width: 42px; text-align: right; }
+.nk-val-combo { display: inline-block; min-width: 38px; text-align: right; }
 .nk-stat-sep { opacity: 0.4; }
 .nk-mult-btn {
     font-size: 10px;
@@ -1874,8 +1913,16 @@ function _toast(msg, color = '#333') {
     margin-top: 2px;
     padding-top: 3px;
 }
+.nk-mp-mult {
+    font-weight: bold;
+    color: #e17055;
+    border-top: 1px dashed rgba(0,0,0,0.08);
+    margin-top: 2px;
+    padding-top: 3px;
+}
 [data-theme="dark"] .nk-mp-base  { color: #a08060; border-bottom-color: #5a3e2b; }
 [data-theme="dark"] .nk-mp-final { border-top-color: #5a3e2b; }
+[data-theme="dark"] .nk-mp-mult  { color: #e17055; border-top-color: #5a3e2b; }
 [data-theme="dark"] .nk-mult-popup {
     background: #3d2b1a; border-color: #5a3e2b; color: #f0d9c0;
 }
