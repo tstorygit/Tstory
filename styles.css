@@ -1391,6 +1391,17 @@ select, textarea {
     max-width: 100%;
 }
 
+/* Ruby/Furigana styling for the new mode */
+.mem-text-large ruby {
+    ruby-align: center;
+}
+.mem-text-large rt {
+    font-size: 0.45em;
+    color: var(--text-muted);
+    font-weight: normal;
+    line-height: 1;
+}
+
 /* Match State */
 .mem-card.matched .mem-card-inner {
     box-shadow: 0 0 15px var(--status-4);

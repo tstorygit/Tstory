@@ -31,6 +31,7 @@ function _render() {
             <div class="mem-radio-group" id="mem-mode-group">
                 <label><input type="radio" name="mem_mode" value="meaning" checked> Kanji ↔ Meaning</label>
                 <label><input type="radio" name="mem_mode" value="reading"> Kanji ↔ Reading</label>
+                <label><input type="radio" name="mem_mode" value="reading_meaning"> Kanji+Furi ↔ Meaning</label>
             </div>
             
             <label style="margin-top: 15px;"><strong>Layout (Pairs)</strong></label>
@@ -76,6 +77,7 @@ function _getValidWords(mode) {
     if (mode === 'reading') {
         return queue.filter(w => w.furi && w.furi !== w.word);
     }
+    // For both 'meaning' and 'reading_meaning', we need a valid translation
     return queue.filter(w => w.trans && w.trans.trim() !== '');
 }
 

@@ -30,9 +30,18 @@ function _generateDeck(validWords) {
     
     let rawCards = [];
     subset.forEach(w => {
-        rawCards.push({ id: w.word, text: w.word, type: 'kanji' });
-        const targetText = _config.mode === 'meaning' ? w.trans : w.furi;
-        rawCards.push({ id: w.word, text: targetText, type: 'target' });
+        if (_config.mode === 'reading_meaning') {
+            // Card A: Kanji + Furi
+            rawCards.push({ id: w.word, text: w.word, furi: w.furi, type: 'kanji_furi' });
+            // Card B: Meaning
+            rawCards.push({ id: w.word, text: w.trans, type: 'target' });
+        } else {
+            // Card A: Kanji only
+            rawCards.push({ id: w.word, text: w.word, type: 'kanji' });
+            // Card B: Target (Meaning or Reading)
+            const targetText = _config.mode === 'meaning' ? w.trans : w.furi;
+            rawCards.push({ id: w.word, text: targetText, type: 'target' });
+        }
     });
 
     _cards = rawCards.sort(() => Math.random() - 0.5).map((c, index) => ({
@@ -61,16 +70,27 @@ function _renderBoard() {
         </div>
         
         <div class="mem-grid mem-grid-${_config.layout}" id="mem-grid">
-            ${_cards.map(c => `
+            ${_cards.map(c => {
+                let contentHtml = '';
+                if (c.type === 'kanji_furi') {
+                    contentHtml = `<span class="mem-text-large"><ruby>${c.text}<rt>${c.furi || ''}</rt></ruby></span>`;
+                } else if (c.type === 'kanji') {
+                    contentHtml = `<span class="mem-text-large">${c.text}</span>`;
+                } else {
+                    contentHtml = `<span class="mem-text-small">${c.text}</span>`;
+                }
+
+                return `
                 <div class="mem-card" data-instance="${c.instanceId}">
                     <div class="mem-card-inner">
                         <div class="mem-face mem-face-down">${icon}</div>
                         <div class="mem-face mem-face-up">
-                            <span class="${c.type === 'kanji' ? 'mem-text-large' : 'mem-text-small'}">${c.text}</span>
+                            ${contentHtml}
                         </div>
                     </div>
                 </div>
-            `).join('')}
+                `;
+            }).join('')}
         </div>
         
         <div id="mem-victory-overlay" style="display:none;" class="mem-victory-overlay">
