@@ -21,7 +21,7 @@
  *                                  Use a game-specific key so each game has its own list.
  *       showCountPicker {boolean}  Show the "Session Size" row. Default: true.
  *       defaultCounts   {Array}    Button values. Default: [10, 20, 50, 100, 'All'].
- *       defaultCount    {number|'All'}  Pre-selected count. Default: 20.
+ *       defaultCount    {number|'All'}  Pre-selected count. Default: 'All'.
  *       title           {string}   Section heading. Default: 'Setup'.
  *
  *   controller.getQueue()
@@ -53,7 +53,7 @@
  *   function _renderSetup() {
  *     _selector = mountVocabSelector(_screens.setup, {
  *       bannedKey:    BANNED_KEY,
- *       defaultCount: 20,
+ *       defaultCount: 'All',
  *     });
  *
  *     // Append game buttons into the actions slot
