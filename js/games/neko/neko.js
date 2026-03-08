@@ -96,7 +96,6 @@ function _startGame() {
     }));
 
     _show('game');
-    _STARTER_COUNT = _vocabQueue.length; // capture before _loadGame so wipe can restore same amount
     _loadGame();
 
     // ── Vocab slot logic (Option B) ──────────────────────────────────────────
@@ -117,7 +116,7 @@ function _startGame() {
         _g.srs.push({ id: w.id, nextReview: Date.now(), interval: 8, ease: 1.5 });
     }
 
-    // Give starter words on a brand-new save — count matches queue size at launch
+    // Give _STARTER_COUNT free starter words on a brand-new save
     const _starterCount = Math.min(_STARTER_COUNT, _vocabQueue.length);
     if (_g.srs.length === 0 && _starterCount > 0) {
         for (let i = 0; i < _starterCount; i++) {
