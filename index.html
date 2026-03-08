@@ -141,7 +141,6 @@
                         <label class="settings-label" for="setting-timeout">Request Timeout (s)</label>
                         <input type="number" id="setting-timeout" min="10" max="600" value="120" class="settings-input-short">
                     </div>
-                    <!-- New TTS Cache Limit Setting -->
                     <div class="settings-row">
                         <label class="settings-label" for="setting-tts-limit">TTS Cache Limit</label>
                         <input type="number" id="setting-tts-limit" min="0" max="500" value="50" class="settings-input-short" title="Number of audio clips to store on device">
@@ -259,16 +258,12 @@
             </div>
         </section>
 
-        <!-- ═══════════════════════════════════════════════════════ -->
-        <!-- DATA TAB                                               -->
-        <!-- ═══════════════════════════════════════════════════════ -->
         <section id="view-data" class="view">
             <header>
                 <h2>Data</h2>
             </header>
             <div class="content-scroll" id="data-content">
 
-                <!-- ── EXPORT ──────────────────────────────── -->
                 <div class="data-panel">
                     <div class="data-panel-header">
                         <span class="data-panel-icon">📦</span>
@@ -299,7 +294,6 @@
                     <div id="export-status" class="status-message" style="display:none;"></div>
                 </div>
 
-                <!-- ── IMPORT ──────────────────────────────── -->
                 <div class="data-panel">
                     <div class="data-panel-header">
                         <span class="data-panel-icon">📂</span>
@@ -321,7 +315,6 @@
                     <div id="import-status" class="status-message" style="display:none;"></div>
                 </div>
 
-                <!-- ── SYNC ────────────────────────────────── -->
                 <div class="data-panel">
                     <div class="data-panel-header">
                         <span class="data-panel-icon">🔄</span>
@@ -375,6 +368,7 @@
             <div id="tbb-setup-screen"   class="content-scroll" style="display:none;"></div>
             <div id="tbb-game-screen"    class="content-scroll" style="display:none;"></div>
             <div id="tbb-summary-screen" class="content-scroll" style="display:none;"></div>
+            <div id="memory-screen"      class="content-scroll" style="display:none; padding:0;"></div>
         </section>
 
     </main>

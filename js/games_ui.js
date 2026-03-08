@@ -3,6 +3,7 @@
 let Caro = null;
 let Neko = null;
 let Tbb  = null;
+let Memory = null;
 
 async function loadCaro() {
     if (Caro) return Caro;
@@ -37,44 +38,52 @@ async function loadTbb() {
     }
 }
 
+async function loadMemory() {
+    if (Memory) return Memory;
+    try {
+        Memory = await import('./games/memory/memory.js');
+        return Memory;
+    } catch (e) {
+        console.error('[Games] Failed to load Memory module:', e);
+        return null;
+    }
+}
+
 export function initGames() {
-    // Pre-load Caro in the background (non-blocking)
+    // Pre-load Caro in the background
     loadCaro().then(caro => {
         if (!caro) return;
-        caro.init(
-            {
-                setup: document.getElementById('caro-setup-screen'),
-                game:  document.getElementById('caro-game-screen'),
-                stats: document.getElementById('caro-stats-screen'),
-            },
-            showList
-        );
+        caro.init({
+            setup: document.getElementById('caro-setup-screen'),
+            game:  document.getElementById('caro-game-screen'),
+            stats: document.getElementById('caro-stats-screen'),
+        }, showList);
     });
 
-    // Pre-load Neko in the background (non-blocking)
+    // Pre-load Neko in the background
     loadNeko().then(neko => {
         if (!neko) return;
-        neko.init(
-            {
-                setup: document.getElementById('neko-setup-screen'),
-                game:  document.getElementById('neko-game-screen'),
-                stats: document.getElementById('neko-stats-screen'),
-            },
-            showList
-        );
+        neko.init({
+            setup: document.getElementById('neko-setup-screen'),
+            game:  document.getElementById('neko-game-screen'),
+            stats: document.getElementById('neko-stats-screen'),
+        }, showList);
     });
 
-    // Pre-load TBB in the background (non-blocking)
+    // Pre-load TBB in the background
     loadTbb().then(tbb => {
         if (!tbb) return;
-        tbb.init(
-            {
-                setup:   document.getElementById('tbb-setup-screen'),
-                game:    document.getElementById('tbb-game-screen'),
-                summary: document.getElementById('tbb-summary-screen'),
-            },
-            showList
-        );
+        tbb.init({
+            setup:   document.getElementById('tbb-setup-screen'),
+            game:    document.getElementById('tbb-game-screen'),
+            summary: document.getElementById('tbb-summary-screen'),
+        }, showList);
+    });
+
+    // Pre-load Memory in the background
+    loadMemory().then(mem => {
+        if (!mem) return;
+        mem.init({ setup: document.getElementById('memory-screen') }, showList);
     });
 
     document.querySelector('button[data-target="view-games"]')
@@ -88,6 +97,7 @@ function showList() {
         'caro-setup-screen', 'caro-game-screen', 'caro-stats-screen',
         'neko-setup-screen', 'neko-game-screen', 'neko-stats-screen',
         'tbb-setup-screen',  'tbb-game-screen',  'tbb-summary-screen',
+        'memory-screen'
     ].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = 'none';
@@ -106,6 +116,15 @@ function showList() {
             <div class="caro-game-card-body">
                 <div class="caro-game-card-title">Caro — Vocab Recall</div>
                 <div class="caro-game-card-desc">Show a word, rate your recall as Perfect / Partial / Miss. Updates your SRS at the end.</div>
+            </div>
+            <div class="caro-game-card-arrow">›</div>
+        </div>
+
+        <div class="caro-game-card" id="btn-open-memory">
+            <div class="caro-game-card-icon">🎴</div>
+            <div class="caro-game-card-body">
+                <div class="caro-game-card-title">Memory Match</div>
+                <div class="caro-game-card-desc">Find pairs of Kanji and Meanings or Readings. Earn coins to unlock custom card designs!</div>
             </div>
             <div class="caro-game-card-arrow">›</div>
         </div>
@@ -136,17 +155,27 @@ function showList() {
             alert('Could not load the Caro game. Check the browser console for errors (likely a missing data/word_list_1000.js file).');
             return;
         }
-        caro.init(
-            {
-                setup: document.getElementById('caro-setup-screen'),
-                game:  document.getElementById('caro-game-screen'),
-                stats: document.getElementById('caro-stats-screen'),
-            },
-            showList
-        );
+        caro.init({
+            setup: document.getElementById('caro-setup-screen'),
+            game:  document.getElementById('caro-game-screen'),
+            stats: document.getElementById('caro-stats-screen'),
+        }, showList);
         listEl.style.display = 'none';
         document.getElementById('games-header-title').textContent = 'Caro — Setup';
         caro.launch();
+    });
+
+    // ── Memory Match launch ────────────────────────────────────────────────────
+    document.getElementById('btn-open-memory').addEventListener('click', async () => {
+        const mem = await loadMemory();
+        if (!mem) {
+            alert('Could not load Memory Match. Check the browser console for errors.');
+            return;
+        }
+        mem.init({ setup: document.getElementById('memory-screen') }, showList);
+        listEl.style.display = 'none';
+        document.getElementById('games-header-title').textContent = 'Memory — Setup';
+        mem.launch();
     });
 
     // ── NekoNihongo launch ─────────────────────────────────────────────────────
@@ -156,14 +185,11 @@ function showList() {
             alert('Could not load NekoNihongo. Check the browser console for errors.');
             return;
         }
-        neko.init(
-            {
-                setup: document.getElementById('neko-setup-screen'),
-                game:  document.getElementById('neko-game-screen'),
-                stats: document.getElementById('neko-stats-screen'),
-            },
-            showList
-        );
+        neko.init({
+            setup: document.getElementById('neko-setup-screen'),
+            game:  document.getElementById('neko-game-screen'),
+            stats: document.getElementById('neko-stats-screen'),
+        }, showList);
         listEl.style.display = 'none';
         document.getElementById('games-header-title').textContent = 'NekoNihongo — Setup';
         neko.launch();
@@ -176,14 +202,11 @@ function showList() {
             alert('Could not load Turn-Based Battle. Check the browser console for errors.');
             return;
         }
-        tbb.init(
-            {
-                setup:   document.getElementById('tbb-setup-screen'),
-                game:    document.getElementById('tbb-game-screen'),
-                summary: document.getElementById('tbb-summary-screen'),
-            },
-            showList
-        );
+        tbb.init({
+            setup:   document.getElementById('tbb-setup-screen'),
+            game:    document.getElementById('tbb-game-screen'),
+            summary: document.getElementById('tbb-summary-screen'),
+        }, showList);
         listEl.style.display = 'none';
         document.getElementById('games-header-title').textContent = '⚔️ Turn-Based Battle';
         tbb.launch();

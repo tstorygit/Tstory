@@ -1,0 +1,61 @@
+// memory.js
+import { initSetup } from './memory_setup.js';
+import { startBoard } from './memory_board.js';
+import { initShop, openShop } from './memory_shop.js';
+
+let _screens = null;
+let _onExitGlobal = null;
+
+// Dynamically create containers inside the provided main screen
+let _viewSetup, _viewGame, _viewShop;
+
+export function init(screens, onExit) {
+    // screens.setup is the DOM node passed from games_ui.js for this specific game
+    const root = screens.setup; 
+    root.innerHTML = `
+        <div id="mem-container-setup"></div>
+        <div id="mem-container-game" style="display:none; height:100%; flex-direction:column;"></div>
+        <div id="mem-container-shop" class="mem-shop-overlay" style="display:none;"></div>
+    `;
+
+    _viewSetup = root.querySelector('#mem-container-setup');
+    _viewGame = root.querySelector('#mem-container-game');
+    _viewShop = root.querySelector('#mem-container-shop');
+    
+    _screens = screens;
+    _onExitGlobal = onExit;
+
+    initShop(_viewShop);
+    initSetup(_viewSetup, _handleStartGame, _handleOpenShop);
+}
+
+export function launch() {
+    _show('setup');
+    // Ensure header title is correct
+    const hdr = document.getElementById('games-header-title');
+    if (hdr) hdr.textContent = 'Memory — Setup';
+}
+
+function _show(viewName) {
+    _viewSetup.style.display = viewName === 'setup' ? 'block' : 'none';
+    _viewGame.style.display = viewName === 'game' ? 'flex' : 'none';
+    
+    const hdr = document.getElementById('games-header-title');
+    if (hdr) {
+        if (viewName === 'setup') hdr.textContent = 'Memory — Setup';
+        if (viewName === 'game') hdr.textContent = 'Memory — Match!';
+    }
+}
+
+function _handleStartGame(validWords, config) {
+    _show('game');
+    startBoard(_viewGame, validWords, config, () => {
+        _show('setup'); // Return to setup on quit/finish
+    });
+}
+
+function _handleOpenShop() {
+    openShop(() => {
+        // On shop close, we just stay where we were (setup handles it automatically)
+    });
+}
