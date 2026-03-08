@@ -1316,7 +1316,7 @@ select, textarea {
     flex: 1;
     overflow-y: auto;
     align-content: center;
-    justify-content: center;
+    width: 100%; /* Ensure it takes full width of parent */
 }
 /* Force aspect ratios to be slightly taller than square for text */
 .mem-grid-6 { grid-template-columns: repeat(2, 1fr); max-width: 300px; margin: 0 auto; }
@@ -1330,6 +1330,7 @@ select, textarea {
     perspective: 1000px;
     cursor: pointer;
     width: 100%;
+    min-height: 80px; /* Fallback if aspect-ratio fails */
 }
 .mem-card-inner {
     position: relative;
