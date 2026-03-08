@@ -7,10 +7,17 @@ let _screens = null;
 let _onExit  = null;
 let _selector = null;
 let _vocabQueue = []; // words from vocab_selector: { word, furi, trans, status }
-let _STARTER_COUNT = 3; // set from queue size on first launch; used on full wipe
+let _STARTER_COUNT = 3; // default; overridden by config on each launch
 
 const SAVE_KEY = 'neko_nihongo_save';
 const BANNED_KEY = 'neko_banned_words';
+const CFG_KEY = 'neko_nihongo_cfg';
+
+function _loadCfg() {
+    try { return JSON.parse(localStorage.getItem(CFG_KEY)) || {}; } catch { return {}; }
+}
+function _saveCfg(cfg) { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); }
+function _getCfg(key, def) { const v = _loadCfg()[key]; return v !== undefined ? v : def; }
 
 export function init(screens, onExit) {
     _screens = screens;
@@ -95,6 +102,9 @@ function _startGame() {
         eng:   w.trans || '—',
     }));
 
+    // Pull config settings
+    _STARTER_COUNT = _getCfg('starter', 3);
+
     _show('game');
     _loadGame();
 
@@ -113,7 +123,7 @@ function _startGame() {
     const toAdd = Math.min(orphanCount, freshPool.length);
     for (let i = 0; i < toAdd; i++) {
         const w = freshPool[i];
-        _g.srs.push({ id: w.id, nextReview: Date.now(), interval: 8, ease: 1.5 });
+        _g.srs.push({ id: w.id, nextReview: Date.now(), interval: _getCfg('interval', 8), ease: _getCfg('ease', 1.5) });
     }
 
     // Give _STARTER_COUNT free starter words on a brand-new save
@@ -121,7 +131,7 @@ function _startGame() {
     if (_g.srs.length === 0 && _starterCount > 0) {
         for (let i = 0; i < _starterCount; i++) {
             const w = _vocabQueue[i];
-            _g.srs.push({ id: w.id, kanji: w.kanji, kana: w.kana, eng: w.eng, nextReview: Date.now(), interval: 8, ease: 1.5 });
+            _g.srs.push({ id: w.id, kanji: w.kanji, kana: w.kana, eng: w.eng, nextReview: Date.now(), interval: _getCfg('interval', 8), ease: _getCfg('ease', 1.5) });
         }
         _g.stats.wordsLearned += _starterCount;
     }
@@ -131,6 +141,7 @@ function _startGame() {
     _isCooldown = false;
     _updateSRSQueue();
     _updateUI();
+    _updatePauseBtn();
     _startGameLoop();
 }
 
@@ -254,6 +265,8 @@ function _freshGame() {
         fish: 0, yarn: 0, bells: 0, karma: 0,
         combo: 0, // Current dojo combo
         lastTick: Date.now(),
+        pauseTime: 0,       // total ms accumulated while paused
+        pauseStart: null,   // timestamp when current pause began, null if not paused
         // Stats
         stats: {
             clicks: 0,
@@ -399,7 +412,54 @@ function _formatTime(sec) {
     return Math.floor(sec/86400) + 'd ' + Math.floor((sec%86400)/3600) + 'h';
 }
 
-// ─── Persistence ──────────────────────────────────────────────────────────────
+// ─── Pause ────────────────────────────────────────────────────────────────────
+
+function _isPaused() { return _g.pauseStart !== null; }
+
+// Returns the effective "now" from the game's perspective:
+// all SRS dueTimes were stored relative to real time, so when paused we shift
+// them forward as pause accumulates. Easier: compare against (realNow - pauseTime).
+function _gameNow() {
+    const extraPause = _isPaused() ? (Date.now() - _g.pauseStart) : 0;
+    return Date.now() - (_g.pauseTime + extraPause);
+}
+
+function _togglePause() {
+    if (_isPaused()) {
+        // Unpause: accumulate pause duration and clear pauseStart
+        _g.pauseTime  += Date.now() - _g.pauseStart;
+        _g.pauseStart  = null;
+        // Advance lastTick so the loop doesn't think time passed while paused
+        _g.lastTick    = Date.now();
+    } else {
+        // Pause
+        _g.pauseStart = Date.now();
+    }
+    _updateUI();
+    _updatePauseBtn();
+    _saveGame(false);
+}
+
+function _updatePauseBtn() {
+    const btn     = _screens.game?.querySelector('#nk-pause-btn');
+    const overlay = _screens.game?.querySelector('#nk-pause-overlay');
+    if (btn) {
+        if (_isPaused()) {
+            btn.textContent = '▶';
+            btn.title = 'Resume';
+            btn.style.background = '#e17055';
+            btn.style.color = 'white';
+        } else {
+            btn.textContent = '⏸';
+            btn.title = 'Pause';
+            btn.style.background = '';
+            btn.style.color = '';
+        }
+    }
+    if (overlay) overlay.style.display = _isPaused() ? 'flex' : 'none';
+}
+
+
 
 function _saveGame(manual = false) {
     _g.lastTick = Date.now();
@@ -419,6 +479,9 @@ function _loadGame() {
         _g.karma = p.karma || 0;
         _g.combo = p.combo || 0;
         _g.srs   = p.srs   || [];
+        _g.pauseTime  = p.pauseTime  || 0;
+        // If app was closed while paused, keep accumulated pause time but treat as unpaused on reload
+        _g.pauseStart = null;
         
         if (p.stats) _g.stats = { ..._g.stats, ...p.stats };
 
@@ -452,6 +515,15 @@ function _startGameLoop() {
         }
 
         const now   = Date.now();
+
+        // While paused: update lastTick so we don't accumulate delta, then skip
+        if (_isPaused()) {
+            _g.lastTick = now;
+            _updateUI();
+            _rafId = requestAnimationFrame(loop);
+            return;
+        }
+
         const delta = (now - _g.lastTick) / 1000;
         _g.lastTick = now;
 
@@ -704,7 +776,7 @@ function _learnNewWord() {
 
     _g.fish -= cost;
     const w = available[0];
-    _g.srs.push({ id: w.id, nextReview: Date.now(), interval: 8, ease: 1.5 });
+    _g.srs.push({ id: w.id, nextReview: Date.now(), interval: _getCfg('interval', 8), ease: _getCfg('ease', 1.5) });
     
     _g.stats.wordsLearned++;
     _updateSRSQueue();
@@ -712,7 +784,7 @@ function _learnNewWord() {
 }
 
 function _updateSRSQueue() {
-    const now    = Date.now();
+    const now    = _gameNow();
     const _activeIds = new Set(_vocabQueue.map(v => v.id));
     _pendingReviews = _g.srs.filter(s => _activeIds.has(s.id) && s.nextReview <= now);
 
@@ -851,6 +923,7 @@ function _initGameDOM() {
         <div class="nk-topbar-title">🐾</div>
         <div class="nk-topbar-btns">
             <button class="nk-hbtn nk-hbtn-fmt" id="nk-numfmt-btn" title="Toggle number format">M</button>
+            <button class="nk-hbtn" id="nk-pause-btn" title="Pause">⏸</button>
             <button class="nk-hbtn nk-hbtn-gold" id="nk-ascend-btn" title="Ascend">⬆</button>
             <button class="nk-hbtn nk-hbtn-spirit" id="nk-rebirth-btn" title="Rebirth" style="display:${showSpirit?'inline-block':'none'};">♻</button>
             <button class="nk-hbtn" id="nk-save-btn" title="Save">💾</button>
@@ -878,6 +951,8 @@ function _initGameDOM() {
                 <span class="nk-val-fps">0</span>/s
                 <span class="nk-stat-sep">·</span>
                 <span class="nk-val-cpc">1</span>/cl
+                <span class="nk-stat-sep">·</span>
+                📚<span class="nk-val-wordcount">0</span>
                 <span class="nk-stat-sep">·</span>
                 🔥<span class="nk-val-combo">0</span>
                 <button id="nk-mult-btn" class="nk-mult-btn" title="Click for multiplier breakdown">×1.00</button>
@@ -959,6 +1034,7 @@ function _initGameDOM() {
             <div class="nk-subtab-bar">
                 <button class="nk-subtab-btn active" data-subtarget="statistics">📊 Statistics</button>
                 <button class="nk-subtab-btn" data-subtarget="vocabulary">📖 Vocabulary</button>
+                <button class="nk-subtab-btn" data-subtarget="individualize">⚙️ Settings</button>
             </div>
             <div class="nk-subtab-content active" id="nk-subtab-statistics">
                 <div class="nk-shop-title">Economy</div>
@@ -974,6 +1050,39 @@ function _initGameDOM() {
                 <div id="nk-vocab-summary" class="nk-stats-list" style="margin-bottom:12px;"></div>
                 <div id="nk-vocab-list" class="nk-vocab-list"></div>
             </div>
+            <div class="nk-subtab-content" id="nk-subtab-individualize">
+                <div class="nk-shop-title">⚙️ Game Settings</div>
+                <div class="nk-stats-list" style="padding:14px; display:flex; flex-direction:column; gap:14px;">
+                    <div>
+                        <label style="font-size:13px; font-weight:bold; display:block; margin-bottom:4px;">🌱 Starter Words</label>
+                        <div style="font-size:11px; color:#888; margin-bottom:6px;">Words given for free when starting a fresh save (default: 3)</div>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <input type="number" id="nk-cfg-starter" min="1" max="20" value="3"
+                                style="width:70px; padding:5px 8px; border:2px solid #eee; border-radius:8px; font-size:14px; font-weight:bold;">
+                            <button class="nk-learn-btn" style="padding:5px 14px; font-size:12px;" id="nk-cfg-starter-save">Save</button>
+                        </div>
+                    </div>
+                    <div>
+                        <label style="font-size:13px; font-weight:bold; display:block; margin-bottom:4px;">📐 Initial SRS Ease Factor</label>
+                        <div style="font-size:11px; color:#888; margin-bottom:6px;">Ease factor for new words (default: 1.5 · min 1.3 · max 3.0). Higher = intervals grow faster.</div>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <input type="number" id="nk-cfg-ease" min="1.3" max="3.0" step="0.1" value="1.5"
+                                style="width:70px; padding:5px 8px; border:2px solid #eee; border-radius:8px; font-size:14px; font-weight:bold;">
+                            <button class="nk-learn-btn" style="padding:5px 14px; font-size:12px;" id="nk-cfg-ease-save">Save</button>
+                        </div>
+                    </div>
+                    <div>
+                        <label style="font-size:13px; font-weight:bold; display:block; margin-bottom:4px;">⏱️ Initial SRS Interval</label>
+                        <div style="font-size:11px; color:#888; margin-bottom:6px;">First review interval in seconds (default: 8). Lower = reviews come back sooner after first answer.</div>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <input type="number" id="nk-cfg-interval" min="4" max="300" step="1" value="8"
+                                style="width:70px; padding:5px 8px; border:2px solid #eee; border-radius:8px; font-size:14px; font-weight:bold;">
+                            <button class="nk-learn-btn" style="padding:5px 14px; font-size:12px;" id="nk-cfg-interval-save">Save</button>
+                        </div>
+                    </div>
+                    <div id="nk-cfg-status" style="font-size:12px; color:var(--nk-success); min-height:18px;"></div>
+                </div>
+            </div>
         </div>
 
         <!-- SPIRIT TAB -->
@@ -987,6 +1096,16 @@ function _initGameDOM() {
     <div class="nk-footer"></div>
 
     <div class="nk-toasts" id="nk-toasts"></div>
+
+    <!-- Pause overlay -->
+    <div id="nk-pause-overlay" class="nk-pause-overlay" style="display:none;">
+        <div class="nk-pause-dialog">
+            <div style="font-size:48px;">⏸</div>
+            <div style="font-size:20px; font-weight:bold; margin-top:8px;">Game Paused</div>
+            <div style="font-size:12px; color:#888; margin-top:4px;">All timers frozen</div>
+            <button class="nk-learn-btn" style="margin-top:16px;" id="nk-pause-resume-btn">▶ Resume</button>
+        </div>
+    </div>
 
     <!-- Wipe popup -->
     <div id="nk-wipe-overlay" class="nk-wipe-overlay" style="display:none;">
@@ -1007,6 +1126,8 @@ function _initGameDOM() {
 </div>`;
 
     el.querySelector('#nk-save-btn').addEventListener('click', () => _saveGame(true));
+    el.querySelector('#nk-pause-btn').addEventListener('click', _togglePause);
+    el.querySelector('#nk-pause-resume-btn').addEventListener('click', _togglePause);
     el.querySelector('#nk-numfmt-btn').addEventListener('click', _toggleNumFmt);
     // Set correct label on init
     const fmtBtn = el.querySelector('#nk-numfmt-btn');
@@ -1067,7 +1188,7 @@ function _initGameDOM() {
         const starterCount = Math.min(_STARTER_COUNT, _vocabQueue.length);
         for (let i = 0; i < starterCount; i++) {
             const w = _vocabQueue[i];
-            _g.srs.push({ id: w.id, kanji: w.kanji, kana: w.kana, eng: w.eng, nextReview: Date.now(), interval: 8, ease: 1.5 });
+            _g.srs.push({ id: w.id, kanji: w.kanji, kana: w.kana, eng: w.eng, nextReview: Date.now(), interval: _getCfg('interval', 8), ease: _getCfg('ease', 1.5) });
         }
         _g.stats.wordsLearned += starterCount;
         _saveGame();
@@ -1084,6 +1205,39 @@ function _initGameDOM() {
 
     el.querySelectorAll('.nk-subtab-btn').forEach(btn => {
         btn.addEventListener('click', () => _switchSubtab(btn.getAttribute('data-subtarget')));
+    });
+
+    // ── Individualize settings ───────────────────────────────────────────────
+    const cfgStatus = (msg, ok = true) => {
+        const el2 = el.querySelector('#nk-cfg-status');
+        if (el2) { el2.textContent = msg; el2.style.color = ok ? 'var(--nk-success)' : '#e17055'; }
+    };
+    // Pre-fill with saved values
+    const starterIn  = el.querySelector('#nk-cfg-starter');
+    const easeIn     = el.querySelector('#nk-cfg-ease');
+    const intervalIn = el.querySelector('#nk-cfg-interval');
+    if (starterIn)  starterIn.value  = _getCfg('starter',  3);
+    if (easeIn)     easeIn.value     = _getCfg('ease',     1.5);
+    if (intervalIn) intervalIn.value = _getCfg('interval', 8);
+
+    el.querySelector('#nk-cfg-starter-save')?.addEventListener('click', () => {
+        const v = parseInt(el.querySelector('#nk-cfg-starter').value);
+        if (isNaN(v) || v < 1 || v > 20) { cfgStatus('Must be 1–20', false); return; }
+        const cfg = _loadCfg(); cfg.starter = v; _saveCfg(cfg);
+        _STARTER_COUNT = v;
+        cfgStatus(`✓ Starter words set to ${v} (takes effect on next wipe/fresh start)`);
+    });
+    el.querySelector('#nk-cfg-ease-save')?.addEventListener('click', () => {
+        const v = parseFloat(el.querySelector('#nk-cfg-ease').value);
+        if (isNaN(v) || v < 1.3 || v > 3.0) { cfgStatus('Must be 1.3–3.0', false); return; }
+        const cfg = _loadCfg(); cfg.ease = v; _saveCfg(cfg);
+        cfgStatus(`✓ Ease factor set to ${v} (applies to new words from now on)`);
+    });
+    el.querySelector('#nk-cfg-interval-save')?.addEventListener('click', () => {
+        const v = parseInt(el.querySelector('#nk-cfg-interval').value);
+        if (isNaN(v) || v < 4 || v > 300) { cfgStatus('Must be 4–300 seconds', false); return; }
+        const cfg = _loadCfg(); cfg.interval = v; _saveCfg(cfg);
+        cfgStatus(`✓ Initial interval set to ${v}s (applies to new words from now on)`);
     });
 }
 
@@ -1349,6 +1503,11 @@ function _updateUI() {
     setTxt('.nk-val-cpc',   _fmtN(_getClickPower()));
     setTxt('.nk-val-combo', _g.combo.toFixed(1)); // Show decimal to make decay visible
 
+    // Word count in sub-line (active learned words)
+    const _wcActiveIds = new Set(_vocabQueue.map(v => v.id));
+    const _wcCount = _g.srs.filter(s => _wcActiveIds.has(s.id)).length;
+    setTxt('.nk-val-wordcount', _wcCount);
+
     // Multiplier badge
     const multBtn = g.querySelector('#nk-mult-btn');
     if (multBtn) {
@@ -1451,7 +1610,7 @@ function _updateShopBtns(shopKey, prefix) {
     const learnedCount = _g.srs.filter(s => new Set(_vocabQueue.map(v => v.id)).has(s.id)).length;
     for (const key in _g[shopKey]) {
         const upg       = _g[shopKey][key];
-        const costFish  = Math.floor(upg.cost * Math.pow(1.15, upg.count) * discount);
+        const costFish  = Math.floor(upg.cost * Math.pow(1.18, upg.count) * discount);
         const btn       = g?.querySelector(`#nk-btn-${prefix}-${key}`);
         const lvl       = g?.querySelector(`#nk-lvl-${prefix}-${key}`);
         const vocabNote = g?.querySelector(`#nk-vocab-${prefix}-${key}`);
@@ -1957,6 +2116,17 @@ function _toast(msg, color = '#333') {
     background: rgba(0,0,0,0.8); color: white; padding: 8px 16px;
     border-radius: 20px; margin-bottom: 5px; font-size: 12px;
     animation: nkFloat 3s forwards;
+}
+
+/* Pause overlay */
+.nk-pause-overlay {
+    position: absolute; inset: 0; z-index: 300;
+    background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+}
+.nk-pause-dialog {
+    background: white; border-radius: 16px; padding: 28px 32px;
+    text-align: center; box-shadow: 0 8px 32px rgba(0,0,0,0.3);
 }
 
 /* Wipe button */
