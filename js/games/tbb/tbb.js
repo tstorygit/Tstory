@@ -167,7 +167,7 @@ function _renderSetup() {
 
     _selector = mountVocabSelector(el, {
         bannedKey:    BANNED_KEY,
-        defaultCount: 20,
+        defaultCount: 'All',
         title:        'Turn-Based Battle — Choose Vocabulary',
     });
 

@@ -61,7 +61,7 @@ function _renderSetup() {
 
     _selector = mountVocabSelector(el, {
         bannedKey:    BANNED_KEY,
-        defaultCount: 20,
+        defaultCount: 'All',
         title:        'NekoNihongo — Choose Vocabulary',
     });
 
