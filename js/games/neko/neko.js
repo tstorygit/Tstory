@@ -123,7 +123,7 @@ function _startGame() {
     const toAdd = Math.min(orphanCount, freshPool.length);
     for (let i = 0; i < toAdd; i++) {
         const w = freshPool[i];
-        _g.srs.push({ id: w.id, nextReview: Date.now(), interval: _getCfg('interval', 8), ease: _getCfg('ease', 1.5) });
+        _g.srs.push({ id: w.id, nextReview: _gameNow(), interval: _getCfg('interval', 8), ease: _getCfg('ease', 1.5) });
     }
 
     // Give _STARTER_COUNT free starter words on a brand-new save
@@ -131,7 +131,7 @@ function _startGame() {
     if (_g.srs.length === 0 && _starterCount > 0) {
         for (let i = 0; i < _starterCount; i++) {
             const w = _vocabQueue[i];
-            _g.srs.push({ id: w.id, kanji: w.kanji, kana: w.kana, eng: w.eng, nextReview: Date.now(), interval: _getCfg('interval', 8), ease: _getCfg('ease', 1.5) });
+            _g.srs.push({ id: w.id, kanji: w.kanji, kana: w.kana, eng: w.eng, nextReview: _gameNow(), interval: _getCfg('interval', 8), ease: _getCfg('ease', 1.5) });
         }
         _g.stats.wordsLearned += _starterCount;
     }
@@ -183,8 +183,8 @@ const _defaultClickUpgrades = () => ({
 });
 
 const _defaultBellUpgrades = () => ({
-    paw:         { name: 'Golden Paw',      desc: '+100% Click Power',                    cost: 1,   count: 0, effect: 2.0   },
-    tuna:        { name: 'Golden Tuna',     desc: '+100% Idle Power',                     cost: 1,   count: 0, effect: 2.0   },
+    paw:         { name: 'Golden Paw',      desc: '+100% Click Base (additive)',          cost: 1,   count: 0, effect: 1.0   },
+    tuna:        { name: 'Golden Tuna',     desc: '+100% Idle Base (additive)',           cost: 1,   count: 0, effect: 1.0   },
     scholar:     { name: 'Scholar Hat',     desc: '-10% Learn Cost',                      cost: 2,   count: 0, effect: 0.9   },
     weaver:      { name: 'Yarn Weaver',     desc: '10% Double Yarn Chance',               cost: 3,   count: 0, effect: 0.1   },
     luck:        { name: 'Omikuji Luck',    desc: '5% Lucky Catch (×5 Fish)',             cost: 5,   count: 0, effect: 0.05  },
@@ -215,6 +215,7 @@ const _defaultRebirthUpgrades = () => ({
     guide:       { name: 'Spirit Guide',     desc: 'Global ×2.5 Multiplier',              cost: 15, count: 0, effect: 2.5  },
     surge_soul:  { name: 'Surge Soul',       desc: 'Fish Surge: 60s instead of 30s',     cost: 18, count: 0, effect: 2    },
     echo_soul:   { name: 'Echo Soul',        desc: 'Echo Paw bursts 6s instead of 3s',   cost: 20, count: 0, effect: 2    },
+    global_amp:  { name: 'Cosmic Amplifier', desc: '+10% to all final production',        cost: 25, count: 0, effect: 0.1  },
 });
 
 let _g = null;   // game state
@@ -293,14 +294,15 @@ function _getFishPerSec() {
     for (const key in _g.upgrades) {
         if (key !== 'catnip') base += _g.upgrades[key].count * _g.upgrades[key].effect;
     }
+    // Golden Tuna: +100% of base (additive) per level
+    base *= (1 + _g.bellUpgrades.tuna.count * _g.bellUpgrades.tuna.effect);
     
     // Apply multiplicative bonuses
     let m = 1;
     m *= Math.pow(_g.upgrades.catnip.effect, _g.upgrades.catnip.count);
-    m *= Math.pow(_g.bellUpgrades.tuna.effect, _g.bellUpgrades.tuna.count);
     m *= Math.pow(_g.bellUpgrades.warp.effect, _g.bellUpgrades.warp.count);
     m *= Math.pow(_g.bellUpgrades.nap.effect, _g.bellUpgrades.nap.count);
-    m *= (1 + (_g.bells * 0.05)); // +5% prod per bell (was 10%)
+    m *= (1 + (_g.bells * 0.05)); // +5% prod per bell
     
     // ── Word Bonus: always-on 2%/word, bloom upgrades it ──
     const bloomLvl   = _g.rebirthUpgrades.bloom.count;
@@ -322,15 +324,17 @@ function _getFishPerSec() {
 
     if (_isDebug) m *= 1000;
     
-    return base * m * moodMult * sunspotBonus * comboMult;
+    const ampBonus2 = 1 + (_g.rebirthUpgrades.global_amp?.count || 0) * (_g.rebirthUpgrades.global_amp?.effect || 0);
+    return base * m * moodMult * sunspotBonus * comboMult * ampBonus2;
 }
 
 function _getClickPower() {
     let base = 1;
     for (const key in _g.clickUpgrades) base += _g.clickUpgrades[key].count * _g.clickUpgrades[key].effect;
+    // Golden Paw: +100% of base (additive) per level
+    base *= (1 + _g.bellUpgrades.paw.count * _g.bellUpgrades.paw.effect);
     
     let m = 1;
-    m *= Math.pow(_g.bellUpgrades.paw.effect, _g.bellUpgrades.paw.count);
     m *= Math.pow(_g.rebirthUpgrades.guide.effect, _g.rebirthUpgrades.guide.count);
 
     // Happy Cat and Combo also apply to clicks
@@ -343,7 +347,8 @@ function _getClickPower() {
     }
     
     if (_isDebug) m *= 1000;
-    return base * m;
+    const ampBonus = 1 + (_g.rebirthUpgrades.global_amp?.count || 0) * (_g.rebirthUpgrades.global_amp?.effect || 0);
+    return base * m * ampBonus;
 }
 
 function _getMultiplierBreakdown() {
@@ -351,19 +356,25 @@ function _getMultiplierBreakdown() {
     const moodMult  = isHappy ? 1.25 : 0.75;
     const comboMult = 1 + Math.log2(1 + _g.combo);
 
-    // ── Idle base (additive upgrades) ──
+    // ── Idle base (additive upgrades + tuna additive bonus) ──
     let idleBase = 0;
     for (const key in _g.upgrades) {
         if (key !== 'catnip') idleBase += _g.upgrades[key].count * _g.upgrades[key].effect;
     }
+    // Golden Tuna: +100% of base per level (shown separately for clarity)
+    const tunaBonus = 1 + _g.bellUpgrades.tuna.count * _g.bellUpgrades.tuna.effect;
+    idleBase *= tunaBonus;
 
-    // ── Click base (additive upgrades) ──
+    // ── Click base (additive upgrades + paw additive bonus) ──
     let clickBase = 1;
     for (const key in _g.clickUpgrades) clickBase += _g.clickUpgrades[key].count * _g.clickUpgrades[key].effect;
+    // Golden Paw: +100% of base per level
+    const pawBonus = 1 + _g.bellUpgrades.paw.count * _g.bellUpgrades.paw.effect;
+    clickBase *= pawBonus;
 
     // ── Idle-specific multipliers ──
     const catnip  = Math.pow(_g.upgrades.catnip.effect, _g.upgrades.catnip.count);
-    const tuna    = Math.pow(_g.bellUpgrades.tuna.effect, _g.bellUpgrades.tuna.count);
+    const tuna    = tunaBonus; // display the additive factor for the breakdown popup
     const warp    = Math.pow(_g.bellUpgrades.warp.effect, _g.bellUpgrades.warp.count);
     const nap     = Math.pow(_g.bellUpgrades.nap.effect, _g.bellUpgrades.nap.count);
     const bells   = 1 + (_g.bells * 0.05);
@@ -377,18 +388,19 @@ function _getMultiplierBreakdown() {
         ? Math.pow(_g.bellUpgrades.sunspot.effect, _g.bellUpgrades.sunspot.count) : 1;
 
     // ── Click-specific multipliers ──
-    const paw = Math.pow(_g.bellUpgrades.paw.effect, _g.bellUpgrades.paw.count);
+    const paw = pawBonus; // display the additive factor
 
-    const idleMultTotal  = catnip * tuna * warp * nap * bells * bloom * guide * moodMult * sunspot * comboMult;
-    const clickMultTotal = paw * guide * moodMult * comboMult;
+    // tuna/paw are already baked into the base, so don't multiply again
+    const idleMultTotal  = catnip * warp * nap * bells * bloom * guide * moodMult * sunspot * comboMult;
+    const clickMultTotal = guide * moodMult * comboMult;
+    const globalAmp = 1 + (_g.rebirthUpgrades.global_amp?.count || 0) * (_g.rebirthUpgrades.global_amp?.effect || 0);
 
     return {
-        isHappy, moodMult, comboMult, wordPct, activeWords,
-        idle:  { base: idleBase,  catnip, tuna, warp, nap, bells, bloom, sunspot, guide, multTotal: idleMultTotal,  finalFps:   idleBase  * idleMultTotal },
-        click: { base: clickBase, paw, guide,                                              multTotal: clickMultTotal, finalClick: clickBase * clickMultTotal },
+        isHappy, moodMult, comboMult, wordPct, activeWords, globalAmp,
+        idle:  { base: idleBase,  catnip, tuna, warp, nap, bells, bloom, sunspot, guide, multTotal: idleMultTotal,  finalFps:   idleBase  * idleMultTotal * globalAmp },
+        click: { base: clickBase, paw, guide,                                              multTotal: clickMultTotal, finalClick: clickBase * clickMultTotal * globalAmp },
     };
 }
-
 
 function _getLearnCost() {
     // Quadratic scaling: word 1=250, word 5=1450, word 10=5200, word 20=20200
@@ -570,7 +582,7 @@ function _startGameLoop() {
                 const activeIds = new Set(_vocabQueue.map(v => v.id));
                 const activeSrs = _g.srs.filter(s => activeIds.has(s.id));
                 const next = activeSrs.length > 0 ? Math.min(...activeSrs.map(s => s.nextReview)) : Infinity;
-                const diffSec = (next - now) / 1000;
+                const diffSec = (next - _gameNow()) / 1000;
 
                 if (nextTimer) {
                     nextTimer.textContent = diffSec <= 0 ? "Cat is waking up..." : `Next cat in: ${_formatTime(diffSec)}`;
@@ -776,7 +788,7 @@ function _learnNewWord() {
 
     _g.fish -= cost;
     const w = available[0];
-    _g.srs.push({ id: w.id, nextReview: Date.now(), interval: _getCfg('interval', 8), ease: _getCfg('ease', 1.5) });
+    _g.srs.push({ id: w.id, nextReview: _gameNow(), interval: _getCfg('interval', 8), ease: _getCfg('ease', 1.5) });
     
     _g.stats.wordsLearned++;
     _updateSRSQueue();
@@ -864,9 +876,9 @@ function _checkAnswer(selectedId, btnEl, correctId, event) {
         _g.stats.correct++;
         _g.stats.yarnEarned += yarn;
 
-        // Interval math in seconds
+        // Interval math in seconds — use game clock so pause doesn't cause drift
         srsItem.interval   = Math.round(srsItem.interval * srsItem.ease);
-        srsItem.nextReview = Date.now() + srsItem.interval * 1000;
+        srsItem.nextReview = _gameNow() + srsItem.interval * 1000;
 
         if (event) {
             _spawnFloatingText(event.clientX, event.clientY, `+${yarn} 🧶`, 'var(--nk-success)', 22);
@@ -890,7 +902,7 @@ function _checkAnswer(selectedId, btnEl, correctId, event) {
         btnEl.classList.add('nk-quiz-wrong');
         srsItem.interval   = 15; // Reset to 15 seconds
         srsItem.ease       = Math.max(1.3, srsItem.ease - 0.2);
-        srsItem.nextReview = Date.now() + 15000;
+        srsItem.nextReview = _gameNow() + 15000;
         
         const comboDiv = _g.bellUpgrades.combo_saver.count > 0 ? 1.5 : 2;
         _g.combo = Math.floor(_g.combo / comboDiv);
@@ -1188,7 +1200,7 @@ function _initGameDOM() {
         const starterCount = Math.min(_STARTER_COUNT, _vocabQueue.length);
         for (let i = 0; i < starterCount; i++) {
             const w = _vocabQueue[i];
-            _g.srs.push({ id: w.id, kanji: w.kanji, kana: w.kana, eng: w.eng, nextReview: Date.now(), interval: _getCfg('interval', 8), ease: _getCfg('ease', 1.5) });
+            _g.srs.push({ id: w.id, kanji: w.kanji, kana: w.kana, eng: w.eng, nextReview: _gameNow(), interval: _getCfg('interval', 8), ease: _getCfg('ease', 1.5) });
         }
         _g.stats.wordsLearned += starterCount;
         _saveGame();
@@ -1330,9 +1342,9 @@ function _renderStats() {
         const accuracy  = (_g.stats.correct + _g.stats.wrong) > 0
             ? Math.round((_g.stats.correct / (_g.stats.correct + _g.stats.wrong)) * 100)
             : 0;
-        const now = Date.now();
+        const now = _gameNow();
         const pending  = _pendingReviews.length;
-        const due      = _g.srs.filter(s => s.nextReview <= now).length;
+        const due      = pending; // same source as dojo badge — active vocab only
 
         // Next review countdown
         let nextReviewText = '—';
@@ -1392,10 +1404,10 @@ function _renderVocabList() {
     const g = _screens.game;
     if (!g) return;
 
-    const now    = Date.now();
+    const now    = _gameNow();
     const total  = _vocabQueue.length;
     const learned = _g.srs.length;
-    const due    = _g.srs.filter(s => s.nextReview <= now).length;
+    const due    = _pendingReviews.length; // same source as dojo badge — active vocab only
 
     const summaryEl = g.querySelector('#nk-vocab-summary');
     if (summaryEl) {
@@ -1473,6 +1485,7 @@ function _renderMultiplierPopup() {
             ${row('☀️ Sunspot',  b.idle.sunspot)}
             ${row(`📚 Words (${b.activeWords}×${(b.wordPct*100).toFixed(0)}%)`, b.idle.bloom)}
             ${row('👻 Guide',    b.idle.guide)}
+            ${b.globalAmp > 1 ? row('🌌 Cosmic Amp', b.globalAmp, 'var(--nk-spirit)') : ''}
             ${totalRow('= Total /s', b.idle.finalFps)}
         </div>
         <div class="nk-mp-section" style="margin-top:8px;">
@@ -1482,6 +1495,7 @@ function _renderMultiplierPopup() {
             ${row('🔥 Combo (' + _g.combo.toFixed(1) + ')', b.comboMult, '#e17055')}
             ${row('🐾 Paw Bell', b.click.paw)}
             ${row('👻 Guide',    b.click.guide)}
+            ${b.globalAmp > 1 ? row('🌌 Cosmic Amp', b.globalAmp, 'var(--nk-spirit)') : ''}
             ${totalRow('= Total /click', b.click.finalClick)}
         </div>
     `;
