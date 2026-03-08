@@ -208,7 +208,7 @@ function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, 
                 </div>
             </div>
 
-            <label class="settings-toggle" style="border-radius:0 0 8px 8px;border-top:1px solid var(--border-color);">
+            <label class="settings-toggle" style="border-radius:0;border-top:1px solid var(--border-color);">
                 <input type="checkbox" class="vs-use-list" checked>
                 <span class="settings-toggle-track"></span>
                 <span class="settings-toggle-text">
@@ -216,6 +216,33 @@ function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, 
                     <em>(${wordList.length} words)</em>
                 </span>
             </label>
+
+            <div class="vs-list-range" style="
+                padding:10px 20px 14px;
+                background:var(--surface-color);
+                border:1px solid var(--border-color);
+                border-top:none;
+                border-radius:0 0 8px 8px;
+            ">
+                <div style="font-size:13px;font-weight:600;color:var(--text-muted);margin-bottom:10px;">
+                    Rank range (1 = most common):
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                    <label style="font-size:13px;color:var(--text-muted);">From</label>
+                    <input type="number" class="vs-range-low"
+                           min="1" max="${wordList.length}" value="1"
+                           style="width:70px;padding:5px 8px;border:1px solid var(--border-color);
+                                  border-radius:6px;background:var(--bg-color);
+                                  color:var(--text-color);font-size:14px;text-align:center;">
+                    <label style="font-size:13px;color:var(--text-muted);">to</label>
+                    <input type="number" class="vs-range-high"
+                           min="1" max="${wordList.length}" value="${wordList.length}"
+                           style="width:70px;padding:5px 8px;border:1px solid var(--border-color);
+                                  border-radius:6px;background:var(--bg-color);
+                                  color:var(--text-color);font-size:14px;text-align:center;">
+                    <span class="vs-range-count" style="font-size:13px;color:var(--text-muted);"></span>
+                </div>
+            </div>
         </div>`;
 
     // ── Session Size ──────────────────────────────────────────────────────────
@@ -283,6 +310,31 @@ function _wireEvents(el, { bannedKey, showCountPicker, defaultCounts, defaultCou
         cb.addEventListener('change', () => _chipOpacity(cb));
     });
 
+    // List toggle → show/hide range submenu
+    const listToggle = root.querySelector('.vs-use-list');
+    const listRange  = root.querySelector('.vs-list-range');
+    const _syncRangeVisibility = () => {
+        if (listRange) listRange.style.display = listToggle?.checked ? 'block' : 'none';
+    };
+    listToggle?.addEventListener('change', _syncRangeVisibility);
+    _syncRangeVisibility();
+
+    // Range inputs → live word-count label
+    const lowInput   = root.querySelector('.vs-range-low');
+    const highInput  = root.querySelector('.vs-range-high');
+    const countLabel = root.querySelector('.vs-range-count');
+    const _syncRangeCount = () => {
+        if (!lowInput || !highInput || !countLabel) return;
+        const lo = Math.max(1, Math.min(+lowInput.value  || 1,               wordList.length));
+        const hi = Math.max(1, Math.min(+highInput.value || wordList.length,  wordList.length));
+        const n  = lo <= hi ? hi - lo + 1 : 0;
+        countLabel.textContent = lo <= hi ? `(${n} word${n !== 1 ? 's' : ''})` : '⚠ lower > upper';
+        countLabel.style.color = lo <= hi ? 'var(--text-muted)' : '#c0392b';
+    };
+    lowInput?.addEventListener('input',  _syncRangeCount);
+    highInput?.addEventListener('input', _syncRangeCount);
+    _syncRangeCount();
+
     // Count picker
     root.querySelector('.vs-count-group')?.addEventListener('click', e => {
         const b = e.target.closest('.caro-count-btn');
@@ -333,7 +385,14 @@ function _buildQueue(el, { bannedKey }) {
     const map    = new Map();
 
     if (use1000) {
-        wordList.forEach(w => {
+        // Read rank range (1-based, inclusive); fall back to full list if inputs absent
+        const lowInput  = root?.querySelector('.vs-range-low');
+        const highInput = root?.querySelector('.vs-range-high');
+        const lo   = lowInput  ? Math.max(1, Math.min(+lowInput.value  || 1,               wordList.length)) : 1;
+        const hi   = highInput ? Math.max(1, Math.min(+highInput.value || wordList.length,  wordList.length)) : wordList.length;
+        const pool = (lo <= hi) ? wordList.slice(lo - 1, hi) : wordList;
+
+        pool.forEach(w => {
             if (!banned.has(w.word))
                 map.set(w.word, { word: w.word, furi: w.furi, trans: w.trans, status: null });
         });
