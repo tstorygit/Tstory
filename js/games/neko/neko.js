@@ -141,7 +141,7 @@ function _startGame() {
     _isCooldown = false;
     _updateSRSQueue();
     _updateUI();
-    _updatePauseBtn();
+    _updatePauseBtn(); // ensures overlay shows immediately if loaded while paused
     _startGameLoop();
 }
 
@@ -186,7 +186,7 @@ const _defaultBellUpgrades = () => ({
     paw:         { name: 'Golden Paw',      desc: '+100% Click Base (additive)',          cost: 1,   count: 0, effect: 1.0   },
     tuna:        { name: 'Golden Tuna',     desc: '+100% Idle Base (additive)',           cost: 1,   count: 0, effect: 1.0   },
     scholar:     { name: 'Scholar Hat',     desc: '-10% Learn Cost',                      cost: 2,   count: 0, effect: 0.9   },
-    weaver:      { name: 'Yarn Weaver',     desc: '10% Double Yarn Chance',               cost: 3,   count: 0, effect: 0.1   },
+    weaver:      { name: 'Yarn Weaver',     desc: '10% Double Yarn Chance (max Lvl 10)',   cost: 3,   count: 0, effect: 0.1   },
     luck:        { name: 'Omikuji Luck',    desc: '5% Lucky Catch (×5 Fish)',             cost: 5,   count: 0, effect: 0.05  },
     purr:        { name: 'Purring Strike',  desc: '8% chance: pet makes cat happy (10s)', cost: 7,   count: 0, effect: 0.08  },
     bank:        { name: 'Maneki Bank',     desc: '+0.1% Interest/Sec',                   cost: 10,  count: 0, effect: 0.001 },
@@ -208,7 +208,7 @@ const _defaultRebirthUpgrades = () => ({
     eternal:     { name: 'Eternal Wealth',   desc: 'Keep 5% Fish/Yarn on Ascend',        cost: 1,  count: 0, effect: 0.05 },
     wisdom:      { name: 'Divine Wisdom',    desc: '-20% Word Learn Cost',               cost: 3,  count: 0, effect: 0.8  },
     bloom:       { name: 'Spirit Bloom',     desc: 'Word bonus: 2%→5%, +3%/lvl',         cost: 5,  count: 0, effect: 0.05 },
-    weaver_soul: { name: 'Soul Weaver',      desc: 'Triple Yarn Gain (Passive)',          cost: 8,  count: 0, effect: 3    },
+    weaver_soul: { name: 'Soul Weaver',      desc: 'Double Yarn Gain: +×2 per level (additive)',  cost: 8,  count: 0, effect: 2    },
     starter:     { name: 'Ancestral Start',  desc: 'Start Ascend w/ 10 Boxes',           cost: 10, count: 0, effect: 10   },
     purr_soul:   { name: 'Purr Soul',        desc: 'Happy Boost lasts 3× longer',        cost: 12, count: 0, effect: 3    },
     click_words: { name: 'Word Paw',         desc: '+0.5% Click Power per word learned', cost: 14, count: 0, effect: 0.005},
@@ -304,7 +304,7 @@ function _getFishPerSec() {
     m *= Math.pow(_g.upgrades.catnip.effect, _g.upgrades.catnip.count);
     m *= Math.pow(_g.bellUpgrades.warp.effect, _g.bellUpgrades.warp.count);
     m *= Math.pow(_g.bellUpgrades.nap.effect, _g.bellUpgrades.nap.count);
-    m *= (1 + (_g.bells * 0.05)); // +5% prod per bell
+    m *= (1 + (_g.bells * 0.02)); // +2% idle prod per bell (weaker than before)
     
     // ── Word Bonus: always-on 2%/word, bloom upgrades it ──
     const bloomLvl   = _g.rebirthUpgrades.bloom.count;
@@ -338,6 +338,7 @@ function _getClickPower() {
     
     let m = 1;
     m *= Math.pow(_g.rebirthUpgrades.guide.effect, _g.rebirthUpgrades.guide.count);
+    m *= (1 + (_g.bells * 0.05)); // +5% click power per bell (same impact as before)
 
     // Happy Cat and Combo also apply to clicks
     const isHappy = _pendingReviews.length === 0 || Date.now() < _happyBoostEnd;
@@ -379,7 +380,7 @@ function _getMultiplierBreakdown() {
     const tuna    = tunaBonus; // display the additive factor for the breakdown popup
     const warp    = Math.pow(_g.bellUpgrades.warp.effect, _g.bellUpgrades.warp.count);
     const nap     = Math.pow(_g.bellUpgrades.nap.effect, _g.bellUpgrades.nap.count);
-    const bells   = 1 + (_g.bells * 0.05);
+    const bells   = 1 + (_g.bells * 0.02);
     const bloomLvl   = _g.rebirthUpgrades.bloom.count;
     const wordPct    = bloomLvl === 0 ? 0.02 : 0.05 + (bloomLvl - 1) * 0.03;
     const _activeIds = new Set(_vocabQueue.map(v => v.id));
@@ -391,16 +392,17 @@ function _getMultiplierBreakdown() {
 
     // ── Click-specific multipliers ──
     const paw = pawBonus; // display the additive factor
+    const bellsClick = 1 + (_g.bells * 0.05);
 
     // tuna/paw are already baked into the base, so don't multiply again
     const idleMultTotal  = catnip * warp * nap * bells * bloom * guide * moodMult * sunspot * comboMult;
-    const clickMultTotal = guide * moodMult * comboMult;
+    const clickMultTotal = guide * moodMult * comboMult * bellsClick;
     const globalAmp = 1 + (_g.rebirthUpgrades.global_amp?.count || 0) * (_g.rebirthUpgrades.global_amp?.effect || 0);
 
     return {
         isHappy, moodMult, comboMult, wordPct, activeWords, globalAmp,
         idle:  { base: idleBase,  catnip, tuna, warp, nap, bells, bloom, sunspot, guide, multTotal: idleMultTotal,  finalFps:   idleBase  * idleMultTotal * globalAmp },
-        click: { base: clickBase, paw, guide,                                              multTotal: clickMultTotal, finalClick: clickBase * clickMultTotal * globalAmp },
+        click: { base: clickBase, paw, guide, bells: bellsClick,                              multTotal: clickMultTotal, finalClick: clickBase * clickMultTotal * globalAmp },
     };
 }
 
@@ -535,12 +537,16 @@ function _startGameLoop() {
     function _handleVisibilityChange() {
         if (document.hidden && !_isPaused()) {
             _g.pauseStart = Date.now();
+            _g._autoPaused = true;
             _saveGame(false);
         } else if (!document.hidden && _isPaused() && _g._autoPaused) {
             _g.pauseTime  += Date.now() - _g.pauseStart;
             _g.pauseStart  = null;
             _g._autoPaused = false;
             _g.lastTick    = Date.now();
+        } else if (!document.hidden && _isPaused() && !_g._autoPaused) {
+            // Manual pause — re-entering the app: force the overlay visible
+            _updatePauseBtn();
         }
     }
     function _handleBeforeUnload() {
@@ -622,17 +628,18 @@ function _startGameLoop() {
 
                 if (nextTimer) {
                     nextTimer.textContent = diffSec <= 0 ? "Cat is waking up..." : `Next cat in: ${_formatTime(diffSec)}`;
+                    nextTimer.style.minWidth = '180px'; // prevent width jump
                 }
 
                 // Wakeup countdown pill: show in last 10 seconds
                 if (wakeupPill && wakeupLabel && wakeupBar) {
-                    if (diffSec > 0 && diffSec <= 10) {
+                    if (diffSec > 0 && diffSec <= 20) {
                         wakeupPill.style.display = 'flex';
                         wakeupLabel.textContent = `🐱 ${Math.ceil(diffSec)}s`;
-                        const pct = (diffSec / 10) * 100; // full at 10s, empty at 0s
+                        const pct = (diffSec / 20) * 100; // full at 20s, empty at 0s
                         wakeupBar.style.width = pct + '%';
                         // Color shifts: green at 10s → red at 0s
-                        const hue = Math.round(diffSec * 12);
+                        const hue = Math.round(diffSec * 6); // 0s=0 (red) → 20s=120 (green)
                         wakeupBar.style.background = `hsl(${hue}, 80%, 48%)`;
                     } else {
                         wakeupPill.style.display = 'none';
@@ -733,6 +740,11 @@ function _buyUpgrade(shopType, key) {
     const upg  = shop[key];
 
     if (shopType === 'bellUpgrades') {
+        // Cap weaver at level 10 (10% × 10 = 100% max double yarn chance)
+        if (key === 'weaver' && upg.count >= 10) {
+            _toast('Yarn Weaver is maxed! (100% chance)', 'var(--nk-success)');
+            return;
+        }
         const cost = upg.cost + upg.count;
         if (_g.bells >= cost) { _g.bells -= cost; upg.count++; _updateUI(); }
     } else if (shopType === 'rebirthUpgrades') {
@@ -905,7 +917,7 @@ function _checkAnswer(selectedId, btnEl, correctId, event) {
         let yarn = 1;
         if (Math.random() < (_g.bellUpgrades.weaver.count * _g.bellUpgrades.weaver.effect)) yarn *= 2;
         if (_g.bellUpgrades.thread.count > 0) yarn = Math.ceil(yarn * Math.pow(_g.bellUpgrades.thread.effect, _g.bellUpgrades.thread.count));
-        if (_g.rebirthUpgrades.weaver_soul.count > 0) yarn *= 3;
+        if (_g.rebirthUpgrades.weaver_soul.count > 0) yarn *= (1 + _g.rebirthUpgrades.weaver_soul.count); // ×2, ×3, ×4... (additive +1 per lvl)
         if (_g.bellUpgrades.focus.count > 0) yarn += _g.bellUpgrades.focus.count;
         
         _g.yarn += yarn;
@@ -987,10 +999,6 @@ function _initGameDOM() {
                 <div class="nk-stat-pill">🧶 <span class="nk-val-yarn">0</span></div>
                 <div class="nk-stat-pill nk-bell-color">🔔 <span class="nk-val-bells">0</span></div>
                 <div class="nk-stat-pill nk-spirit-color" id="nk-karma-pill" style="display:${showSpirit?'flex':'none'};">👻 <span class="nk-val-karma">0</span></div>
-                <div class="nk-stat-pill nk-wakeup-pill" id="nk-wakeup-pill" style="display:none;">
-                    <span id="nk-wakeup-label">🐱 3s</span>
-                    <div class="nk-wakeup-bar-wrap"><div class="nk-wakeup-bar" id="nk-wakeup-bar"></div></div>
-                </div>
             </div>
             <!-- Row 2 (sub-line): /s · /cl · 📚 · 🔥 · ×mult · 🐱hungry -->
             <div class="nk-stat-sub">
@@ -1003,7 +1011,8 @@ function _initGameDOM() {
                 🔥<span class="nk-val-combo" title="Combo: each correct answer builds your combo. Higher combo = more fish production. Wrong answer halves it.">0</span>
                 <span class="nk-stat-sep">·</span>
                 <button id="nk-mult-btn" class="nk-mult-btn" title="Click for multiplier breakdown">×1.00</button>
-                <span id="nk-hungry-pill" class="nk-hungry-inline" style="display:none;">🐱</span>
+                <span id="nk-wakeup-pill" class="nk-cat-status-pill nk-wakeup-pill-inline" style="display:none;"><span id="nk-wakeup-label">🐱 3s</span><div class="nk-wakeup-bar-wrap"><div class="nk-wakeup-bar" id="nk-wakeup-bar"></div></div></span>
+                <span id="nk-hungry-pill" class="nk-cat-status-pill nk-hungry-pill-block" style="display:none;">🐱 <span id="nk-hungry-count"></span></span>
             </div>
             <div id="nk-mult-popup" class="nk-mult-popup" style="display:none;"></div>
         </div>
@@ -1045,7 +1054,7 @@ function _initGameDOM() {
                 <div style="font-size:50px;">💤</div>
                 <p style="font-weight:bold; margin-top:10px;">Cat is napping.</p>
                 <p style="color:#888;">You have the Happy Bonus!</p>
-                <div id="nk-next-review-timer" style="margin: 15px 0; font-weight: bold; color: var(--nk-btn); font-size: 14px;">Next cat in: --</div>
+                <div id="nk-next-review-timer" style="margin: 15px 0; font-weight: bold; color: var(--nk-btn); font-size: 14px; min-width: 200px; text-align: center;">Next cat in: --</div>
                 <div class="nk-learn-area">
                     <button class="nk-learn-btn" id="nk-learn-btn">Study New Word</button>
                 </div>
@@ -1428,7 +1437,7 @@ function _renderStats() {
             <div class="nk-stat-row"><span>📊 Ascend Progress</span><span>${bellProgress}% (need 50k 🐟)</span></div>
             <div class="nk-stat-row"><span>👻 Spirits (Karma)</span><span>${_fmtN(_g.karma)}</span></div>
             <div class="nk-stat-row"><span>👻 Next Rebirth Reward</span><span>${nextSpirits > 0 ? '+' + nextSpirits + ' Spirit' + (nextSpirits !== 1 ? 's' : '') : 'Need 100 Bells'}</span></div>
-            <div class="nk-stat-row"><span>📈 Global Prod. Multiplier</span><span>×${(1 + (_g.bells * 0.1)).toFixed(2)} (from bells)</span></div>
+            <div class="nk-stat-row"><span>📈 Idle Prod. Multiplier</span><span>×${(1 + (_g.bells * 0.02)).toFixed(2)} (from bells)</span></div>
         `;
     }
 
@@ -1510,6 +1519,7 @@ function _renderMultiplierPopup() {
     const happyColor = b.isHappy ? 'var(--nk-success)' : '#e17055';
 
     popup.innerHTML = `
+        <div style="font-size:9px; color:#aaa; margin-bottom:6px; font-style:italic;">All × factors are multiplied together</div>
         <div class="nk-mp-section">
             <div class="nk-mp-title">🐟 Idle Production</div>
             ${baseRow('🏗️ Upgrades (base /s)', b.idle.base)}
@@ -1533,6 +1543,7 @@ function _renderMultiplierPopup() {
             ${row(happyLabel,    b.moodMult,    happyColor)}
             ${row('🔥 Combo (' + _g.combo.toFixed(1) + ')', b.comboMult, '#e17055')}
             ${row('🐾 Paw Bell', b.click.paw)}
+            ${row('🔔 Bells',    b.click.bells)}
             ${row('👻 Guide',    b.click.guide)}
             ${b.globalAmp > 1 ? row('🌌 Cosmic Amp', b.globalAmp, 'var(--nk-spirit)') : ''}
             ${multRow('= Total ×Multiplier', b.click.multTotal * (b.globalAmp > 1 ? b.globalAmp : 1))}
@@ -1584,8 +1595,10 @@ function _updateUI() {
     // Hungry cats indicator — inline 🐱 in sub-line
     const hungryCount  = _pendingReviews.length;
     const hungryPill   = g.querySelector('#nk-hungry-pill');
+    const hungryCountEl = g.querySelector('#nk-hungry-count');
     const dojoBadge    = g.querySelector('#nk-dojo-badge');
-    if (hungryPill) hungryPill.style.display = hungryCount > 0 ? 'inline' : 'none';
+    if (hungryPill) hungryPill.style.display = hungryCount > 0 ? 'inline-flex' : 'none';
+    if (hungryCountEl) hungryCountEl.textContent = hungryCount > 0 ? `×${hungryCount}` : '';
     if (dojoBadge) {
         if (hungryCount > 0) {
             dojoBadge.textContent = hungryCount;
@@ -1779,19 +1792,38 @@ function _toast(msg, color = '#333') {
 .nk-hbtn-danger { background: #888; }
 .nk-hbtn-fmt    { background: #e0e0e0; color: #555; }
 
-/* Wakeup countdown pill */
-.nk-wakeup-pill {
-    background: #fff8e1 !important;
-    color: #e17055 !important;
-    border: 1px solid #ffe0b2 !important;
+/* Shared cat status pill (countdown + hungry) — fixed height so no layout jump */
+.nk-cat-status-pill {
+    display: inline-flex;
+    align-items: center;
+    height: 18px;
+    padding: 0 6px;
+    border-radius: 9px;
+    font-size: 10px;
     font-weight: bold;
+    white-space: nowrap;
+    box-sizing: border-box;
+    vertical-align: middle;
+}
+.nk-hungry-pill-block {
+    background: #ffe0e0;
+    color: #e17055;
+    border: 1px solid #ffb3a7;
+    animation: nkPulse 1.5s infinite;
+    gap: 2px;
+}
+.nk-wakeup-pill-inline {
+    background: #fff8e1;
+    color: #e17055;
+    border: 1px solid #ffe0b2;
     flex-direction: column !important;
-    gap: 2px !important;
-    padding: 2px 6px 3px !important;
-    min-width: 44px;
+    height: 20px;
+    gap: 1px;
+    padding: 1px 6px 2px !important;
+    align-items: center;
 }
 .nk-wakeup-bar-wrap {
-    width: 100%;
+    width: 32px;
     height: 3px;
     background: rgba(0,0,0,0.1);
     border-radius: 2px;
@@ -1870,13 +1902,6 @@ function _toast(msg, color = '#333') {
 .nk-val-cpc   { display: inline; }
 .nk-val-combo { display: inline; }
 .nk-stat-sep { opacity: 0.4; }
-/* Hungry cat inline indicator in sub-line */
-.nk-hungry-inline {
-    color: #e17055;
-    font-size: 13px;
-    animation: nkPulse 1.5s infinite;
-    line-height: 1;
-}
 .nk-mult-btn {
     font-size: 10px;
     font-weight: bold;
