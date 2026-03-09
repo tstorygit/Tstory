@@ -333,22 +333,40 @@ function _getFishPerSec() {
 function _getClickPower() {
     let base = 1;
     for (const key in _g.clickUpgrades) base += _g.clickUpgrades[key].count * _g.clickUpgrades[key].effect;
-    // Golden Paw: +100% of base (additive) per level
+    // Golden Paw: +100% of click base (additive) per level — click-specific
     base *= (1 + _g.bellUpgrades.paw.count * _g.bellUpgrades.paw.effect);
-    
-    let m = 1;
-    m *= Math.pow(_g.rebirthUpgrades.guide.effect, _g.rebirthUpgrades.guide.count);
-    m *= (1 + (_g.bells * 0.05)); // +5% click power per bell (same impact as before)
 
-    // Happy Cat and Combo also apply to clicks
+    // ── Shared multipliers (identical to idle) ──
+    let m = 1;
+    m *= Math.pow(_g.upgrades.catnip.effect, _g.upgrades.catnip.count);       // Catnip Garden
+    m *= Math.pow(_g.bellUpgrades.warp.effect, _g.bellUpgrades.warp.count);   // Time Warp
+    m *= Math.pow(_g.bellUpgrades.nap.effect, _g.bellUpgrades.nap.count);     // Cat Nap
+    m *= (1 + (_g.bells * 0.02));                                              // Unspent Bells
+
+    // Word bonus (shared, bloom upgrades it)
+    const bloomLvl  = _g.rebirthUpgrades.bloom.count;
+    const wordPct   = bloomLvl === 0 ? 0.02 : 0.05 + (bloomLvl - 1) * 0.03;
+    const activeIds = new Set(_vocabQueue.map(v => v.id));
+    const activeWords = _g.srs.filter(s => activeIds.has(s.id)).length;
+    m *= (1 + activeWords * wordPct);
+
+    m *= Math.pow(_g.rebirthUpgrades.guide.effect, _g.rebirthUpgrades.guide.count); // Spirit Guide
+
+    // Happy cat + sunspot (shared)
     const isHappy = _pendingReviews.length === 0 || Date.now() < _happyBoostEnd;
+    const sunspotBonus = (isHappy && _g.bellUpgrades.sunspot.count > 0)
+        ? Math.pow(_g.bellUpgrades.sunspot.effect, _g.bellUpgrades.sunspot.count) : 1;
     m *= isHappy ? 1.25 : 0.75;
-    m *= 1 + Math.log2(1 + _g.combo);
-    // Word Paw rebirth bonus
+    m *= sunspotBonus;
+
+    m *= 1 + Math.log2(1 + _g.combo); // Combo (shared)
+
+    // ── Click-specific multipliers ──
+    // Word Paw rebirth bonus — click only
     if (_g.rebirthUpgrades.click_words) {
         m *= 1 + (_g.srs.length * _g.rebirthUpgrades.click_words.effect * _g.rebirthUpgrades.click_words.count);
     }
-    
+
     if (_isDebug) m *= 1000;
     const ampBonus = 1 + (_g.rebirthUpgrades.global_amp?.count || 0) * (_g.rebirthUpgrades.global_amp?.effect || 0);
     return base * m * ampBonus;
@@ -391,18 +409,23 @@ function _getMultiplierBreakdown() {
         ? Math.pow(_g.bellUpgrades.sunspot.effect, _g.bellUpgrades.sunspot.count) : 1;
 
     // ── Click-specific multipliers ──
-    const paw = pawBonus; // display the additive factor
-    const bellsClick = 1 + (_g.bells * 0.05);
+    const paw = pawBonus; // display the additive factor (click base only)
+    // click_words rebirth bonus
+    const clickWords = _g.rebirthUpgrades.click_words
+        ? 1 + (_g.srs.length * _g.rebirthUpgrades.click_words.effect * _g.rebirthUpgrades.click_words.count)
+        : 1;
 
-    // tuna/paw are already baked into the base, so don't multiply again
-    const idleMultTotal  = catnip * warp * nap * bells * bloom * guide * moodMult * sunspot * comboMult;
-    const clickMultTotal = guide * moodMult * comboMult * bellsClick;
+    // tuna/paw are already baked into the respective bases, don't multiply again
+    // Shared multiplier set (applied to both idle and click equally)
+    const sharedMult = catnip * warp * nap * bells * bloom * guide * moodMult * sunspot * comboMult;
+    const idleMultTotal  = sharedMult; // idle has no extra mult beyond shared
+    const clickMultTotal = sharedMult * clickWords;
     const globalAmp = 1 + (_g.rebirthUpgrades.global_amp?.count || 0) * (_g.rebirthUpgrades.global_amp?.effect || 0);
 
     return {
         isHappy, moodMult, comboMult, wordPct, activeWords, globalAmp,
         idle:  { base: idleBase,  catnip, tuna, warp, nap, bells, bloom, sunspot, guide, multTotal: idleMultTotal,  finalFps:   idleBase  * idleMultTotal * globalAmp },
-        click: { base: clickBase, paw, guide, bells: bellsClick,                              multTotal: clickMultTotal, finalClick: clickBase * clickMultTotal * globalAmp },
+        click: { base: clickBase, paw, catnip, warp, nap, bells, bloom, sunspot, guide, clickWords, multTotal: clickMultTotal, finalClick: clickBase * clickMultTotal * globalAmp },
     };
 }
 
@@ -1542,9 +1565,14 @@ function _renderMultiplierPopup() {
             ${baseRow('🛠️ Upgrades (base /click)', b.click.base)}
             ${row(happyLabel,    b.moodMult,    happyColor)}
             ${row('🔥 Combo (' + _g.combo.toFixed(1) + ')', b.comboMult, '#e17055')}
-            ${row('🐾 Paw Bell', b.click.paw)}
+            ${row('🌿 Catnip',   b.click.catnip)}
+            ${row('⏩ Time Warp', b.click.warp)}
+            ${row('😴 Cat Nap',  b.click.nap)}
             ${row('🔔 Bells',    b.click.bells)}
+            ${row('☀️ Sunspot',  b.click.sunspot)}
+            ${row(`📚 Words (${b.activeWords}×${(b.wordPct*100).toFixed(0)}%)`, b.click.bloom)}
             ${row('👻 Guide',    b.click.guide)}
+            ${b.click.clickWords > 1 ? row('🐾 Word Paw', b.click.clickWords) : ''}
             ${b.globalAmp > 1 ? row('🌌 Cosmic Amp', b.globalAmp, 'var(--nk-spirit)') : ''}
             ${multRow('= Total ×Multiplier', b.click.multTotal * (b.globalAmp > 1 ? b.globalAmp : 1))}
             ${totalRow('= Total /click', b.click.finalClick)}
