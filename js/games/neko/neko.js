@@ -6,7 +6,7 @@ import { mountVocabSelector } from '../../vocab_selector.js';
 let _screens = null;
 let _onExit  = null;
 let _selector = null;
-let _vocabQueue = []; // words from vocab_selector: { word, furi, trans, status }
+let _vocabQueue =[]; // words from vocab_selector: { word, furi, trans, status }
 let _STARTER_COUNT = 3; // default; overridden by config on each launch
 
 const SAVE_KEY = 'neko_nihongo_save';
@@ -163,6 +163,10 @@ const _defaultIdleUpgrades = () => ({
     galaxy:    { name: 'Cat Galaxy',       desc: '+1M Fish/sec',        cost: 1250000000,  costYarn: 4000,  count: 0, effect: 1000000,  vocabReq: 80 },
     sphere:    { name: 'Dyson Sphere',     desc: '+4M Fish/sec',        cost: 6000000000,  costYarn: 8000,  count: 0, effect: 4000000,  vocabReq: 96 },
     dimension: { name: 'Multiverse Box',   desc: '+16M Fish/sec',       cost: 30000000000, costYarn: 20000, count: 0, effect: 16000000, vocabReq: 115 },
+    singularity:{ name: 'Catnip Singularity', desc: '+65M Fish/sec',    cost: 200000000000, costYarn: 50000, count: 0, effect: 65000000, vocabReq: 150 },
+    yggdrasil:  { name: 'Neko Yggdrasil',   desc: '+260M Fish/sec',     cost: 1500000000000, costYarn: 120000, count: 0, effect: 260000000, vocabReq: 200 },
+    litterbox:  { name: 'Cosmic Litterbox', desc: '+1B Fish/sec',       cost: 10000000000000, costYarn: 300000, count: 0, effect: 1000000000, vocabReq: 250 },
+    universe:   { name: 'Purr-fect Universe', desc: '+4B Fish/sec',     cost: 80000000000000, costYarn: 750000, count: 0, effect: 4000000000, vocabReq: 300 },
     catnip:    { name: 'Catnip Garden',    desc: '+1% Idle Multiplier/lvl (total)', cost: 8000, costYarn: 0, count: 0, effect: 0.01, vocabReq: 7  },
 });
 
@@ -180,6 +184,10 @@ const _defaultClickUpgrades = () => ({
     hologram: { name: 'Holographic Cat',   desc: '+260k Fish/Click',   cost: 450000000,  costYarn: 2000, count: 0, effect: 260000,  vocabReq: 73 },
     quantum:  { name: 'Quantum Paw',       desc: '+1M Fish/Click',     cost: 2500000000, costYarn: 6000, count: 0, effect: 1000000, vocabReq: 88 },
     infinity: { name: 'Infinity Claw',     desc: '+4M Fish/Click',     cost: 15000000000,costYarn: 12000,count: 0, effect: 4000000, vocabReq: 105},
+    astral:     { name: 'Astral Laser',    desc: '+16M Fish/Click',  cost: 100000000000, costYarn: 25000, count: 0, effect: 16000000, vocabReq: 140 },
+    celestial:  { name: 'Celestial Wand',  desc: '+65M Fish/Click',  cost: 700000000000, costYarn: 65000, count: 0, effect: 65000000, vocabReq: 185 },
+    godyarn:    { name: 'God of Yarn',     desc: '+260M Fish/Click', cost: 5000000000000, costYarn: 160000, count: 0, effect: 260000000, vocabReq: 240 },
+    omnipotent: { name: 'Omnipotent Paw',  desc: '+1B Fish/Click',   cost: 40000000000000, costYarn: 400000, count: 0, effect: 1000000000, vocabReq: 300 },
 });
 
 const _defaultBellUpgrades = () => ({
@@ -193,8 +201,8 @@ const _defaultBellUpgrades = () => ({
     sunspot:     { name: 'Sunspot Nap',     desc: '+15% Idle when cat is happy',          cost: 12,  count: 0, effect: 1.15  },
     discount:    { name: 'Merchant Cat',    desc: 'Upgrades 5% Cheaper',                  cost: 15,  count: 0, effect: 0.95  },
     combo_saver: { name: 'Combo Collar',    desc: 'Wrong answer: combo ÷1.5 not ÷2',      cost: 18,  count: 0, effect: 1.5   },
-    warp:        { name: 'Time Warp',       desc: '+20% Game Speed (Simulated)',           cost: 40,  count: 0, effect: 1.2   },
-    nap:         { name: 'Cat Nap',         desc: '+50% Passive Prod',                    cost: 55,  count: 0, effect: 1.5   },
+    warp:        { name: 'Time Warp',       desc: '+20% Global Multiplier (additive)',    cost: 40,  count: 0, effect: 0.2   },
+    nap:         { name: 'Cat Nap',         desc: '+50% Passive Prod (additive)',         cost: 55,  count: 0, effect: 0.5   },
     thread:      { name: 'Golden Thread',   desc: '+50% Yarn Gain',                       cost: 90,  count: 0, effect: 1.5   },
     auto:        { name: 'Auto-Petter',     desc: 'Auto Clicks 10x/sec',                  cost: 50,  count: 0, effect: 10    },
     echo:        { name: 'Echo Paw',        desc: 'Lucky Catch also bursts 3s of idle',   cost: 60,  count: 0, effect: 3     },
@@ -207,19 +215,19 @@ const _defaultBellUpgrades = () => ({
 const _defaultRebirthUpgrades = () => ({
     eternal:     { name: 'Eternal Wealth',   desc: 'Keep 5% Fish/Yarn on Ascend',        cost: 1,  count: 0, effect: 0.05 },
     wisdom:      { name: 'Divine Wisdom',    desc: '-20% Word Learn Cost',               cost: 3,  count: 0, effect: 0.8  },
-    bloom:       { name: 'Spirit Bloom',     desc: 'Word bonus: 2%→5%, +3%/lvl',         cost: 5,  count: 0, effect: 0.05 },
+    bloom:       { name: 'Spirit Bloom',     desc: 'Word bonus curve: stronger linear & quadratic boost', cost: 5, count: 0, effect: 1 },
     weaver_soul: { name: 'Soul Weaver',      desc: 'Double Yarn Gain: +×2 per level (additive)',  cost: 8,  count: 0, effect: 2    },
     starter:     { name: 'Ancestral Start',  desc: 'Start Ascend w/ 10 Boxes',           cost: 10, count: 0, effect: 10   },
     purr_soul:   { name: 'Purr Soul',        desc: 'Happy Boost lasts 3× longer',        cost: 12, count: 0, effect: 3    },
     click_words: { name: 'Word Paw',         desc: '+0.5% Click Power per word learned', cost: 14, count: 0, effect: 0.005},
-    guide:       { name: 'Spirit Guide',     desc: 'Global ×2.5 Multiplier',              cost: 15, count: 0, effect: 2.5  },
+    guide:       { name: 'Spirit Guide',     desc: 'Global ×2 Multiplier',              cost: 15, count: 0, effect: 2.0  },
     surge_soul:  { name: 'Surge Soul',       desc: 'Fish Surge: 60s instead of 30s',     cost: 18, count: 0, effect: 2    },
     echo_soul:   { name: 'Echo Soul',        desc: 'Echo Paw bursts 6s instead of 3s',   cost: 20, count: 0, effect: 2    },
     global_amp:  { name: 'Cosmic Amplifier', desc: '+10% to all final production',        cost: 25, count: 0, effect: 0.1  },
 });
 
 let _g = null;   // game state
-let _pendingReviews = [];
+let _pendingReviews =[];
 let _isProcessingAnswer = false;
 
 // Cooldown state machine variables
@@ -237,7 +245,7 @@ let _beforeUnloadHandler = null;
 // 'suffix' → 1.23 M  |  'sci' → 1.23e6
 let _numFmtStyle = localStorage.getItem('neko_numfmt') || 'suffix';
 
-const _NUM_SUFFIXES = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi', 'Sx', 'Sp', 'Oc', 'No', 'Dc', 'Ud', 'Dd'];
+const _NUM_SUFFIXES =['', 'K', 'M', 'B', 'T', 'Qa', 'Qi', 'Sx', 'Sp', 'Oc', 'No', 'Dc', 'Ud', 'Dd'];
 
 function _fmtN(n) {
     n = Math.floor(n);
@@ -284,12 +292,18 @@ function _freshGame() {
         clickUpgrades:   _defaultClickUpgrades(),
         bellUpgrades:    _defaultBellUpgrades(),
         rebirthUpgrades: _defaultRebirthUpgrades(),
-        srs: [],
+        srs:[],
         currentCardId: null,
     };
 }
 
 // ─── Math ─────────────────────────────────────────────────────────────────────
+
+function _getWordBonus(words, bloomLvl) {
+    const linCoeff  = bloomLvl === 0 ? 0.03 : 0.05 + (bloomLvl - 1) * 0.02;
+    const quadCoeff = bloomLvl === 0 ? 1.5  : 1.5 + bloomLvl * 0.5;
+    return 1 + words * linCoeff + Math.pow(words / 50, 2) * quadCoeff;
+}
 
 function _getFishPerSec() {
     let base = 0;
@@ -302,16 +316,16 @@ function _getFishPerSec() {
     // Apply multiplicative bonuses
     let m = 1;
     m *= (1 + _g.upgrades.catnip.count * _g.upgrades.catnip.effect); // +1% per level, additive total
-    m *= Math.pow(_g.bellUpgrades.warp.effect, _g.bellUpgrades.warp.count);
-    m *= Math.pow(_g.bellUpgrades.nap.effect, _g.bellUpgrades.nap.count);
+    m *= (1 + _g.bellUpgrades.warp.count * _g.bellUpgrades.warp.effect);
+    m *= (1 + _g.bellUpgrades.nap.count * _g.bellUpgrades.nap.effect);
     m *= (1 + Math.log10(1 + _g.bells) * 0.2); // logarithmic bell bonus: ~+20% per decade of bells
     
-    // ── Word Bonus: always-on 2%/word, bloom upgrades it ──
+    // ── Word Bonus: soft quadratic ──
     const bloomLvl   = _g.rebirthUpgrades.bloom.count;
-    const wordPct    = bloomLvl === 0 ? 0.02 : 0.05 + (bloomLvl - 1) * 0.03;
     const activeIds  = new Set(_vocabQueue.map(v => v.id));
     const activeWords = _g.srs.filter(s => activeIds.has(s.id)).length;
-    m *= (1 + activeWords * wordPct);
+    m *= _getWordBonus(activeWords, bloomLvl);
+
     m *= Math.pow(_g.rebirthUpgrades.guide.effect, _g.rebirthUpgrades.guide.count);
 
     // ── Happy Cat Logic ──
@@ -339,16 +353,15 @@ function _getClickPower() {
     // ── Shared multipliers (identical to idle) ──
     let m = 1;
     m *= (1 + _g.upgrades.catnip.count * _g.upgrades.catnip.effect);       // Catnip Garden
-    m *= Math.pow(_g.bellUpgrades.warp.effect, _g.bellUpgrades.warp.count);   // Time Warp
-    m *= Math.pow(_g.bellUpgrades.nap.effect, _g.bellUpgrades.nap.count);     // Cat Nap
-    m *= (1 + Math.log10(1 + _g.bells) * 0.2);                                              // Unspent Bells (log)
+    m *= (1 + _g.bellUpgrades.warp.count * _g.bellUpgrades.warp.effect);   // Time Warp
+    m *= (1 + _g.bellUpgrades.nap.count * _g.bellUpgrades.nap.effect);     // Cat Nap
+    m *= (1 + Math.log10(1 + _g.bells) * 0.2);                             // Unspent Bells (log)
 
     // Word bonus (shared, bloom upgrades it)
     const bloomLvl  = _g.rebirthUpgrades.bloom.count;
-    const wordPct   = bloomLvl === 0 ? 0.02 : 0.05 + (bloomLvl - 1) * 0.03;
     const activeIds = new Set(_vocabQueue.map(v => v.id));
     const activeWords = _g.srs.filter(s => activeIds.has(s.id)).length;
-    m *= (1 + activeWords * wordPct);
+    m *= _getWordBonus(activeWords, bloomLvl);
 
     m *= Math.pow(_g.rebirthUpgrades.guide.effect, _g.rebirthUpgrades.guide.count); // Spirit Guide
 
@@ -396,14 +409,13 @@ function _getMultiplierBreakdown() {
     // ── Idle-specific multipliers ──
     const catnip  = (1 + _g.upgrades.catnip.count * _g.upgrades.catnip.effect);
     const tuna    = tunaBonus; // display the additive factor for the breakdown popup
-    const warp    = Math.pow(_g.bellUpgrades.warp.effect, _g.bellUpgrades.warp.count);
-    const nap     = Math.pow(_g.bellUpgrades.nap.effect, _g.bellUpgrades.nap.count);
+    const warp    = 1 + (_g.bellUpgrades.warp.count * _g.bellUpgrades.warp.effect);
+    const nap     = 1 + (_g.bellUpgrades.nap.count * _g.bellUpgrades.nap.effect);
     const bells   = 1 + Math.log10(1 + _g.bells) * 0.2;
     const bloomLvl   = _g.rebirthUpgrades.bloom.count;
-    const wordPct    = bloomLvl === 0 ? 0.02 : 0.05 + (bloomLvl - 1) * 0.03;
     const _activeIds = new Set(_vocabQueue.map(v => v.id));
     const activeWords = _g.srs.filter(s => _activeIds.has(s.id)).length;
-    const bloom      = 1 + activeWords * wordPct;
+    const bloom      = _getWordBonus(activeWords, bloomLvl);
     const guide    = Math.pow(_g.rebirthUpgrades.guide.effect, _g.rebirthUpgrades.guide.count);
     const sunspot  = (isHappy && _g.bellUpgrades.sunspot.count > 0)
         ? Math.pow(_g.bellUpgrades.sunspot.effect, _g.bellUpgrades.sunspot.count) : 1;
@@ -423,16 +435,16 @@ function _getMultiplierBreakdown() {
     const globalAmp = 1 + (_g.rebirthUpgrades.global_amp?.count || 0) * (_g.rebirthUpgrades.global_amp?.effect || 0);
 
     return {
-        isHappy, moodMult, comboMult, wordPct, activeWords, globalAmp,
+        isHappy, moodMult, comboMult, activeWords, globalAmp, bloomLvl,
         idle:  { base: idleBase,  catnip, tuna, warp, nap, bells, bloom, sunspot, guide, multTotal: idleMultTotal,  finalFps:   idleBase  * idleMultTotal * globalAmp },
         click: { base: clickBase, paw, catnip, warp, nap, bells, bloom, sunspot, guide, clickWords, multTotal: clickMultTotal, finalClick: clickBase * clickMultTotal * globalAmp },
     };
 }
 
 function _getLearnCost() {
-    // Quadratic scaling: word 1=250, word 5=1450, word 10=5200, word 20=20200
+    // Linear scaling: 100 + n × 300
     const n      = _g.srs.filter(s => new Set(_vocabQueue.map(v=>v.id)).has(s.id)).length;
-    const base   = 200 + (n * n * 50);
+    const base   = 100 + (n * 300);
     const scholar = Math.pow(_g.bellUpgrades.scholar.effect, _g.bellUpgrades.scholar.count);
     const wisdom  = Math.pow(_g.rebirthUpgrades.wisdom.effect, _g.rebirthUpgrades.wisdom.count);
     return Math.max(50, Math.floor(base * scholar * wisdom));
@@ -517,7 +529,7 @@ function _loadGame() {
         _g.bells = p.bells || 0;
         _g.karma = p.karma || 0;
         _g.combo = p.combo || 0;
-        _g.srs   = p.srs   || [];
+        _g.srs   = p.srs   ||[];
         _g.pauseTime  = p.pauseTime  || 0;
         // Restore pause state: if was paused when closed, stay paused on reload.
         // We accumulate the time spent closed into pauseTime so the game clock
@@ -798,7 +810,7 @@ function _buyUpgrade(shopType, key) {
 function _ascend() {
     const earned = _calcBells();
     if (earned <= 0) { alert('Need 50,000 Fish to Ascend!'); return; }
-    if (!confirm(`Ascend for +${earned} 🔔? Resets Fish/Yarn/Basic Upgrades.`)) return;
+    if (!confirm(`Ascend for +${_fmtN(earned)} 🔔? Resets Fish/Yarn/Basic Upgrades.`)) return;
     const keep = _g.rebirthUpgrades.eternal.count * _g.rebirthUpgrades.eternal.effect;
     _g.bells += earned;
     _g.fish   = Math.floor(_g.fish * keep);
@@ -808,13 +820,13 @@ function _ascend() {
     if (_g.rebirthUpgrades.starter.count > 0) _g.upgrades.box.count = 10;
     _saveGame();
     _updateUI();
-    _toast(`Ascended! +${earned} Bells`, 'var(--nk-gold)');
+    _toast(`Ascended! +${_fmtN(earned)} Bells`, 'var(--nk-gold)');
 }
 
 function _rebirth() {
     const earned = _calcSpirits();
     if (earned <= 0) { alert('Need 100 Bells to Rebirth!'); return; }
-    if (!confirm(`REBIRTH? Reset EVERYTHING (including Bells) for +${earned} 👻 Spirits?`)) return;
+    if (!confirm(`REBIRTH? Reset EVERYTHING (including Bells) for +${_fmtN(earned)} 👻 Spirits?`)) return;
     _g.karma += earned;
     _g.fish   = 0;
     _g.yarn   = 0;
@@ -827,13 +839,13 @@ function _rebirth() {
     _saveGame();
     _updateUI();
     _switchTab('rebirth');
-    _toast(`REBIRTH! +${earned} Spirits`, 'var(--nk-spirit)');
+    _toast(`REBIRTH! +${_fmtN(earned)} Spirits`, 'var(--nk-spirit)');
 }
 
 function _banWord(word) {
     if (!confirm(`Ban "${word}"? It will stop appearing in the Dojo.`)) return;
     
-    const banned = JSON.parse(localStorage.getItem(BANNED_KEY)) || [];
+    const banned = JSON.parse(localStorage.getItem(BANNED_KEY)) ||[];
     if (!banned.includes(word)) {
         banned.push(word);
         localStorage.setItem(BANNED_KEY, JSON.stringify(banned));
@@ -1595,10 +1607,10 @@ function _renderStats() {
         const nextSpirits   = _calcSpirits();
         progEl.innerHTML = `
             <div class="nk-stat-row"><span>🔔 Ascension Bells Earned</span><span>${_fmtN(_g.bells)}</span></div>
-            <div class="nk-stat-row"><span>🔔 Next Ascend Reward</span><span>+${nextBells} Bell${nextBells !== 1 ? 's' : ''}</span></div>
+            <div class="nk-stat-row"><span>🔔 Next Ascend Reward</span><span>+${_fmtN(nextBells)} Bell${nextBells !== 1 ? 's' : ''}</span></div>
             <div class="nk-stat-row"><span>📊 Ascend Progress</span><span>${bellProgress}% (need 50k 🐟)</span></div>
             <div class="nk-stat-row"><span>👻 Spirits (Karma)</span><span>${_fmtN(_g.karma)}</span></div>
-            <div class="nk-stat-row"><span>👻 Next Rebirth Reward</span><span>${nextSpirits > 0 ? '+' + nextSpirits + ' Spirit' + (nextSpirits !== 1 ? 's' : '') : 'Need 100 Bells'}</span></div>
+            <div class="nk-stat-row"><span>👻 Next Rebirth Reward</span><span>${nextSpirits > 0 ? '+' + _fmtN(nextSpirits) + ' Spirit' + (nextSpirits !== 1 ? 's' : '') : 'Need 100 Bells'}</span></div>
             <div class="nk-stat-row"><span>📈 Idle Prod. Multiplier</span><span>×${(1 + Math.log10(1 + _g.bells) * 0.2).toFixed(2)} (from bells, log)</span></div>
         `;
     }
@@ -1634,7 +1646,7 @@ function _renderVocabList() {
         return;
     }
 
-    const sortedSrs = [..._g.srs].sort((a,b) => a.nextReview - b.nextReview);
+    const sortedSrs =[..._g.srs].sort((a,b) => a.nextReview - b.nextReview);
     sortedSrs.forEach(item => {
         const wordData = _vocabQueue.find(v => v.id === item.id);
         if (!wordData) return;
@@ -1664,7 +1676,7 @@ function _renderMultiplierPopup() {
     const popup = _screens.game?.querySelector('#nk-mult-popup');
     if (!popup) return;
     const b = _getMultiplierBreakdown();
-    const fmt = v => v.toFixed(2);
+    const fmt = v => (v >= 10000 ? _fmtN(v) : v.toFixed(2));
     const row = (label, val, color = '') => {
         if (val === 1) return '';
         const style = color ? `style="color:${color};"` : '';
@@ -1693,7 +1705,7 @@ function _renderMultiplierPopup() {
             ${row('😴 Cat Nap',  b.idle.nap)}
             ${row('🔔 Bells',    b.idle.bells)}
             ${row('☀️ Sunspot',  b.idle.sunspot)}
-            ${row(`📚 Words (${b.activeWords}×${(b.wordPct*100).toFixed(0)}%)`, b.idle.bloom)}
+            ${row(`📚 Words (${b.activeWords}w quad)`, b.idle.bloom)}
             ${row('👻 Guide',    b.idle.guide)}
             ${b.globalAmp > 1 ? row('🌌 Cosmic Amp', b.globalAmp, 'var(--nk-spirit)') : ''}
             ${multRow('= Total ×Multiplier', b.idle.multTotal * (b.globalAmp > 1 ? b.globalAmp : 1))}
@@ -1709,7 +1721,7 @@ function _renderMultiplierPopup() {
             ${row('😴 Cat Nap',  b.click.nap)}
             ${row('🔔 Bells',    b.click.bells)}
             ${row('☀️ Sunspot',  b.click.sunspot)}
-            ${row(`📚 Words (${b.activeWords}×${(b.wordPct*100).toFixed(0)}%)`, b.click.bloom)}
+            ${row(`📚 Words (${b.activeWords}w quad)`, b.click.bloom)}
             ${row('👻 Guide',    b.click.guide)}
             ${b.click.clickWords > 1 ? row('🐾 Word Paw', b.click.clickWords) : ''}
             ${b.globalAmp > 1 ? row('🌌 Cosmic Amp', b.globalAmp, 'var(--nk-spirit)') : ''}
@@ -1738,8 +1750,8 @@ function _updateUI() {
     // Always keep ascend/rebirth button text current
     const ascendBtn  = g.querySelector('#nk-ascend-btn');
     const rebirthBtn = g.querySelector('#nk-rebirth-btn');
-    if (ascendBtn)  ascendBtn.textContent  = `⬆+${_calcBells()}`;
-    if (rebirthBtn) rebirthBtn.textContent = `♻+${_calcSpirits()}`;
+    if (ascendBtn)  ascendBtn.textContent  = `⬆+${_fmtN(_calcBells())}`;
+    if (rebirthBtn) rebirthBtn.textContent = `♻+${_fmtN(_calcSpirits())}`;
 
     // Word count in sub-line (active learned words)
     const _wcActiveIds = new Set(_vocabQueue.map(v => v.id));
@@ -1803,7 +1815,7 @@ function _updateUI() {
                         btn.textContent = 'Maxed';
                         btn.disabled = true;
                     } else {
-                        btn.textContent = `${cost} 🔔`;
+                        btn.textContent = `${_fmtN(cost)} 🔔`;
                         btn.disabled = _g.bells < cost;
                     }
                 }
@@ -1816,7 +1828,7 @@ function _updateUI() {
                 const btn  = g.querySelector(`#nk-btn-r-${key}`);
                 const lvl  = g.querySelector(`#nk-lvl-r-${key}`);
                 if (lvl) lvl.textContent = `(Lvl ${upg.count})`;
-                if (btn) { btn.textContent = `${cost} 👻`; btn.disabled = _g.karma < cost; }
+                if (btn) { btn.textContent = `${_fmtN(cost)} 👻`; btn.disabled = _g.karma < cost; }
             }
         }
         if (activeTab.id === 'nk-tab-stats') {
@@ -1873,7 +1885,7 @@ function _updateShopBtns(shopKey, prefix) {
                 btn.textContent = `🔒 ${vocabReq}w`;
                 btn.disabled    = true;
             } else {
-                btn.textContent = `${_fmtN(costFish)}🐟${costYarn > 0 ? ` ${costYarn}🧶` : ''}`;
+                btn.textContent = `${_fmtN(costFish)}🐟${costYarn > 0 ? ` ${_fmtN(costYarn)}🧶` : ''}`;
                 btn.disabled    = (_g.fish < costFish || _g.yarn < costYarn);
             }
         }
@@ -2451,21 +2463,16 @@ function _toast(msg, color = '#333') {
 .nk-wipe-cancel:hover { color: #555; }
 
 /* Dark Mode */
-[data-theme="dark"] .nk-root   { --nk-bg: #2a1f14; --nk-text: #f0d9c0; --nk-panel: #3d2b1a; }
-[data-theme="dark"] .nk-stats-header,
+[data-theme="dark"] .nk-root   { --nk-bg: #2a1f14; --nk-text: #f0d9c0; --nk-panel: #3d2b1a; }[data-theme="dark"] .nk-stats-header,
 [data-theme="dark"] .nk-tab-bar,
 [data-theme="dark"] .nk-upgrade,
 [data-theme="dark"] .nk-dojo-screen,
-[data-theme="dark"] .nk-stats-list,
-[data-theme="dark"] .nk-vocab-row { background: #3d2b1a; border-color: #5a3e2b; }
+[data-theme="dark"] .nk-stats-list,[data-theme="dark"] .nk-vocab-row { background: #3d2b1a; border-color: #5a3e2b; }
 [data-theme="dark"] .nk-stat-pill { background: #2a1f14; }
 [data-theme="dark"] .nk-speech-bubble { background: #3d2b1a; color: white; border-color: #f0d9c0; }
-[data-theme="dark"] .nk-speech-bubble::after { border-color: transparent #f0d9c0 transparent transparent; }
-[data-theme="dark"] .nk-speech-bubble::before { border-color: transparent #3d2b1a transparent transparent; }
+[data-theme="dark"] .nk-speech-bubble::after { border-color: transparent #f0d9c0 transparent transparent; }[data-theme="dark"] .nk-speech-bubble::before { border-color: transparent #3d2b1a transparent transparent; }
 [data-theme="dark"] .nk-content-pane { background: #261a0f; }
-[data-theme="dark"] .nk-footer { background: #3d2b1a; border-top-color: #5a3e2b; }
-[data-theme="dark"] .nk-quiz-btn { background: #3d2b1a; border-color: #5a3e2b; color: #f0d9c0; }
-[data-theme="dark"] .nk-nav-btn.active { background: rgba(255,255,255,0.05); }
+[data-theme="dark"] .nk-footer { background: #3d2b1a; border-top-color: #5a3e2b; }[data-theme="dark"] .nk-quiz-btn { background: #3d2b1a; border-color: #5a3e2b; color: #f0d9c0; }[data-theme="dark"] .nk-nav-btn.active { background: rgba(255,255,255,0.05); }
 [data-theme="dark"] .nk-subtab-btn { background: #3d2b1a; border-color: #5a3e2b; color: #aaa; }
 [data-theme="dark"] .nk-subtab-btn.active { background: var(--nk-btn); color: white; border-color: var(--nk-btn); }
 `;
