@@ -1,107 +1,125 @@
+/**
+ * word_manager.js
+ * Vocabulary List tab — shows all words currently in srs_db.
+ * Pure read/filter/sort view. No import logic here.
+ */
+
 import * as srsDb from './srs_db.js';
 import { openPopup, closePopup } from './popup_manager.js';
 
 // --- DOM ELEMENTS ---
 const listContainer = document.getElementById('vocab-list');
-const searchInput = document.getElementById('vocab-search');
-const filterSelect = document.getElementById('vocab-filter');
-const sortSelect = document.getElementById('vocab-sort');
-const countLabel = document.getElementById('vocab-count');
-
-let currentList = [];
+const searchInput   = document.getElementById('vocab-search');
+const filterSelect  = document.getElementById('vocab-filter');
+const sortSelect    = document.getElementById('vocab-sort');
+const countLabel    = document.getElementById('vocab-count');
 
 export function initWordManager() {
-    // 1. Hook into the Tab button to reload list when opened
     const vocabTabBtn = document.querySelector('button[data-target="view-vocab"]');
-    if (vocabTabBtn) {
-        vocabTabBtn.addEventListener('click', renderVocabList);
-    }
+    if (vocabTabBtn) vocabTabBtn.addEventListener('click', renderVocabList);
 
-    // 2. Event Listeners for Controls
-    searchInput.addEventListener('input', renderVocabList);
+    searchInput.addEventListener('input',  renderVocabList);
     filterSelect.addEventListener('change', renderVocabList);
-    sortSelect.addEventListener('change', renderVocabList);
+    sortSelect.addEventListener('change',   renderVocabList);
 }
 
 export function renderVocabList() {
     listContainer.innerHTML = '';
-    
-    // 1. Get all words
+
     let words = Object.values(srsDb.getAllWords());
 
-    // 2. Filter
+    // Filter
     const filterVal = filterSelect.value;
     const searchVal = searchInput.value.toLowerCase();
-
     words = words.filter(w => {
-        // Status Filter
         if (filterVal !== 'all' && w.status !== parseInt(filterVal)) return false;
-        
-        // Search Filter
         if (searchVal) {
-            const matchWord = w.word.toLowerCase().includes(searchVal);
-            const matchFuri = (w.furi || '').toLowerCase().includes(searchVal);
-            const matchTrans = (w.translation || '').toLowerCase().includes(searchVal);
-            if (!matchWord && !matchFuri && !matchTrans) return false;
+            const m = w.word.toLowerCase().includes(searchVal)
+                   || (w.furi        || '').toLowerCase().includes(searchVal)
+                   || (w.translation || '').toLowerCase().includes(searchVal);
+            if (!m) return false;
         }
         return true;
     });
 
-    // 3. Sort
+    // Sort
     const sortVal = sortSelect.value;
     words.sort((a, b) => {
-        if (sortVal === 'newest') return new Date(b.lastUpdated) - new Date(a.lastUpdated);
-        if (sortVal === 'oldest') return new Date(a.lastUpdated) - new Date(b.lastUpdated);
-        if (sortVal === 'az') return a.word.localeCompare(b.word);
-        if (sortVal === 'status_asc') return a.status - b.status;
+        if (sortVal === 'newest')      return new Date(b.lastUpdated) - new Date(a.lastUpdated);
+        if (sortVal === 'oldest')      return new Date(a.lastUpdated) - new Date(b.lastUpdated);
+        if (sortVal === 'az')          return a.word.localeCompare(b.word);
+        if (sortVal === 'status_asc')  return a.status - b.status;
         if (sortVal === 'status_desc') return b.status - a.status;
         return 0;
     });
 
-    // 4. Update Count
     countLabel.textContent = words.length;
 
-    // 5. Render
     if (words.length === 0) {
         listContainer.innerHTML = `<div class="placeholder-text">No words found.</div>`;
         return;
     }
 
-    const fragment = document.createDocumentFragment();
+    const statusColors = ['var(--status-0)','var(--status-1)','var(--status-2)',
+                          'var(--status-3)','var(--status-4)','var(--status-5)'];
 
+    const fragment = document.createDocumentFragment();
     words.forEach(w => {
         const row = document.createElement('div');
         row.className = 'vocab-row';
-        
-        const statusColors = [
-            'var(--status-0)', 
-            'var(--status-1)', 
-            'var(--status-2)', 
-            'var(--status-3)', 
-            'var(--status-4)', 
-            'var(--status-5)'
-        ];
+
+        // Badge: show interval + time-until-due if the word has SRS scheduling data
+        const hasSrs = w.dueDate !== undefined;
+        let srsBadge = '';
+        if (hasSrs) {
+            const interval   = w.interval ?? 0;
+            const now        = Date.now();
+            const dueMs      = new Date(w.dueDate).getTime();
+            const diffMs     = dueMs - now;
+            let dueLabel;
+            if (diffMs <= 0) {
+                dueLabel = 'due now';
+            } else {
+                const diffMin = Math.round(diffMs / 60000);
+                const diffH   = Math.round(diffMs / 3600000);
+                const diffD   = Math.round(diffMs / 86400000);
+                if (diffMin < 60)      dueLabel = `in ${diffMin}m`;
+                else if (diffH < 24)   dueLabel = `in ${diffH}h`;
+                else                   dueLabel = `in ${diffD}d`;
+            }
+            // Format interval in the most readable unit
+            const intervalSec = interval * 86400;
+            let intLabel;
+            if (intervalSec < 60)          intLabel = `${Math.round(intervalSec)}s`;
+            else if (intervalSec < 3600)   intLabel = `${Math.round(intervalSec / 60)}m`;
+            else if (intervalSec < 86400)  intLabel = `${Math.round(intervalSec / 3600)}h`;
+            else                           intLabel = `${Math.round(interval)}d`;
+            srsBadge = `<span class="vocab-srs-badge" title="SRS interval ${intLabel} · ${dueLabel}">⏱ ${intLabel} · ${dueLabel}</span>`;
+        }
 
         row.innerHTML = `
-            <div class="vocab-status-dot" style="background-color: ${statusColors[w.status] || '#ccc'}"></div>
+            <div class="vocab-status-dot" style="background-color:${statusColors[w.status]||'#ccc'}"></div>
             <div class="vocab-info">
                 <div class="vocab-main-line">
                     <span class="vocab-word">${w.word}</span>
                     <span class="vocab-furi">${w.furi || ''}</span>
+                    ${srsBadge}
                 </div>
                 <div class="vocab-trans">${w.translation || 'No translation'}</div>
             </div>
+            <button class="vocab-delete-btn" title="Delete word" aria-label="Delete ${w.word}">🗑</button>
         `;
-
+        row.querySelector('.vocab-delete-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            _confirmDelete(w.word);
+        });
         row.addEventListener('click', () => _openPopupForWord(w));
         fragment.appendChild(row);
     });
-
     listContainer.appendChild(fragment);
 }
 
 function _openPopupForWord(wordData) {
-    // Normalise the word_manager word shape into the token shape popup_manager expects
     const token = {
         surface:       wordData.word,
         base:          wordData.word,
@@ -112,12 +130,44 @@ function _openPopupForWord(wordData) {
         note:          '',
         translation:   wordData.translation || '',
     };
-
     openPopup(token, {
         onSave: (wd, newStatus) => {
             srsDb.updateWordStatus(wd.word || wd.base, newStatus);
             closePopup();
             renderVocabList();
         }
+    });
+}
+
+function _confirmDelete(wordText) {
+    // Remove any existing confirm banner first
+    const existing = listContainer.querySelector('.vocab-delete-confirm');
+    if (existing) existing.remove();
+
+    const banner = document.createElement('div');
+    banner.className = 'vocab-delete-confirm';
+    banner.innerHTML = `
+        <span>Delete <strong>${wordText}</strong> from your SRS deck?</span>
+        <button class="vocab-delete-confirm-yes">Delete</button>
+        <button class="vocab-delete-confirm-no">Cancel</button>
+    `;
+
+    // Find the row for this word and insert banner right after it
+    const rows = [...listContainer.querySelectorAll('.vocab-row')];
+    const targetRow = rows.find(r => r.querySelector('.vocab-word')?.textContent === wordText);
+    if (targetRow) {
+        targetRow.after(banner);
+        targetRow.classList.add('vocab-row-pending-delete');
+    } else {
+        listContainer.prepend(banner);
+    }
+
+    banner.querySelector('.vocab-delete-confirm-yes').addEventListener('click', () => {
+        srsDb.deleteWord(wordText);
+        renderVocabList();
+    });
+    banner.querySelector('.vocab-delete-confirm-no').addEventListener('click', () => {
+        banner.remove();
+        targetRow?.classList.remove('vocab-row-pending-delete');
     });
 }

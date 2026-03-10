@@ -163,7 +163,7 @@ const _defaultIdleUpgrades = () => ({
     galaxy:    { name: 'Cat Galaxy',       desc: '+1M Fish/sec',        cost: 1250000000,  costYarn: 4000,  count: 0, effect: 1000000,  vocabReq: 80 },
     sphere:    { name: 'Dyson Sphere',     desc: '+4M Fish/sec',        cost: 6000000000,  costYarn: 8000,  count: 0, effect: 4000000,  vocabReq: 96 },
     dimension: { name: 'Multiverse Box',   desc: '+16M Fish/sec',       cost: 30000000000, costYarn: 20000, count: 0, effect: 16000000, vocabReq: 115 },
-    catnip:    { name: 'Catnip Garden',    desc: '+8% Idle Multiplier', cost: 8000,        costYarn: 8,     count: 0, effect: 1.08,     vocabReq: 7  },
+    catnip:    { name: 'Catnip Garden',    desc: '+1% Idle Multiplier/lvl (total)', cost: 8000, costYarn: 0, count: 0, effect: 0.01, vocabReq: 7  },
 });
 
 const _defaultClickUpgrades = () => ({
@@ -193,13 +193,13 @@ const _defaultBellUpgrades = () => ({
     sunspot:     { name: 'Sunspot Nap',     desc: '+15% Idle when cat is happy',          cost: 12,  count: 0, effect: 1.15  },
     discount:    { name: 'Merchant Cat',    desc: 'Upgrades 5% Cheaper',                  cost: 15,  count: 0, effect: 0.95  },
     combo_saver: { name: 'Combo Collar',    desc: 'Wrong answer: combo ÷1.5 not ÷2',      cost: 18,  count: 0, effect: 1.5   },
-    warp:        { name: 'Time Warp',       desc: '+20% Game Speed (Simulated)',           cost: 30,  count: 0, effect: 1.2   },
-    nap:         { name: 'Cat Nap',         desc: '+50% Passive Prod',                    cost: 40,  count: 0, effect: 1.5   },
-    thread:      { name: 'Golden Thread',   desc: '+50% Yarn Gain',                       cost: 45,  count: 0, effect: 1.5   },
+    warp:        { name: 'Time Warp',       desc: '+20% Game Speed (Simulated)',           cost: 40,  count: 0, effect: 1.2   },
+    nap:         { name: 'Cat Nap',         desc: '+50% Passive Prod',                    cost: 55,  count: 0, effect: 1.5   },
+    thread:      { name: 'Golden Thread',   desc: '+50% Yarn Gain',                       cost: 90,  count: 0, effect: 1.5   },
     auto:        { name: 'Auto-Petter',     desc: 'Auto Clicks 10x/sec',                  cost: 50,  count: 0, effect: 10    },
     echo:        { name: 'Echo Paw',        desc: 'Lucky Catch also bursts 3s of idle',   cost: 60,  count: 0, effect: 3     },
     charm:       { name: 'Lucky Charm',     desc: 'Lucky Catch deals ×10 not ×5',         cost: 75,  count: 0, effect: 1     },
-    focus:       { name: 'Study Focus',     desc: '+1 Yarn per correct answer',            cost: 90,  count: 0, effect: 1     },
+    focus:       { name: 'Study Focus',     desc: '+1 Yarn per correct answer',            cost: 45,  count: 0, effect: 1     },
     sensei:      { name: 'Cat Sensei',      desc: 'Combo decays 30% slower',              cost: 120, count: 0, effect: 0.7   },
     surge:       { name: 'Fish Surge',      desc: '2% chance: click grants 30s of idle',  cost: 150, count: 0, effect: 0.02  },
 });
@@ -301,10 +301,10 @@ function _getFishPerSec() {
     
     // Apply multiplicative bonuses
     let m = 1;
-    m *= Math.pow(_g.upgrades.catnip.effect, _g.upgrades.catnip.count);
+    m *= (1 + _g.upgrades.catnip.count * _g.upgrades.catnip.effect); // +1% per level, additive total
     m *= Math.pow(_g.bellUpgrades.warp.effect, _g.bellUpgrades.warp.count);
     m *= Math.pow(_g.bellUpgrades.nap.effect, _g.bellUpgrades.nap.count);
-    m *= (1 + (_g.bells * 0.02)); // +2% idle prod per bell (weaker than before)
+    m *= (1 + Math.log10(1 + _g.bells) * 0.2); // logarithmic bell bonus: ~+20% per decade of bells
     
     // ── Word Bonus: always-on 2%/word, bloom upgrades it ──
     const bloomLvl   = _g.rebirthUpgrades.bloom.count;
@@ -338,10 +338,10 @@ function _getClickPower() {
 
     // ── Shared multipliers (identical to idle) ──
     let m = 1;
-    m *= Math.pow(_g.upgrades.catnip.effect, _g.upgrades.catnip.count);       // Catnip Garden
+    m *= (1 + _g.upgrades.catnip.count * _g.upgrades.catnip.effect);       // Catnip Garden
     m *= Math.pow(_g.bellUpgrades.warp.effect, _g.bellUpgrades.warp.count);   // Time Warp
     m *= Math.pow(_g.bellUpgrades.nap.effect, _g.bellUpgrades.nap.count);     // Cat Nap
-    m *= (1 + (_g.bells * 0.02));                                              // Unspent Bells
+    m *= (1 + Math.log10(1 + _g.bells) * 0.2);                                              // Unspent Bells (log)
 
     // Word bonus (shared, bloom upgrades it)
     const bloomLvl  = _g.rebirthUpgrades.bloom.count;
@@ -394,11 +394,11 @@ function _getMultiplierBreakdown() {
     clickBase *= pawBonus;
 
     // ── Idle-specific multipliers ──
-    const catnip  = Math.pow(_g.upgrades.catnip.effect, _g.upgrades.catnip.count);
+    const catnip  = (1 + _g.upgrades.catnip.count * _g.upgrades.catnip.effect);
     const tuna    = tunaBonus; // display the additive factor for the breakdown popup
     const warp    = Math.pow(_g.bellUpgrades.warp.effect, _g.bellUpgrades.warp.count);
     const nap     = Math.pow(_g.bellUpgrades.nap.effect, _g.bellUpgrades.nap.count);
-    const bells   = 1 + (_g.bells * 0.02);
+    const bells   = 1 + Math.log10(1 + _g.bells) * 0.2;
     const bloomLvl   = _g.rebirthUpgrades.bloom.count;
     const wordPct    = bloomLvl === 0 ? 0.02 : 0.05 + (bloomLvl - 1) * 0.03;
     const _activeIds = new Set(_vocabQueue.map(v => v.id));
@@ -775,8 +775,11 @@ function _buyUpgrade(shopType, key) {
         if (_g.karma >= cost) { _g.karma -= cost; upg.count++; _updateUI(); }
     } else {
         const discount = Math.pow(_g.bellUpgrades.discount.effect, _g.bellUpgrades.discount.count);
+        // Catnip Garden: yarn cost = next level number (level 1 costs 1 yarn, level 15 costs 15 yarn, etc.)
+        const isLevelScaledYarn = (key === 'catnip' && shopType === 'upgrades');
+        const rawYarnCost = isLevelScaledYarn ? (upg.count + 1) : (upg.costYarn || 0);
         const costFish = Math.floor(upg.cost * Math.pow(1.18, upg.count) * discount);
-        const costYarn = Math.floor((upg.costYarn || 0) * discount);
+        const costYarn = Math.floor(rawYarnCost * discount);
         const vocabReq = upg.vocabReq || 0;
         const activeCount = _g.srs.filter(s => new Set(_vocabQueue.map(v => v.id)).has(s.id)).length;
         if (activeCount < vocabReq) {
@@ -1128,6 +1131,9 @@ function _initGameDOM() {
             </div>
             <div class="nk-subtab-content" id="nk-subtab-vocabulary">
                 <div id="nk-vocab-summary" class="nk-stats-list" style="margin-bottom:12px;"></div>
+                <button id="nk-export-srs-btn" class="nk-learn-btn" style="margin:0 0 12px; width:100%;">
+                    ➕ Export Vocabulary to App SRS
+                </button>
                 <div id="nk-vocab-list" class="nk-vocab-list"></div>
             </div>
             <div class="nk-subtab-content" id="nk-subtab-individualize">
@@ -1319,6 +1325,139 @@ function _initGameDOM() {
         const cfg = _loadCfg(); cfg.interval = v; _saveCfg(cfg);
         cfgStatus(`✓ Initial interval set to ${v}s (applies to new words from now on)`);
     });
+
+    // ── Export vocabulary to App SRS ────────────────────────────────────────
+    el.querySelector('#nk-export-srs-btn')?.addEventListener('click', _openExportToSrsModal);
+}
+
+// ─── EXPORT TO APP SRS ────────────────────────────────────────────────────────
+
+/**
+ * Opens the Export-to-SRS modal, pre-populated with the words this Neko
+ * session has learned that are NOT yet in the app's SRS deck.
+ *
+ * We import srsDb lazily to avoid a hard module dependency loop — the Neko
+ * game file is loaded inside games_ui.js which runs after srs_db is ready.
+ */
+async function _openExportToSrsModal() {
+    // Lazy-import the app's SRS db (same path from inside js/games/neko/)
+    let srsDb;
+    try {
+        srsDb = await import('../../srs_db.js');
+    } catch (e) {
+        _toast('Could not reach app SRS module.', '#e17055');
+        return;
+    }
+
+    // Build the candidate list: zip srs item (interval/nextReview in seconds/ms)
+    // with vocabQueue entry (kanji/kana/eng) so we can preserve scheduling on export
+    const existing = srsDb.getAllWords();
+    const candidates = _g.srs
+        .map(item => {
+            const vocab = _vocabQueue.find(v => v.id === item.id);
+            if (!vocab) return null;
+            return { ...vocab, _srsItem: item };
+        })
+        .filter(w => w && !existing[w.kanji]);
+
+    // Reuse the existing modal if present, or build it fresh
+    let modal = _screens.game.querySelector('#nk-srs-export-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'nk-srs-export-modal';
+        modal.style.cssText = `
+            position:absolute; inset:0; z-index:500;
+            background:rgba(0,0,0,0.55);
+            display:flex; align-items:center; justify-content:center; padding:16px;
+        `;
+        _screens.game.appendChild(modal);
+    }
+
+    modal.innerHTML = `
+        <div style="
+            background:white; border-radius:16px; width:100%; max-width:360px;
+            max-height:80vh; display:flex; flex-direction:column;
+            box-shadow:0 8px 32px rgba(0,0,0,0.3); overflow:hidden;
+            font-family:-apple-system,sans-serif;
+        ">
+            <div style="padding:16px 18px 10px; border-bottom:1px solid #eee;">
+                <div style="font-size:17px; font-weight:bold; margin-bottom:4px;">➕ Export to App SRS</div>
+                <div style="font-size:12px; color:#888; line-height:1.4;">
+                    Select words to add to the main app's spaced-repetition deck.
+                    Words already there are excluded.
+                </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px; padding:8px 14px; border-bottom:1px solid #eee; background:#fafafa;">
+                <button id="nk-exp-all"  style="padding:3px 10px; border:1px solid #ddd; border-radius:6px; background:white; font-size:12px; cursor:pointer;">All</button>
+                <button id="nk-exp-none" style="padding:3px 10px; border:1px solid #ddd; border-radius:6px; background:white; font-size:12px; cursor:pointer;">None</button>
+                <span style="margin-left:auto; font-size:12px; color:#888;"><span id="nk-exp-count">0</span> selected</span>
+            </div>
+            <div id="nk-exp-list" style="flex:1; overflow-y:auto; padding:4px 0;"></div>
+            <div id="nk-exp-status" style="display:none; padding:8px 14px; font-size:13px;"></div>
+            <div style="display:flex; gap:8px; padding:12px 14px; border-top:1px solid #eee;">
+                <button id="nk-exp-cancel" style="flex:1; padding:10px; border:1px solid #ddd; border-radius:8px; background:white; font-size:14px; cursor:pointer;">Cancel</button>
+                <button id="nk-exp-confirm" style="flex:2; padding:10px; border:none; border-radius:8px; background:var(--nk-btn,#ff6b6b); color:white; font-size:14px; font-weight:bold; cursor:pointer;">Add to SRS Deck</button>
+            </div>
+        </div>
+    `;
+
+    const listEl    = modal.querySelector('#nk-exp-list');
+    const countEl   = modal.querySelector('#nk-exp-count');
+    const statusEl  = modal.querySelector('#nk-exp-status');
+
+    if (candidates.length === 0) {
+        listEl.innerHTML = `<div style="padding:20px; text-align:center; color:#888; font-size:13px;">
+            All learned words are already in your SRS deck! 🎉
+        </div>`;
+        modal.querySelector('#nk-exp-confirm').style.display = 'none';
+    } else {
+        candidates.forEach(w => {
+            const row = document.createElement('label');
+            row.style.cssText = 'display:flex; align-items:center; gap:10px; padding:8px 14px; border-bottom:1px solid #f0f0f0; cursor:pointer; font-size:14px;';
+            row.innerHTML = `
+                <input type="checkbox" class="nk-exp-cb" data-word="${w.kanji}" data-furi="${w.kana}" data-trans="${w.eng}" data-interval="${w._srsItem?.interval ?? 0}" data-remaining-ms="${w._srsItem ? Math.max(0, w._srsItem.nextReview - _gameNow()) : 0}" data-ease="${w._srsItem?.ease ?? 2.5}" checked style="width:16px;height:16px;flex-shrink:0;">
+                <span style="font-weight:700; min-width:50px;">${w.kanji}</span>
+                <span style="color:#888; font-size:12px; min-width:55px;">${w.kana}</span>
+                <span style="color:#888; font-size:12px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${w.eng}</span>
+            `;
+            listEl.appendChild(row);
+        });
+    }
+
+    const _syncCount = () => {
+        countEl.textContent = listEl.querySelectorAll('.nk-exp-cb:checked').length;
+    };
+    listEl.addEventListener('change', _syncCount);
+    _syncCount();
+
+    const _close = () => modal.remove();
+
+    modal.querySelector('#nk-exp-all')?.addEventListener('click',  () => { listEl.querySelectorAll('.nk-exp-cb').forEach(c=>c.checked=true);  _syncCount(); });
+    modal.querySelector('#nk-exp-none')?.addEventListener('click', () => { listEl.querySelectorAll('.nk-exp-cb').forEach(c=>c.checked=false); _syncCount(); });
+    modal.querySelector('#nk-exp-cancel').addEventListener('click', _close);
+    modal.addEventListener('click', e => { if (e.target === modal) _close(); });
+
+    modal.querySelector('#nk-exp-confirm').addEventListener('click', () => {
+        const checked = [...listEl.querySelectorAll('.nk-exp-cb:checked')];
+        if (checked.length === 0) {
+            statusEl.textContent = 'Select at least one word.';
+            statusEl.style.cssText = 'display:block; padding:8px 14px; font-size:13px; color:#e17055;';
+            return;
+        }
+        const nekoWords = checked.map(cb => ({
+            word:         cb.getAttribute('data-word'),
+            furi:         cb.getAttribute('data-furi'),
+            trans:        cb.getAttribute('data-trans'),
+            nekoInterval:    parseFloat(cb.getAttribute('data-interval'))    || 0,
+            nekoRemainingMs: parseFloat(cb.getAttribute('data-remaining-ms')) || 0,
+            ease:            parseFloat(cb.getAttribute('data-ease'))          || 2.5,
+        }));
+        const { added, skipped } = srsDb.importFromNeko(nekoWords, 'skip');
+        statusEl.textContent = `✅ Added ${added} word${added!==1?'s':''} to SRS deck${skipped>0?` · ${skipped} already present`:''}. Switch to the SRS tab to review them!`;
+        statusEl.style.cssText = 'display:block; padding:8px 14px; font-size:13px; color:var(--nk-success,#2ecc71);';
+        modal.querySelector('#nk-exp-confirm').disabled = true;
+        setTimeout(_close, 2400);
+    });
 }
 
 // ─── Shop DOM ─────────────────────────────────────────────────────────────────
@@ -1460,7 +1599,7 @@ function _renderStats() {
             <div class="nk-stat-row"><span>📊 Ascend Progress</span><span>${bellProgress}% (need 50k 🐟)</span></div>
             <div class="nk-stat-row"><span>👻 Spirits (Karma)</span><span>${_fmtN(_g.karma)}</span></div>
             <div class="nk-stat-row"><span>👻 Next Rebirth Reward</span><span>${nextSpirits > 0 ? '+' + nextSpirits + ' Spirit' + (nextSpirits !== 1 ? 's' : '') : 'Need 100 Bells'}</span></div>
-            <div class="nk-stat-row"><span>📈 Idle Prod. Multiplier</span><span>×${(1 + (_g.bells * 0.02)).toFixed(2)} (from bells)</span></div>
+            <div class="nk-stat-row"><span>📈 Idle Prod. Multiplier</span><span>×${(1 + Math.log10(1 + _g.bells) * 0.2).toFixed(2)} (from bells, log)</span></div>
         `;
     }
 
@@ -1612,7 +1751,8 @@ function _updateUI() {
     if (multBtn) {
         const b = _getMultiplierBreakdown();
         const isHappy = b.isHappy;
-        multBtn.textContent = `×${b.idle.multTotal.toFixed(2)}`;
+        const totalMult = b.idle.multTotal * (b.globalAmp > 1 ? b.globalAmp : 1);
+        multBtn.textContent = `×${totalMult.toFixed(2)}`;
         multBtn.style.color = isHappy ? 'var(--nk-success)' : '#e17055';
         multBtn.style.borderColor = isHappy ? 'var(--nk-success)' : '#e17055';
         // If popup is open, keep it live
@@ -1655,12 +1795,18 @@ function _updateUI() {
                 const cost = upg.cost + upg.count;
                 const btn  = g.querySelector(`#nk-btn-b-${key}`);
                 const lvl  = g.querySelector(`#nk-lvl-b-${key}`);
-                if (lvl) lvl.textContent = `(Lvl ${upg.count})`;
-                if (btn) { btn.textContent = `${cost} 🔔`; btn.disabled = _g.bells < cost; }
-            }
-            for (const key in _g.bellUpgrades) {
-                const btn = g.querySelector(`#nk-btn-b-${key}`);
-                if (btn) btn.disabled = _g.bells < (_g.bellUpgrades[key].cost + _g.bellUpgrades[key].count);
+                const isWeaver = key === 'weaver';
+                const maxed = isWeaver && upg.count >= 10;
+                if (lvl) lvl.textContent = isWeaver ? `(lvl ${upg.count}/10)` : `(Lvl ${upg.count})`;
+                if (btn) {
+                    if (maxed) {
+                        btn.textContent = 'Maxed';
+                        btn.disabled = true;
+                    } else {
+                        btn.textContent = `${cost} 🔔`;
+                        btn.disabled = _g.bells < cost;
+                    }
+                }
             }
         }
         if (activeTab.id === 'nk-tab-spirit') {
@@ -1706,7 +1852,9 @@ function _updateShopBtns(shopKey, prefix) {
     for (const key in _g[shopKey]) {
         const upg       = _g[shopKey][key];
         const costFish  = Math.floor(upg.cost * Math.pow(1.18, upg.count) * discount);
-        const costYarn  = Math.floor((upg.costYarn || 0) * discount);
+        const isLevelScaledYarn = (key === 'catnip' && shopKey === 'upgrades');
+        const rawYarnCost = isLevelScaledYarn ? (upg.count + 1) : (upg.costYarn || 0);
+        const costYarn  = Math.floor(rawYarnCost * discount);
         const btn       = g?.querySelector(`#nk-btn-${prefix}-${key}`);
         const lvl       = g?.querySelector(`#nk-lvl-${prefix}-${key}`);
         const vocabNote = g?.querySelector(`#nk-vocab-${prefix}-${key}`);
@@ -2118,6 +2266,7 @@ function _toast(msg, color = '#333') {
     width: 100%;
 }
 .nk-learn-btn:active { transform: translateY(3px); box-shadow: none; }
+.nk-learn-btn:disabled { background: #aaa; box-shadow: 0 3px 0 #888; cursor: not-allowed; opacity: 0.6; }
 
 /* Avatar & Bubble - Horizontal Layout */
 .nk-cat-avatar-wrap {

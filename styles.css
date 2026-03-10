@@ -467,17 +467,21 @@ select, textarea {
 .popup-footer { margin-top: 20px; }
 .status-buttons {
     display: flex;
-    justify-content: space-between;
+    justify-content: center;
+    align-items: center;
+    gap: 6px;
     margin-top: 10px;
     margin-bottom: 15px;
+    flex-wrap: nowrap;
 }
 .status-btn {
-    width: 40px; height: 40px;
+    width: 36px; height: 36px;
     border-radius: 50%;
     border: none;
     font-weight: bold;
     color: white;
     cursor: pointer;
+    flex-shrink: 0;
 }
 /* Apply SRS colors to buttons */
 .status-btn[data-status="0"] { background-color: var(--status-0); }
@@ -643,6 +647,64 @@ select, textarea {
 
 .vocab-row:hover {
     background-color: var(--shadow-light);
+}
+
+.vocab-row-pending-delete {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+.vocab-delete-btn {
+    flex-shrink: 0;
+    margin-left: 8px;
+    padding: 4px 8px;
+    background: none;
+    border: none;
+    font-size: 16px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+    border-radius: 6px;
+    color: var(--text-muted);
+}
+.vocab-row:hover .vocab-delete-btn {
+    opacity: 1;
+}
+.vocab-delete-btn:hover {
+    background: rgba(220, 50, 50, 0.1);
+    color: #e03030;
+}
+
+.vocab-delete-confirm {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: var(--surface-color);
+    border-bottom: 1px solid var(--border-color);
+    font-size: 13px;
+    color: var(--text-main);
+    animation: fadeIn 0.15s ease;
+}
+.vocab-delete-confirm span { flex: 1; }
+.vocab-delete-confirm-yes {
+    padding: 5px 14px;
+    border: none;
+    border-radius: 8px;
+    background: #e03030;
+    color: white;
+    font-size: 13px;
+    font-weight: bold;
+    cursor: pointer;
+}
+.vocab-delete-confirm-no {
+    padding: 5px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--surface-color);
+    color: var(--text-main);
+    font-size: 13px;
+    cursor: pointer;
 }
 
 .vocab-status-dot {
@@ -1536,4 +1598,139 @@ select, textarea {
     padding: 10px 20px;
     border-top: 1px solid var(--border-color);
     background: var(--bg-color);
+}
+/* ─── SRS Grade Buttons (SM-2 flashcard back face) ───────────────────── */
+.fc-grade-btn {
+    flex: 1;
+    min-width: 72px;
+    padding: 10px 6px;
+    border: none;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 0.1s, opacity 0.1s;
+    color: white;
+}
+.fc-grade-btn:active { transform: scale(0.96); opacity: 0.85; }
+.fc-grade-btn[data-grade="0"] { background: var(--status-0); }
+.fc-grade-btn[data-grade="1"] { background: var(--status-2); }
+.fc-grade-btn[data-grade="2"] { background: var(--status-4); }
+.fc-grade-btn[data-grade="3"] { background: var(--primary-color); }
+
+/* ─── Export to SRS Modal ────────────────────────────────────────────── */
+.srs-export-dialog {
+    background: var(--surface-color);
+    border-radius: 16px;
+    width: 100%;
+    max-width: 420px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    overflow: hidden;
+}
+.srs-export-header {
+    padding: 18px 20px 10px;
+    border-bottom: 1px solid var(--border-color);
+}
+.srs-export-header h3 { font-size: 17px; margin-bottom: 6px; }
+.srs-export-subtitle { font-size: 13px; color: var(--text-muted); line-height: 1.4; }
+
+.srs-export-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-color);
+}
+.srs-export-tool-btn {
+    padding: 4px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--surface-color);
+    font-size: 13px;
+    cursor: pointer;
+    color: var(--text-main);
+}
+.srs-export-tool-btn:hover { background: var(--bg-color); }
+.srs-export-count-label {
+    margin-left: auto;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.srs-export-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 6px 0;
+}
+.srs-export-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 14px;
+}
+.srs-export-row:hover { background: var(--bg-color); }
+.srs-export-row input[type="checkbox"] { flex-shrink: 0; width: 16px; height: 16px; cursor: pointer; }
+.srs-export-word { font-weight: 700; min-width: 50px; }
+.srs-export-furi { color: var(--text-muted); font-size: 12px; min-width: 60px; }
+.srs-export-trans { color: var(--text-muted); font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.srs-export-footer {
+    display: flex;
+    gap: 10px;
+    padding: 14px 16px;
+    border-top: 1px solid var(--border-color);
+    background: var(--surface-color);
+}
+.srs-export-cancel {
+    flex: 1;
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-main);
+    font-size: 14px;
+    cursor: pointer;
+}
+.srs-export-footer .primary-btn { flex: 2; }
+
+/* ─── Vocab list SRS badge ───────────────────────────────────────────── */
+.vocab-srs-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    background: rgba(74,144,226,0.15);
+    color: var(--primary-color);
+    border-radius: 4px;
+    padding: 1px 5px;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
+/* ── SRS nav button rainbow badge (words due) ─────────────────────────────── */
+@keyframes srs-rainbow {
+    0%   { color: #ff4b4b; border-top-color: #ff4b4b; }
+    16%  { color: #ff8c00; border-top-color: #ff8c00; }
+    33%  { color: #ffd166; border-top-color: #ffd166; }
+    50%  { color: #06d6a0; border-top-color: #06d6a0; }
+    66%  { color: #4A90E2; border-top-color: #4A90E2; }
+    83%  { color: #9b59b6; border-top-color: #9b59b6; }
+    100% { color: #ff4b4b; border-top-color: #ff4b4b; }
+}
+
+.nav-btn.srs-due {
+    animation: srs-rainbow 3s linear infinite;
+    font-weight: bold;
+    border-top: 3px solid;
+}
+
+/* When the SRS tab is also active, keep rainbow but add active background */
+.nav-btn.srs-due.active {
+    background-color: rgba(74, 144, 226, 0.05);
 }

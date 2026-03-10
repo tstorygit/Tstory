@@ -1,6 +1,6 @@
 export const settings = {
-    textApiKeys:[],       // array of API keys; replaces single textApiKey
-    textApiKey: '',        // legacy fallback — kept for compatibility
+    textApiKeys:[],
+    textApiKey: '',
     textModel: 'gemini-3.1-flash-lite-preview',
     imageModel: 'gemini-3.1-flash-image-preview',
     generateImages: false,
@@ -14,11 +14,12 @@ export const settings = {
     enableSentenceParsing: true,
     proLevel5: true,
     requestTimeoutSecs: 120,
-    ttsCacheLimit: 50, // Default cache limit
+    ttsCacheLimit: 50,
     trainerExtMode: 'highlight',
     trainerSrsMode: 'use',
-    customPromptParams: 'JLPT N4', // Default language level
-    theme: 'system' // system, light, dark
+    customPromptParams: 'JLPT N4',
+    theme: 'system',
+    srsAutoStatus: true,   // automatically update LingQ status (0-5) based on SRS interval
 };
 
 export const TEXT_MODEL_ORDER =[
@@ -161,6 +162,9 @@ export function initSettings() {
             // New JLPT/Prompt setting
             settings.customPromptParams = document.getElementById('setting-custom-prompt').value.trim() || 'JLPT N4';
 
+            const srsAutoEl = document.getElementById('setting-srs-auto-status');
+            if (srsAutoEl) settings.srsAutoStatus = srsAutoEl.checked;
+
             const extMode = document.getElementById('trainer-ext-mode');
             if (extMode) settings.trainerExtMode = extMode.value;
             const srsModeEl = document.getElementById('trainer-srs-mode');
@@ -223,6 +227,9 @@ function loadSettings() {
 
         const customPrompt = document.getElementById('setting-custom-prompt');
         if (customPrompt) customPrompt.value = settings.customPromptParams || 'JLPT N4';
+
+        const srsAutoEl = document.getElementById('setting-srs-auto-status');
+        if (srsAutoEl) srsAutoEl.checked = settings.srsAutoStatus !== false;
 
     } else {
         // No saved settings — render one empty key input

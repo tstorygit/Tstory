@@ -1,77 +1,61 @@
 import * as srsDb from './srs_db.js';
 import { settings } from './settings.js';
 
-// --- STATE ---
-let reviewQueue =[];
+// ─── STATE ────────────────────────────────────────────────────────────────────
+let reviewQueue  = [];
 let currentIndex = 0;
 
-// --- GESTURE STATE ---
+/**
+ * 'lingq' — classic 0-5 status swipe (original behaviour, no scheduling)
+ * 'srs'   — SM-2 Again/Hard/Good/Easy with real due-date scheduling
+ */
+let reviewMode = localStorage.getItem('srs_review_mode') || 'srs';
+
+// ─── GESTURE STATE ────────────────────────────────────────────────────────────
 let drag = {
-    active: false,
-    pointerId: null,
-    startX: 0,
-    startY: 0,
-    currentX: 0,
-    currentY: 0,
-    startTime: 0,
-    totalTravel: 0,
-    locked: false,
+    active: false, pointerId: null,
+    startX: 0, startY: 0, currentX: 0, currentY: 0,
+    startTime: 0, totalTravel: 0, locked: false,
 };
 
 const SWIPE_THRESHOLD_PX   = 55;
 const SWIPE_VELOCITY_PX_MS = 0.35;
 const AXIS_LOCK_RATIO      = 1.3;
 
-// --- DOM ELEMENTS ---
+// ─── DOM ─────────────────────────────────────────────────────────────────────
 const flashcardContainer = document.getElementById('flashcard-container');
 const flashcard          = document.getElementById('flashcard');
 const emptyState         = document.getElementById('srs-empty-state');
 const srsCounter         = document.getElementById('srs-counter');
+const elFuri             = document.getElementById('fc-furi');
+const elWord             = document.getElementById('fc-word');
+const elWordBack         = document.getElementById('fc-word-back');
+const elTrans            = document.getElementById('fc-trans');
 
-const elFuri       = document.getElementById('fc-furi');
-const elWord       = document.getElementById('fc-word');
-const elWordBack   = document.getElementById('fc-word-back');
-const elTrans      = document.getElementById('fc-trans');
-const elStatusBtns = document.querySelectorAll('.fc-btn');
-
-// Two overlays — one per face — so the gradient physically sits on the card.
-// backface-visibility:hidden ensures only the visible face's overlay shows.
-// The back-face overlay has a counter-rotate applied via CSS class so its
-// gradient directions match screen space correctly.
 let overlayFront = null;
 let overlayBack  = null;
 let hintRight    = null;
 let hintLeft     = null;
 
-// ─────────────────────────────────────────────
-// INIT
-// ─────────────────────────────────────────────
+// ─── INIT ─────────────────────────────────────────────────────────────────────
 export function initSRS() {
     const srsTabBtn = document.querySelector('button[data-target="view-srs"]');
     if (srsTabBtn) srsTabBtn.addEventListener('click', loadReviewQueue);
 
-    // When switching TO the reader tab, reload it if any cards were graded
-    // so word highlight colours reflect the updated statuses.
     const readerTabBtn = document.querySelector('button[data-target="view-reader"]');
     if (readerTabBtn) {
         readerTabBtn.addEventListener('click', () => {
             if (sessionStorage.getItem('srs-dirty')) {
                 sessionStorage.removeItem('srs-dirty');
-                // Fire a custom event that the reader can listen to for a reload
                 document.dispatchEvent(new CustomEvent('srs:ratings-changed'));
             }
         });
     }
 
-    // Ensure container is positioned so absolute children work
-    if (getComputedStyle(flashcardContainer).position === 'static') {
+    if (getComputedStyle(flashcardContainer).position === 'static')
         flashcardContainer.style.position = 'relative';
-    }
 
-    // ── Inject overlays directly into each face ───────────────────────────
-    // Each face has backface-visibility:hidden so only the visible face's
-    // overlay renders. The back-face overlay gets a CSS counter-rotate so
-    // gradient directions are always screen-space correct.
+    // Overlays — one per face so gradient sits on the visible face
     const frontFace = flashcard.querySelector('.flashcard-front');
     const backFace  = flashcard.querySelector('.flashcard-back');
 
@@ -83,18 +67,26 @@ export function initSRS() {
     overlayBack.className = 'swipe-overlay-face swipe-overlay-back';
     if (backFace) backFace.appendChild(overlayBack);
 
-    // Hints stay on the container — they float in screen space outside the card
     hintRight = document.createElement('div');
     hintRight.className = 'swipe-hint-label swipe-hint-right';
-    hintRight.textContent = '+ Know';
     flashcardContainer.appendChild(hintRight);
 
     hintLeft = document.createElement('div');
     hintLeft.className = 'swipe-hint-label swipe-hint-left';
-    hintLeft.textContent = 'Review +';
     flashcardContainer.appendChild(hintLeft);
 
-    // ── Card flip on click/tap ────────────────────────────────────────────
+    // Mode toggle dropdown
+    const modeToggle = document.getElementById('srs-mode-toggle');
+    if (modeToggle) {
+        modeToggle.value = reviewMode;
+        modeToggle.addEventListener('change', () => {
+            reviewMode = modeToggle.value;
+            localStorage.setItem('srs_review_mode', reviewMode);
+            _applyModeUI();
+            loadReviewQueue();
+        });
+    }
+
     flashcardContainer.addEventListener('click', (e) => {
         if (drag.locked) return;
         if (e.target.tagName === 'BUTTON') return;
@@ -102,63 +94,108 @@ export function initSRS() {
         flipCard();
     });
 
-    // ── Status button clicks ──────────────────────────────────────────────
-    elStatusBtns.forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const newStatus = parseInt(e.target.getAttribute('data-status'));
-            commitStatus(newStatus, null);
-        });
-    });
-
+    _applyModeUI();
     initPointerGestures();
     initKeyboardControls();
     loadReviewQueue();
+    updateSrsBadge();
+    setInterval(updateSrsBadge, 30000);   // re-check every 30 s (sub-day words)
 }
 
-// ─────────────────────────────────────────────
-// FLIP
-// ─────────────────────────────────────────────
+// ─── SRS NAV BADGE ────────────────────────────────────────────────────────────
+export function updateSrsBadge() {
+    const btn = document.querySelector('.nav-btn[data-target="view-srs"]');
+    if (!btn) return;
+    const due = srsDb.getDueWords(1).length > 0;
+    btn.classList.toggle('srs-due', due);
+}
+
+// ─── MODE UI ──────────────────────────────────────────────────────────────────
+// Rebuilds the back-face buttons and hint text to match the current mode.
+function _applyModeUI() {
+    const statusGroup = document.getElementById('fc-status-group');
+    const hintLine    = document.getElementById('fc-hint-line');
+    const modeToggle  = document.getElementById('srs-mode-toggle');
+    if (modeToggle) modeToggle.value = reviewMode;
+
+    if (reviewMode === 'srs') {
+        if (statusGroup) {
+            statusGroup.innerHTML = `
+                <button class="fc-grade-btn" data-grade="0">😵 Again</button>
+                <button class="fc-grade-btn" data-grade="1">😓 Hard</button>
+                <button class="fc-grade-btn" data-grade="2">😊 Good</button>
+                <button class="fc-grade-btn" data-grade="3">🚀 Easy</button>
+            `;
+            statusGroup.querySelectorAll('.fc-grade-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    commitGrade(parseInt(btn.getAttribute('data-grade')), null);
+                });
+            });
+        }
+        if (hintLine)  hintLine.textContent = '← Again  |  ↓ Hard  |  → Good  |  ↑ Easy';
+        if (hintRight) hintRight.textContent = '😊 Good';
+        if (hintLeft)  hintLeft.textContent  = '😵 Again';
+    } else {
+        // LingQ 0-5 buttons
+        if (statusGroup) {
+            statusGroup.innerHTML = `
+                <button class="status-btn fc-btn" data-status="0">0</button>
+                <button class="status-btn fc-btn" data-status="1">1</button>
+                <button class="status-btn fc-btn" data-status="2">2</button>
+                <button class="status-btn fc-btn" data-status="3">3</button>
+                <button class="status-btn fc-btn" data-status="4">4</button>
+                <button class="status-btn fc-btn" data-status="5">5</button>
+            `;
+            statusGroup.querySelectorAll('.fc-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    commitLingq(parseInt(btn.getAttribute('data-status')), null);
+                });
+            });
+        }
+        if (hintLine)  hintLine.textContent = '← −1 Status   |   Swipe Right +1 →';
+        if (hintRight) hintRight.textContent = '+ Know';
+        if (hintLeft)  hintLeft.textContent  = 'Review +';
+        _highlightLingqStatus();
+    }
+}
+
+// ─── FLIP ─────────────────────────────────────────────────────────────────────
 function flipCard() {
     flashcard.classList.add('flip-animate');
     flashcard.classList.toggle('flipped');
-    flashcard.addEventListener('transitionend', () => {
-        flashcard.classList.remove('flip-animate');
-    }, { once: true });
+    flashcard.addEventListener('transitionend', () => flashcard.classList.remove('flip-animate'), { once: true });
 }
+function isFlipped() { return flashcard.classList.contains('flipped'); }
 
-function isFlipped() {
-    return flashcard.classList.contains('flipped');
-}
-
-// ─────────────────────────────────────────────
-// QUEUE + RENDERING
-// ─────────────────────────────────────────────
+// ─── QUEUE ────────────────────────────────────────────────────────────────────
 function loadReviewQueue() {
-    const allWords = srsDb.getFilteredWords({ sort: 'oldest' });
-    reviewQueue = allWords.slice(0, 20);
+    if (reviewMode === 'srs') {
+        reviewQueue = srsDb.getDueWords(0);          // only words with dueDate <= now
+    } else {
+        reviewQueue = srsDb.getFilteredWords({ sort: 'oldest' }).slice(0, 20);  // original LingQ behaviour
+    }
     currentIndex = 0;
     updateCounter();
     renderCurrentCard();
 }
 
 function updateCounter() {
-    if (srsCounter) {
-        const remaining = reviewQueue.length - currentIndex;
-        srsCounter.textContent = remaining > 0 ? `${remaining} Due` : 'Complete';
-    }
+    if (!srsCounter) return;
+    const remaining = reviewQueue.length - currentIndex;
+    srsCounter.textContent = remaining > 0
+        ? `${remaining} ${reviewMode === 'srs' ? 'Due' : 'Cards'}`
+        : 'All done!';
 }
 
 function renderCurrentCard() {
     flashcard.classList.remove(
-        'flipped', 'flip-animate', 'dragging',
-        'swipe-exit-front-right', 'swipe-exit-front-left', 'swipe-exit-front-down',
-        'swipe-exit-back-right',  'swipe-exit-back-left',  'swipe-exit-back-down'
+        'flipped','flip-animate','dragging',
+        'swipe-exit-front-right','swipe-exit-front-left','swipe-exit-front-down',
+        'swipe-exit-back-right', 'swipe-exit-back-left', 'swipe-exit-back-down'
     );
-    flashcard.style.transform     = '';
-    flashcard.style.opacity       = '';
-    flashcard.style.transition    = '';
-    flashcard.style.pointerEvents = '';
+    flashcard.style.transform = flashcard.style.opacity = flashcard.style.transition = flashcard.style.pointerEvents = '';
     flashcard.style.removeProperty('--card-pre-anim-transform');
     clearOverlay();
     drag.locked = false;
@@ -168,309 +205,235 @@ function renderCurrentCard() {
         emptyState.style.display = 'block';
         return;
     }
-
     flashcardContainer.style.display = 'block';
     emptyState.style.display = 'none';
 
-    const wordData = reviewQueue[currentIndex];
-    elWord.textContent     = wordData.word;
-    elFuri.textContent     = settings.showFurigana ? (wordData.furi || '') : '';
-    elWordBack.textContent = wordData.word;
-    elTrans.textContent    = wordData.translation;
+    const w = reviewQueue[currentIndex];
+    elWord.textContent     = w.word;
+    elFuri.textContent     = settings.showFurigana ? (w.furi || '') : '';
+    elWordBack.textContent = w.word;
+    elTrans.textContent    = w.translation;
 
-    elStatusBtns.forEach(btn => {
-        const s = parseInt(btn.getAttribute('data-status'));
-        btn.style.border    = (s === wordData.status) ? '3px solid #333' : 'none';
-        btn.style.transform = (s === wordData.status) ? 'scale(1.1)' : 'scale(1)';
+    _applyModeUI();          // re-wires buttons + hint text
+    _updateCardBadge(w);
+}
+
+function _updateCardBadge(w) {
+    let badge = flashcard.querySelector('#fc-card-badge');
+    if (!badge) {
+        badge = document.createElement('div');
+        badge.id = 'fc-card-badge';
+        badge.style.cssText = 'position:absolute;bottom:14px;right:16px;font-size:11px;color:var(--text-muted);font-variant-numeric:tabular-nums;';
+        const front = flashcard.querySelector('.flashcard-front');
+        if (front) front.appendChild(badge);
+    }
+    if (reviewMode === 'srs') {
+        const interval = w.interval ?? 0;
+        const count    = w.reviewCount ?? 0;
+        if (interval > 0) {
+            const sec = interval * 86400;
+            let intLabel;
+            if (sec < 60)         intLabel = `${Math.round(sec)}s`;
+            else if (sec < 3600)  intLabel = `${Math.round(sec / 60)}m`;
+            else if (sec < 86400) intLabel = `${Math.round(sec / 3600)}h`;
+            else                  intLabel = `${Math.round(interval)}d`;
+            badge.textContent = `⏱ ${intLabel} · #${count}`;
+        } else {
+            badge.textContent = '✨ New';
+        }
+    } else {
+        const s = w.status ?? 0;
+        const colors = ['#ff4b4b','#ff8c00','#ffb703','#ffd166','#06d6a0','#118ab2'];
+        badge.innerHTML = `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${colors[s]||'#ccc'};margin-right:4px;vertical-align:middle;"></span>Status ${s}`;
+    }
+}
+
+function _highlightLingqStatus() {
+    if (currentIndex >= reviewQueue.length) return;
+    const s = reviewQueue[currentIndex].status ?? 0;
+    document.querySelectorAll('#fc-status-group .fc-btn').forEach(btn => {
+        const match = parseInt(btn.getAttribute('data-status')) === s;
+        btn.style.border    = match ? '3px solid #333' : 'none';
+        btn.style.transform = match ? 'scale(1.1)' : 'scale(1)';
     });
 }
 
-// ─────────────────────────────────────────────
-// STATUS + EXIT ANIMATION
-// ─────────────────────────────────────────────
-function commitStatus(newStatus, direction) {
+// ─── COMMIT — LingQ ───────────────────────────────────────────────────────────
+function commitLingq(newStatus, direction) {
     if (drag.locked) return;
     drag.locked = true;
-
-    const currentWord = reviewQueue[currentIndex];
-    srsDb.updateWordStatus(currentWord.word, newStatus);
-
-    // Mark that a rating happened so the reader reloads on tab switch
+    srsDb.updateWordStatus(reviewQueue[currentIndex].word, newStatus);
     sessionStorage.setItem('srs-dirty', '1');
+    updateSrsBadge();
+    if (direction) exitAnimate(direction, nextCard); else nextCard();
+}
 
-    if (direction) {
-        exitAnimate(direction, nextCard);
+// ─── COMMIT — SRS (SM-2) ──────────────────────────────────────────────────────
+function commitGrade(grade, direction) {
+    if (drag.locked) return;
+    drag.locked = true;
+    srsDb.gradeWord(reviewQueue[currentIndex].word, grade, settings.srsAutoStatus ?? true);
+    sessionStorage.setItem('srs-dirty', '1');
+    updateSrsBadge();
+    if (direction) exitAnimate(direction, nextCard); else nextCard();
+}
+
+function nextCard() { currentIndex++; updateCounter(); renderCurrentCard(); }
+
+// ─── SWIPE RESOLUTION ────────────────────────────────────────────────────────
+function resolveSwipe(rawDx, rawDy, isHorizontal, isDown, isUp) {
+    clearOverlay();
+    if (reviewMode === 'srs') {
+        let grade, dir;
+        if      (isHorizontal && rawDx > 0) { dir='right'; grade=2; }
+        else if (isHorizontal)              { dir='left';  grade=0; }
+        else if (isDown)                    { dir='down';  grade=1; }
+        else if (isUp)                      { dir='up';    grade=3; }
+        commitGrade(grade, dir);
     } else {
-        nextCard();
+        const w = reviewQueue[currentIndex];
+        let newStatus = w.status ?? 0;
+        let dir;
+        if      (isHorizontal && rawDx > 0) { dir='right'; if (newStatus<5) newStatus++; }
+        else if (isHorizontal)              { dir='left';  if (newStatus>0) newStatus--; }
+        else if (isDown)                    { dir='down'; }  // skip
+        commitLingq(newStatus, dir);
     }
 }
 
-/**
- * Exit animation using CSS keyframes.
- * We pick from 6 variants: (front|back) × (right|left|down).
- * The back-variants use inverted translateX so the card always
- * flies in the screen-space direction the user swiped.
- * The flipped class is removed right before adding the exit class
- * so the animation keyframe has a clean starting transform.
- */
+// ─── EXIT ANIMATION ───────────────────────────────────────────────────────────
 function exitAnimate(direction, onDone) {
-    const flipped = isFlipped();
-    const face = flipped ? 'back' : 'front';
-    const exitClass = `swipe-exit-${face}-${direction}`;
-
-    // Clear the inline drag transform and flip class before animating
-    // (the keyframe 0% starts from the natural resting state of the element)
-    flashcard.classList.remove('flipped', 'flip-animate');
+    const exitClass = `swipe-exit-${isFlipped()?'back':'front'}-${direction}`;
+    flashcard.classList.remove('flipped','flip-animate');
     flashcard.style.transform = '';
-    flashcard.style.opacity   = '';
-
-    flashcard.classList.add(exitClass);
-    flashcard.addEventListener('animationend', () => {
-        flashcard.classList.remove(exitClass);
-        onDone();
-    }, { once: true });
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+        flashcard.classList.add(exitClass);
+        flashcard.addEventListener('animationend', () => { flashcard.classList.remove(exitClass); onDone(); }, { once: true });
+    }));
 }
 
-function nextCard() {
-    currentIndex++;
-    updateCounter();
-    renderCurrentCard();
-}
-
-// ─────────────────────────────────────────────
-// OVERLAY
-// Front face: gradient anchored at screen edges as expected.
-// Back face:  overlay has rotateY(180deg) counter-applied in CSS, so
-//             "left" and "right" are visually flipped back to screen space.
-// ─────────────────────────────────────────────
-
-// Gradient origins from the perspective of the FRONT face (screen space)
-const OVERLAY_BG = {
-    right: 'radial-gradient(ellipse at 0%   50%, rgba(34,197,100,0.52) 0%, transparent 62%)',
-    left:  'radial-gradient(ellipse at 100% 50%, rgba(220,50,50,0.52)  0%, transparent 62%)',
-    down:  'radial-gradient(ellipse at 50%  0%,  rgba(140,140,140,0.42) 0%, transparent 62%)',
+// ─── OVERLAYS ─────────────────────────────────────────────────────────────────
+const OV = {
+    right: 'radial-gradient(ellipse at 0%   50%,rgba(34,197,100,0.52) 0%,transparent 62%)',
+    left:  'radial-gradient(ellipse at 100% 50%,rgba(220,50,50,0.52)  0%,transparent 62%)',
+    down:  'radial-gradient(ellipse at 50%  0%  ,rgba(140,140,140,0.42) 0%,transparent 62%)',
+    up:    'radial-gradient(ellipse at 50% 100%,rgba(99,179,237,0.52)  0%,transparent 62%)',
+};
+const OV_BACK = {
+    right: 'radial-gradient(ellipse at 100% 50%,rgba(34,197,100,0.52) 0%,transparent 62%)',
+    left:  'radial-gradient(ellipse at 0%   50%,rgba(220,50,50,0.52)  0%,transparent 62%)',
+    down:  'radial-gradient(ellipse at 50%  0%  ,rgba(140,140,140,0.42) 0%,transparent 62%)',
+    up:    'radial-gradient(ellipse at 50% 100%,rgba(99,179,237,0.52)  0%,transparent 62%)',
 };
 
-// Back face needs gradients mirrored because the face itself is rotateY(180deg).
-// Our CSS counter-rotates the overlay div, but the gradient origin % stays.
-// Easiest fix: swap left/right origins for the back face.
-const OVERLAY_BG_BACK = {
-    right: 'radial-gradient(ellipse at 100% 50%, rgba(34,197,100,0.52) 0%, transparent 62%)',
-    left:  'radial-gradient(ellipse at 0%   50%, rgba(220,50,50,0.52)  0%, transparent 62%)',
-    down:  'radial-gradient(ellipse at 50%  0%,  rgba(140,140,140,0.42) 0%, transparent 62%)',
-};
-
-function setOverlay(direction, progress) {
-    const p = Math.min(progress, 1).toFixed(3);
-    if (overlayFront) {
-        overlayFront.style.background = OVERLAY_BG[direction]      || '';
-        overlayFront.style.opacity    = p;
-    }
-    if (overlayBack) {
-        overlayBack.style.background  = OVERLAY_BG_BACK[direction] || '';
-        overlayBack.style.opacity     = p;
-    }
-    if (hintRight) hintRight.style.opacity = direction === 'right' ? Math.min(p * 1.5, 1).toFixed(3) : '0';
-    if (hintLeft)  hintLeft.style.opacity  = direction === 'left'  ? Math.min(p * 1.5, 1).toFixed(3) : '0';
+function setOverlay(dir, progress) {
+    const p = Math.min(progress,1).toFixed(3);
+    if (overlayFront) { overlayFront.style.background=OV[dir]||'';      overlayFront.style.opacity=p; }
+    if (overlayBack)  { overlayBack.style.background=OV_BACK[dir]||'';  overlayBack.style.opacity=p;  }
+    if (hintRight) hintRight.style.opacity = dir==='right' ? Math.min(p*1.5,1).toFixed(3) : '0';
+    if (hintLeft)  hintLeft.style.opacity  = dir==='left'  ? Math.min(p*1.5,1).toFixed(3) : '0';
 }
-
 function clearOverlay() {
-    if (overlayFront) { overlayFront.style.opacity = '0'; overlayFront.style.background = ''; }
-    if (overlayBack)  { overlayBack.style.opacity  = '0'; overlayBack.style.background  = ''; }
-    if (hintRight) hintRight.style.opacity = '0';
-    if (hintLeft)  hintLeft.style.opacity  = '0';
+    if (overlayFront) { overlayFront.style.opacity='0'; overlayFront.style.background=''; }
+    if (overlayBack)  { overlayBack.style.opacity='0';  overlayBack.style.background='';  }
+    if (hintRight) hintRight.style.opacity='0';
+    if (hintLeft)  hintLeft.style.opacity='0';
 }
 
-// ─────────────────────────────────────────────
-// POINTER GESTURE ENGINE
-// ─────────────────────────────────────────────
+// ─── POINTER ENGINE ───────────────────────────────────────────────────────────
 function initPointerGestures() {
     flashcardContainer.addEventListener('pointerdown',   onPointerDown);
     flashcardContainer.addEventListener('pointermove',   onPointerMove);
     flashcardContainer.addEventListener('pointerup',     onPointerUp);
     flashcardContainer.addEventListener('pointercancel', onPointerCancel);
 }
-
 function onPointerDown(e) {
-    if (drag.locked) return;
-    if (e.target.tagName === 'BUTTON') return;
-
-    drag.active      = true;
-    drag.pointerId   = e.pointerId;
-    drag.startX      = e.clientX;
-    drag.startY      = e.clientY;
-    drag.currentX    = e.clientX;
-    drag.currentY    = e.clientY;
-    drag.startTime   = Date.now();
-    drag.totalTravel = 0;
-
-    try { flashcardContainer.setPointerCapture(e.pointerId); } catch (_) {}
-
+    if (drag.locked || e.target.tagName==='BUTTON') return;
+    drag.active=true; drag.pointerId=e.pointerId;
+    drag.startX=drag.currentX=e.clientX; drag.startY=drag.currentY=e.clientY;
+    drag.startTime=Date.now(); drag.totalTravel=0;
+    try { flashcardContainer.setPointerCapture(e.pointerId); } catch(_){}
     flashcard.classList.remove('flip-animate');
     flashcard.classList.add('dragging');
 }
-
 function onPointerMove(e) {
-    if (!drag.active || drag.locked) return;
-    if (e.pointerId !== drag.pointerId) return;
-
-    drag.currentX = e.clientX;
-    drag.currentY = e.clientY;
-
-    // Screen-space deltas (what the user's finger/mouse actually moved)
-    const rawDx = drag.currentX - drag.startX;
-    const rawDy = drag.currentY - drag.startY;
-    drag.totalTravel = Math.hypot(rawDx, rawDy);
-
-    if (drag.totalTravel < 4) return;
-
-    const absDx = Math.abs(rawDx);
-    const absDy = Math.abs(rawDy);
-
-    // ── KEY FIX: when the card is flipped, its local X-axis is mirrored. ──
-    // translateX(+N) on a rotateY(180deg) element moves it LEFT on screen.
-    // We invert dispDx so the card always follows the finger correctly.
-    // The overlay uses rawDx (screen space) and is unaffected.
-    const flip   = isFlipped();
-    const dispDx = flip ? -rawDx : rawDx;
-
-    if (absDx >= absDy) {
-        const screenDir = rawDx > 0 ? 'right' : 'left';
-        const progress  = absDx / SWIPE_THRESHOLD_PX;
-        setOverlay(screenDir, progress);
-
-        const angle      = (dispDx / (flashcard.offsetWidth || 300)) * 20;
-        const baseRotate = flip ? 'rotateY(180deg) ' : '';
-        flashcard.style.transform = `${baseRotate}translateX(${dispDx * 0.28}px) rotate(${angle}deg)`;
-    } else if (rawDy > 0) {
-        const progress = absDy / SWIPE_THRESHOLD_PX;
-        setOverlay('down', progress);
-        const baseRotate = flip ? 'rotateY(180deg) ' : '';
-        flashcard.style.transform = `${baseRotate}translateY(${rawDy * 0.22}px)`;
+    if (!drag.active||drag.locked||e.pointerId!==drag.pointerId) return;
+    drag.currentX=e.clientX; drag.currentY=e.clientY;
+    const rawDx=drag.currentX-drag.startX, rawDy=drag.currentY-drag.startY;
+    drag.totalTravel=Math.hypot(rawDx,rawDy);
+    if (drag.totalTravel<4) return;
+    const absDx=Math.abs(rawDx), absDy=Math.abs(rawDy);
+    const flip=isFlipped(), dispDx=flip?-rawDx:rawDx;
+    if (absDx>=absDy) {
+        setOverlay(rawDx>0?'right':'left', absDx/SWIPE_THRESHOLD_PX);
+        const angle=(dispDx/(flashcard.offsetWidth||300))*20;
+        flashcard.style.transform=`${flip?'rotateY(180deg) ':''}translateX(${dispDx*0.28}px) rotate(${angle}deg)`;
+    } else if (rawDy>0) {
+        setOverlay('down', absDy/SWIPE_THRESHOLD_PX);
+        flashcard.style.transform=`${flip?'rotateY(180deg) ':''}translateY(${rawDy*0.22}px)`;
+    } else if (rawDy<0 && reviewMode==='srs') {
+        setOverlay('up', absDy/SWIPE_THRESHOLD_PX);
+        flashcard.style.transform=`${flip?'rotateY(180deg) ':''}translateY(${rawDy*0.22}px)`;
     } else {
         clearOverlay();
-        flashcard.style.transform = flip ? 'rotateY(180deg)' : '';
+        flashcard.style.transform=flip?'rotateY(180deg)':'';
     }
 }
-
 function onPointerUp(e) {
-    if (!drag.active) return;
-    if (e.pointerId !== drag.pointerId) return;
-    drag.active = false;
+    if (!drag.active||e.pointerId!==drag.pointerId) return;
+    drag.active=false;
     flashcard.classList.remove('dragging');
-
-    const rawDx  = drag.currentX - drag.startX;
-    const rawDy  = drag.currentY - drag.startY;
-    const absDx  = Math.abs(rawDx);
-    const absDy  = Math.abs(rawDy);
-    const elapsed = Math.max(Date.now() - drag.startTime, 1);
-    const velX    = absDx / elapsed;
-
-    const isHorizontal =
-        (absDx > SWIPE_THRESHOLD_PX || velX > SWIPE_VELOCITY_PX_MS) &&
-        absDx * AXIS_LOCK_RATIO >= absDy;
-
-    const isDown =
-        absDy > SWIPE_THRESHOLD_PX &&
-        absDy * AXIS_LOCK_RATIO > absDx &&
-        rawDy > 0;
-
-    if (isHorizontal || isDown) {
-        resolveSwipe(rawDx, rawDy, isHorizontal, isDown);
-    } else {
-        snapBack();
-    }
+    const rawDx=drag.currentX-drag.startX, rawDy=drag.currentY-drag.startY;
+    const absDx=Math.abs(rawDx), absDy=Math.abs(rawDy);
+    const vel=absDx/Math.max(Date.now()-drag.startTime,1);
+    const isH  = (absDx>SWIPE_THRESHOLD_PX||vel>SWIPE_VELOCITY_PX_MS) && absDx*AXIS_LOCK_RATIO>=absDy;
+    const isDn = absDy>SWIPE_THRESHOLD_PX && absDy*AXIS_LOCK_RATIO>absDx && rawDy>0;
+    const isUp = reviewMode==='srs' && absDy>SWIPE_THRESHOLD_PX && absDy*AXIS_LOCK_RATIO>absDx && rawDy<0;
+    if (isH||isDn||isUp) resolveSwipe(rawDx,rawDy,isH,isDn,isUp); else snapBack();
 }
-
 function onPointerCancel(e) {
-    if (e.pointerId !== drag.pointerId) return;
-    drag.active = false;
-    flashcard.classList.remove('dragging');
-    snapBack();
+    if (e.pointerId!==drag.pointerId) return;
+    drag.active=false; flashcard.classList.remove('dragging'); snapBack();
 }
-
 function snapBack() {
     flashcard.classList.add('flip-animate');
-    flashcard.style.transform = isFlipped() ? 'rotateY(180deg)' : '';
+    flashcard.style.transform=isFlipped()?'rotateY(180deg)':'';
     clearOverlay();
-    flashcard.addEventListener('transitionend', () => {
-        flashcard.classList.remove('flip-animate');
-    }, { once: true });
+    flashcard.addEventListener('transitionend',()=>flashcard.classList.remove('flip-animate'),{once:true});
 }
 
-function resolveSwipe(rawDx, rawDy, isHorizontal, isDown) {
-    const currentWord = reviewQueue[currentIndex];
-    let newStatus = currentWord.status;
-    let direction;
-
-    // Direction is always in screen space — swipe right = +1, always
-    if (isHorizontal && rawDx > 0) {
-        direction = 'right';
-        if (newStatus < 5) newStatus++;
-    } else if (isHorizontal && rawDx < 0) {
-        direction = 'left';
-        if (newStatus > 0) newStatus--;
-    } else if (isDown) {
-        direction = 'down';
-    }
-
-    clearOverlay();
-    commitStatus(newStatus, direction);
-}
-
-// ─────────────────────────────────────────────
-// KEYBOARD OVERLAY FLASH
-// Ramps overlay up then commits — gives the same visual feedback as a swipe
-// ─────────────────────────────────────────────
-function flashOverlayThenCommit(newStatus, direction) {
-    const STEPS    = 12;
-    const STEP_MS  = 30;  // total ramp ~360ms, clearly visible
-    let   step     = 0;
-
-    const ramp = setInterval(() => {
+// ─── KEYBOARD FLASH + COMMIT ──────────────────────────────────────────────────
+function flashThenCommit(commitFn, arg, dir) {
+    let step=0;
+    const ramp=setInterval(()=>{
         step++;
-        setOverlay(direction, step / STEPS);
-        if (step >= STEPS) {
-            clearInterval(ramp);
-            clearOverlay();
-            commitStatus(newStatus, direction);
-        }
-    }, STEP_MS);
+        setOverlay(dir,step/12);
+        if (step>=12) { clearInterval(ramp); clearOverlay(); commitFn(arg,dir); }
+    },30);
 }
 
-// ─────────────────────────────────────────────
-// KEYBOARD CONTROLS
-// ─────────────────────────────────────────────
+// ─── KEYBOARD ─────────────────────────────────────────────────────────────────
 function initKeyboardControls() {
-    document.addEventListener('keydown', (e) => {
-        if (drag.locked) return;
-        if (currentIndex >= reviewQueue.length) return;
-        if (flashcardContainer.style.display === 'none') return;
-        if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
-
-        const currentWord = reviewQueue[currentIndex];
-        let newStatus = currentWord.status;
-
-        switch (e.key) {
-            case 'ArrowRight':
-                e.preventDefault();
-                if (newStatus < 5) newStatus++;
-                flashOverlayThenCommit(newStatus, 'right');
-                break;
-            case 'ArrowLeft':
-                e.preventDefault();
-                if (newStatus > 0) newStatus--;
-                flashOverlayThenCommit(newStatus, 'left');
-                break;
-            case 'ArrowDown':
-                e.preventDefault();
-                flashOverlayThenCommit(newStatus, 'down');
-                break;
-            case ' ':
-            case 'Enter':
-                e.preventDefault();
-                flipCard();
-                break;
+    document.addEventListener('keydown', e => {
+        if (drag.locked||currentIndex>=reviewQueue.length) return;
+        if (flashcardContainer.style.display==='none') return;
+        if (['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)) return;
+        if (reviewMode==='srs') {
+            switch(e.key) {
+                case 'ArrowRight': e.preventDefault(); flashThenCommit(commitGrade,2,'right'); break;
+                case 'ArrowLeft':  e.preventDefault(); flashThenCommit(commitGrade,0,'left');  break;
+                case 'ArrowDown':  e.preventDefault(); flashThenCommit(commitGrade,1,'down');  break;
+                case 'ArrowUp':    e.preventDefault(); flashThenCommit(commitGrade,3,'up');    break;
+                case ' ': case 'Enter': e.preventDefault(); flipCard(); break;
+            }
+        } else {
+            const w=reviewQueue[currentIndex]; let s=w.status??0;
+            switch(e.key) {
+                case 'ArrowRight': e.preventDefault(); if(s<5)s++; flashThenCommit(commitLingq,s,'right'); break;
+                case 'ArrowLeft':  e.preventDefault(); if(s>0)s--; flashThenCommit(commitLingq,s,'left');  break;
+                case 'ArrowDown':  e.preventDefault(); flashThenCommit(commitLingq,s,'down'); break;
+                case ' ': case 'Enter': e.preventDefault(); flipCard(); break;
+            }
         }
     });
 }

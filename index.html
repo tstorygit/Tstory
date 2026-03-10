@@ -31,7 +31,13 @@
         <section id="view-srs" class="view">
             <header style="display: flex; justify-content: space-between; align-items: center;">
                 <h2>Review</h2>
-                <span id="srs-counter" style="font-size: 14px; color: var(--text-muted);">0 Due</span>
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <select id="srs-mode-toggle" style="font-size:13px; padding:4px 8px; border-radius:8px; border:1px solid var(--border-color); background:var(--surface-color); color:var(--text-main);">
+                        <option value="srs">SRS (SM-2)</option>
+                        <option value="lingq">LingQ (0–5)</option>
+                    </select>
+                    <span id="srs-counter" style="font-size: 14px; color: var(--text-muted);">0 Due</span>
+                </div>
             </header>
             <div id="srs-content" class="content-scroll flex-center" style="background-color: var(--flashcard-bg); position: relative; overflow: hidden;">
                 <div id="flashcard-container" style="width: 100%; max-width: 350px; position: relative; height: 400px; display: none; touch-action: none;">
@@ -45,26 +51,18 @@
                             <h2 id="fc-word-back" style="font-size: 32px; margin-bottom: 5px;"></h2>
                             <h3 id="fc-trans" style="font-size: 24px; color: var(--primary-color); margin-bottom: 20px;"></h3>
                             <div style="width: 100%; padding: 0 20px;">
-                                <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 5px;">Current Status:</p>
-                                <div class="status-buttons" id="fc-status-group" style="margin-bottom: 30px;">
-                                    <button class="status-btn fc-btn" data-status="0">0</button>
-                                    <button class="status-btn fc-btn" data-status="1">1</button>
-                                    <button class="status-btn fc-btn" data-status="2">2</button>
-                                    <button class="status-btn fc-btn" data-status="3">3</button>
-                                    <button class="status-btn fc-btn" data-status="4">4</button>
-                                    <button class="status-btn fc-btn" data-status="5">5</button>
+                                <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 8px;" id="fc-back-label">How well did you recall it?</p>
+                                <div class="status-buttons" id="fc-status-group" style="margin-bottom: 20px;">
+                                    <!-- Rebuilt at runtime by srs_ui.js depending on mode -->
                                 </div>
                             </div>
-                            <p style="font-size: 14px; color: var(--text-muted);">
-                                &larr; Swipe Left to Decrease <br>
-                                Swipe Right to Increase &rarr;
-                            </p>
+                            <p id="fc-hint-line" style="font-size: 13px; color: var(--text-muted);"></p>
                         </div>
                     </div>
                 </div>
                 <div id="srs-empty-state" class="placeholder-text">
                     <h3>All caught up!</h3>
-                    <p style="margin-top: 10px;">Read more stories to add words to your review queue.</p>
+                    <p style="margin-top: 10px;">Read more stories or import vocabulary to add words to your review queue.</p>
                 </div>
             </div>
         </section>
@@ -191,6 +189,15 @@
                         </select>
                     </div>
                     <div class="settings-divider"></div>
+                    <label class="settings-toggle">
+                        <input type="checkbox" id="setting-srs-auto-status" checked>
+                        <span class="settings-toggle-track"></span>
+                        <span class="settings-toggle-text">Auto-update LingQ status from SRS interval
+                            <span class="settings-hint" style="display:block; margin-top:2px;">
+                                Updates word colour (0–5) based on review interval: &lt;3d=1, &lt;7d=2, &lt;30d=3, &lt;6m=4, 6m+=5
+                            </span>
+                        </span>
+                    </label>
                     <label class="settings-toggle">
                         <input type="checkbox" id="setting-show-furigana" checked>
                         <span class="settings-toggle-track"></span>
