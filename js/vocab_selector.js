@@ -36,6 +36,8 @@ const DECKS = [
       description: 'Log in and chat like a native. Master modern Japanese internet slang, gaming terminology, and V-Tuber culture that traditional textbooks refuse to teach.' },
     { id: 'foodie',    category: 'interest', label: '🍣 Foodie',   file: '../data/word_list_1000_foodie.js',     exportName: 'wordList', _cache: null, _promise: null,
       description: 'An all-you-can-eat buffet of culinary vocabulary. Learn how to confidently order at an Izakaya, understand complex menus, and describe the rich textures of Japanese food.' },
+    { id: 'history',   category: 'interest', label: '🏯 History',  file: '../data/word_list_1000_history.js',    exportName: 'wordList', _cache: null, _promise: null,
+      description: 'Step back in time to the Edo period. Master the vocabulary of shoguns, swordsmanship, traditional architecture, and ancient folklore.' },
     // ── Goal ──────────────────────────────────────────────────────────────────
     { id: 'tourist',   category: 'goal',     label: '✈️ Tourist',  file: '../data/word_list_1000_tourist.js',    exportName: 'wordList', _cache: null, _promise: null,
       description: 'The essentials for your trip: navigating the train system, shopping, asking for directions, and surviving your dream vacation without getting lost.' },

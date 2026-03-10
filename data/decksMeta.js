@@ -93,7 +93,7 @@ export const decksMeta = [
     title: "JLPT N4: Elementary",
     theme: "Official Exam Prep",
     icon: "📜",
-    description: "Covers the official N4 vocabulary core (giving/receiving verbs, state changes, and daily interactions) rough 1-800 plus an extensive collection of advanced vocabulary to bridge the gap toward N3-level proficiency.",
+    description: "Covers the official N4 vocabulary core (giving/receiving verbs, state changes, and daily interactions) roughly 1-800 plus an extensive collection of advanced vocabulary to bridge the gap toward N3-level proficiency.",
     dataFile: "word_list_jlpt_n4.js"
   },
   {

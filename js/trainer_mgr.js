@@ -8,6 +8,7 @@ export const TRAINER_DECKS = [
     { id: 'romance',   category: 'interest', label: '💔 Romance',   file: '../data/word_list_1000_romance.js'    },
     { id: 'gamer',     category: 'interest', label: '🎮 Gamer',     file: '../data/word_list_1000_gamer.js'      },
     { id: 'foodie',    category: 'interest', label: '🍣 Foodie',    file: '../data/word_list_1000_foodie.js'     },
+    { id: 'history',   category: 'interest', label: '🏯 History',   file: '../data/word_list_1000_history.js'    },
     // ── Goal ──────────────────────────────────────────────────────────────────
     { id: 'tourist',   category: 'goal',     label: '✈️ Tourist',   file: '../data/word_list_1000_tourist.js'    },
     { id: 'expat',     category: 'goal',     label: '🏢 Expat',     file: '../data/word_list_1000_expat.js'      },
