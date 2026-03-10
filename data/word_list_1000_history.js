@@ -298,7 +298,7 @@ export const wordList = [
   { rank: 297, word: "お告げ", furi: "おつげ", trans: "oracle, divine revelation" },
   { rank: 298, word: "神託", furi: "しんたく", trans: "oracle" },
   { rank: 299, word: "結界", furi: "けっかい", trans: "spiritual barrier" },
-  { rank: 300, word: "魔除け", furi: "まよけ", trans: "charm against evil spirits", 
+  { rank: 300, word: "魔除け", furi: "まよけ", trans: "charm against evil spirits" }, 
   { rank: 301, word: "鎖国", furi: "さこく", trans: "national isolation (Edo period policy)" },
   { rank: 302, word: "開国", furi: "かいこく", trans: "opening of the country (to the world)" },
   { rank: 303, word: "尊王攘夷", furi: "そんのうじょうい", trans: "Revere the Emperor, Expel the Barbarians" },
