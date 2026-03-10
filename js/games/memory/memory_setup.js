@@ -55,9 +55,9 @@ function _render() {
 
     // Listeners
     _container.addEventListener('change', validate);
-    _container.querySelector('#mem-btn-start').addEventListener('click', () => {
+    _container.querySelector('#mem-btn-start').addEventListener('click', async () => {
         const config = _getConfig();
-        const validWords = _getValidWords(config.mode);
+        const validWords = await _getValidWords(config.mode);
         _onStart(validWords, config);
     });
     _container.querySelector('#mem-btn-shop').addEventListener('click', _onOpenShop);
@@ -72,8 +72,8 @@ function _getConfig() {
     };
 }
 
-function _getValidWords(mode) {
-    const queue = _vocabSelector.getQueue();
+async function _getValidWords(mode) {
+    const queue = await _vocabSelector.getQueue();
     if (mode === 'reading') {
         return queue.filter(w => w.furi && w.furi !== w.word);
     }
@@ -81,9 +81,9 @@ function _getValidWords(mode) {
     return queue.filter(w => w.trans && w.trans.trim() !== '');
 }
 
-function validate() {
+async function validate() {
     const config = _getConfig();
-    const validWords = _getValidWords(config.mode);
+    const validWords = await _getValidWords(config.mode);
     const requiredPairs = config.layout / 2;
     
     const msgEl = _container.querySelector('#mem-validation-msg');

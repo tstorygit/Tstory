@@ -52,9 +52,9 @@ function _renderSetup() {
     actions.append(startBtn, backBtn);
 }
 
-function _start() {
+async function _start() {
     // getQueue() handles validation and shows warnings inside the setup screen
-    const fullQueue = _selector.getQueue();
+    const fullQueue = await _selector.getQueue();
     if (!fullQueue.length) return;
 
     _state = {

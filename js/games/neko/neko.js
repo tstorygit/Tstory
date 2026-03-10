@@ -90,8 +90,8 @@ function _renderSetup() {
     actions.append(startBtn, backBtn);
 }
 
-function _startGame() {
-    const queue = _selector.getQueue();
+async function _startGame() {
+    const queue = await _selector.getQueue();
     if (!queue.length) return;
 
     // Convert vocab_selector format → neko internal format

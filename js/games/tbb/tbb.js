@@ -189,8 +189,8 @@ function _renderSetup() {
 }
 
 // ─── Game Initialisation ──────────────────────────────────────────────────────
-function _startGame() {
-    const queue = _selector.getQueue();
+async function _startGame() {
+    const queue = await _selector.getQueue();
     if (!queue.length) return;
 
     _vocabQueue = queue.map(w => ({ word: w.word, furi: w.furi || w.word, trans: w.trans || '—' }));
