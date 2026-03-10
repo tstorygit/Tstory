@@ -27,11 +27,21 @@ import * as srsDb from './srs_db.js';
 // ─── DECK REGISTRY ───────────────────────────────────────────────────────────
 
 const DECKS = [
-    { id: 'frequency', label: '📊 Frequency', file: '../data/word_list_1000_frequency.js', exportName: 'wordList', _cache: null, _promise: null },
-    { id: 'anime',     label: '🎌 Anime',      file: '../data/word_list_1000_anime.js',     exportName: 'wordList', _cache: null, _promise: null },
-    { id: 'romance',   label: '💕 Romance',    file: '../data/word_list_1000_romance.js',   exportName: 'wordList', _cache: null, _promise: null },
-    { id: 'gamer',     label: '🎮 Gamer',      file: '../data/word_list_1000_gamer.js',     exportName: 'wordList', _cache: null, _promise: null },
-    { id: 'tourist',   label: '✈️ Tourist',    file: '../data/word_list_1000_tourist.js',   exportName: 'wordList', _cache: null, _promise: null },
+    // ── Interest ──────────────────────────────────────────────────────────────
+    { id: 'anime',     category: 'interest', label: '🗡️ Anime',    file: '../data/word_list_1000_anime.js',      exportName: 'wordList', _cache: null, _promise: null },
+    { id: 'romance',   category: 'interest', label: '💔 Romance',  file: '../data/word_list_1000_romance.js',    exportName: 'wordList', _cache: null, _promise: null },
+    { id: 'gamer',     category: 'interest', label: '🎮 Gamer',    file: '../data/word_list_1000_gamer.js',      exportName: 'wordList', _cache: null, _promise: null },
+    { id: 'foodie',    category: 'interest', label: '🍣 Foodie',   file: '../data/word_list_1000_foodie.js',     exportName: 'wordList', _cache: null, _promise: null },
+    { id: 'history',   category: 'interest', label: '🏯 History',  file: '../data/word_list_1000_history.js',    exportName: 'wordList', _cache: null, _promise: null },
+    // ── Goal ──────────────────────────────────────────────────────────────────
+    { id: 'tourist',   category: 'goal',     label: '✈️ Tourist',  file: '../data/word_list_1000_tourist.js',    exportName: 'wordList', _cache: null, _promise: null },
+    { id: 'expat',     category: 'goal',     label: '🏢 Expat',    file: '../data/word_list_1000_expat.js',      exportName: 'wordList', _cache: null, _promise: null },
+    { id: 'frequency', category: 'goal',     label: '💼 Standard', file: '../data/word_list_1000_frequency.js',  exportName: 'wordList', _cache: null, _promise: null },
+    { id: 'jlpt_n5',   category: 'goal',     label: '🔰 JLPT N5', file: '../data/word_list_jlpt_n5.js',         exportName: 'wordList', _cache: null, _promise: null },
+    { id: 'jlpt_n4',   category: 'goal',     label: '📜 JLPT N4', file: '../data/word_list_jlpt_n4.js',         exportName: 'wordList', _cache: null, _promise: null },
+    { id: 'jlpt_n3',   category: 'goal',     label: '📈 JLPT N3', file: '../data/word_list_jlpt_n3.js',         exportName: 'wordList', _cache: null, _promise: null },
+    { id: 'jlpt_n2',   category: 'goal',     label: '🔥 JLPT N2', file: '../data/word_list_jlpt_n2.js',         exportName: 'wordList', _cache: null, _promise: null },
+    { id: 'jlpt_n1',   category: 'goal',     label: '👑 JLPT N1', file: '../data/word_list_jlpt_n1.js',         exportName: 'wordList', _cache: null, _promise: null },
 ];
 
 function _getDeckList(deck) {
@@ -154,17 +164,35 @@ function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, 
             </div>
         </div>`;
 
-    // One toggle + its own inline range panel per deck
-    DECKS.forEach((deck, i) => {
-        const checked  = !!savedDecks[deck.id];
-        const range    = _getDeckRange(saved, deck.id);
-        const lo = range.lo, hi = range.hi;
-        const n        = lo <= hi ? hi - lo + 1 : 0;
-        const countTxt = lo <= hi ? `(${n} word${n!==1?'s':''})` : '⚠ lower > upper';
-        const listSize = deck._cache ? deck._cache.length : '…';
-        const isLast   = i === DECKS.length - 1;
+    // One toggle + range panel per deck, grouped under Interest / Goal sub-headers
+    const CATEGORY_META = [
+        { key: 'interest', label: '✨ Interest' },
+        { key: 'goal',     label: '🎯 Goal'     },
+    ];
 
+    CATEGORY_META.forEach(cat => {
+        const catDecks = DECKS.filter(d => d.category === cat.key);
+        if (!catDecks.length) return;
+
+        // Category sub-header
         html += `
+        <div style="
+            padding:5px 20px 4px;
+            font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;
+            color:var(--text-muted);background:var(--bg-color);
+            border:1px solid var(--border-color);border-top:none;
+        ">${cat.label}</div>`;
+
+        catDecks.forEach((deck, i) => {
+            const checked  = !!savedDecks[deck.id];
+            const range    = _getDeckRange(saved, deck.id);
+            const lo = range.lo, hi = range.hi;
+            const n        = lo <= hi ? hi - lo + 1 : 0;
+            const countTxt = lo <= hi ? `(${n} word${n!==1?'s':''})` : '⚠ lower > upper';
+            const listSize = deck._cache ? deck._cache.length : '…';
+            const isLastOfAll = (cat.key === 'goal') && (i === catDecks.length - 1);
+
+            html += `
         <label class="settings-toggle vs-deck-toggle" data-deck-id="${deck.id}"
                style="border-top:1px solid var(--border-color);border-radius:0;">
             <input type="checkbox" class="vs-use-deck" data-deck-id="${deck.id}" ${checked?'checked':''}>
@@ -179,7 +207,7 @@ function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, 
             background:var(--surface-color);
             border:1px solid var(--border-color);
             border-top:none;
-            ${isLast ? 'border-radius:0 0 8px 8px;' : ''}
+            ${isLastOfAll ? 'border-radius:0 0 8px 8px;' : ''}
             ${checked ? '' : 'display:none;'}
         ">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
@@ -201,7 +229,8 @@ function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, 
                 </span>
             </div>
         </div>`;
-    });
+        }); // end catDecks.forEach
+    }); // end CATEGORY_META.forEach
 
     html += `</div>`; // .caro-setup-section (Word Sources)
 

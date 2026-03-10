@@ -220,26 +220,40 @@ function _renderDeckPicker(activeDeckId, rank, total) {
     if (!picker) {
         picker = document.createElement('div');
         picker.className = 'trainer-deck-picker';
-        picker.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;padding:6px 20px 8px;';
+        picker.style.cssText = 'display:flex;flex-direction:column;gap:6px;padding:6px 20px 8px;';
         progressContainer.appendChild(picker);
     }
 
-    picker.innerHTML = trainerMgr.TRAINER_DECKS.map(deck => {
-        const isActive  = deck.id === activeDeckId;
-        const deckRank  = trainerMgr.getProgress(deck.id);
-        const deckTotal = (trainerMgr.getDeckCached(deck.id) || []).length;
-        const pct       = deckTotal > 0 ? Math.round((deckRank / deckTotal) * 100) : 0;
-        return `
-        <button class="trainer-deck-pill" data-deck-id="${deck.id}" style="
-            padding:4px 10px; border-radius:20px; font-size:12px; cursor:pointer;
-            border: 2px solid ${isActive ? 'var(--primary-color)' : 'var(--border-color)'};
-            background: ${isActive ? 'var(--primary-color)' : 'var(--surface-color)'};
-            color: ${isActive ? '#fff' : 'var(--text-muted)'};
-            font-weight: ${isActive ? '600' : '400'};
-            transition: all .15s;
-        " title="${deck.label} — ${deckRank}/${deckTotal} (${pct}%)">
-            ${deck.label} <span style="opacity:0.75;font-size:10px;">${pct}%</span>
-        </button>`;
+    // Build grouped pills: Interest row, then Goal row
+    const CATEGORY_META = [
+        { key: 'interest', label: '✨ Interest' },
+        { key: 'goal',     label: '🎯 Goal'     },
+    ];
+
+    picker.innerHTML = CATEGORY_META.map(cat => {
+        const catDecks = trainerMgr.TRAINER_DECKS.filter(d => d.category === cat.key);
+        const pillsHtml = catDecks.map(deck => {
+            const isActive  = deck.id === activeDeckId;
+            const deckRank  = trainerMgr.getProgress(deck.id);
+            const deckTotal = (trainerMgr.getDeckCached(deck.id) || []).length;
+            const pct       = deckTotal > 0 ? Math.round((deckRank / deckTotal) * 100) : 0;
+            return `<button class="trainer-deck-pill" data-deck-id="${deck.id}" style="
+                padding:4px 10px; border-radius:20px; font-size:12px; cursor:pointer;
+                border: 2px solid ${isActive ? 'var(--primary-color)' : 'var(--border-color)'};
+                background: ${isActive ? 'var(--primary-color)' : 'var(--surface-color)'};
+                color: ${isActive ? '#fff' : 'var(--text-muted)'};
+                font-weight: ${isActive ? '600' : '400'};
+                transition: all .15s;
+            " title="${deck.label} — ${deckRank}/${deckTotal} (${pct}%)">
+                ${deck.label} <span style="opacity:0.75;font-size:10px;">${pct}%</span>
+            </button>`;
+        }).join('');
+
+        return `<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
+            <span style="font-size:9px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;
+                         color:var(--text-muted);white-space:nowrap;margin-right:2px;">${cat.label}</span>
+            ${pillsHtml}
+        </div>`;
     }).join('');
 
     // Wire click handlers
