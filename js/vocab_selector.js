@@ -56,7 +56,6 @@
 // resolves to a module with a named export matching `exportName`.
 // The `default` deck is always present (imported statically below).
 
-import { wordList as _defaultList } from '../data/word_list_1000.js';
 import * as srsDb from './srs_db.js';
 
 const DECKS = [
@@ -102,15 +101,6 @@ const DECKS = [
     },
 ];
 
-// Synchronously available default deck (keep backwards compat with old import)
-const DEFAULT_DECK = {
-    id:         'default',
-    label:      'Top 1000 Word List',
-    _cache:     _defaultList,
-};
-
-// Also populate frequency deck from static import if it resolves to the same
-// file (graceful fallback).
 function _getDeckList(deck) {
     if (deck._cache) return Promise.resolve(deck._cache);
     if (!deck._promise) {
