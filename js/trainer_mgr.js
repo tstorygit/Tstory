@@ -8,16 +8,12 @@ export const TRAINER_DECKS = [
     { id: 'romance',   category: 'interest', label: '💔 Romance',   file: '../data/word_list_1000_romance.js'    },
     { id: 'gamer',     category: 'interest', label: '🎮 Gamer',     file: '../data/word_list_1000_gamer.js'      },
     { id: 'foodie',    category: 'interest', label: '🍣 Foodie',    file: '../data/word_list_1000_foodie.js'     },
-    { id: 'history',   category: 'interest', label: '🏯 History',   file: '../data/word_list_1000_history.js'    },
     // ── Goal ──────────────────────────────────────────────────────────────────
     { id: 'tourist',   category: 'goal',     label: '✈️ Tourist',   file: '../data/word_list_1000_tourist.js'    },
     { id: 'expat',     category: 'goal',     label: '🏢 Expat',     file: '../data/word_list_1000_expat.js'      },
     { id: 'frequency', category: 'goal',     label: '💼 Standard',  file: '../data/word_list_1000_frequency.js'  },
     { id: 'jlpt_n5',   category: 'goal',     label: '🔰 JLPT N5',  file: '../data/word_list_jlpt_n5.js'         },
     { id: 'jlpt_n4',   category: 'goal',     label: '📜 JLPT N4',  file: '../data/word_list_jlpt_n4.js'         },
-    { id: 'jlpt_n3',   category: 'goal',     label: '📈 JLPT N3',  file: '../data/word_list_jlpt_n3.js'         },
-    { id: 'jlpt_n2',   category: 'goal',     label: '🔥 JLPT N2',  file: '../data/word_list_jlpt_n2.js'         },
-    { id: 'jlpt_n1',   category: 'goal',     label: '👑 JLPT N1',  file: '../data/word_list_jlpt_n1.js'         },
 ];
 
 const ACTIVE_DECK_KEY = 'trainer_active_deck';

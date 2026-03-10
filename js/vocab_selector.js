@@ -28,20 +28,25 @@ import * as srsDb from './srs_db.js';
 
 const DECKS = [
     // ── Interest ──────────────────────────────────────────────────────────────
-    { id: 'anime',     category: 'interest', label: '🗡️ Anime',    file: '../data/word_list_1000_anime.js',      exportName: 'wordList', _cache: null, _promise: null },
-    { id: 'romance',   category: 'interest', label: '💔 Romance',  file: '../data/word_list_1000_romance.js',    exportName: 'wordList', _cache: null, _promise: null },
-    { id: 'gamer',     category: 'interest', label: '🎮 Gamer',    file: '../data/word_list_1000_gamer.js',      exportName: 'wordList', _cache: null, _promise: null },
-    { id: 'foodie',    category: 'interest', label: '🍣 Foodie',   file: '../data/word_list_1000_foodie.js',     exportName: 'wordList', _cache: null, _promise: null },
-    { id: 'history',   category: 'interest', label: '🏯 History',  file: '../data/word_list_1000_history.js',    exportName: 'wordList', _cache: null, _promise: null },
+    { id: 'anime',     category: 'interest', label: '🗡️ Anime',    file: '../data/word_list_1000_anime.js',      exportName: 'wordList', _cache: null, _promise: null,
+      description: 'Skip the boardroom and learn what you actually hear in your favorite shows. Tailored for anime fans, focusing on casual pronouns, magic, and emotional vocabulary.' },
+    { id: 'romance',   category: 'interest', label: '💔 Romance',  file: '../data/word_list_1000_romance.js',    exportName: 'wordList', _cache: null, _promise: null,
+      description: 'Dive into modern relationships and reality TV drama. Focus on the vocabulary of love, dating apps, emotional heartbreaks, and social lives of young adults.' },
+    { id: 'gamer',     category: 'interest', label: '🎮 Gamer',    file: '../data/word_list_1000_gamer.js',      exportName: 'wordList', _cache: null, _promise: null,
+      description: 'Log in and chat like a native. Master modern Japanese internet slang, gaming terminology, and V-Tuber culture that traditional textbooks refuse to teach.' },
+    { id: 'foodie',    category: 'interest', label: '🍣 Foodie',   file: '../data/word_list_1000_foodie.js',     exportName: 'wordList', _cache: null, _promise: null,
+      description: 'An all-you-can-eat buffet of culinary vocabulary. Learn how to confidently order at an Izakaya, understand complex menus, and describe the rich textures of Japanese food.' },
     // ── Goal ──────────────────────────────────────────────────────────────────
-    { id: 'tourist',   category: 'goal',     label: '✈️ Tourist',  file: '../data/word_list_1000_tourist.js',    exportName: 'wordList', _cache: null, _promise: null },
-    { id: 'expat',     category: 'goal',     label: '🏢 Expat',    file: '../data/word_list_1000_expat.js',      exportName: 'wordList', _cache: null, _promise: null },
-    { id: 'frequency', category: 'goal',     label: '💼 Standard', file: '../data/word_list_1000_frequency.js',  exportName: 'wordList', _cache: null, _promise: null },
-    { id: 'jlpt_n5',   category: 'goal',     label: '🔰 JLPT N5', file: '../data/word_list_jlpt_n5.js',         exportName: 'wordList', _cache: null, _promise: null },
-    { id: 'jlpt_n4',   category: 'goal',     label: '📜 JLPT N4', file: '../data/word_list_jlpt_n4.js',         exportName: 'wordList', _cache: null, _promise: null },
-    { id: 'jlpt_n3',   category: 'goal',     label: '📈 JLPT N3', file: '../data/word_list_jlpt_n3.js',         exportName: 'wordList', _cache: null, _promise: null },
-    { id: 'jlpt_n2',   category: 'goal',     label: '🔥 JLPT N2', file: '../data/word_list_jlpt_n2.js',         exportName: 'wordList', _cache: null, _promise: null },
-    { id: 'jlpt_n1',   category: 'goal',     label: '👑 JLPT N1', file: '../data/word_list_jlpt_n1.js',         exportName: 'wordList', _cache: null, _promise: null },
+    { id: 'tourist',   category: 'goal',     label: '✈️ Tourist',  file: '../data/word_list_1000_tourist.js',    exportName: 'wordList', _cache: null, _promise: null,
+      description: 'The essentials for your trip: navigating the train system, shopping, asking for directions, and surviving your dream vacation without getting lost.' },
+    { id: 'expat',     category: 'goal',     label: '🏢 Expat',    file: '../data/word_list_1000_expat.js',      exportName: 'wordList', _cache: null, _promise: null,
+      description: 'The survival guide for residents. Tackle the realities of Japanese city hall, renting apartments, bank accounts, and sorting trash like a local.' },
+    { id: 'frequency', category: 'goal',     label: '💼 Standard', file: '../data/word_list_1000_frequency.js',  exportName: 'wordList', _cache: null, _promise: null,
+      description: 'The traditional newspaper frequency list. Perfect for professional contexts, reading official documents, and high-level formal conversation.' },
+    { id: 'jlpt_n5',   category: 'goal',     label: '🔰 JLPT N5', file: '../data/word_list_jlpt_n5.js',         exportName: 'wordList', _cache: null, _promise: null,
+      description: 'The first step of the official proficiency test. Covers basic daily expressions, essential verbs, and the foundation of the Japanese language.' },
+    { id: 'jlpt_n4',   category: 'goal',     label: '📜 JLPT N4', file: '../data/word_list_jlpt_n4.js',         exportName: 'wordList', _cache: null, _promise: null,
+      description: 'Covers the official N4 vocabulary core (giving/receiving verbs, state changes, and daily interactions) rough 1-800 plus an extensive collection of advanced vocabulary to bridge the gap toward N3-level proficiency.' },
 ];
 
 function _getDeckList(deck) {
@@ -192,13 +197,24 @@ function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, 
             const listSize = deck._cache ? deck._cache.length : '…';
             const isLastOfAll = (cat.key === 'goal') && (i === catDecks.length - 1);
 
+            const infoBtn = deck.description ? `
+                <span class="vs-deck-info" data-deck-id="${deck.id}"
+                      title="${deck.description.replace(/"/g, '&quot;')}"
+                      style="display:inline-flex;align-items:center;justify-content:center;
+                             width:17px;height:17px;border-radius:50%;
+                             border:1.5px solid var(--text-muted);
+                             color:var(--text-muted);font-size:10px;font-weight:700;
+                             cursor:pointer;flex-shrink:0;line-height:1;
+                             margin-left:5px;position:relative;z-index:2;
+                             font-style:normal;">i</span>` : '';
+
             html += `
         <label class="settings-toggle vs-deck-toggle" data-deck-id="${deck.id}"
                style="border-top:1px solid var(--border-color);border-radius:0;">
             <input type="checkbox" class="vs-use-deck" data-deck-id="${deck.id}" ${checked?'checked':''}>
             <span class="settings-toggle-track"></span>
-            <span class="settings-toggle-text">
-                ${deck.label} <em class="vs-deck-count-${deck.id}">(${listSize} words)</em>
+            <span class="settings-toggle-text" style="display:flex;align-items:center;flex:1;min-width:0;">
+                <span style="flex:1;min-width:0;">${deck.label} <em class="vs-deck-count-${deck.id}">(${listSize} words)</em></span>${infoBtn}
             </span>
         </label>
 
@@ -336,6 +352,52 @@ function _wireEvents(el, { bannedKey, showCountPicker, defaultCounts, defaultCou
             _chipOpacity(cb);
             const checked = [...root.querySelectorAll('.vs-status-check:checked')].map(c => +c.value);
             _saveSettings({ statuses: checked });
+        });
+    });
+
+    // Info buttons — show deck description in a styled popover
+    root.querySelectorAll('.vs-deck-info').forEach(btn => {
+        btn.addEventListener('click', e => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            // Remove any existing popover
+            document.querySelectorAll('.vs-info-popover').forEach(p => p.remove());
+
+            const description = btn.getAttribute('title');
+            if (!description) return;
+
+            const popover = document.createElement('div');
+            popover.className = 'vs-info-popover';
+            popover.style.cssText = `
+                position:fixed;z-index:9999;
+                max-width:280px;padding:10px 13px;
+                background:var(--surface-color, #fff);
+                border:1px solid var(--border-color, #ddd);
+                border-radius:10px;
+                box-shadow:0 4px 18px rgba(0,0,0,.18);
+                font-size:12.5px;line-height:1.5;
+                color:var(--text-main, #333);
+                pointer-events:none;
+            `;
+            popover.textContent = description;
+            document.body.appendChild(popover);
+
+            // Position near the button
+            const rect = btn.getBoundingClientRect();
+            const pw = popover.offsetWidth || 280;
+            const ph = popover.offsetHeight || 80;
+            let left = rect.left + rect.width / 2 - pw / 2;
+            let top  = rect.top - ph - 8;
+            if (left < 8) left = 8;
+            if (left + pw > window.innerWidth - 8) left = window.innerWidth - pw - 8;
+            if (top < 8) top = rect.bottom + 8;
+            popover.style.left = left + 'px';
+            popover.style.top  = top  + 'px';
+
+            // Close on next click anywhere
+            const close = () => { popover.remove(); document.removeEventListener('click', close); };
+            setTimeout(() => document.addEventListener('click', close), 10);
         });
     });
 
