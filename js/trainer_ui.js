@@ -1,7 +1,6 @@
 import * as trainerMgr from './trainer_mgr.js';
 import * as srsDb from './srs_db.js';
 import { settings } from './settings.js';
-import { wordList } from '../data/word_list_1000.js'; // Imported to lookup missing ranks
 import { speakText, stopSpeech } from './tts_api.js';
 import { openPopup, closePopup } from './popup_manager.js';
 
@@ -79,7 +78,6 @@ export function initTrainer() {
 
             const jaText = decodeURIComponent(speakBtn.getAttribute('data-ja') || '');
 
-            // Toggle logic: if same button, stop
             if (activeSpeakBtn === speakBtn) {
                 stopSpeech();
                 speakBtn.style.opacity = '0.7';
@@ -88,14 +86,12 @@ export function initTrainer() {
                 return;
             }
 
-            // Reset previous button
             if (activeSpeakBtn) {
                 activeSpeakBtn.style.opacity = '0.7';
                 activeSpeakBtn.style.color = '';
                 activeSpeakBtn = null;
             }
 
-            // Start new speech
             activeSpeakBtn = speakBtn;
             speakBtn.style.opacity = '1';
             speakBtn.style.color = 'var(--primary-color)';
@@ -103,7 +99,6 @@ export function initTrainer() {
             speakText(jaText,
                 () => { /* onStart */ },
                 () => {
-                    // onEnd
                     speakBtn.style.opacity = '0.7';
                     speakBtn.style.color = '';
                     if (activeSpeakBtn === speakBtn) activeSpeakBtn = null;
@@ -111,6 +106,9 @@ export function initTrainer() {
             );
         });
     }
+
+    // Eagerly load the active deck so the trainer is fast on first open
+    trainerMgr.loadDeck(trainerMgr.getActiveDeckId());
 }
 
 // ─── POPUP ───────────────────────────────────────────────────────────────────
@@ -123,7 +121,8 @@ export function initTrainer() {
 function _buildTrainerPanel(wordData) {
     let rank = wordData.rank;
     if (rank === undefined) {
-        const match = wordList.find(w => w.word === (wordData.base || wordData.surface));
+        const list = trainerMgr.getDeckCached(trainerMgr.getActiveDeckId()) || [];
+        const match = list.find(w => w.word === (wordData.base || wordData.surface));
         if (match) rank = match.rank;
     }
     if (rank === undefined) return null;
@@ -139,7 +138,7 @@ function _buildTrainerPanel(wordData) {
     oldBtn.replaceWith(newBtn);
     newBtn.addEventListener('click', () => {
         if (confirm(`Jump your progress to word #${rank}?`)) {
-            trainerMgr.setProgress(rank);
+            trainerMgr.setProgress(rank, trainerMgr.getActiveDeckId());
             closePopup();
             document.querySelector('button[data-target="view-trainer"]')?.click();
             renderTrainer();
@@ -169,30 +168,29 @@ function openTrainerWordPopup(wordData) {
 // ─── RENDER ───────────────────────────────────────────────────────────────────
 
 export async function renderTrainer() {
-    stopSpeech(); // Ensure no lingering audio from previous state/word
+    stopSpeech();
     activeSpeakBtn = null;
 
-    const rank = trainerMgr.getProgress();
-    const total = trainerMgr.getTotalWords();
-    const wordObj = trainerMgr.getWordByRank(rank);
+    const deckId = trainerMgr.getActiveDeckId();
 
-    // Update progress UI
-    const progressFill = document.getElementById('trainer-progress-fill');
-    const progressLabel = document.getElementById('trainer-progress-label');
-    if (progressFill) progressFill.style.width = `${(rank / total) * 100}%`;
-    if (progressLabel) progressLabel.textContent = `Word ${rank} / ${total}`;
-
-    // Sync ext mode dropdown with settings
-    const extModeSelect = document.getElementById('trainer-ext-mode');
-    if (extModeSelect && settings.trainerExtMode) {
-        extModeSelect.value = settings.trainerExtMode;
+    // Ensure the deck is loaded before rendering
+    if (!trainerMgr.getDeckCached(deckId)) {
+        const content = document.getElementById('trainer-content');
+        if (content) content.innerHTML = `<div class="placeholder-text" style="padding:30px;text-align:center;">Loading deck…</div>`;
+        await trainerMgr.loadDeck(deckId);
     }
+
+    const rank  = trainerMgr.getProgress(deckId);
+    const total = trainerMgr.getTotalWords(deckId);
+    const wordObj = trainerMgr.getWordByRank(rank, deckId);
+
+    // ── Deck picker (rendered into the progress bar container) ────────────────
+    _renderDeckPicker(deckId, rank, total);
 
     const content = document.getElementById('trainer-content');
     if (!content) return;
 
-    // Check if data is cached
-    const existingData = getCachedBlock(rank);
+    const existingData = _getCachedBlock(rank, deckId);
 
     if (!existingData) {
         renderStateA(content, wordObj, rank);
@@ -201,9 +199,66 @@ export async function renderTrainer() {
     }
 }
 
-function getCachedBlock(rank) {
+// ─── DECK PICKER ─────────────────────────────────────────────────────────────
+
+function _renderDeckPicker(activeDeckId, rank, total) {
+    // Update progress bar + label
+    const progressFill  = document.getElementById('trainer-progress-fill');
+    const progressLabel = document.getElementById('trainer-progress-label');
+    if (progressFill)  progressFill.style.width = `${(rank / total) * 100}%`;
+    if (progressLabel) progressLabel.textContent = `Word ${rank} / ${total}`;
+
+    // Sync ext mode dropdown with settings
+    const extModeSelect = document.getElementById('trainer-ext-mode');
+    if (extModeSelect && settings.trainerExtMode) extModeSelect.value = settings.trainerExtMode;
+
+    // Inject deck picker pills just below the progress bar if not already there
+    const progressContainer = document.getElementById('trainer-progress-container');
+    if (!progressContainer) return;
+
+    let picker = progressContainer.querySelector('.trainer-deck-picker');
+    if (!picker) {
+        picker = document.createElement('div');
+        picker.className = 'trainer-deck-picker';
+        picker.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;padding:6px 20px 8px;';
+        progressContainer.appendChild(picker);
+    }
+
+    picker.innerHTML = trainerMgr.TRAINER_DECKS.map(deck => {
+        const isActive  = deck.id === activeDeckId;
+        const deckRank  = trainerMgr.getProgress(deck.id);
+        const deckTotal = (trainerMgr.getDeckCached(deck.id) || []).length;
+        const pct       = deckTotal > 0 ? Math.round((deckRank / deckTotal) * 100) : 0;
+        return `
+        <button class="trainer-deck-pill" data-deck-id="${deck.id}" style="
+            padding:4px 10px; border-radius:20px; font-size:12px; cursor:pointer;
+            border: 2px solid ${isActive ? 'var(--primary-color)' : 'var(--border-color)'};
+            background: ${isActive ? 'var(--primary-color)' : 'var(--surface-color)'};
+            color: ${isActive ? '#fff' : 'var(--text-muted)'};
+            font-weight: ${isActive ? '600' : '400'};
+            transition: all .15s;
+        " title="${deck.label} — ${deckRank}/${deckTotal} (${pct}%)">
+            ${deck.label} <span style="opacity:0.75;font-size:10px;">${pct}%</span>
+        </button>`;
+    }).join('');
+
+    // Wire click handlers
+    picker.querySelectorAll('.trainer-deck-pill').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const newDeckId = btn.dataset.deckId;
+            if (newDeckId === trainerMgr.getActiveDeckId()) return;
+            trainerMgr.setActiveDeckId(newDeckId);
+            await trainerMgr.loadDeck(newDeckId);
+            renderTrainer();
+        });
+    });
+}
+
+// ─── CACHE HELPER ────────────────────────────────────────────────────────────
+
+function _getCachedBlock(rank, deckId = trainerMgr.getActiveDeckId()) {
     try {
-        const data = JSON.parse(localStorage.getItem('trainer_data')) || {};
+        const data = JSON.parse(localStorage.getItem(`trainer_data_${deckId}`)) || {};
         return data[String(rank)] || null;
     } catch {
         return null;
@@ -227,8 +282,9 @@ function renderStateA(content, wordObj, rank) {
         return;
     }
 
-    const total = trainerMgr.getTotalWords();
-    const nextWordObj = rank < total ? trainerMgr.getWordByRank(rank + 1) : null;
+    const deckId = trainerMgr.getActiveDeckId();
+    const total = trainerMgr.getTotalWords(deckId);
+    const nextWordObj = rank < total ? trainerMgr.getWordByRank(rank + 1, deckId) : null;
 
     content.innerHTML = `
         <div style="max-width: 800px; margin: 0 auto;">
@@ -286,12 +342,12 @@ function renderStateA(content, wordObj, rank) {
 
     document.getElementById('btn-generate-sentences').addEventListener('click', async () => {
         showTrainerLoading(1, 'Generating sentences…');
+        const deckId = trainerMgr.getActiveDeckId();
         try {
             await trainerMgr.generateTrainerSentences(
                 rank,
                 false,
                 (step, text) => {
-                    // Once sentences are ready (step >= 3), hide the overlay — raw view will show inline spinner
                     if (step >= 3) {
                         hideTrainerLoading();
                     } else {
@@ -299,11 +355,11 @@ function renderStateA(content, wordObj, rank) {
                     }
                 },
                 (sentences) => {
-                    // Sentences + translations ready — show raw view immediately
                     hideTrainerLoading();
-                    const wordObj = trainerMgr.getWordByRank(rank);
+                    const wordObj = trainerMgr.getWordByRank(rank, deckId);
                     renderStateB_raw(content, wordObj, rank, sentences);
-                }
+                },
+                deckId
             );
             renderTrainer();
         } catch (e) {
@@ -315,18 +371,18 @@ function renderStateA(content, wordObj, rank) {
     // Skip & mark as known (status 5)
     document.getElementById('btn-trainer-skip-done')?.addEventListener('click', () => {
         srsDb.saveWord({ word: wordObj.word, furi: wordObj.furi || '', translation: wordObj.trans || '', status: 5 });
-        trainerMgr.setProgress(rank + 1);
+        trainerMgr.setProgress(rank + 1, trainerMgr.getActiveDeckId());
         renderTrainer();
     });
 
     // Skip without marking
     document.getElementById('btn-trainer-skip')?.addEventListener('click', () => {
-        trainerMgr.setProgress(rank + 1);
+        trainerMgr.setProgress(rank + 1, trainerMgr.getActiveDeckId());
         renderTrainer();
     });
 
     document.getElementById('btn-trainer-prev-a')?.addEventListener('click', () => {
-        trainerMgr.setProgress(rank - 1);
+        trainerMgr.setProgress(rank - 1, trainerMgr.getActiveDeckId());
         renderTrainer();
     });
 
@@ -492,11 +548,11 @@ function renderStateB(content, block, rank, total) {
 
     // Bind navigation
     document.getElementById('btn-trainer-prev')?.addEventListener('click', () => {
-        trainerMgr.setProgress(rank - 1);
+        trainerMgr.setProgress(rank - 1, trainerMgr.getActiveDeckId());
         renderTrainer();
     });
     document.getElementById('btn-trainer-next')?.addEventListener('click', () => {
-        trainerMgr.setProgress(rank + 1);
+        trainerMgr.setProgress(rank + 1, trainerMgr.getActiveDeckId());
         renderTrainer();
     });
     document.querySelectorAll('.btn-trainer-srs').forEach(btn => {
@@ -506,13 +562,14 @@ function renderStateB(content, block, rank, total) {
             if (tw) {
                 srsDb.saveWord({ word: tw.word, furi: tw.furi || '', translation: tw.trans || '', status });
             }
-            trainerMgr.setProgress(rank + 1);
+            trainerMgr.setProgress(rank + 1, trainerMgr.getActiveDeckId());
             renderTrainer();
         });
     });
     document.getElementById('btn-trainer-regen')?.addEventListener('click', async () => {
         if (!confirm('Regenerate sentences for this word?')) return;
-        trainerMgr.clearCacheForRank(rank);
+        const deckId = trainerMgr.getActiveDeckId();
+        trainerMgr.clearCacheForRank(rank, deckId);
         showTrainerLoading(1, 'Regenerating…');
         try {
             await trainerMgr.generateTrainerSentences(
@@ -520,9 +577,10 @@ function renderStateB(content, block, rank, total) {
                 (step, text) => { if (step >= 3) hideTrainerLoading(); else showTrainerLoading(step, text); },
                 (sentences) => {
                     hideTrainerLoading();
-                    const wordObj = trainerMgr.getWordByRank(rank);
+                    const wordObj = trainerMgr.getWordByRank(rank, deckId);
                     renderStateB_raw(content, wordObj, rank, sentences);
-                }
+                },
+                deckId
             );
             renderTrainer();
         } catch (e) {
@@ -658,14 +716,15 @@ function updatePregenBox(rank, show) {
     const btn = document.getElementById('btn-pregen');
     if (!box || !pregenWord || !btn) return;
 
-    const total = trainerMgr.getTotalWords();
+    const deckId = trainerMgr.getActiveDeckId();
+    const total = trainerMgr.getTotalWords(deckId);
     if (!show || rank >= total) {
         box.style.display = 'none';
         box.classList.add('hidden');
         return;
     }
 
-    const nextWordObj = trainerMgr.getWordByRank(rank + 1);
+    const nextWordObj = trainerMgr.getWordByRank(rank + 1, deckId);
     if (!nextWordObj) {
         box.style.display = 'none';
         box.classList.add('hidden');

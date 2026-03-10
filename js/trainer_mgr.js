@@ -1,54 +1,110 @@
-import { wordList } from '../data/word_list_1000.js';
 import { generateText } from './ai_api.js';
 
-const PROGRESS_KEY = 'trainer_progress';
-const DATA_KEY = 'trainer_data';
+// ─── DECK REGISTRY ───────────────────────────────────────────────────────────
 
-// ─── STATE ACCESSORS ────────────────────────────────────────────────────────
+export const TRAINER_DECKS = [
+    { id: 'frequency', label: '📊 Frequency',  file: '../data/word_list_1000_frequency.js' },
+    { id: 'anime',     label: '🎌 Anime',       file: '../data/word_list_1000_anime.js'     },
+    { id: 'romance',   label: '💕 Romance',     file: '../data/word_list_1000_romance.js'   },
+    { id: 'gamer',     label: '🎮 Gamer',       file: '../data/word_list_1000_gamer.js'     },
+    { id: 'tourist',   label: '✈️ Tourist',     file: '../data/word_list_1000_tourist.js'   },
+];
 
-export function getProgress() {
-    return parseInt(localStorage.getItem(PROGRESS_KEY)) || 1;
-}
+const ACTIVE_DECK_KEY = 'trainer_active_deck';
 
-export function setProgress(rank) {
-    localStorage.setItem(PROGRESS_KEY, String(rank));
-}
+// In-memory cache for loaded word lists
+const _deckCache = {};
 
-function getTrainerData() {
+/** Load (or return cached) word list for a deck id. Returns Promise<array>. */
+export async function loadDeck(deckId) {
+    if (_deckCache[deckId]) return _deckCache[deckId];
+    const deck = TRAINER_DECKS.find(d => d.id === deckId);
+    if (!deck) return [];
     try {
-        return JSON.parse(localStorage.getItem(DATA_KEY)) || {};
+        const mod = await import(deck.file);
+        _deckCache[deckId] = mod.wordList || mod.default || [];
+    } catch (e) {
+        console.error(`[trainer_mgr] Failed to load deck "${deckId}":`, e);
+        _deckCache[deckId] = [];
+    }
+    return _deckCache[deckId];
+}
+
+/** Synchronously return already-loaded list, or null if not yet loaded. */
+export function getDeckCached(deckId) {
+    return _deckCache[deckId] || null;
+}
+
+export function getActiveDeckId() {
+    return localStorage.getItem(ACTIVE_DECK_KEY) || TRAINER_DECKS[0].id;
+}
+
+export function setActiveDeckId(deckId) {
+    localStorage.setItem(ACTIVE_DECK_KEY, deckId);
+}
+
+// ─── PER-DECK KEYS ────────────────────────────────────────────────────────────
+
+function _progressKey(deckId) { return `trainer_progress_${deckId}`; }
+function _dataKey(deckId)     { return `trainer_data_${deckId}`;     }
+
+// ─── STATE ACCESSORS ─────────────────────────────────────────────────────────
+
+export function getProgress(deckId = getActiveDeckId()) {
+    // Migrate legacy key (no deck suffix) → frequency deck on first run
+    if (deckId === 'frequency' && !localStorage.getItem(_progressKey(deckId))) {
+        const legacy = localStorage.getItem('trainer_progress');
+        if (legacy) localStorage.setItem(_progressKey(deckId), legacy);
+    }
+    return parseInt(localStorage.getItem(_progressKey(deckId))) || 1;
+}
+
+export function setProgress(rank, deckId = getActiveDeckId()) {
+    localStorage.setItem(_progressKey(deckId), String(rank));
+}
+
+function _getTrainerData(deckId = getActiveDeckId()) {
+    // Migrate legacy cache for frequency deck
+    if (deckId === 'frequency' && !localStorage.getItem(_dataKey(deckId))) {
+        const legacy = localStorage.getItem('trainer_data');
+        if (legacy) localStorage.setItem(_dataKey(deckId), legacy);
+    }
+    try {
+        return JSON.parse(localStorage.getItem(_dataKey(deckId))) || {};
     } catch {
         return {};
     }
 }
 
-function saveTrainerData(data) {
+function _saveTrainerData(data, deckId = getActiveDeckId()) {
     try {
-        localStorage.setItem(DATA_KEY, JSON.stringify(data));
+        localStorage.setItem(_dataKey(deckId), JSON.stringify(data));
     } catch (e) {
         if (e.name === 'QuotaExceededError') {
-            // Evict oldest 50 entries to free space
             const entries = Object.entries(data);
             entries.sort((a, b) => (a[1].cachedAt || 0) - (b[1].cachedAt || 0));
             const evicted = {};
             entries.slice(50).forEach(([k, v]) => { evicted[k] = v; });
-            localStorage.setItem(DATA_KEY, JSON.stringify(evicted));
+            localStorage.setItem(_dataKey(deckId), JSON.stringify(evicted));
         }
     }
 }
 
-export function clearCacheForRank(rank) {
-    const data = getTrainerData();
+export function clearCacheForRank(rank, deckId = getActiveDeckId()) {
+    const data = _getTrainerData(deckId);
     delete data[String(rank)];
-    saveTrainerData(data);
+    _saveTrainerData(data, deckId);
 }
 
-export function getWordByRank(rank) {
-    return wordList.find(w => w.rank === rank) || null;
+export function getWordByRank(rank, deckId = getActiveDeckId()) {
+    const list = getDeckCached(deckId);
+    if (!list) return null;
+    return list.find(w => w.rank === rank) || null;
 }
 
-export function getTotalWords() {
-    return wordList.length;
+export function getTotalWords(deckId = getActiveDeckId()) {
+    const list = getDeckCached(deckId);
+    return list ? list.length : 0;
 }
 
 // ─── GENERATION ─────────────────────────────────────────────────────────────
@@ -56,12 +112,14 @@ export function getTotalWords() {
 /**
  * Generate (or return cached) trainer sentences for a given rank.
  * @param {number} rank
- * @param {boolean} forceRegenerate - Skip cache and regenerate
- * @param {Function} onProgress - optional progress callback(step, text)
+ * @param {boolean} forceRegenerate
+ * @param {Function} onProgress - optional callback(step, text)
  * @param {Function} onSentencesReady - fired after step 1 with raw sentences before NLP
+ * @param {string} [deckId]
  */
-export async function generateTrainerSentences(rank, forceRegenerate = false, onProgress = () => {}, onSentencesReady = null) {
-    const data = getTrainerData();
+export async function generateTrainerSentences(rank, forceRegenerate = false, onProgress = () => {}, onSentencesReady = null, deckId = getActiveDeckId()) {
+    const wordList = await loadDeck(deckId);
+    const data = _getTrainerData(deckId);
     const key = String(rank);
 
     if (!forceRegenerate && data[key]) {
@@ -69,9 +127,8 @@ export async function generateTrainerSentences(rank, forceRegenerate = false, on
     }
 
     const targetWordObj = wordList.find(w => w.rank === rank);
-    if (!targetWordObj) throw new Error(`Word at rank ${rank} not found in word list.`);
+    if (!targetWordObj) throw new Error(`Word at rank ${rank} not found in deck "${deckId}".`);
 
-    // Only allow words up to current rank as "known" vocabulary
     const allowedWords = wordList
         .filter(w => w.rank <= rank)
         .map(w => w.word)
@@ -80,7 +137,6 @@ export async function generateTrainerSentences(rank, forceRegenerate = false, on
     onProgress(1, `Generating sentences for: ${targetWordObj.word}…`);
 
     const systemPrompt = `You are a Japanese teacher. Generate exactly 3 simple Japanese sentences. Return JSON format only (no markdown, no explanation): { "sentences": [ { "ja": "...", "en": "..." } ] }`;
-
     const userPrompt = `Target word: ${targetWordObj.word} (${targetWordObj.furi}, meaning: ${targetWordObj.trans}). Write 3 sentences using this word. STRICT RULE: Try to ONLY use the target word and these allowed words: ${allowedWords}. Keep grammar JLPT N5/N4 level.`;
 
     onProgress(2, 'Calling AI…');
@@ -97,11 +153,9 @@ export async function generateTrainerSentences(rank, forceRegenerate = false, on
     const sentences = parsed.sentences || [];
     if (sentences.length === 0) throw new Error('AI returned no sentences.');
 
-    // ── Fire early callback so UI can show raw sentences + translations immediately ──
     if (onSentencesReady) {
-        // Store a partial block in cache so renderTrainer can show something right away
         const partialBlock = {
-            rank,
+            rank, deckId,
             targetWord: targetWordObj,
             rawSentences: sentences,
             enrichedData: { words: [], sentences },
@@ -109,7 +163,7 @@ export async function generateTrainerSentences(rank, forceRegenerate = false, on
             cachedAt: Date.now()
         };
         data[key] = partialBlock;
-        saveTrainerData(data);
+        _saveTrainerData(data, deckId);
         onSentencesReady(sentences);
     }
 
@@ -117,9 +171,6 @@ export async function generateTrainerSentences(rank, forceRegenerate = false, on
 
     const combinedJa = sentences.map(s => s.ja).join('');
 
-    // ─── DEDICATED TRAINER NLP ───────────────────────────────────────────────
-    // A lean tokenizer prompt — no story options, no image prompt, no sentence
-    // re-splitting. Just tokenize the combined sentence text into annotated tokens.
     const nlpSystem = `You are a Japanese NLP tokenizer. Tokenize the input text into an array of token objects.
 
 OUTPUT: JSON only, no markdown — { "tokens": [ ... ] }
@@ -136,15 +187,12 @@ RULES:
 2. A conjugated verb or adjective is ONE token (e.g. 食べられた → one token, base 食べる).
 3. No token with empty or whitespace-only surface.`;
 
-    const nlpUser = combinedJa;
-
-    let tokens =[];
+    let tokens = [];
     try {
-        const nlpRaw = await generateText(nlpUser, nlpSystem, true);
+        const nlpRaw = await generateText(combinedJa, nlpSystem, true);
         const nlpCleaned = nlpRaw.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
         const nlpParsed = JSON.parse(nlpCleaned);
-        const raw = nlpParsed.tokens ||[];
-        // Normalize field names (support both full and abbreviated keys from older saves)
+        const raw = nlpParsed.tokens || [];
         tokens = raw
             .filter(t => (t.surface || t.s) && String(t.surface || t.s).trim() !== '')
             .map(t => ({
@@ -160,39 +208,30 @@ RULES:
         throw new Error(`Trainer NLP failed: ${e.message}`);
     }
 
-    // ─── ENRICH: mark isExternal ─────────────────────────────────────────────
+    // Enrich tokens with rank info from the active deck
     const wordListByWord = {};
     wordList.forEach(w => { wordListByWord[w.word] = w; });
 
     const enrichedTokens = tokens.map(token => {
         const baseForm = token.base || token.surface;
         const match = wordListByWord[baseForm] || wordListByWord[token.surface];
-        
         if (match) {
-            // If the word exists in our 1000 list, ALWAYS attach its rank.
-            // It is only considered "external" (highlighted blue) if its rank is > the current training rank.
             return { ...token, isExternal: match.rank > rank, rank: match.rank };
         }
-        
-        // If it's completely missing from our 1000 list:
         return { ...token, isExternal: true };
     });
 
     const block = {
-        rank,
+        rank, deckId,
         targetWord: targetWordObj,
         rawSentences: sentences,
-        enrichedData: {
-            words: enrichedTokens,
-            sentences: sentences
-        },
+        enrichedData: { words: enrichedTokens, sentences },
         isProcessing: false,
         cachedAt: Date.now()
     };
 
-    // Save to cache
     data[key] = block;
-    saveTrainerData(data);
+    _saveTrainerData(data, deckId);
 
     return block;
 }
