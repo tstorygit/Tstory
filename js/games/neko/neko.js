@@ -273,7 +273,7 @@ function _toggleNumFmt() {
 
 function _freshGame() {
     return {
-        fish: 0, yarn: 0, bells: 0, karma: 0,
+        fish: 0, yarn: 0, bells: 0, karma: 0, transcendence: 0,
         combo: 0, // Current dojo combo
         lastTick: Date.now(),
         pauseTime: 0,       // total ms accumulated while paused
@@ -341,7 +341,7 @@ function _getFishPerSec() {
     if (_isDebug) m *= 1000;
     
     const ampBonus2 = 1 + (_g.rebirthUpgrades.global_amp?.count || 0) * (_g.rebirthUpgrades.global_amp?.effect || 0);
-    return base * m * moodMult * sunspotBonus * comboMult * ampBonus2;
+    return base * m * moodMult * sunspotBonus * comboMult * ampBonus2 * _getTranscendenceMult();
 }
 
 function _getClickPower() {
@@ -382,7 +382,7 @@ function _getClickPower() {
 
     if (_isDebug) m *= 1000;
     const ampBonus = 1 + (_g.rebirthUpgrades.global_amp?.count || 0) * (_g.rebirthUpgrades.global_amp?.effect || 0);
-    return base * m * ampBonus;
+    return base * m * ampBonus * _getTranscendenceMult();
 }
 
 function _getMultiplierBreakdown() {
@@ -452,6 +452,24 @@ function _getLearnCost() {
 
 function _calcBells()   { return _g.fish < 50000   ? 0 : Math.floor(Math.pow(_g.fish  / 50000, 0.5)); }
 function _calcSpirits() { return _g.bells < 100     ? 0 : Math.floor(_g.bells / 50); }
+
+// Transcendence requires 500 spirits per tier (1st = 500, 2nd = 1000, etc.)
+// Each Transcendence costs more to create meaningful late-game gates
+function _calcTranscendenceCost() { return 5000 * (_g.transcendence + 1); }
+function _canTranscend() { return _g.karma >= _calcTranscendenceCost(); }
+
+// Transcendence multiplier: ×1.5 per stack, applied to all production
+function _getTranscendenceMult() { return Math.pow(1.5, _g.transcendence); }
+
+// Format numbers for the topbar — max 4 chars (e.g. 1234, 1.2K, 1.2e5)
+function _fmtShort(n) {
+    n = Math.floor(n);
+    if (isNaN(n) || !isFinite(n)) return '0';
+    if (n < 10000) return n.toLocaleString();
+    const exp = Math.floor(Math.log10(n));
+    const coeff = (n / Math.pow(10, exp)).toFixed(1);
+    return coeff + 'e' + exp;
+}
 
 // ─── Helper: Time Formatter ───────────────────────────────────────────────────
 
@@ -528,6 +546,7 @@ function _loadGame() {
         _g.yarn  = p.yarn  || 0;
         _g.bells = p.bells || 0;
         _g.karma = p.karma || 0;
+        _g.transcendence = p.transcendence || 0;
         _g.combo = p.combo || 0;
         _g.srs   = p.srs   ||[];
         _g.pauseTime  = p.pauseTime  || 0;
@@ -842,6 +861,28 @@ function _rebirth() {
     _toast(`REBIRTH! +${_fmtN(earned)} Spirits`, 'var(--nk-spirit)');
 }
 
+function _transcend() {
+    const cost = _calcTranscendenceCost();
+    if (_g.karma < cost) { alert(`Need ${_fmtN(cost)} 👻 Spirits to Transcend!`); return; }
+    const nextMult = Math.pow(1.5, _g.transcendence + 1);
+    if (!confirm(`TRANSCEND? Spend ${_fmtN(cost)} Spirits to reset EVERYTHING and gain ✦${_g.transcendence + 1} (×${nextMult.toFixed(2)} to all production)?`)) return;
+    _g.karma -= cost;
+    _g.transcendence++;
+    _g.fish  = 0;
+    _g.yarn  = 0;
+    _g.bells = 0;
+    _g.combo = 0;
+    for (const k in _g.upgrades)        _g.upgrades[k].count        = 0;
+    for (const k in _g.clickUpgrades)   _g.clickUpgrades[k].count   = 0;
+    for (const k in _g.bellUpgrades)    _g.bellUpgrades[k].count     = 0;
+    for (const k in _g.rebirthUpgrades) _g.rebirthUpgrades[k].count = 0;
+    if (_g.rebirthUpgrades.starter.count > 0) _g.upgrades.box.count = 10;
+    _saveGame();
+    _updateUI();
+    _switchTab('click');
+    _toast(`✦ TRANSCENDED! ×${_getTranscendenceMult().toFixed(2)} to all production!`, '#f9ca24');
+}
+
 function _banWord(word) {
     if (!confirm(`Ban "${word}"? It will stop appearing in the Dojo.`)) return;
     
@@ -957,6 +998,7 @@ function _checkAnswer(selectedId, btnEl, correctId, event) {
         if (_g.bellUpgrades.thread.count > 0) yarn = Math.ceil(yarn * Math.pow(_g.bellUpgrades.thread.effect, _g.bellUpgrades.thread.count));
         if (_g.rebirthUpgrades.weaver_soul.count > 0) yarn *= (1 + _g.rebirthUpgrades.weaver_soul.count); // ×2, ×3, ×4... (additive +1 per lvl)
         if (_g.bellUpgrades.focus.count > 0) yarn += _g.bellUpgrades.focus.count;
+        yarn = Math.ceil(yarn * _getTranscendenceMult());
         
         _g.yarn += yarn;
         _g.combo += 1;
@@ -1015,8 +1057,9 @@ function _initGameDOM() {
 <div class="nk-root">
 
     <div class="nk-topbar">
-        <div class="nk-topbar-title">🐾</div>
+        <div class="nk-topbar-title">🐾 <span id="nk-transcendence-badge" style="display:none; font-size:13px; font-weight:bold; color:#f9ca24; letter-spacing:0.5px;"></span></div>
         <div class="nk-topbar-btns">
+            <button class="nk-hbtn nk-hbtn-transcend" id="nk-transcend-btn" title="Transcend" style="display:none;">✦</button>
             <button class="nk-hbtn nk-hbtn-fmt" id="nk-numfmt-btn" title="Toggle number format">M</button>
             <button class="nk-hbtn" id="nk-pause-btn" title="Pause">⏸</button>
             <button class="nk-hbtn nk-hbtn-gold" id="nk-ascend-btn" title="Ascend">⬆</button>
@@ -1232,6 +1275,7 @@ function _initGameDOM() {
     if (fmtBtn) fmtBtn.textContent = _numFmtStyle === 'suffix' ? 'M' : 'e';
     el.querySelector('#nk-ascend-btn').addEventListener('click', _ascend);
     el.querySelector('#nk-rebirth-btn').addEventListener('click', _rebirth);
+    el.querySelector('#nk-transcend-btn').addEventListener('click', _transcend);
     el.querySelector('#nk-learn-btn').addEventListener('click', _learnNewWord);
     el.querySelector('#nk-cat').addEventListener('click', (e) => _petCat(e));
 
@@ -1269,8 +1313,10 @@ function _initGameDOM() {
     el.querySelector('#nk-wipe-partial').addEventListener('click', () => {
         if (!confirm('Reset all game progress? Vocabulary SRS data will be kept.')) return;
         const srsBackup = JSON.parse(JSON.stringify(_g.srs));
+        const transcendenceBackup = _g.transcendence;
         _g = _freshGame();
         _g.srs = srsBackup;
+        _g.transcendence = transcendenceBackup;
         _saveGame();
         el.querySelector('#nk-wipe-overlay').style.display = 'none';
         _initShops();
@@ -1525,6 +1571,7 @@ function _renderStats() {
             <div class="nk-stat-row"><span>🧶 Total Yarn Earned</span><span>${_fmtN(_g.stats.yarnEarned)}</span></div>
             <div class="nk-stat-row"><span>🔔 Bells</span><span>${_fmtN(_g.bells)}</span></div>
             <div class="nk-stat-row"><span>👻 Spirits</span><span>${_fmtN(_g.karma)}</span></div>
+            ${_g.transcendence > 0 ? `<div class="nk-stat-row"><span>✦ Transcendence</span><span>${_g.transcendence} (×${_getTranscendenceMult().toFixed(2)} all prod.)</span></div>` : ''}
             <div class="nk-stat-row"><span>🛒 Upgrades Purchased</span><span>${totalUpgrades}</span></div>
             <div class="nk-stat-row"><span>🏷️ Shop Discount</span><span>${Math.round((1 - discount) * 100)}%</span></div>
         `;
@@ -1612,6 +1659,7 @@ function _renderStats() {
             <div class="nk-stat-row"><span>👻 Spirits (Karma)</span><span>${_fmtN(_g.karma)}</span></div>
             <div class="nk-stat-row"><span>👻 Next Rebirth Reward</span><span>${nextSpirits > 0 ? '+' + _fmtN(nextSpirits) + ' Spirit' + (nextSpirits !== 1 ? 's' : '') : 'Need 100 Bells'}</span></div>
             <div class="nk-stat-row"><span>📈 Idle Prod. Multiplier</span><span>×${(1 + Math.log10(1 + _g.bells) * 0.2).toFixed(2)} (from bells, log)</span></div>
+            ${_g.transcendence > 0 ? `<div class="nk-stat-row"><span>✦ Transcendence Bonus</span><span>×${_getTranscendenceMult().toFixed(2)} to all production</span></div>` : `<div class="nk-stat-row"><span>✦ Transcendence</span><span>Need ${_fmtN(_calcTranscendenceCost())} 👻 to unlock</span></div>`}
         `;
     }
 
@@ -1708,8 +1756,9 @@ function _renderMultiplierPopup() {
             ${row(`📚 Words (${b.activeWords}w quad)`, b.idle.bloom)}
             ${row('👻 Guide',    b.idle.guide)}
             ${b.globalAmp > 1 ? row('🌌 Cosmic Amp', b.globalAmp, 'var(--nk-spirit)') : ''}
-            ${multRow('= Total ×Multiplier', b.idle.multTotal * (b.globalAmp > 1 ? b.globalAmp : 1))}
-            ${totalRow('= Total /s', b.idle.finalFps)}
+            ${_g.transcendence > 0 ? row(`✦ Transcendence (×${_g.transcendence})`, _getTranscendenceMult(), '#f9ca24') : ''}
+            ${multRow('= Total ×Multiplier', b.idle.multTotal * (b.globalAmp > 1 ? b.globalAmp : 1) * _getTranscendenceMult())}
+            ${totalRow('= Total /s', b.idle.finalFps * _getTranscendenceMult())}
         </div>
         <div class="nk-mp-section" style="margin-top:8px;">
             <div class="nk-mp-title">👆 Click Power</div>
@@ -1725,8 +1774,9 @@ function _renderMultiplierPopup() {
             ${row('👻 Guide',    b.click.guide)}
             ${b.click.clickWords > 1 ? row('🐾 Word Paw', b.click.clickWords) : ''}
             ${b.globalAmp > 1 ? row('🌌 Cosmic Amp', b.globalAmp, 'var(--nk-spirit)') : ''}
-            ${multRow('= Total ×Multiplier', b.click.multTotal * (b.globalAmp > 1 ? b.globalAmp : 1))}
-            ${totalRow('= Total /click', b.click.finalClick)}
+            ${_g.transcendence > 0 ? row(`✦ Transcendence (×${_g.transcendence})`, _getTranscendenceMult(), '#f9ca24') : ''}
+            ${multRow('= Total ×Multiplier', b.click.multTotal * (b.globalAmp > 1 ? b.globalAmp : 1) * _getTranscendenceMult())}
+            ${totalRow('= Total /click', b.click.finalClick * _getTranscendenceMult())}
         </div>
     `;
 }
@@ -1747,11 +1797,32 @@ function _updateUI() {
     setTxt('.nk-val-cpc',   _fmtN(_getClickPower()));
     setTxt('.nk-val-combo', _g.combo.toFixed(1)); // Show decimal to make decay visible
 
-    // Always keep ascend/rebirth button text current
+    // Always keep ascend/rebirth button text current — max 4 digits with _fmtShort
     const ascendBtn  = g.querySelector('#nk-ascend-btn');
     const rebirthBtn = g.querySelector('#nk-rebirth-btn');
-    if (ascendBtn)  ascendBtn.textContent  = `⬆+${_fmtN(_calcBells())}`;
-    if (rebirthBtn) rebirthBtn.textContent = `♻+${_fmtN(_calcSpirits())}`;
+    const transcendBtn = g.querySelector('#nk-transcend-btn');
+    const transcendBadge = g.querySelector('#nk-transcendence-badge');
+    if (ascendBtn)  ascendBtn.textContent  = `⬆+${_fmtShort(_calcBells())}`;
+    if (rebirthBtn) rebirthBtn.textContent = `♻+${_fmtShort(_calcSpirits())}`;
+
+    // Transcendence badge: ✦N left of 🐾 (always visible once first transcendence done)
+    if (transcendBadge) {
+        if (_g.transcendence > 0) {
+            transcendBadge.textContent = `✦${_g.transcendence}`;
+            transcendBadge.style.display = 'inline';
+        } else {
+            transcendBadge.style.display = 'none';
+        }
+    }
+    // Transcend button: visible only when player can afford it
+    if (transcendBtn) {
+        if (_canTranscend()) {
+            transcendBtn.style.display = 'inline-block';
+            transcendBtn.title = `Transcend (costs ${_fmtN(_calcTranscendenceCost())} 👻)`;
+        } else {
+            transcendBtn.style.display = 'none';
+        }
+    }
 
     // Word count in sub-line (active learned words)
     const _wcActiveIds = new Set(_vocabQueue.map(v => v.id));
@@ -2427,6 +2498,16 @@ function _toast(msg, color = '#333') {
 
 /* Wipe button */
 .nk-hbtn-wipe { background: #c0392b; }
+
+/* Transcendence button */
+.nk-hbtn-transcend {
+    background: linear-gradient(135deg, #f9ca24, #f0932b);
+    color: #333 !important;
+    font-weight: bold;
+    font-size: 14px;
+    animation: nkPulse 2s infinite;
+    box-shadow: 0 0 8px rgba(249,202,36,0.5);
+}
 
 /* Wipe overlay + dialog */
 .nk-wipe-overlay {
