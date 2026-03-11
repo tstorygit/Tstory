@@ -113,10 +113,21 @@ function _show(name) {
         if (!el) return;
         if (k === name) {
             if (name === 'setup') {
-                // Use block (not flex) so vocab selector content can overflow and scroll
-                el.style.cssText = `display:block; overflow-y:auto; overflow-x:hidden; height:100%; padding:0; background:${_BG};`;
+                // Let the content-scroll class handle scrolling; just unhide and apply bg
+                el.style.display    = 'block';
+                el.style.overflowY  = 'auto';
+                el.style.overflowX  = 'hidden';
+                el.style.height     = '100%';
+                el.style.minHeight  = '0';
+                el.style.padding    = '0';
+                el.style.background = _BG;
             } else {
-                el.style.cssText = `display:flex; flex-direction:column; overflow:hidden; height:100%; padding:0; background:${_BG};`;
+                el.style.display         = 'flex';
+                el.style.flexDirection   = 'column';
+                el.style.overflow        = 'hidden';
+                el.style.height          = '100%';
+                el.style.padding         = '0';
+                el.style.background      = _BG;
             }
         } else {
             el.style.display = 'none';
@@ -185,27 +196,32 @@ async function _startGame() {
 // ─── Core Logic & Math ────────────────────────────────────────────────────────
 
 function _generateMap() {
-    const totalProv = Math.ceil(_vocabQueue.length / WORDS_PER_PROVINCE);
-    const cols = Math.ceil(Math.sqrt(totalProv));
+    const MIN_PROVINCES = 20;
+    const vocabProv  = Math.ceil(_vocabQueue.length / WORDS_PER_PROVINCE);
+    const totalProv  = Math.max(MIN_PROVINCES, vocabProv);
+    // Slightly wider than tall grid
+    const cols = Math.ceil(Math.sqrt(totalProv * 1.4));
     const rows = Math.ceil(totalProv / cols);
 
     let vocabIndex = 0;
     let names = [...PROVINCE_NAMES].sort(() => 0.5 - Math.random());
+    const capX = Math.floor(cols / 2);
+    const capY = Math.floor(rows / 2);
 
     for (let y = 0; y < rows; y++) {
         for (let x = 0; x < cols; x++) {
-            if (vocabIndex >= _vocabQueue.length) break;
+            const isCapital = (x === capX && y === capY);
+            const pId = `prov_${x}_${y}`;
+            const tier = 1 + Math.floor(Math.random() * 3);
 
-            const provWords =[];
+            const provWords = [];
             for (let i = 0; i < WORDS_PER_PROVINCE && vocabIndex < _vocabQueue.length; i++) {
-                provWords.push(_vocabQueue[vocabIndex].id);
-                vocabIndex++;
+                provWords.push(_vocabQueue[vocabIndex++].id);
             }
 
-            const isCapital = (x === Math.floor(cols/2) && y === Math.floor(rows/2));
-            const pId = `prov_${x}_${y}`;
-            
-            const tier = 1 + Math.floor(Math.random() * 3); 
+            // Filler provinces (no vocab) are auto-cored — just territory to conquer
+            const isFiller = provWords.length === 0;
+
             _g.provinces.push({
                 id: pId,
                 name: names.pop() || `Region ${x}-${y}`,
@@ -215,16 +231,18 @@ function _generateMap() {
                 unrest: 0,
                 libertyDesire: 0,
                 rebelling: false,
-                rebelTimer: 0,      
+                rebelTimer: 0,
                 hasTradeFleet: false,
-                cored: false,
-                tier,               
-                buildings: { market: false, barracks: false, fort: false }
+                cored: isCapital && isFiller, // empty capital pre-cored
+                tier,
+                isFiller,
+                buildings: { market: false, barracks: false, fort: false },
             });
 
-            if (isCapital) {
+            if (isCapital && provWords.length > 0) {
+                // 2-minute grace period before first review so player can explore
                 provWords.forEach(wid => {
-                    _g.srs.push({ id: wid, nextReview: Date.now(), interval: 8, ease: 1.5, provinceId: pId });
+                    _g.srs.push({ id: wid, nextReview: Date.now() + 120000, interval: 8, ease: 1.5, provinceId: pId });
                 });
             }
         }
@@ -910,6 +928,15 @@ function _updateSRSQueue() {
         sleepScrn.style.display = 'flex';
         _g.currentCardId = null;
 
+        // Check if any province is still actively rebelling (recovering)
+        const stillRebelling = _g.provinces.some(p => p.rebelling);
+        const titleEl  = sleepScrn.querySelector('.eu-sleep-title');
+        const iconEl   = sleepScrn.querySelector('.eu-sleep-icon');
+        if (titleEl) titleEl.textContent = stillRebelling
+            ? 'Suppressing Rebellions…'
+            : 'The Empire is at Peace';
+        if (iconEl)  iconEl.textContent  = stillRebelling ? '⚔️' : '🕊️';
+
         if (timerEl && _g.srs.length > 0) {
             const next    = Math.min(..._g.srs.map(s => s.nextReview));
             const diffSec = (next - now) / 1000;
@@ -1123,7 +1150,9 @@ function _initGameDOM() {
     <div class="eu-content">
         <!-- MAP TAB -->
         <div class="eu-pane active" id="eu-tab-map">
-            <div class="eu-map-container" id="eu-map-grid"></div>
+            <div class="eu-map-wrapper">
+                <div id="eu-map-grid"></div>
+            </div>
             <div class="eu-prov-panel" id="eu-prov-panel" style="display:none;"></div>
         </div>
 
@@ -1163,9 +1192,9 @@ function _initGameDOM() {
             </div>
 
             <div id="eu-dojo-sleep" class="eu-battle-screen">
-                <div style="font-size:40px;">🕊️</div>
-                <h3>The Empire is at Peace</h3>
-                <p style="color:#555; font-size:13px;">No provinces are currently rebelling.</p>
+                <div class="eu-sleep-icon" style="font-size:40px;">🕊️</div>
+                <h3 class="eu-sleep-title">The Empire is at Peace</h3>
+                <p style="color:#888; font-size:13px;">No vocabulary reviews are currently due.</p>
                 <div id="eu-next-review-timer" style="margin-top:12px; font-weight:bold; color:#c0392b; font-size:14px;"></div>
             </div>
 
@@ -1221,19 +1250,43 @@ function _renderMap() {
     const gridEl = _screens.game.querySelector('#eu-map-grid');
     if (!gridEl) return;
 
-    const totalProv = _g.provinces.length;
-    const cols = Math.ceil(Math.sqrt(totalProv));
-    gridEl.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    // Pointy-top hex geometry
+    const S     = 32;                                  // radius (center → vertex)
+    const HW    = Math.round(Math.sqrt(3) * S);       // ~55px
+    const HH    = S * 2;                              // 64px
+    const HGAP  = 3;
+    const VGAP  = 2;
+    const HSTEP = HW + HGAP;
+    const VSTEP = Math.round(HH * 0.75) + VGAP;
+
+    const maxX = Math.max(..._g.provinces.map(p => p.x));
+    const maxY = Math.max(..._g.provinces.map(p => p.y));
+
+    const PAD   = 14;
+    const totalW = (maxX + 1) * HSTEP + Math.round(HSTEP / 2) + PAD * 2;
+    const totalH = (maxY + 1) * VSTEP + Math.round(HH * 0.25) + PAD * 2;
+
+    gridEl.style.width    = totalW + 'px';
+    gridEl.style.height   = totalH + 'px';
+    gridEl.style.minWidth = totalW + 'px';
 
     gridEl.innerHTML = '';
+
     _g.provinces.forEach(prov => {
+        // Odd rows are offset right by half a step
+        const cx = prov.x * HSTEP + (prov.y % 2 === 1 ? HSTEP / 2 : 0) + PAD;
+        const cy = prov.y * VSTEP + PAD;
+
         const cell = document.createElement('div');
         cell.className = 'eu-map-cell';
-        
+        cell.style.left   = cx + 'px';
+        cell.style.top    = cy + 'px';
+        cell.style.width  = HW + 'px';
+        cell.style.height = HH + 'px';
+
         if (prov.owner === 'player') {
-            cell.classList.add('owned');
-            if (prov.cored)      cell.classList.add('cored');
-            if (prov.rebelling)  cell.classList.add('rebelling');
+            cell.classList.add(prov.cored ? 'cored' : 'owned');
+            if (prov.rebelling) cell.classList.add('rebelling');
         } else if (prov.owner === 'vassal') {
             cell.classList.add('vassal');
         } else if (_isAdjacentToOwned(prov)) {
@@ -1244,23 +1297,25 @@ function _renderMap() {
 
         if (prov.id === _selectedProvinceId) cell.classList.add('selected');
 
-        const tierStars = prov.owner !== 'player' && prov.owner !== 'vassal' && !_isAdjacentToOwned(prov) ? '' : '⭐'.repeat(prov.tier || 1);
-        const rebelTimerPct = prov.rebelling && prov.rebelTimer > 0
-            ? Math.min(100, Math.round((prov.rebelTimer / (prov.buildings.fort ? REBEL_TAKEBACK_TIME*2 : REBEL_TAKEBACK_TIME)) * 100)) : 0;
+        const showTier = prov.owner !== 'fog' && !cell.classList.contains('fog');
+        const tierDots = showTier ? '◆'.repeat(prov.tier || 1) : '';
+        const rebelPct = prov.rebelling && prov.rebelTimer > 0
+            ? Math.min(100, Math.round((prov.rebelTimer / (prov.buildings.fort ? REBEL_TAKEBACK_TIME * 2 : REBEL_TAKEBACK_TIME)) * 100)) : 0;
 
         let iconStr = '';
-        if (prov.cored && prov.hasTradeFleet) iconStr += '🚢';
-        if (prov.buildings?.fort) iconStr += '🏰';
-        else if (prov.cored) iconStr += '🏛️';
-        else if (prov.rebelling) iconStr += '🔥';
+        if (prov.cored && prov.hasTradeFleet) iconStr = '🚢';
+        else if (prov.buildings?.fort)         iconStr = '🏰';
+        else if (prov.cored)                   iconStr = '🏛️';
+        else if (prov.rebelling)               iconStr = '🔥';
+        else if (prov.isFiller && prov.owner !== 'player') iconStr = '🌿';
 
         cell.innerHTML = `
             <div class="eu-cell-name">${prov.name}</div>
             ${prov.owner === 'player' && !prov.cored ? `<div class="eu-cell-unrest">${Math.floor(prov.unrest)}%</div>` : ''}
-            ${prov.owner === 'vassal' ? `<div class="eu-cell-unrest" style="color:#2980b9;">${Math.floor(prov.libertyDesire)}%</div>` : ''}
-            <div class="eu-cell-icons">${iconStr}</div>
-            ${tierStars ? `<div class="eu-cell-tier">${tierStars}</div>` : ''}
-            ${rebelTimerPct > 0 ? `<div class="eu-rebel-timer-wrap"><div class="eu-rebel-timer-bar" style="width:${rebelTimerPct}%"></div></div>` : ''}
+            ${prov.owner === 'vassal' ? `<div class="eu-cell-unrest" style="color:#a8d8ea;">${Math.floor(prov.libertyDesire)}%</div>` : ''}
+            ${iconStr ? `<div class="eu-cell-icons">${iconStr}</div>` : ''}
+            ${tierDots ? `<div class="eu-cell-tier">${tierDots}</div>` : ''}
+            ${rebelPct > 0 ? `<div class="eu-rebel-timer-wrap"><div class="eu-rebel-timer-bar" style="width:${rebelPct}%"></div></div>` : ''}
         `;
 
         cell.addEventListener('click', () => {
@@ -1268,7 +1323,7 @@ function _renderMap() {
                 _startTradeMission(prov.id);
             } else {
                 _selectedProvinceId = prov.id;
-                _renderMap(); 
+                _renderMap();
                 _renderProvincePanel(prov);
             }
         });
@@ -1709,211 +1764,330 @@ function _spawnFloatingText(x, y, text, color) {
     const style = document.createElement('style');
     style.id = 'eu-game-styles';
     style.textContent = `
+/* ── Root ── */
 .eu-root {
     display: flex; flex-direction: column; height: 100%;
-    font-family: 'Georgia', serif; color: #2c3e50;
+    font-family: 'Georgia', serif; color: #2c1a0e;
+    background: #f0e6d0;
 }
 
-/* Topbar & Resources */
+/* ── Topbar ── */
 .eu-topbar {
-    display: flex; justify-content: space-around; background: #34495e;
-    padding: 10px; color: white; border-bottom: 3px solid #c0392b;
-    box-shadow: 0 4px 6px rgba(0,0,0,0.1); z-index: 10;
+    display: flex; justify-content: space-around; align-items: center;
+    background: #1e1208;
+    padding: 8px 6px; color: #e8d5a3;
+    border-bottom: 3px solid #7a3b1e;
+    box-shadow: 0 3px 8px rgba(0,0,0,0.4); z-index: 10; flex-shrink: 0;
 }
-.eu-res-box { font-size: 14px; font-weight: bold; display:flex; align-items:center; gap:5px;}
-.eu-point-adm { color: #f1c40f; }
-.eu-point-dip { color: #3498db; }
-.eu-point-mil { color: #e74c3c; }
+.eu-res-box {
+    font-size: 12px; font-weight: bold; display: flex; align-items: center;
+    gap: 3px; padding: 3px 5px; border-radius: 4px;
+}
+.eu-point-adm { color: #f5c842; }
+.eu-point-dip { color: #7ec8e3; }
+.eu-point-mil { color: #e07070; }
 
+/* ── Stats bar ── */
 .eu-stats-bar {
-    display: flex; align-items: center; gap: 15px; padding: 8px 15px;
-    background: #eaddc5; border-bottom: 1px solid #dcdde1; font-size: 12px;
+    display: flex; align-items: center; gap: 12px; padding: 5px 12px;
+    background: #2e1c0e; color: #c9a96e;
+    border-bottom: 1px solid #5a3820; font-size: 11px; flex-shrink: 0;
 }
+.eu-stats-bar strong { color: #f0d090; }
 
-/* Tabs */
+/* ── Tabs ── */
 .eu-tabs {
-    display: flex; background: #dcdde1; border-bottom: 2px solid #bdc3c7;
+    display: flex; background: #3a2210; border-bottom: 2px solid #5a3820; flex-shrink: 0;
 }
 .eu-tab-btn {
-    flex: 1; padding: 12px 0; border: none; background: none; font-weight: bold;
-    cursor: pointer; color: #7f8c8d; transition: 0.2s; font-family: 'Georgia', serif;
+    flex: 1; padding: 10px 0; border: none; background: none;
+    font-weight: bold; cursor: pointer; color: #9a7a55;
+    transition: 0.2s; font-family: 'Georgia', serif; font-size: 12px;
 }
-.eu-tab-btn.active { background: #f4ecd8; color: #c0392b; border-bottom: 3px solid #c0392b; }
-.eu-badge { background:#e74c3c; color:white; padding:2px 6px; border-radius:10px; font-size:10px; }
+.eu-tab-btn.active {
+    background: #f0e6d0; color: #7a3b1e; border-bottom: 3px solid #c4813a;
+}
+.eu-tab-btn:hover:not(.active) { background: #4a2e18; color: #c9a96e; }
+.eu-badge {
+    background: #8b3030; color: #ffd0d0; padding: 1px 5px;
+    border-radius: 8px; font-size: 9px;
+}
 
-.eu-content { flex: 1; overflow-y: auto; position: relative; }
-.eu-pane { display: none; padding: 15px; }
+/* ── Content / panes ── */
+.eu-content { flex: 1; overflow-y: auto; position: relative; min-height: 0; }
+.eu-pane { display: none; padding: 12px; }
 .eu-pane.active { display: block; }
 
-/* Map Grid */
-.eu-map-container {
-    display: grid; gap: 4px; padding: 10px; background: #7f8c8d; border-radius: 8px;
-    border: 3px solid #2c3e50; box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+/* ── Map wrapper (scrollable dark viewport) ── */
+.eu-map-wrapper {
+    overflow: auto;
+    background: #080c14;
+    border-radius: 10px;
+    border: 3px solid #3d2416;
+    box-shadow: inset 0 0 20px rgba(0,0,0,0.7), 0 4px 10px rgba(0,0,0,0.3);
+    max-height: 310px;
+    margin-bottom: 14px;
+    cursor: grab;
 }
+.eu-map-wrapper:active { cursor: grabbing; }
+#eu-map-grid {
+    position: relative;
+    /* width/height set by JS */
+}
+
+/* ── Hex cells ── */
 .eu-map-cell {
-    aspect-ratio: 1; background: #bdc3c7; border: 2px solid #95a5a6;
-    border-radius: 6px; display: flex; flex-direction: column; align-items: center;
-    justify-content: center; cursor: pointer; position: relative; transition: 0.2s;
+    position: absolute;
+    clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    cursor: pointer; transition: filter 0.15s;
+    overflow: hidden;
 }
-.eu-map-cell:hover { filter: brightness(1.1); transform: translateY(-2px); box-shadow: 0 4px 6px rgba(0,0,0,0.2); z-index: 1;}
-.eu-map-cell.fog { background: #5a6a75; border-color: #4a5a65; opacity: 0.5; cursor: not-allowed; }
-.eu-map-cell.adjacent { background: #f39c12; border-color: #e67e22; }
-.eu-map-cell.owned { background: #27ae60; border-color: #2ecc71; color: white; }
-.eu-map-cell.owned.cored { background: #16a085; border-color: #1abc9c; }
-.eu-map-cell.vassal { background: #2980b9; border-color: #3498db; color: white; }
-.eu-map-cell.rebelling { background: #c0392b; border-color: #e74c3c; animation: euPulse 1s infinite; }
-.eu-map-cell.selected { outline: 3px solid #f1c40f; z-index: 2; transform: scale(1.05); }
+.eu-map-cell:hover { filter: brightness(1.25); z-index: 2; }
+.eu-map-cell.fog      { background: #1a2535; }
+.eu-map-cell.adjacent { background: #7a5c22; border: none; }
+.eu-map-cell.owned    { background: #4a6e3a; }
+.eu-map-cell.cored    { background: #3a7a5a; }
+.eu-map-cell.vassal   { background: #3a5a7a; }
+.eu-map-cell.rebelling { background: #8b2a2a; animation: euPulse 1s infinite; }
+.eu-map-cell.selected {
+    filter: brightness(1.3);
+    outline: 3px solid #f5c842; outline-offset: -3px; z-index: 3;
+}
 
-.eu-cell-name { font-size: 10px; font-weight: bold; text-align: center; word-break: break-word; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); color:white;}
-.eu-cell-unrest { font-size: 12px; font-weight: bold; position: absolute; top: 2px; right: 4px; text-shadow: 1px 1px 0 #000; }
-.eu-cell-icons { font-size: 14px; margin-top: 2px; }
+.eu-cell-name {
+    font-size: 8px; font-weight: bold; text-align: center;
+    color: rgba(255,255,255,0.85); text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+    line-height: 1.1; padding: 0 4px; word-break: break-word;
+    pointer-events: none;
+}
+.eu-cell-unrest {
+    font-size: 9px; font-weight: bold; position: absolute;
+    top: 4px; right: 4px; color: #ffcc00;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.9);
+}
+.eu-cell-icons { font-size: 11px; line-height: 1; pointer-events: none; }
+.eu-cell-tier {
+    font-size: 7px; position: absolute; bottom: 6px; left: 50%;
+    transform: translateX(-50%); color: rgba(255,220,100,0.7);
+    pointer-events: none;
+}
 
-/* Province Panel */
+/* ── Province panel ── */
 .eu-prov-panel {
-    margin-top: 15px; background: white; padding: 15px; border-radius: 8px;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.1); border: 1px solid #dcdde1;
+    background: #fdf6e8; padding: 14px; border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    border: 1px solid #c9a96e;
 }
-.eu-prov-stats { display: flex; gap: 20px; font-size: 14px; margin-bottom: 10px; }
+.eu-prov-stats { display: flex; gap: 20px; font-size: 13px; margin-bottom: 10px; color: #4a3020; }
 .eu-build-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+/* ── Buttons ── */
 .eu-action-btn {
-    background: #ecf0f1; border: 1px solid #bdc3c7; padding: 10px; border-radius: 6px;
-    cursor: pointer; font-family: 'Georgia', serif; font-weight: bold; color: #2c3e50;
-    transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    background: #e8d8b8; border: 1px solid #b09060; padding: 9px;
+    border-radius: 6px; cursor: pointer; font-family: 'Georgia', serif;
+    font-weight: bold; color: #2c1a0e; transition: all 0.2s;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
-.eu-action-btn:hover:not(:disabled) { background: #dfe6e9; transform: translateY(-1px); box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-.eu-action-btn:active:not(:disabled) { transform: translateY(0); box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
-.eu-action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.eu-war-btn { background: #c0392b; color: white; border-color: #a93226; }
-.eu-war-btn:hover:not(:disabled) { background: #e74c3c; }
-.eu-core-btn { background: #f1c40f; color: #333; border-color: #d4ac0d; font-weight: bold; }
-.eu-core-btn:hover:not(:disabled) { background: #f9d71c; }
-.eu-annex-btn { background: #3498db; color: white; border-color: #2980b9; }
-.eu-annex-btn:hover:not(:disabled) { background: #5dade2; }
+.eu-action-btn:hover:not(:disabled) {
+    background: #d4c4a0; transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+.eu-action-btn:active:not(:disabled)  { transform: translateY(0); }
+.eu-action-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.eu-war-btn   { background: #8b2020; color: #ffd0d0; border-color: #6b1818; }
+.eu-war-btn:hover:not(:disabled)  { background: #a82828; }
+.eu-core-btn  { background: #7a5a10; color: #fff8e0; border-color: #5a4010; }
+.eu-core-btn:hover:not(:disabled) { background: #8b6818; }
+.eu-annex-btn { background: #1e4a6a; color: #c8e8f8; border-color: #163850; }
+.eu-annex-btn:hover:not(:disabled){ background: #285a7a; }
 
-/* Court Layout */
-.eu-court-layout { display: flex; gap: 20px; }
+/* ── Court ── */
+.eu-court-layout { display: flex; gap: 16px; }
 .eu-court-left, .eu-court-right { flex: 1; }
-
-/* Cards (Ideas, Missions, Advisors) */
-.eu-title { border-bottom: 2px solid #bdc3c7; padding-bottom: 5px; margin-top: 0; font-size: 18px; color: #34495e; }
-.eu-ideas-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
-.eu-idea-card {
-    background: white; border: 1px solid #dcdde1; padding: 12px; border-radius: 8px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.05); display: flex; flex-direction: column;
+.eu-title {
+    border-bottom: 2px solid #c9a96e; padding-bottom: 4px; margin-top: 0;
+    font-size: 16px; color: #3d2010;
 }
-.eu-idea-card.unlocked { border-color: #27ae60; background: #f0fdf4; }
+
+/* ── Cards ── */
+.eu-ideas-grid { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.eu-idea-card {
+    background: #fdf6e8; border: 1px solid #c9a96e; padding: 10px;
+    border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+    display: flex; flex-direction: column;
+}
+.eu-idea-card.unlocked { border-color: #3a7a5a; background: #edf8f0; }
 
 .eu-mission-card {
-    background: #fdfefe; border: 1px solid #bdc3c7; padding: 12px; border-radius: 8px;
-    display: flex; gap: 15px; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    background: #fdf6e8; border: 1px solid #c9a96e; padding: 10px;
+    border-radius: 6px; display: flex; gap: 12px; align-items: center;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.07);
 }
-.eu-mission-card.completed { background: #f0fdf4; border-color: #27ae60; opacity: 0.8; }
+.eu-mission-card.completed { background: #edf8f0; border-color: #3a7a5a; opacity: 0.85; }
 
 .eu-adv-card {
-    background: #fdfefe; border: 1px solid #bdc3c7; padding: 10px; border-radius: 8px;
-    display: flex; gap: 10px; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    background: #fdf6e8; border: 1px solid #c9a96e; padding: 9px;
+    border-radius: 6px; display: flex; gap: 8px; align-items: center;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.07);
 }
-.eu-adv-card.hired { background: #fef9e7; border-color: #f1c40f; }
+.eu-adv-card.hired { background: #fffae8; border-color: #c4813a; }
 
-/* Stats List */
-.eu-stats-list { background: white; border-radius: 8px; padding: 10px; border: 1px solid #dcdde1; display:grid; grid-template-columns: 1fr 1fr; gap: 10px 30px; }
-.eu-stat-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; font-size: 14px; }
+/* ── Stats list ── */
+.eu-stats-list {
+    background: #fdf6e8; border-radius: 6px; padding: 8px;
+    border: 1px solid #c9a96e; display: grid;
+    grid-template-columns: 1fr 1fr; gap: 6px 20px;
+}
+.eu-stat-row {
+    display: flex; justify-content: space-between;
+    padding: 6px 0; border-bottom: 1px solid #e8d8b8; font-size: 13px;
+    color: #3d2010;
+}
 
-/* Dojo / Combat */
-.eu-srs-status { text-align: center; padding: 10px; background: #fab1a0; color: #d63031; border-radius: 8px; margin-bottom: 20px; font-weight:bold; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+/* ── Dojo / Battlefield ── */
+.eu-srs-status {
+    text-align: center; padding: 8px;
+    background: #3a1010; color: #ffb0b0; border-radius: 6px;
+    margin-bottom: 14px; font-weight: bold; font-size: 13px;
+}
 .eu-battle-screen {
-    background: white; border-radius: 12px; border: 2px solid #bdc3c7;
-    padding: 30px; display: flex; flex-direction: column; align-items: center;
-    box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+    background: #fdf6e8; border-radius: 10px; border: 2px solid #c9a96e;
+    padding: 24px; display: flex; flex-direction: column; align-items: center;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.12);
 }
-.eu-fc-kanji { font-size: 48px; font-weight: bold; margin-bottom: 30px; font-family: sans-serif; color: #2c3e50; }
-.eu-quiz-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; width: 100%; max-width: 450px; }
-.eu-quiz-grid.eu-grid-6 { grid-template-columns: 1fr 1fr 1fr; max-width: 600px; }
+.eu-fc-kanji {
+    font-size: 48px; font-weight: bold; margin-bottom: 24px;
+    font-family: sans-serif; color: #1e1208;
+}
+.eu-quiz-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; max-width: 420px; }
+.eu-quiz-grid.eu-grid-6 { grid-template-columns: 1fr 1fr 1fr; max-width: 560px; }
 .eu-quiz-btn {
-    background: #ecf0f1; border: 2px solid #bdc3c7; padding: 15px; border-radius: 8px;
-    font-size: 16px; cursor: pointer; font-family: sans-serif; font-weight:bold;
-    transition: all 0.15s; color: #2c3e50;
+    background: #fdf6e8; border: 2px solid #c9a96e; padding: 13px;
+    border-radius: 7px; font-size: 15px; cursor: pointer; font-family: sans-serif;
+    font-weight: bold; transition: all 0.15s; color: #2c1a0e;
 }
-.eu-quiz-btn:hover:not(:disabled) { background: #dfe6e9; transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
-.eu-quiz-correct { background: #27ae60 !important; color: white !important; border-color: #2ecc71 !important; }
-.eu-quiz-wrong { background: #c0392b !important; color: white !important; border-color: #e74c3c !important; }
-.eu-advisor-hint { box-shadow: 0 0 15px 5px #f1c40f !important; border-color: #f1c40f !important; }
+.eu-quiz-btn:hover:not(:disabled) {
+    background: #e8d8b8; transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.12);
+}
+.eu-quiz-correct { background: #2e6e40 !important; color: white !important; border-color: #3a8a50 !important; }
+.eu-quiz-wrong   { background: #8b2020 !important; color: white !important; border-color: #a83030 !important; }
+.eu-advisor-hint { box-shadow: 0 0 12px 4px #f5c842 !important; border-color: #f5c842 !important; }
 
-/* Modals */
+/* ── Modals ── */
 .eu-war-modal {
-    position: absolute; inset: 0; background: rgba(0,0,0,0.8);
+    position: absolute; inset: 0; background: rgba(0,0,0,0.85);
     display: none; align-items: center; justify-content: center; z-index: 500;
-    backdrop-filter: blur(3px);
+    backdrop-filter: blur(4px);
 }
 .eu-war-modal-inner {
-    background: #f4ecd8; border: 4px solid #c0392b; border-radius: 12px;
-    padding: 30px; max-width: 450px; width: 90%; text-align: center;
-    font-family: 'Georgia', serif; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-    animation: euPopIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    background: #fdf6e8; border: 4px solid #7a3b1e; border-radius: 10px;
+    padding: 26px; max-width: 440px; width: 90%; text-align: center;
+    font-family: 'Georgia', serif; box-shadow: 0 12px 32px rgba(0,0,0,0.6);
+    animation: euPopIn 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
-.eu-war-header { font-size: 18px; font-weight: bold; color: #c0392b; margin-bottom: 12px; }
-.eu-war-progress { font-size: 24px; letter-spacing: 5px; margin-bottom: 20px; }
-.eu-war-pip { display: inline-block; width: 26px; height: 26px; line-height: 26px;
-    border-radius: 50%; border: 2px solid #bdc3c7; font-size: 14px; text-align: center; background:white; }
-.eu-war-pip.win { background: #27ae60; border-color: #27ae60; color: white; }
-.eu-war-pip.loss { background: #c0392b; border-color: #c0392b; color: white; }
-.eu-war-kanji { font-size: 48px; font-weight: bold; margin: 15px 0 25px; font-family: sans-serif; color: #2c3e50; }
-.eu-war-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.eu-war-header { font-size: 17px; font-weight: bold; color: #7a3b1e; margin-bottom: 10px; }
+.eu-war-progress { font-size: 22px; letter-spacing: 4px; margin-bottom: 16px; }
+.eu-war-pip {
+    display: inline-block; width: 24px; height: 24px; line-height: 24px;
+    border-radius: 50%; border: 2px solid #b09060; font-size: 12px;
+    text-align: center; background: #fdf6e8;
+}
+.eu-war-pip.win  { background: #2e6e40; border-color: #3a8a50; color: white; }
+.eu-war-pip.loss { background: #8b2020; border-color: #a83030; color: white; }
+.eu-war-kanji {
+    font-size: 44px; font-weight: bold; margin: 12px 0 20px;
+    font-family: sans-serif; color: #1e1208;
+}
+.eu-war-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .eu-war-opt-btn {
-    background: white; border: 2px solid #bdc3c7; padding: 14px;
-    border-radius: 8px; font-size: 16px; cursor: pointer; font-family: sans-serif;
-    font-weight: bold; transition: 0.15s; color: #34495e; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    background: #fdf6e8; border: 2px solid #c9a96e; padding: 12px;
+    border-radius: 7px; font-size: 15px; cursor: pointer; font-family: sans-serif;
+    font-weight: bold; transition: 0.15s; color: #2c1a0e;
 }
-.eu-war-opt-btn:hover:not(:disabled) { background: #f8f9fa; transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+.eu-war-opt-btn:hover:not(:disabled) {
+    background: #e8d8b8; transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
 
-/* Utils */
-.eu-icon-btn { background:none; border:none; font-size:20px; cursor:pointer; padding:0 8px; transition: 0.2s; }
-.eu-icon-btn:hover { transform: scale(1.2); }
-#eu-toasts { position: absolute; top: 60px; right: 20px; z-index: 1000; pointer-events: none; display:flex; flex-direction:column; gap:10px; }
+/* ── Misc utils ── */
+.eu-icon-btn {
+    background: none; border: none; font-size: 18px; cursor: pointer;
+    padding: 0 6px; transition: 0.2s; color: #c9a96e;
+}
+.eu-icon-btn:hover { transform: scale(1.2); color: #f5c842; }
+
+#eu-toasts {
+    position: absolute; top: 56px; right: 14px; z-index: 1000;
+    pointer-events: none; display: flex; flex-direction: column; gap: 8px;
+}
 .eu-toast {
-    background: rgba(44, 62, 80, 0.95); color: white; padding: 12px 20px;
-    border-radius: 6px; font-size: 14px; font-family: sans-serif; font-weight:bold;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.2); animation: euFadeUp 3s forwards;
+    background: rgba(30,18,8,0.95); color: #e8d5a3; padding: 10px 16px;
+    border-radius: 6px; font-size: 13px; font-family: sans-serif; font-weight: bold;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3); animation: euFadeUp 3s forwards;
 }
 .eu-float-text {
-    position: fixed; pointer-events: none; font-weight: bold; font-family: sans-serif; font-size: 16px;
-    text-shadow: -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff;
+    position: fixed; pointer-events: none; font-weight: bold;
+    font-family: sans-serif; font-size: 14px;
+    text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
     animation: euFloatUp 1s forwards ease-out; z-index: 9999;
 }
 
-/* National Focus */
-.eu-focus-bar { display: flex; gap: 8px; margin-bottom: 4px; }
+/* ── National Focus ── */
+.eu-focus-bar { display: flex; gap: 6px; margin-bottom: 4px; }
 .eu-focus-btn {
-    flex: 1; padding: 10px 6px; border: 2px solid #bdc3c7; border-radius: 6px;
-    background: #ecf0f1; cursor: pointer; font-family: 'Georgia', serif;
-    font-size: 12px; font-weight: bold; color: #555; transition: 0.2s; box-shadow: inset 0 -2px 0 rgba(0,0,0,0.05);
+    flex: 1; padding: 8px 4px; border: 2px solid #b09060; border-radius: 5px;
+    background: #e8d8b8; cursor: pointer; font-family: 'Georgia', serif;
+    font-size: 11px; font-weight: bold; color: #4a3020; transition: 0.2s;
 }
-.eu-focus-btn.active { background: #f1c40f; border-color: #d4ac0d; color: #333; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1); }
-.eu-focus-btn:hover:not(.active) { background: #dfe6e9; }
+.eu-focus-btn.active { background: #7a5a10; border-color: #5a4010; color: #fff8e0; }
+.eu-focus-btn:hover:not(.active) { background: #d4c4a0; }
 
-/* Tier indicator on map cell */
-.eu-cell-tier { font-size: 9px; position: absolute; bottom: 2px; left: 3px; opacity: 0.8; }
+/* ── Rebel timer bar ── */
+.eu-rebel-timer-wrap {
+    width: 70%; background: rgba(0,0,0,0.5); border-radius: 2px;
+    height: 3px; margin-top: 3px; overflow: hidden; position: absolute;
+    bottom: 8px; left: 15%;
+}
+.eu-rebel-timer-bar { height: 100%; background: #e07070; transition: width 1s linear; }
 
-/* Rebel timer bar */
-.eu-rebel-timer-wrap { width: 90%; background: rgba(0,0,0,0.5); border-radius: 3px; height: 4px; margin-top: 4px; overflow: hidden; }
-.eu-rebel-timer-bar { height: 100%; background: #e74c3c; transition: width 1s linear; }
+/* ── AE Warning States ── */
+#eu-ae-box { transition: background 0.5s; border-radius: 4px; padding: 2px 5px; }
+#eu-ae-box.eu-ae-warning  { background: rgba(200,130,30,0.3); color: #f5c842 !important; }
+#eu-ae-box.eu-ae-critical {
+    background: rgba(139,48,48,0.4); color: #ff9090 !important;
+    animation: euPulse 1s infinite;
+}
 
-/* Animations */
-@keyframes euPulse { 0% { box-shadow: 0 0 0 0 rgba(192, 57, 43, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(192, 57, 43, 0); } 100% { box-shadow: 0 0 0 0 rgba(192, 57, 43, 0); } }
-@keyframes euFadeUp { 0% { opacity:0; transform:translateX(20px); } 10% { opacity:1; transform:translateX(0); } 80% { opacity:1; transform:translateX(0); } 100% { opacity:0; transform:translateY(-20px); } }
-@keyframes euFloatUp { 0% { opacity:1; transform:translateY(0) scale(1); } 100% { opacity:0; transform:translateY(-50px) scale(1.2); } }
-@keyframes euPopIn { 0% { opacity: 0; transform: scale(0.8); } 100% { opacity: 1; transform: scale(1); } }
+/* ── Animations ── */
+@keyframes euPulse {
+    0%   { box-shadow: 0 0 0 0 rgba(139,42,42,0.7); }
+    70%  { box-shadow: 0 0 0 8px rgba(139,42,42,0); }
+    100% { box-shadow: 0 0 0 0 rgba(139,42,42,0); }
+}
+@keyframes euFadeUp {
+    0%   { opacity:0; transform:translateX(16px); }
+    10%  { opacity:1; transform:translateX(0); }
+    80%  { opacity:1; transform:translateX(0); }
+    100% { opacity:0; transform:translateY(-16px); }
+}
+@keyframes euFloatUp {
+    0%   { opacity:1; transform:translateY(0) scale(1); }
+    100% { opacity:0; transform:translateY(-44px) scale(1.15); }
+}
+@keyframes euPopIn {
+    0%   { opacity:0; transform:scale(0.82); }
+    100% { opacity:1; transform:scale(1); }
+}
 
-/* AE Warning States */
-#eu-ae-box { transition: background 0.5s, color 0.5s; border-radius: 4px; padding: 2px 6px; }
-#eu-ae-box.eu-ae-warning  { background: rgba(243,156,18,0.25); color: #f39c12 !important; }
-#eu-ae-box.eu-ae-critical { background: rgba(192,57,43,0.35); color: #e74c3c !important; animation: euPulse 1s infinite; }
-
-/* Responsive adjustments */
+/* ── Responsive ── */
 @media (max-width: 768px) {
-    .eu-court-layout { flex-direction: column; }
-    .eu-stats-list { grid-template-columns: 1fr; }
+    .eu-court-layout  { flex-direction: column; }
+    .eu-stats-list    { grid-template-columns: 1fr; }
     .eu-quiz-grid.eu-grid-6 { grid-template-columns: 1fr 1fr; }
+    .eu-map-wrapper   { max-height: 260px; }
 }
 `;
     document.head.appendChild(style);
