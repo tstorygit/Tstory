@@ -1517,9 +1517,6 @@ function _loadGame() {
         Object.assign(_g.resources, p.resources || {});
         Object.assign(_g.stats, p.stats || {});
         _g.provinces      = p.provinces      || [];
-        _g.srs            = p.srs            ||
-
-
 	_g.srs = p.srs || [];
 	_g.ideas = p.ideas || {};
 	_g.missionsCompleted = p.missionsCompleted || {};
