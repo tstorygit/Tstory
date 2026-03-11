@@ -114,9 +114,9 @@ function _show(name) {
             el.style.flexDirection = 'column';
             el.style.padding = '0';
             // Setup screen must scroll so the vocab selector is fully accessible
-            el.style.overflow   = (name === 'setup') ? 'auto' : 'hidden';
-            el.style.height     = (name === 'setup') ? 'auto' : '100%';
-            el.style.minHeight  = '100%';
+            el.style.overflowY  = (name === 'setup') ? 'auto'   : 'hidden';
+            el.style.overflowX  = 'hidden';
+            el.style.height     = '100%';
             el.style.background = 'url("data:image/svg+xml,%3Csvg width=\'100\' height=\'100\' viewBox=\'0 0 100 100\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'noise\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.8\' numOctaves=\'4\' stitchTiles=\'stitch\'/%3E%3C/filter%3E%3Crect width=\'100\' height=\'100\' fill=\'%23f4ecd8\'/%3E%3Crect width=\'100\' height=\'100\' filter=\'url(%23noise)\' opacity=\'0.4\'/%3E%3C/svg%3E")';
         } else {
             el.style.display = 'none';
