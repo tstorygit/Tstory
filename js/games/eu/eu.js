@@ -28,6 +28,8 @@ let _isProcessingAnswer = false;
 let _rafId = null;
 let _saveInterval = null;
 let _selectedProvinceId = null;
+let _vocabIdSet = null;   // cached Set of vocab IDs — rebuilt on game start
+let _lastUiRender = 0;    // timestamp throttle for _updateUI
 
 const CORE_INTERVAL_THRESHOLD = 3600; 
 const WORDS_PER_PROVINCE = 4;
@@ -35,7 +37,7 @@ const CORE_ADM_COST = 10;
 const MONARCH_POINT_CAP = 999;        
 const REBEL_TAKEBACK_TIME = 90;       
 const STABILITY_MAX = 10;
-const DIPLO_ANNEX_DIP_COST_PER_WORD = 8; 
+const DIPLO_ANNEX_DIP_COST_PER_WORD = 5; 
 
 const IDEAS = {
     taxation:  { name: 'National Tax Register',   desc: '+50% Base Ducats/s',                              cost: 50,  type: 'adm', effect: 1.5  },
@@ -50,13 +52,21 @@ const IDEAS = {
 };
 
 const MISSIONS = {
-    musashi: { name: "The Expansionist", desc: "Conquer & Core 3 provinces.", icon: "🗺️", req: () => _getEmpireStats().coredProvCount >= 3, rewardDesc: "+500 Manpower, +50 ADM", reward: () => { _g.resources.manpower += 500; _g.resources.adm += 50; } },
-    golden_age: { name: "Linguistic Golden Age", desc: "Achieve a 50-combo in Dojo.", icon: "🔥", req: () => _g.stats.highestCombo >= 50, rewardDesc: "All Unrest and Liberty Desire reduced to 0%", reward: () => { _g.provinces.forEach(p => { p.unrest = 0; if(p.libertyDesire) p.libertyDesire = 0; p.rebelling = false; }); } },
-    trade_empire: { name: "Trade Empire", desc: "Build 3 Marketplaces.", icon: "💰", req: () => _g.provinces.filter(p => p.buildings?.market).length >= 3, rewardDesc: "+1000 Ducats", reward: () => { _g.resources.ducats += 1000; } }
+    first_blood:  { name: "First Conquest",        desc: "Win your first war.",                           icon: "⚔️",  req: () => _g.stats.warsWon >= 1,             rewardDesc: "+200 Manpower",                       reward: () => { _g.resources.manpower += 200; } },
+    musashi:      { name: "The Expansionist",       desc: "Conquer & Core 3 provinces.",                  icon: "🗺️",  req: () => _getEmpireStats().coredProvCount >= 3, rewardDesc: "+500 Manpower, +50 ADM",              reward: () => { _g.resources.manpower += 500; _g.resources.adm += 50; } },
+    trade_empire: { name: "Trade Empire",           desc: "Build 3 Marketplaces.",                        icon: "💰",  req: () => _g.provinces.filter(p => p.buildings?.market).length >= 3, rewardDesc: "+1000 Ducats", reward: () => { _g.resources.ducats += 1000; } },
+    crusher:      { name: "Rebellion Crusher",      desc: "Crush 5 rebellions.",                          icon: "🛡️",  req: () => _g.stats.rebellionsCrushed >= 5,    rewardDesc: "+30 MIL, +100 Manpower",              reward: () => { _g.resources.mil += 30; _g.resources.manpower += 100; } },
+    // ── Combo Milestones ─────────────────────────────────────────────────────
+    combo_10:     { name: "Battlefield Awareness",  desc: "Achieve a 10-answer combo in the Dojo.",       icon: "🎯",  req: () => _g.stats.highestCombo >= 10,        rewardDesc: "+30 MIL",                             reward: () => { _g.resources.mil += 30; } },
+    combo_25:     { name: "Veteran Linguist",       desc: "Achieve a 25-answer combo in the Dojo.",       icon: "⚡",  req: () => _g.stats.highestCombo >= 25,        rewardDesc: "+20 ADM, +20 DIP",                    reward: () => { _g.resources.adm += 20; _g.resources.dip += 20; } },
+    // ── Stretch Goals ────────────────────────────────────────────────────────
+    golden_age:   { name: "Linguistic Golden Age",  desc: "Achieve a 50-combo. All Unrest & Liberty Desire reset to 0.", icon: "🔥", req: () => _g.stats.highestCombo >= 50, rewardDesc: "All Unrest and Liberty Desire → 0",  reward: () => { _g.provinces.forEach(p => { p.unrest = 0; if(p.libertyDesire) p.libertyDesire = 0; p.rebelling = false; }); } },
+    grandmaster:  { name: "Language Grandmaster",   desc: "Achieve a 100-combo. The Empire trembles at your mastery.", icon: "👑", req: () => _g.stats.highestCombo >= 100, rewardDesc: "All SRS cards made immediately due",  reward: () => { _g.srs.forEach(s => { s.nextReview = Date.now(); }); _toast("👑 All words are immediately due for review!", '#f1c40f'); } },
+    polyglot:     { name: "The Polyglot Emperor",   desc: "Answer 500 questions correctly.",              icon: "📚",  req: () => _g.stats.totalCorrect >= 500,       rewardDesc: "+100 ADM, +100 DIP, +100 MIL",        reward: () => { _g.resources.adm += 100; _g.resources.dip += 100; _g.resources.mil += 100; } },
 };
 
 const ADVISORS = {
-    mint: { name: 'Master of the Mint', icon: '💰', desc: 'Highlights correct answer in Dojo for 1s.', cost: 50, upkeep: 1.5, type: 'adm' },
+    mint: { name: 'Master of the Mint', icon: '💰', desc: 'Eliminates one wrong answer in the Dojo for each card.', cost: 50, upkeep: 1.5, type: 'adm' },
     captain: { name: 'Grand Captain', icon: '⚔️', desc: 'During wars, 1 wrong answer is ignored.', cost: 50, upkeep: 1.5, type: 'mil' },
     inquisitor: { name: 'Inquisitor', icon: '📜', desc: 'Wrong answers generate only +10 Unrest.', cost: 50, upkeep: 1.5, type: 'adm' }
 };
@@ -79,8 +89,8 @@ function _freshGame() {
         lastTick: Date.now(),
         combo: 0,
         stability: STABILITY_MAX,   
-        nationalFocus: 'adm',       
-    };
+        nationalFocus: 'adm',
+        victoryAchieved: false,
 }
 
 // ─── Screen Management ────────────────────────────────────────────────────────
@@ -102,9 +112,11 @@ function _show(name) {
             el.style.display = 'flex';
             el.style.flexDirection = 'column';
             el.style.padding = '0';
-            el.style.overflow = 'hidden';
-            el.style.height = '100%';
-            el.style.background = 'url("data:image/svg+xml,%3Csvg width=\'100\' height=\'100\' viewBox=\'0 0 100 100\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'noise\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.8\' numOctaves=\'4\' stitchTiles=\'stitch\'/%3E%3C/filter%3E%3Crect width=\'100\' height=\'100\' fill=\'%23f4ecd8\'/%3E%3Crect width=\'100\' height=\'100\' filter=\'url(%23noise)\' opacity=\'0.4\'/%3E%3C/svg%3E")'; 
+            // Setup screen must scroll so the vocab selector is fully accessible
+            el.style.overflow   = (name === 'setup') ? 'auto' : 'hidden';
+            el.style.height     = (name === 'setup') ? 'auto' : '100%';
+            el.style.minHeight  = '100%';
+            el.style.background = 'url("data:image/svg+xml,%3Csvg width=\'100\' height=\'100\' viewBox=\'0 0 100 100\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'noise\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.8\' numOctaves=\'4\' stitchTiles=\'stitch\'/%3E%3C/filter%3E%3Crect width=\'100\' height=\'100\' fill=\'%23f4ecd8\'/%3E%3Crect width=\'100\' height=\'100\' filter=\'url(%23noise)\' opacity=\'0.4\'/%3E%3C/svg%3E")';
         } else {
             el.style.display = 'none';
         }
@@ -152,6 +164,7 @@ async function _startGame() {
         kana:  w.furi  || w.word,
         eng:   w.trans || '—',
     }));
+    _vocabIdSet = new Set(_vocabQueue.map(v => v.id)); // cache once
 
     _show('game');
     _loadGame();
@@ -326,7 +339,8 @@ function _getEmpireStats() {
     const dipGen = focus === 'dip' ? focusBonus : 0;
     const milGen = focus === 'mil' ? focusBonus : 0;
 
-    const allSrs     = _g.srs.filter(s => new Set(_vocabQueue.map(v=>v.id)).has(s.id));
+    const idSet      = _vocabIdSet ?? new Set(_vocabQueue.map(v => v.id));
+    const allSrs     = _g.srs.filter(s => idSet.has(s.id));
     const coredWords = allSrs.filter(s => { const p = _g.provinces.find(x => x.id === s.provinceId); return p && p.cored; });
 
     return {
@@ -467,6 +481,7 @@ function _startGameLoop() {
 
         if (Math.floor(now / 1000) % 2 === 0) {
             _checkMissions();
+            _checkVictory();
             _updateSRSQueue();
         }
 
@@ -482,14 +497,73 @@ let _eventState = null;
 let _tradeState = null;
 let _warState = null; 
 
+// ─── Historical Event Templates ───────────────────────────────────────────────
+
+const EVENT_TEMPLATES = [
+    {
+        id: 'diplomatic_incident',
+        title: '📜 Event: Diplomatic Incident',
+        flavor: 'A foreign dignitary speaks. Translate their words to avoid a scandal!',
+        borderColor: '#8e44ad',
+        bgColor: '#fdf5e6',
+        glowColor: 'rgba(142,68,173,0.4)',
+        // shows: English → pick Kanji
+        prompt: w => `"${w.eng}"`,
+        options: (w, pool) => pool.map(o => ({ id: o.id, label: o.kanji })).concat([{ id: w.id, label: w.kanji }]),
+        onCorrect: () => { _g.resources.dip = Math.min(MONARCH_POINT_CAP, _g.resources.dip + 20); _g.resources.ducats += 50; return "Diplomatic Success! +20 🕊️ DIP, +50 💰"; },
+        onWrong:  () => { _g.stability = Math.max(0, _g.stability - 1); const pp = _g.provinces.filter(p => p.owner==='player'); if(pp.length) pp[Math.floor(Math.random()*pp.length)].unrest = Math.min(100, pp[Math.floor(Math.random()*pp.length)].unrest+20); return "Misunderstanding! −1 Stability, +20 Unrest"; },
+    },
+    {
+        id: 'trade_negotiation',
+        title: '💰 Event: Trade Negotiation',
+        flavor: 'Merchants present a contract. Read the Kanji to seal the deal!',
+        borderColor: '#f39c12',
+        bgColor: '#fef9e7',
+        glowColor: 'rgba(243,156,18,0.4)',
+        // shows: Kanji → pick English
+        prompt: w => w.kanji,
+        options: (w, pool) => pool.map(o => ({ id: o.id, label: o.eng })).concat([{ id: w.id, label: w.eng }]),
+        onCorrect: () => { _g.resources.ducats += 100; _g.resources.adm = Math.min(MONARCH_POINT_CAP, _g.resources.adm + 10); return "Deal Struck! +100 💰, +10 📜 ADM"; },
+        onWrong:  () => { _g.resources.ducats = Math.max(0, _g.resources.ducats - 50); return "Negotiations failed! −50 💰 Ducats"; },
+    },
+    {
+        id: 'imperial_decree',
+        title: '👑 Event: Imperial Decree',
+        flavor: 'The Emperor issues a proclamation. Match the reading to show your loyalty!',
+        borderColor: '#c0392b',
+        bgColor: '#fdf0ef',
+        glowColor: 'rgba(192,57,43,0.4)',
+        // shows: English → pick Kana reading
+        prompt: w => `Meaning: "${w.eng}"`,
+        options: (w, pool) => pool.map(o => ({ id: o.id, label: o.kana })).concat([{ id: w.id, label: w.kana }]),
+        onCorrect: () => { _g.resources.mil = Math.min(MONARCH_POINT_CAP, _g.resources.mil + 20); _g.resources.manpower += 100; return "Loyal Service! +20 🗡️ MIL, +100 ⚔️ Manpower"; },
+        onWrong:  () => { _g.stability = Math.max(0, _g.stability - 1); _g.ae += 10; return "Defiance noted! −1 Stability, +10 🔥 AE"; },
+    },
+    {
+        id: 'cultural_exchange',
+        title: '🎎 Event: Cultural Exchange',
+        flavor: 'A visiting scholar tests your knowledge. Read the kana aloud!',
+        borderColor: '#27ae60',
+        bgColor: '#f0fdf4',
+        glowColor: 'rgba(39,174,96,0.4)',
+        // shows: Kana → pick English
+        prompt: w => w.kana,
+        options: (w, pool) => pool.map(o => ({ id: o.id, label: o.eng })).concat([{ id: w.id, label: w.eng }]),
+        onCorrect: () => { _g.resources.adm = Math.min(MONARCH_POINT_CAP, _g.resources.adm + 15); _g.resources.dip = Math.min(MONARCH_POINT_CAP, _g.resources.dip + 15); return "Scholarly acclaim! +15 📜 ADM, +15 🕊️ DIP"; },
+        onWrong:  () => { _g.resources.ducats = Math.max(0, _g.resources.ducats - 30); return "An embarrassing silence… −30 💰 Ducats"; },
+    },
+];
+
 function _triggerHistoricalEvent() {
     const available = _vocabQueue.filter(v => _g.srs.some(s => s.id === v.id));
     if (!available.length) return;
     const word = available[Math.floor(Math.random() * available.length)];
-    const distractors = _vocabQueue.filter(v => v.id !== word.id).sort(()=>0.5-Math.random()).slice(0,3);
-    const options = [...distractors, word].sort(()=>0.5-Math.random());
+    const distractors = _vocabQueue.filter(v => v.id !== word.id).sort(() => 0.5 - Math.random()).slice(0, 3);
+    // Pick a random event template
+    const tmpl = EVENT_TEMPLATES[Math.floor(Math.random() * EVENT_TEMPLATES.length)];
+    const options = tmpl.options(word, distractors).sort(() => 0.5 - Math.random());
 
-    _eventState = { word, options, done: false };
+    _eventState = { word, options, tmpl, done: false };
     _renderEventModal();
 }
 
@@ -504,38 +578,33 @@ function _renderEventModal() {
 
     if (!_eventState || _eventState.done) { modal.style.display = 'none'; modal.classList.remove('eu-active-overlay'); return; }
 
+    const { word, options, tmpl } = _eventState;
     modal.style.display = 'flex';
     modal.classList.add('eu-active-overlay');
     modal.innerHTML = `
-        <div class="eu-war-modal-inner" style="border-color:#8e44ad; background: #fdf5e6; box-shadow: 0 0 30px rgba(142,68,173,0.4);">
-            <div class="eu-war-header" style="color:#8e44ad; font-size:20px;">📜 Event: Diplomatic Incident</div>
-            <p style="font-size:14px; margin-bottom:15px; color:#555;">A foreign dignitary speaks. Translate to avoid a scandal!</p>
-            <div class="eu-war-kanji" style="font-size:32px;">"${_eventState.word.eng}"</div>
+        <div class="eu-war-modal-inner" style="border-color:${tmpl.borderColor}; background:${tmpl.bgColor}; box-shadow: 0 0 30px ${tmpl.glowColor};">
+            <div class="eu-war-header" style="color:${tmpl.borderColor}; font-size:20px;">${tmpl.title}</div>
+            <p style="font-size:14px; margin-bottom:15px; color:#555;">${tmpl.flavor}</p>
+            <div class="eu-war-kanji" style="font-size:32px; line-height:1.2;">${tmpl.prompt(word)}</div>
             <div class="eu-war-grid">
-                ${_eventState.options.map(opt => `<button class="eu-war-opt-btn" data-id="${opt.id}">${opt.kanji}</button>`).join('')}
+                ${options.map(opt => `<button class="eu-war-opt-btn" data-id="${opt.id}">${opt.label}</button>`).join('')}
             </div>
         </div>`;
 
     modal.querySelectorAll('.eu-war-opt-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-            const isCorrect = btn.dataset.id === _eventState.word.id;
-            if (isCorrect) {
-                btn.style.background = '#27ae60'; btn.style.color = 'white';
-                _g.resources.dip = Math.min(MONARCH_POINT_CAP, _g.resources.dip + 20);
-                _g.resources.ducats += 50;
-                _toast("Diplomatic Success! +20 DIP, +50 Ducats", "#27ae60");
-            } else {
-                btn.style.background = '#c0392b'; btn.style.color = 'white';
-                _g.stability = Math.max(0, _g.stability - 1);
-                const provs = _g.provinces.filter(p => p.owner === 'player');
-                if (provs.length > 0) {
-                    const rp = provs[Math.floor(Math.random()*provs.length)];
-                    rp.unrest = Math.min(100, rp.unrest + 20);
-                }
-                _toast("Disaster! Misunderstanding causes -1 Stability, +20 Unrest", "#c0392b");
+            const isCorrect = btn.dataset.id === word.id;
+            btn.style.background = isCorrect ? '#27ae60' : '#c0392b';
+            btn.style.color = 'white';
+            if (!isCorrect) {
+                const correctBtn = modal.querySelector(`[data-id="${word.id}"]`);
+                if (correctBtn) { correctBtn.style.background = '#27ae60'; correctBtn.style.color = 'white'; }
             }
+            modal.querySelectorAll('.eu-war-opt-btn').forEach(b => b.disabled = true);
+            const msg = isCorrect ? tmpl.onCorrect() : tmpl.onWrong();
+            _toast(msg, isCorrect ? '#27ae60' : '#c0392b');
             _eventState.done = true;
-            setTimeout(_renderEventModal, 1000);
+            setTimeout(_renderEventModal, 1200);
         });
     });
 }
@@ -819,7 +888,7 @@ function _formatTime(sec) {
 
 function _updateSRSQueue() {
     const now = _gameNow();
-    const activeIds = new Set(_vocabQueue.map(v => v.id));
+    const activeIds = _vocabIdSet ?? new Set(_vocabQueue.map(v => v.id));
     _pendingReviews = _g.srs.filter(s => activeIds.has(s.id) && s.nextReview <= now);
 
     const pendingEls = _screens.game?.querySelectorAll('.eu-pending-count');
@@ -911,12 +980,14 @@ function _loadFlashcard() {
         gridEl.appendChild(btn);
     });
 
-    // Master of Mint Advisor - Highlight right answer briefly
+    // Master of Mint Advisor — grey out one wrong option
     if (_g.advisors.mint) {
-        const correctBtn = Array.from(gridEl.children).find(b => b.dataset.id === correct.id);
-        if (correctBtn) {
-            correctBtn.classList.add('eu-advisor-hint');
-            setTimeout(() => correctBtn.classList.remove('eu-advisor-hint'), 1000);
+        const wrongBtns = Array.from(gridEl.children).filter(b => b.dataset.id !== correct.id);
+        if (wrongBtns.length > 0) {
+            const victim = wrongBtns[Math.floor(Math.random() * wrongBtns.length)];
+            victim.disabled = true;
+            victim.style.opacity = '0.25';
+            victim.style.textDecoration = 'line-through';
         }
     }
 }
@@ -1028,7 +1099,7 @@ function _initGameDOM() {
         <div class="eu-res-box eu-point-dip" title="Diplomatic Power">🕊️ <span id="eu-val-dip">0</span></div>
         <div class="eu-res-box eu-point-mil" title="Military Power">🗡️ <span id="eu-val-mil">0</span></div>
         <div class="eu-res-box" title="Stability">⚖️ <span id="eu-val-stability">10</span></div>
-        <div class="eu-res-box" title="Aggressive Expansion" style="color:#c0392b">🔥 <span id="eu-val-ae">0</span></div>
+        <div class="eu-res-box" id="eu-ae-box" title="Aggressive Expansion — Coalition declared at 50!" style="color:#c0392b">🔥 AE: <span id="eu-val-ae">0</span></div>
     </div>
 
     <div class="eu-stats-bar">
@@ -1458,6 +1529,10 @@ function _renderCourt() {
 }
 
 function _updateUI() {
+    const now = Date.now();
+    if (now - _lastUiRender < 100) return; // cap at ~10fps
+    _lastUiRender = now;
+
     const g = _screens.game;
     if (!g || g.style.display === 'none') return;
 
@@ -1470,6 +1545,13 @@ function _updateUI() {
     g.querySelector('#eu-val-mil').textContent       = Math.floor(_g.resources.mil);
     g.querySelector('#eu-val-stability').textContent = (_g.stability ?? STABILITY_MAX).toFixed(1);
     g.querySelector('#eu-val-ae').textContent        = Math.floor(_g.ae);
+
+    // AE visual warning
+    const aeBox = g.querySelector('#eu-ae-box');
+    if (aeBox) {
+        aeBox.classList.toggle('eu-ae-warning',  _g.ae > 35 && _g.ae <= 50);
+        aeBox.classList.toggle('eu-ae-critical', _g.ae > 50);
+    }
     g.querySelector('#eu-val-oe').textContent        = `${Math.floor(stats.overextension)}%`;
     g.querySelector('#eu-val-rebels').textContent    = stats.rebellingCount;
     g.querySelector('#eu-val-size').textContent      = stats.ownedCount;
@@ -1525,6 +1607,7 @@ function _loadGame() {
 	_g.stability = p.stability ?? STABILITY_MAX;
 	_g.nationalFocus = p.nationalFocus || 'adm';
 	_g.combo = p.combo || 0;
+	_g.victoryAchieved = p.victoryAchieved || false;
 	_g.lastTick = Date.now();
 	} catch (e) {
 	_g = _freshGame();
@@ -1532,6 +1615,62 @@ function _loadGame() {
 }
 
 
+
+function _checkVictory() {
+    if (_g.victoryAchieved) return;
+    const total = _g.provinces.length;
+    if (total === 0) return;
+    const cored = _g.provinces.filter(p => p.cored).length;
+    if (cored < total) return;
+
+    _g.victoryAchieved = true;
+    _stopGameLoop();
+    _saveGame();
+
+    const accuracy = (_g.stats.totalCorrect + _g.stats.totalWrong) > 0
+        ? Math.round((_g.stats.totalCorrect / (_g.stats.totalCorrect + _g.stats.totalWrong)) * 100) : 0;
+
+    const g = _screens.game;
+    g.innerHTML = `
+    <div style="
+        display:flex; flex-direction:column; align-items:center; justify-content:center;
+        height:100%; padding:30px; font-family:'Georgia',serif; text-align:center;
+        background: radial-gradient(ellipse at center, #fdf6e3 0%, #e8d5a3 100%);
+    ">
+        <div style="font-size:64px; margin-bottom:16px;">👑</div>
+        <h1 style="font-size:28px; color:#c0392b; margin:0 0 8px;">Empire United!</h1>
+        <p style="font-size:15px; color:#555; max-width:380px; line-height:1.6; margin-bottom:24px;">
+            You have Cored every province and mastered every word in your vocabulary. 
+            Your empire stands supreme — and so does your Japanese!
+        </p>
+        <div style="background:white; border-radius:12px; padding:20px 30px; border:2px solid #bdc3c7; box-shadow:0 8px 20px rgba(0,0,0,0.1); width:100%; max-width:360px; margin-bottom:24px;">
+            <div style="font-size:13px; font-weight:bold; color:#888; margin-bottom:12px; letter-spacing:1px;">FINAL STATISTICS</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px 20px; font-size:14px; text-align:left;">
+                <span style="color:#555;">Provinces Cored</span>  <strong>${total} / ${total}</strong>
+                <span style="color:#555;">Words Mastered</span>   <strong>${_g.stats.wordsMastered}</strong>
+                <span style="color:#555;">Wars Won</span>          <strong>${_g.stats.warsWon}</strong>
+                <span style="color:#555;">Rebellions Crushed</span><strong>${_g.stats.rebellionsCrushed}</strong>
+                <span style="color:#555;">Answer Accuracy</span>  <strong>${accuracy}%</strong>
+                <span style="color:#555;">Best Combo</span>        <strong>${_g.stats.highestCombo}</strong>
+            </div>
+        </div>
+        <div style="display:flex; gap:12px; flex-wrap:wrap; justify-content:center;">
+            <button class="eu-action-btn eu-war-btn" id="eu-victory-new" style="padding:14px 24px; font-size:15px;">⚔️ New Empire</button>
+            <button class="eu-action-btn" id="eu-victory-exit" style="padding:14px 24px; font-size:15px;">🚪 Return to Menu</button>
+        </div>
+    </div>`;
+
+    g.querySelector('#eu-victory-new')?.addEventListener('click', () => {
+        localStorage.removeItem(SAVE_KEY);
+        _g = null;
+        _show('setup');
+        _renderSetup();
+    });
+    g.querySelector('#eu-victory-exit')?.addEventListener('click', () => {
+        localStorage.removeItem(SAVE_KEY);
+        _onExit();
+    });
+}
 
 function _stopGameLoop() {
     if (_rafId) cancelAnimationFrame(_rafId);
@@ -1763,6 +1902,11 @@ function _spawnFloatingText(x, y, text, color) {
 @keyframes euFadeUp { 0% { opacity:0; transform:translateX(20px); } 10% { opacity:1; transform:translateX(0); } 80% { opacity:1; transform:translateX(0); } 100% { opacity:0; transform:translateY(-20px); } }
 @keyframes euFloatUp { 0% { opacity:1; transform:translateY(0) scale(1); } 100% { opacity:0; transform:translateY(-50px) scale(1.2); } }
 @keyframes euPopIn { 0% { opacity: 0; transform: scale(0.8); } 100% { opacity: 1; transform: scale(1); } }
+
+/* AE Warning States */
+#eu-ae-box { transition: background 0.5s, color 0.5s; border-radius: 4px; padding: 2px 6px; }
+#eu-ae-box.eu-ae-warning  { background: rgba(243,156,18,0.25); color: #f39c12 !important; }
+#eu-ae-box.eu-ae-critical { background: rgba(192,57,43,0.35); color: #e74c3c !important; animation: euPulse 1s infinite; }
 
 /* Responsive adjustments */
 @media (max-width: 768px) {
