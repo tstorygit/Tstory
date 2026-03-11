@@ -106,18 +106,18 @@ export function launch() {
     _renderSetup();
 }
 
+const _BG = 'url("data:image/svg+xml,%3Csvg width=\'100\' height=\'100\' viewBox=\'0 0 100 100\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'noise\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.8\' numOctaves=\'4\' stitchTiles=\'stitch\'/%3E%3C/filter%3E%3Crect width=\'100\' height=\'100\' fill=\'%23f4ecd8\'/%3E%3Crect width=\'100\' height=\'100\' filter=\'url(%23noise)\' opacity=\'0.4\'/%3E%3C/svg%3E")';
+
 function _show(name) {
     Object.entries(_screens).forEach(([k, el]) => {
         if (!el) return;
         if (k === name) {
-            el.style.display = 'flex';
-            el.style.flexDirection = 'column';
-            el.style.padding = '0';
-            // Setup screen must scroll so the vocab selector is fully accessible
-            el.style.overflowY  = (name === 'setup') ? 'auto'   : 'hidden';
-            el.style.overflowX  = 'hidden';
-            el.style.height     = '100%';
-            el.style.background = 'url("data:image/svg+xml,%3Csvg width=\'100\' height=\'100\' viewBox=\'0 0 100 100\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'noise\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.8\' numOctaves=\'4\' stitchTiles=\'stitch\'/%3E%3C/filter%3E%3Crect width=\'100\' height=\'100\' fill=\'%23f4ecd8\'/%3E%3Crect width=\'100\' height=\'100\' filter=\'url(%23noise)\' opacity=\'0.4\'/%3E%3C/svg%3E")';
+            if (name === 'setup') {
+                // Use block (not flex) so vocab selector content can overflow and scroll
+                el.style.cssText = `display:block; overflow-y:auto; overflow-x:hidden; height:100%; padding:0; background:${_BG};`;
+            } else {
+                el.style.cssText = `display:flex; flex-direction:column; overflow:hidden; height:100%; padding:0; background:${_BG};`;
+            }
         } else {
             el.style.display = 'none';
         }
