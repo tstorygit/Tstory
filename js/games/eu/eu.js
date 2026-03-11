@@ -88,9 +88,10 @@ function _freshGame() {
         coalitionTimer: 10,         // Ticks down when AE > 50
         lastTick: Date.now(),
         combo: 0,
-        stability: STABILITY_MAX,   
+        stability: STABILITY_MAX,
         nationalFocus: 'adm',
         victoryAchieved: false,
+    };
 }
 
 // ─── Screen Management ────────────────────────────────────────────────────────
