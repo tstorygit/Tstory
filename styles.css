@@ -83,7 +83,6 @@ body {
     flex: 1;
     position: relative;
     overflow: hidden;
-    padding-bottom: var(--nav-height); /* Space for bottom nav */
 }
 
 /* Views */
@@ -98,7 +97,7 @@ body {
 
 header {
     background-color: var(--surface-color);
-    padding: 15px 20px;
+    padding: 15px 60px 15px 20px; /* right padding leaves room for ··· button */
     border-bottom: 1px solid var(--border-color);
     box-shadow: 0 2px 4px var(--shadow-light);
     z-index: 10;
@@ -122,33 +121,89 @@ header {
     margin-top: 50px;
 }
 
-/* Bottom Navigation */
-#bottom-nav {
+/* ··· floating button — top right */
+#nav-btn-more {
     position: fixed;
-    bottom: 0;
-    width: 100%;
-    height: var(--nav-height);
-    background-color: var(--surface-color);
+    top: 12px;
+    right: 14px;
+    z-index: 200;
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 4px 10px;
+    font-size: 20px;
+    letter-spacing: 2px;
+    line-height: 1.4;
+    color: var(--text-muted);
+    cursor: pointer;
+    box-shadow: 0 2px 8px var(--shadow-medium);
+    transition: color 0.2s, box-shadow 0.2s;
+}
+
+#nav-btn-more:hover {
+    color: var(--primary-color);
+    box-shadow: 0 4px 14px var(--shadow-color);
+}
+
+/* Rainbow glow when SRS items are due */
+#nav-btn-more.srs-due {
+    animation: srs-rainbow 3s linear infinite;
+    font-weight: bold;
+    box-shadow: 0 0 12px currentColor;
+}
+
+/* Dropdown submenu — top right, below the ··· button */
+.nav-submenu {
+    position: fixed;
+    top: 52px;
+    right: 14px;
+    z-index: 199;
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    box-shadow: 0 8px 24px var(--shadow-medium);
     display: flex;
-    border-top: 1px solid var(--border-color);
-    z-index: 100;
+    flex-direction: column;
+    min-width: 140px;
+    overflow: hidden;
+    transform-origin: top right;
+    transform: scale(1);
+    opacity: 1;
+    transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity 0.18s ease;
+}
+
+.nav-submenu.hidden {
+    display: flex !important;
+    transform: scale(0.85);
+    opacity: 0;
+    pointer-events: none;
 }
 
 .nav-btn {
-    flex: 1;
     background: none;
     border: none;
-    font-size: 16px;
+    font-size: 15px;
     color: var(--text-muted);
     cursor: pointer;
     transition: color 0.2s, background-color 0.2s;
 }
 
-.nav-btn.active {
+.nav-submenu .nav-btn {
+    width: 100%;
+    text-align: left;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.nav-submenu .nav-btn:last-child {
+    border-bottom: none;
+}
+
+.nav-submenu .nav-btn.active {
     color: var(--primary-color);
     font-weight: bold;
-    border-top: 3px solid var(--primary-color);
-    background-color: rgba(74, 144, 226, 0.05);
+    background-color: rgba(74, 144, 226, 0.07);
 }
 
 /* Settings Form Styles */

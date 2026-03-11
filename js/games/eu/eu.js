@@ -6,7 +6,7 @@ import {
     CORE_INTERVAL_THRESHOLD, WORDS_PER_PROVINCE, CORE_ADM_COST,
     MONARCH_POINT_CAP, REBEL_TAKEBACK_TIME, STABILITY_MAX,
     DIPLO_ANNEX_DIP_COST_PER_WORD, MIN_PROVINCES,
-    PROVINCE_NAMES, IDEAS, ADVISORS, MISSION_DEFS, EVENT_TEMPLATES,
+    PROVINCE_NAMES, IDEAS, ADVISORS, MISSION_DEFS, MISSION_CATEGORIES, EVENT_TEMPLATES,
 } from './eu_data.js';
 
 let _screens = null;
@@ -25,12 +25,13 @@ let _isProcessingAnswer = false;
 let _rafId = null;
 let _saveInterval = null;
 let _selectedProvinceId = null;
+let _activeMissionCategory = 'conquest'; // tracks which mission tab is open
 let _vocabIdSet = null;   // cached Set of vocab IDs — rebuilt on game start
 let _lastUiRender = 0;    // timestamp throttle for _updateUI
 
 function _freshGame() {
     return {
-        resources: { ducats: 50, manpower: 100, adm: 0, dip: 0, mil: 0 },
+        resources: { ducats: 150, manpower: 200, adm: 0, dip: 0, mil: 0 },
         stats: {
             rebellionsCrushed: 0, wordsMastered: 0, warsWon: 0,
             totalCorrect: 0, totalWrong: 0, highestCombo: 0, provincesLost: 0,
@@ -42,7 +43,7 @@ function _freshGame() {
         missionsCompleted: {},
         advisors: {},
         ae: 0,                      // Aggressive Expansion
-        nextEventTimer: 0,          // Timer for Historical Events
+        nextEventTimer: Date.now() + 90000, // Timer for Historical Events (safe default: 90s from now)
         coalitionTimer: 10,         // Ticks down when AE > 50
         lastTick: Date.now(),
         combo: 0,
@@ -611,7 +612,7 @@ function _declareWar(provId) {
 
     const stats = _getEmpireStats();
     const tierMod = prov.tier || 1;
-    const baseCost = (100 + (stats.ownedCount * 50)) * tierMod;
+    const baseCost = (60 + (stats.ownedCount * 20)) * tierMod;
     const fullCost = _g.ideas.drill ? Math.round(baseCost * IDEAS.drill.effect) : baseCost;
 
     if (_g.resources.manpower < fullCost * 0.3) {
@@ -1337,7 +1338,7 @@ function _renderProvincePanel(prov) {
         const stats    = _getEmpireStats();
         const tierMod  = prov.tier || 1;
         const tierLabel = ['', '⭐ Poor', '⭐⭐ Average', '⭐⭐⭐ Rich'][tierMod];
-        const baseCost = (100 + (stats.ownedCount * 50)) * tierMod;
+        const baseCost = (60 + (stats.ownedCount * 20)) * tierMod;
         const warCost  = _g.ideas.drill ? Math.round(baseCost * IDEAS.drill.effect) : baseCost;
         const annexCost = prov.words.length * DIPLO_ANNEX_DIP_COST_PER_WORD * tierMod;
         html += `
@@ -1440,20 +1441,76 @@ function _renderCourt() {
         ideasBox.appendChild(div);
     });
 
-    // MISSIONS
+    // MISSIONS — category tab bar + filtered list
     missionsBox.innerHTML = '';
-    MISSION_DEFS.forEach(m => {
+
+    // Count incomplete per category for badges
+    const incompleteCounts = {};
+    MISSION_CATEGORIES.forEach(cat => {
+        incompleteCounts[cat.key] = MISSION_DEFS.filter(m => m.category === cat.key && !_g.missionsCompleted[m.key]).length;
+    });
+
+    // Tab bar
+    const tabBar = document.createElement('div');
+    tabBar.style.cssText = 'display:flex; gap:4px; margin-bottom:10px; flex-wrap:wrap;';
+    MISSION_CATEGORIES.forEach(cat => {
+        const btn = document.createElement('button');
+        const isActive = cat.key === _activeMissionCategory;
+        const incomplete = incompleteCounts[cat.key];
+        btn.className = 'eu-action-btn';
+        btn.style.cssText = `
+            padding: 5px 10px; font-size: 11px; flex: 1; min-width: 0;
+            background: ${isActive ? '#3a2210' : '#e8d8b8'};
+            color: ${isActive ? '#f0d090' : '#2c1a0e'};
+            border-color: ${isActive ? '#c4813a' : '#b09060'};
+            border-bottom: ${isActive ? '2px solid #c4813a' : '2px solid transparent'};
+            position: relative;
+        `;
+        btn.innerHTML = `${cat.icon} ${cat.label}${incomplete > 0 ? ` <span style="background:#8b3030;color:#ffd0d0;padding:1px 5px;border-radius:8px;font-size:9px;vertical-align:middle;">${incomplete}</span>` : ''}`;
+        btn.addEventListener('click', () => {
+            _activeMissionCategory = cat.key;
+            _renderCourt();
+        });
+        tabBar.appendChild(btn);
+    });
+    missionsBox.appendChild(tabBar);
+
+    // Missions for active category — incomplete first, then completed (gold)
+    const catMissions = MISSION_DEFS.filter(m => m.category === _activeMissionCategory);
+    const incomplete  = catMissions.filter(m => !_g.missionsCompleted[m.key]);
+    const completed   = catMissions.filter(m =>  _g.missionsCompleted[m.key]);
+    const ordered     = [...incomplete, ...completed];
+
+    if (ordered.length === 0) {
+        const empty = document.createElement('div');
+        empty.style.cssText = 'text-align:center; color:#888; padding:16px; font-size:13px;';
+        empty.textContent = 'No missions in this category.';
+        missionsBox.appendChild(empty);
+    }
+
+    ordered.forEach(m => {
         const comp = _g.missionsCompleted[m.key];
         const div = document.createElement('div');
-        div.className = `eu-mission-card ${comp ? 'completed' : ''}`;
+        div.className = 'eu-mission-card';
+        if (comp) {
+            // Gold celebratory style for completed
+            div.style.cssText = `
+                background: linear-gradient(135deg, #fdf6d8 0%, #fef9e7 60%, #fffae0 100%);
+                border: 1.5px solid #c9a000;
+                box-shadow: 0 0 8px rgba(212,175,55,0.25), inset 0 1px 0 rgba(255,255,255,0.7);
+            `;
+        }
         div.innerHTML = `
-            <div style="font-size:24px;">${m.icon}</div>
-            <div>
-                <div style="font-weight:bold; font-size:14px; color:#2c1a0e;">${m.name}</div>
-                <div style="font-size:12px; color:#6a4a30;">${m.desc}</div>
-                ${comp ? `<div style="color:#2e6e40; font-size:11px; font-weight:bold; margin-top:4px;">✅ Complete</div>` :
-                         `<div style="color:#8e44ad; font-size:11px; font-weight:bold; margin-top:4px;">Reward: ${m.rewardDesc}</div>`}
+            <div style="font-size:24px; min-width:32px; text-align:center;">${m.icon}</div>
+            <div style="flex:1; min-width:0;">
+                <div style="font-weight:bold; font-size:13px; color:${comp ? '#7a5a00' : '#2c1a0e'};">${m.name}</div>
+                <div style="font-size:11px; color:${comp ? '#8a6a10' : '#6a4a30'}; margin-top:1px;">${m.desc}</div>
+                ${comp
+                    ? `<div style="color:#b8860b; font-size:11px; font-weight:bold; margin-top:4px;">✨ Completed</div>`
+                    : `<div style="color:#8e44ad; font-size:11px; font-weight:bold; margin-top:4px;">Reward: ${m.rewardDesc}</div>`
+                }
             </div>
+            ${comp ? `<div style="font-size:20px; margin-left:4px;">🏅</div>` : ''}
         `;
         missionsBox.appendChild(div);
     });
@@ -1575,6 +1632,7 @@ function _loadGame() {
 	_g.missionsCompleted = p.missionsCompleted || {};
 	_g.advisors = p.advisors|| {};
 	_g.ae = p.ae || 0;
+	_g.nextEventTimer = p.nextEventTimer || (Date.now() + 90000);
 	_g.stability = p.stability ?? STABILITY_MAX;
 	_g.nationalFocus = p.nationalFocus || 'adm';
 	_g.combo = p.combo || 0;
