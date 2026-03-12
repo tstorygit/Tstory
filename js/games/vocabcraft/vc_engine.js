@@ -1,0 +1,356 @@
+import { SKILL_DEFS } from './vc_meta.js';
+import { buildWaveEnemies } from './vc_enemies.js';
+
+export const GEMS = {
+    red:    { label: 'Ruby',     color: '#e74c3c', type: 'dmg',   baseDmg: 18, speed: 1.5 },
+    blue:   { label: 'Sapphire', color: '#3498db', type: 'slow',  baseDmg: 4,  speed: 1.0, baseSlow: 0.12 },
+    green:  { label: 'Emerald',  color: '#2ecc71', type: 'poison',baseDmg: 4,  speed: 1.0, basePoison: 5 },
+    orange: { label: 'Topaz',    color: '#f39c12', type: 'mana',  baseDmg: 6,  speed: 1.2, baseMana: 4 },
+    yellow: { label: 'Citrine',  color: '#f1c40f', type: 'crit',  baseDmg: 8,  speed: 1.0, baseCrit: 0.08, baseMult: 3 },
+    purple: { label: 'Amethyst', color: '#9b59b6', type: 'armor', baseDmg: 5,  speed: 1.0, baseTear: 2 }
+};
+
+export const CONSTANTS = {
+    towerCost: 50,
+    trapCost: 50,
+    gemBaseCost: 100,
+    vocabPenalty: 10,
+    playerBaseHp: 20,
+    towerBaseRange: 100,
+    trapBaseRange: 28
+};
+
+// ─── Gemcraft-style level scaling ───────────────────────────────────────────
+// Damage:    baseDmg  × level^1.5        superlinear — lv2=2.8x, lv4=8x
+// Cost:      100 × 2^(level-1)           doubles each upgrade (100,200,400,800...)
+// Fire speed:baseSpeed× level^0.4 ≤4/s   noticeable speedup
+// Range:     baseRange× level^0.3        grows meaningfully: 100→123→151→186px
+// Yellow crit multiplier scales with √level → Yellow DPS is ~quadratic
+export function gemUpgradeCost(level) {
+    return Math.floor(CONSTANTS.gemBaseCost * Math.pow(2, level - 1));
+}
+export function gemDamage(gem, gemData) {
+    return gemData.baseDmg * Math.pow(gem.level, 1.5);
+}
+export function gemFireSpeed(gem, gemData) {
+    return Math.min(4.0, gemData.speed * Math.pow(gem.level, 0.4));
+}
+export function gemRange(gem, isTrap = false) {
+    const base = isTrap ? CONSTANTS.trapBaseRange : CONSTANTS.towerBaseRange;
+    return Math.floor(base * Math.pow(gem.level, 0.3));
+}
+export function gemCritChance(gem) {
+    return Math.min(0.6, GEMS[gem.color].baseCrit + 0.04 * gem.level);
+}
+export function gemCritMult(gem) {
+    return GEMS[gem.color].baseMult + 0.8 * Math.sqrt(gem.level);
+}
+export function gemPoisonDps(gem, gemData) {
+    return gemData.basePoison * Math.pow(gem.level, 1.2);
+}
+export function gemSlowAmount(gem, gemData) {
+    return Math.min(0.8, gemData.baseSlow * Math.pow(gem.level, 0.6));
+}
+export function gemManaDrain(gem, gemData) {
+    return gemData.baseMana * Math.pow(gem.level, 1.1);
+}
+export function gemArmorTear(gem, gemData) {
+    return gemData.baseTear * gem.level;
+}
+
+export class VcEngine {
+    constructor(mapData, meta, tier, onUpdate, onGameOver) {
+        this.map = mapData;
+        this.meta = meta;
+        this.tier = tier;
+        this.onUpdate = onUpdate;
+        this.onGameOver = onGameOver;
+
+        this.state = {
+            hp: CONSTANTS.playerBaseHp,
+            mana: 150 + (meta.skills.startMana * 50),
+            wave: 0,
+            maxWaves: 5 + (tier * 2),
+            status: 'planning',
+            combo: 0,
+            xpEarned: 0
+        };
+
+        this.enemies = [];
+        this.projectiles = [];
+        this.structures = [];
+
+        this.spawnQueue = [];
+        this._nextSpawnDelay = 0;
+        this.lastTick = performance.now();
+        this.raf = null;
+        this.speedMult = 1;
+        this.selectedEnemyId = null;
+
+        this.buffs = {
+            dmgMult: 1 + (meta.skills.scholarGrace * 0.02 * this.state.combo),
+            trapSpeed: 1 + (meta.skills.trapEng * 0.1)
+        };
+    }
+
+    start() {
+        this.state.status = 'playing';
+        this.lastTick = performance.now();
+        this.loop();
+    }
+
+    pause() { this.state.status = 'paused'; }
+    resume() {
+        this.state.status = 'playing';
+        this.lastTick = performance.now();
+        this.loop();
+    }
+    stop() { cancelAnimationFrame(this.raf); }
+
+    loop = () => {
+        if (this.state.status !== 'playing') return;
+
+        const now = performance.now();
+        let dt = (now - this.lastTick) / 1000;
+        this.lastTick = now;
+
+        if (dt > 0.1) dt = 0.1;
+        dt *= this.speedMult;
+
+        this.updateSpawns(dt);
+        this.updateEnemies(dt);
+        this.updateStructures(dt);
+        this.updateProjectiles(dt);
+
+        this.buffs.dmgMult = 1 + (this.meta.skills.scholarGrace * 0.02 * this.state.combo);
+        this.onUpdate(this);
+
+        if (this.state.hp <= 0) {
+            this.state.status = 'gameover';
+            this.onGameOver(false, this.state.xpEarned);
+            return;
+        }
+
+        if (this.state.wave >= this.state.maxWaves && this.enemies.length === 0 && this.spawnQueue.length === 0) {
+            this.state.status = 'gameover';
+            this.onGameOver(true, this.state.xpEarned);
+            return;
+        }
+
+        this.raf = requestAnimationFrame(this.loop);
+    }
+
+    spawnWave(isEnraged = false) {
+        this.state.wave++;
+        const isBossWave = (this.state.wave % 5 === 0);
+
+        // Build enemy list from vc_enemies.js
+        const entries = buildWaveEnemies(
+            this.state.wave, this.tier, isBossWave, isEnraged,
+            this.map.waypoints
+        );
+
+        // Offset delays so multiple queued waves don't overlap
+        const waveOffset = this._nextSpawnDelay || 0;
+        let maxDelay = 0;
+
+        entries.forEach(e => {
+            e.delay += waveOffset;
+            maxDelay = Math.max(maxDelay, e.delay);
+            this.spawnQueue.push(e);
+        });
+
+        this._nextSpawnDelay = maxDelay + 1.5;
+    }
+
+    updateSpawns(dt) {
+        if (this.spawnQueue.length === 0) {
+            this._nextSpawnDelay = 0;
+            return;
+        }
+        for (let i = this.spawnQueue.length - 1; i >= 0; i--) {
+            this.spawnQueue[i].delay -= dt;
+            if (this.spawnQueue[i].delay <= 0) {
+                const e = this.spawnQueue.splice(i, 1)[0];
+                e.id = Math.random().toString(36).substr(2, 9);
+                this.enemies.push(e);
+            }
+        }
+    }
+
+    updateEnemies(dt) {
+        for (let i = this.enemies.length - 1; i >= 0; i--) {
+            const e = this.enemies[i];
+
+            // Poison tick (skip if immune)
+            if (e.effects.poison > 0 && !e.immune.includes('poison')) {
+                e.effects.poisonTick -= dt;
+                if (e.effects.poisonTick <= 0) {
+                    e.hp -= e.effects.poison;
+                    e.effects.poisonTick = 1.0;
+                }
+            }
+
+            // HP regen (healers, boss)
+            if (e.regen > 0) {
+                e.hp = Math.min(e.maxHp, e.hp + e.maxHp * e.regen * dt);
+            }
+
+            // Slow (skip if immune)
+            let currentSpeed = e.speed;
+            if (e.effects.slow > 0 && !e.immune.includes('slow')) {
+                e.effects.slowTimer -= dt;
+                currentSpeed *= Math.max(0.2, 1 - e.effects.slow);
+                if (e.effects.slowTimer <= 0) e.effects.slow = 0;
+            }
+
+            if (e.hp <= 0) {
+                this.state.mana += 10 * e.rewardMult;
+                this.state.xpEarned += 5 * e.rewardMult;
+                this.enemies.splice(i, 1);
+                continue;
+            }
+
+            const target = this.map.waypoints[e.wpIdx];
+            if (!target) {
+                this.state.hp -= (e.isBoss ? 5 : 1);
+                e.x = this.map.waypoints[0].x;
+                e.y = this.map.waypoints[0].y;
+                e.wpIdx = 1;
+                e.hp = Math.min(e.maxHp, e.hp + e.maxHp * 0.2);
+                continue;
+            }
+
+            const dx = target.x - e.x;
+            const dy = target.y - e.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist < 2) { e.wpIdx++; }
+            else {
+                e.x += (dx / dist) * currentSpeed * dt;
+                e.y += (dy / dist) * currentSpeed * dt;
+            }
+        }
+    }
+
+    updateStructures(dt) {
+        this.structures.forEach(st => {
+            if (!st.gem) return;
+            const gemData = GEMS[st.gem.color];
+            const range = gemRange(st.gem, st.type === 'trap');
+
+            st.cooldown = (st.cooldown || 0) - dt;
+            if (st.cooldown > 0) return;
+
+            if (st.type === 'tower') {
+                let target = null;
+                if (this.selectedEnemyId) {
+                    const sel = this.enemies.find(e => e.id === this.selectedEnemyId);
+                    if (sel && Math.hypot(sel.x - st.x, sel.y - st.y) < range) target = sel;
+                }
+                if (!target) target = this.enemies.find(e => Math.hypot(e.x - st.x, e.y - st.y) < range);
+                if (target) {
+                    this.fireProjectile(st, target, gemData);
+                    st.cooldown = 1 / gemFireSpeed(st.gem, gemData);
+                }
+            } else if (st.type === 'trap') {
+                const targets = this.enemies.filter(e => Math.hypot(e.x - st.x, e.y - st.y) < range);
+                if (targets.length > 0) {
+                    targets.forEach(t => this.applyGemEffect(t, st.gem, gemData, true));
+                    st.cooldown = 1 / (gemFireSpeed(st.gem, gemData) * this.buffs.trapSpeed);
+                }
+            }
+        });
+    }
+
+    fireProjectile(source, target, gemData) {
+        this.projectiles.push({
+            x: source.x, y: source.y,
+            targetId: target.id,
+            gem: source.gem,
+            gemData,
+            speed: 200
+        });
+    }
+
+    updateProjectiles(dt) {
+        for (let i = this.projectiles.length - 1; i >= 0; i--) {
+            const p = this.projectiles[i];
+            const target = this.enemies.find(e => e.id === p.targetId);
+            if (!target) { this.projectiles.splice(i, 1); continue; }
+
+            const dx = target.x - p.x;
+            const dy = target.y - p.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist < 10) {
+                this.applyGemEffect(target, p.gem, p.gemData, false);
+                this.projectiles.splice(i, 1);
+            } else {
+                p.x += (dx / dist) * p.speed * dt;
+                p.y += (dy / dist) * p.speed * dt;
+            }
+        }
+    }
+
+    applyGemEffect(enemy, gem, gemData, isTrap) {
+        let dmg = gemDamage(gem, gemData);
+        let specialMult = 1;
+
+        if (isTrap) { dmg = Math.max(1, dmg * 0.3); specialMult = 3; }
+
+        if (gem.color === 'red') dmg *= (1 + this.meta.skills.redMastery * 0.1);
+        dmg *= this.buffs.dmgMult;
+
+        let finalDmg = Math.max(1, dmg - Math.max(0, enemy.armor));
+
+        switch (gemData.type) {
+            case 'crit': {
+                const chance = Math.min(0.9, gemCritChance(gem) * specialMult);
+                if (Math.random() < chance) finalDmg *= gemCritMult(gem);
+                break;
+            }
+            case 'slow': {
+                if (!enemy.immune.includes('slow')) {
+                    let slow = gemSlowAmount(gem, gemData) * specialMult;
+                    if (gem.color === 'blue') slow *= (1 + this.meta.skills.blueMastery * 0.05);
+                    enemy.effects.slow = Math.min(0.8, slow);
+                    enemy.effects.slowTimer = 3;
+                }
+                break;
+            }
+            case 'poison': {
+                if (!enemy.immune.includes('poison')) {
+                    let pDmg = gemPoisonDps(gem, gemData) * specialMult;
+                    if (gem.color === 'green') pDmg *= (1 + this.meta.skills.greenMastery * 0.15);
+                    enemy.effects.poison = pDmg;
+                    enemy.effects.poisonTick = 1.0;
+                }
+                break;
+            }
+            case 'mana': {
+                let mana = gemManaDrain(gem, gemData) * specialMult;
+                if (gem.color === 'orange') mana += this.meta.skills.orangeMastery;
+                this.state.mana += mana;
+                break;
+            }
+            case 'armor': {
+                let tear = gemArmorTear(gem, gemData) * specialMult;
+                if (gem.color === 'purple') tear += this.meta.skills.purpleMastery;
+                enemy.armor = Math.max(0, enemy.armor - tear);
+                break;
+            }
+        }
+
+        enemy.hp -= finalDmg;
+        if (this.onUpdate) this.onUpdate(this, { type: 'dmg', x: enemy.x, y: enemy.y, amt: Math.floor(finalDmg), color: gem.color });
+    }
+
+    addStructure(x, y, type) {
+        const cost = type === 'tower' ? CONSTANTS.towerCost : CONSTANTS.trapCost;
+        if (this.state.mana >= cost) {
+            this.state.mana -= cost;
+            this.structures.push({ x, y, type, gem: null });
+            return true;
+        }
+        return false;
+    }
+}

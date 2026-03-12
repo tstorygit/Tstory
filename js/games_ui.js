@@ -70,6 +70,18 @@ const GAME_REGISTRY = [
             game:  { classes: 'content-scroll', style: 'padding:0;' },
         },
     },
+    {
+        id:     'vocabcraft',
+        icon:   '🔮',
+        title:  'VocabCraft',
+        desc:   'A tower defense where Mana fuels your structures, but Vocabulary casts the spells. Rely on Orange gems to farm mana so you can grind reviews!',
+        loader: () => import('./games/vocabcraft/vocabcraft.js'),
+        headerTitle: 'VocabCraft',
+        screens: {
+            setup: { classes: 'content-scroll' },
+            game:  { classes: 'content-scroll', style: 'padding:0;' },
+        },
+    },
 ];
 
 // ─── Module cache ─────────────────────────────────────────────────────────────
