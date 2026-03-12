@@ -1,4 +1,3 @@
-
 import { mountVocabSelector } from '../../vocab_selector.js';
 import { loadMeta, saveMeta, addXP, resetSkills, SKILL_DEFS } from './vc_meta.js';
 import { generateMap, getWaypoints } from './vc_mapgen.js';
@@ -20,7 +19,6 @@ export function init(screens, onExit) {
     _onExit = onExit;
     
     if (_screens.game) {
-        // Note: moved grimoire to root so it can overlay camp AND battle without breaking
         _screens.game.innerHTML = `
             <div id="vc-camp-layer" class="vc-camp-screen" style="display:none;">
                 <div class="vc-camp-header">
@@ -211,7 +209,8 @@ function _showCamp() {
     _screens.game.querySelector('#vc-battle-layer').style.display = 'none';
     _screens.game.querySelector('#vc-camp-layer').style.display = 'flex';
     
-    const nextReq = Math.floor(100 * Math.pow(1.15, _meta.level - 1));
+    // GCFW polynomial curve
+    const nextReq = Math.floor(100 * Math.pow(_meta.level, 1.8));
     const lvlText = `Lv. ${_meta.level} (XP: ${_meta.xp}/${nextReq})`;
     _screens.game.querySelector('#vc-camp-lvl').textContent = lvlText;
 
@@ -260,7 +259,7 @@ function _renderGrimoire() {
     const grouped = {};
     Object.entries(SKILL_DEFS).forEach(([key, def]) => {
         const g = def.group || 'utility';
-        if (!grouped[g]) grouped[g] = [];
+        if (!grouped[g]) grouped[g] =[];
         grouped[g].push([key, def]);
     });
 
@@ -275,9 +274,11 @@ function _renderGrimoire() {
 
         skills.forEach(([key, def]) => {
             const currentLvl = _meta.skills[key] || 0;
-            const cost = currentLvl + 1; // Triangular pricing
+            const cost = currentLvl + 1; // Triangular pricing: Lvl N -> N+1 costs N+1 SP
             const isMax = currentLvl >= def.max;
             const canAfford = _meta.sp >= cost && !isMax;
+            
+            const maxLabel = def.max === Infinity ? '∞' : def.max;
 
             const row = document.createElement('div');
             row.className = 'vc-skill-row';
@@ -287,7 +288,7 @@ function _renderGrimoire() {
                     <p>${def.desc}</p>
                 </div>
                 <div style="display:flex; align-items:center;">
-                    <span class="vc-skill-lvl">${currentLvl}/${def.max}</span>
+                    <span class="vc-skill-lvl">${currentLvl}/${maxLabel}</span>
                     <button class="vc-skill-buy" ${!canAfford ? 'disabled' : ''} style="width:auto; padding:0 8px; font-size:14px;">
                         ${isMax ? 'MAX' : `+ (Cost: ${cost})`}
                     </button>
