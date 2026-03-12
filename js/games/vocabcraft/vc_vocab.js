@@ -87,8 +87,7 @@ export function showCard(mode, container, onResolve) {
 
                 setTimeout(() => {
                     badge.style.opacity = '0';
-                    container.classList.remove('active');
-                    setTimeout(() => { badge.remove(); _cardBusy = false; onResolve(true); }, 80);
+                    _hideOverlay(container, () => { badge.remove(); _cardBusy = false; onResolve(true); });
                 }, 200);
 
             } else {
@@ -101,18 +100,35 @@ export function showCard(mode, container, onResolve) {
                 [...grid.children].forEach(b => b.disabled = true);
 
                 setTimeout(() => {
-                    container.classList.remove('active');
-                    _cardBusy = false;
-                    onResolve(false);
+                    _hideOverlay(container, () => { _cardBusy = false; onResolve(false); });
                 }, 900);
             }
         };
         grid.appendChild(btn);
     });
 
-    // Force the overlay to be fully hidden first so the slide-up transition
-    // always plays — even if a previous card closed mid-animation.
+    // Cleanly show the overlay: display:flex first, then slide up next frame
     container.classList.remove('active');
-    void container.offsetHeight; // force reflow
-    container.classList.add('active');
+    container.classList.remove('visible');
+    // Force layout so transition starts from translateY(100%)
+    void container.offsetHeight;
+    container.classList.add('visible');
+    requestAnimationFrame(() => container.classList.add('active'));
+}
+
+function _hideOverlay(container, cb) {
+    container.classList.remove('active');
+    // Wait for slide-down transition to finish, then fully hide
+    const onEnd = () => {
+        container.removeEventListener('transitionend', onEnd);
+        container.classList.remove('visible');
+        if (cb) cb();
+    };
+    container.addEventListener('transitionend', onEnd);
+    // Safety fallback in case transitionend never fires
+    setTimeout(() => {
+        container.removeEventListener('transitionend', onEnd);
+        container.classList.remove('visible');
+        if (cb) cb();
+    }, 400);
 }
