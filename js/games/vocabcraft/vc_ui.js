@@ -217,6 +217,7 @@ export class VcUI {
 
     renderBottomBar() {
         this.bottomBar.innerHTML = '';
+        this._gemPickerRefresh = null;  // clear any stale gem picker callback
         const st = this.selectedTile;
         if (!st) {
             this.bottomBar.innerHTML = `<div style="color:#7f8c8d;">Select a tile to build.</div>`;
@@ -251,7 +252,6 @@ export class VcUI {
     }
 
     _renderGemPicker(st) {
-        const mana = this.engine.state.mana;
         const skills = this.engine.meta.skills;
         let selectedColor = 'red';
         let selectedLevel = 1;
@@ -267,12 +267,16 @@ export class VcUI {
 
         const updatePriceLabel = () => {
             const cost = gemTotalCostColor(selectedColor, selectedLevel, skills);
-            const canAfford = mana >= cost;
+            const canAfford = this.engine.state.mana >= cost;  // read live
             priceLabel.textContent = `${GEMS[selectedColor].label} Lv.${selectedLevel} — ${cost} 💧`;
             priceLabel.style.color = canAfford ? '#2ecc71' : '#e74c3c';
             confirmBtn.disabled = !canAfford;
             confirmBtn.dataset.manaCost = cost;
         };
+
+        // Register this picker's price label updater so _refreshBottomBarButtons
+        // can also refresh the affordability colour when mana ticks up.
+        this._gemPickerRefresh = updatePriceLabel;
 
         const updateDiamonds = () => {
             diamondRow.querySelectorAll('.vc-gem-diamond').forEach(d => {
@@ -483,6 +487,8 @@ export class VcUI {
             const cost = +btn.dataset.manaCost;
             btn.disabled = mana < cost;
         });
+        // If the gem picker is open, refresh its price label and button too.
+        if (this._gemPickerRefresh) this._gemPickerRefresh();
     }
 
     draw(engineState, eventMsg) {

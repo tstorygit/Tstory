@@ -99,5 +99,9 @@ export function showCard(mode, container, onResolve) {
         grid.appendChild(btn);
     });
 
+    // Force the overlay to be fully hidden first so the slide-up transition
+    // always plays — even if a previous card closed mid-animation.
+    container.classList.remove('active');
+    void container.offsetHeight; // force reflow
     container.classList.add('active');
 }
