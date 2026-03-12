@@ -56,13 +56,7 @@ export function init(screens, onExit) {
                     <div class="vc-wave-tracker"></div>
                     <button class="vc-icon-btn" id="vc-btn-zoom" style="margin-left:6px; background:#2c3e50; border-color:#34495e;">🔍1x</button>
                 </div>
-                <div style="position:relative; flex:1; min-height:0; overflow:hidden;">
-                    <div class="vc-map-container"><div class="vc-grid"></div></div>
-                    <div class="vc-vocab-overlay">
-                        <div class="vc-vocab-header"></div>
-                        <div class="vc-vocab-grid"></div>
-                    </div>
-                </div>
+                <div class="vc-map-container"><div class="vc-grid"></div></div>
                 <div class="vc-bottombar"></div>
             </div>
         `;
@@ -115,6 +109,16 @@ export function init(screens, onExit) {
                 if (_engine) _engine.resume();
             }
         };
+    }
+
+    // Create the vocab overlay once at body level — never re-created, always reliable
+    if (!document.getElementById('vc-vocab-modal')) {
+        const modal = document.createElement('div');
+        modal.id = 'vc-vocab-modal';
+        modal.className = 'vc-vocab-overlay';
+        modal.innerHTML = `<div class="vc-vocab-header"></div><div class="vc-vocab-grid"></div>`;
+        modal.addEventListener('click', e => e.stopPropagation());
+        document.body.appendChild(modal);
     }
 }
 
@@ -293,7 +297,7 @@ function _startBattle(tier) {
 
     const uiCallbacks = {
         showCard: (mode, onRes) => {
-            const overlay = _screens.game.querySelector('.vc-vocab-overlay');
+            const overlay = document.getElementById('vc-vocab-modal');
             showCard(mode, overlay, onRes);
         }
     };

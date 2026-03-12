@@ -259,16 +259,16 @@
 
 /* --- Vocab Flashcard Slide-Up --- */
 .vc-vocab-overlay {
-    position: absolute;
+    position: fixed;
     inset: 0;
     background: rgba(26, 37, 47, 0.97);
     backdrop-filter: blur(4px);
     border-bottom: 3px solid #3498db;
-    padding: 16px;
+    padding: 20px 16px;
     display: none;
     flex-direction: column;
     justify-content: center;
-    z-index: 1000;
+    z-index: 9999;
     opacity: 0;
     transition: opacity 0.18s ease;
     box-sizing: border-box;

@@ -22,9 +22,6 @@ export class VcUI {
         this.gridEl = container.querySelector('.vc-grid');
         this.bottomBar = container.querySelector('.vc-bottombar');
         this.bottomBar.addEventListener('click', e => e.stopPropagation());
-        // Vocab overlay sits over the map — stop its clicks reaching tiles too
-        const vocabOverlay = container.querySelector('.vc-vocab-overlay');
-        if (vocabOverlay) vocabOverlay.addEventListener('click', e => e.stopPropagation());
         this.gridEl.innerHTML = '';
 
         this.topBar = {
