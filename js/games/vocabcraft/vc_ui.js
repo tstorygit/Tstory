@@ -293,8 +293,8 @@ export class VcUI {
             svg.setAttribute('width', size);
             svg.setAttribute('height', size);
             svg.setAttribute('viewBox', '0 0 32 32');
+            svg.setAttribute('class', 'vc-gem-diamond');
             svg.dataset.color = color;
-            svg.className = 'vc-gem-diamond';
             svg.style.cssText = `cursor:pointer; transition: transform 0.15s, filter 0.15s, opacity 0.15s; flex-shrink:0;`;
             // Diamond shape: top facet + main body
             svg.innerHTML = `
