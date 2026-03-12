@@ -49,6 +49,7 @@ export function init(screens, onExit) {
                     <div style="flex:1;"></div>
                     <button class="vc-icon-btn vc-grimoire-btn" id="vc-btn-grimoire-battle">📖</button>
                     <button class="vc-icon-btn" id="vc-btn-speed">⚡1x</button>
+                    <button class="vc-icon-btn" id="vc-btn-pause" style="background:#2980b9; border-color:#1a5276;">⏸</button>
                     <button class="vc-icon-btn vc-flee-btn" id="vc-btn-surrender">🏃Flee</button>
                 </div>
                 <div class="vc-topbar vc-topbar-row2">
@@ -83,6 +84,23 @@ export function init(screens, onExit) {
             const idx = SPEED_STEPS.indexOf(_engine.speedMult);
             _engine.speedMult = SPEED_STEPS[(idx + 1) % SPEED_STEPS.length];
             _screens.game.querySelector('#vc-btn-speed').textContent = `⚡${_engine.speedMult}x`;
+        };
+
+        // Pause / Resume toggle
+        _screens.game.querySelector('#vc-btn-pause').onclick = () => {
+            if (!_engine) return;
+            const btn = _screens.game.querySelector('#vc-btn-pause');
+            if (_engine.state.status === 'playing') {
+                _engine.pause();
+                btn.textContent = '▶';
+                btn.style.background = '#27ae60';
+                btn.style.borderColor = '#1e8449';
+            } else if (_engine.state.status === 'paused') {
+                _engine.resume();
+                btn.textContent = '⏸';
+                btn.style.background = '#2980b9';
+                btn.style.borderColor = '#1a5276';
+            }
         };
 
         // Surrender button — pause BEFORE confirmation dialog

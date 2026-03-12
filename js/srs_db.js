@@ -25,6 +25,8 @@
  *   5 → interval ≥ 180 days
  */
 
+import { recordReview } from './srs_stats.js';
+
 const STORAGE_KEY = 'ai_reader_srs_data';
 
 // ─── CORE CRUD ───────────────────────────────────────────────────────────────
@@ -72,6 +74,12 @@ export function updateWordStatus(wordText, newStatus) {
         words[wordText].status      = parseInt(newStatus);
         words[wordText].lastUpdated = new Date().toISOString();
         _persist(words);
+        recordReview({
+            word:   wordText,
+            grade:  null,
+            lingq:  parseInt(newStatus),
+            source: 'lingq',
+        });
         return true;
     }
     return false;
@@ -165,6 +173,17 @@ export function gradeWord(wordText, grade, autoStatus = false) {
 
     words[wordText] = updated;
     _persist(words);
+
+    recordReview({
+        word:        wordText,
+        grade,
+        lingq:       null,
+        source:      'srs',
+        newInterval: updated.interval,
+        newEase:     updated.ease,
+        reviewCount: updated.reviewCount,
+    });
+
     return updated;
 }
 
@@ -218,6 +237,17 @@ export function gradeWordInGame(wordData, grade, autoStatus = false) {
 
     words[updated.word] = updated;
     _persist(words);
+
+    recordReview({
+        word:        updated.word,
+        grade,
+        lingq:       null,
+        source:      'game',
+        newInterval: updated.interval,
+        newEase:     updated.ease,
+        reviewCount: updated.reviewCount,
+    });
+
     return updated;
 }
 

@@ -243,23 +243,104 @@ export class VcUI {
         }
 
         if (!st.structRef.gem) {
-            Object.entries(GEMS).forEach(([color, data]) => {
-                const btn = document.createElement('button');
-                btn.className = `vc-btn gem-${color}`;
-                const cost = gemTotalCostColor(color, 1, this.engine.meta.skills);
-                btn.textContent = `${data.label} (${cost})`;
-                btn.disabled = mana < cost;
-                btn.dataset.manaCost = cost;
-                btn.onclick = () => this.handleVocabAction(cost, () => {
-                    st.structRef.gem = { color, level: 1 };
-                    this.selectTile(st.r, st.c, st.type);
-                });
-                this.bottomBar.appendChild(btn);
-            });
+            this._renderGemPicker(st);
             return;
         }
 
         this._renderGemStats(st.structRef);
+    }
+
+    _renderGemPicker(st) {
+        const mana = this.engine.state.mana;
+        const skills = this.engine.meta.skills;
+        let selectedColor = 'red';
+        let selectedLevel = 1;
+
+        const wrapper = document.createElement('div');
+        wrapper.style.cssText = 'width:100%; display:flex; flex-direction:column; gap:6px; align-items:center;';
+
+        // Diamond row
+        const diamondRow = document.createElement('div');
+        diamondRow.style.cssText = 'display:flex; gap:10px; justify-content:center; align-items:center;';
+
+        const gemColors = Object.entries(GEMS);
+
+        const updatePriceLabel = () => {
+            const cost = gemTotalCostColor(selectedColor, selectedLevel, skills);
+            const canAfford = mana >= cost;
+            priceLabel.textContent = `${GEMS[selectedColor].label} Lv.${selectedLevel} — ${cost} 💧`;
+            priceLabel.style.color = canAfford ? '#2ecc71' : '#e74c3c';
+            confirmBtn.disabled = !canAfford;
+            confirmBtn.dataset.manaCost = cost;
+        };
+
+        const updateDiamonds = () => {
+            diamondRow.querySelectorAll('.vc-gem-diamond').forEach(d => {
+                const isSelected = d.dataset.color === selectedColor;
+                d.style.transform = isSelected ? 'scale(1.25)' : 'scale(1)';
+                d.style.filter = isSelected
+                    ? `drop-shadow(0 0 6px ${GEMS[d.dataset.color].color})`
+                    : 'none';
+                d.style.opacity = isSelected ? '1' : '0.65';
+            });
+            updatePriceLabel();
+        };
+
+        gemColors.forEach(([color, data]) => {
+            const size = 32;
+            const c = data.color;
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svg.setAttribute('width', size);
+            svg.setAttribute('height', size);
+            svg.setAttribute('viewBox', '0 0 32 32');
+            svg.dataset.color = color;
+            svg.className = 'vc-gem-diamond';
+            svg.style.cssText = `cursor:pointer; transition: transform 0.15s, filter 0.15s, opacity 0.15s; flex-shrink:0;`;
+            // Diamond shape: top facet + main body
+            svg.innerHTML = `
+                <polygon points="16,2 28,12 16,30 4,12" fill="${c}" opacity="0.9"/>
+                <polygon points="16,2 28,12 16,14 4,12" fill="white" opacity="0.25"/>
+                <polygon points="16,2 22,12 16,14 10,12" fill="white" opacity="0.15"/>
+                <polygon points="16,30 4,12 16,14" fill="black" opacity="0.15"/>
+                <polygon points="16,30 28,12 16,14" fill="black" opacity="0.08"/>
+            `;
+            svg.onclick = () => { selectedColor = color; updateDiamonds(); };
+            diamondRow.appendChild(svg);
+        });
+
+        // Level slider row
+        const sliderRow = document.createElement('div');
+        sliderRow.style.cssText = 'display:flex; align-items:center; gap:8px; width:90%;';
+        const sliderLabel = document.createElement('span');
+        sliderLabel.style.cssText = 'font-size:11px; color:#bdc3c7; white-space:nowrap;';
+        sliderLabel.textContent = 'Lv';
+        const slider = document.createElement('input');
+        slider.type = 'range';
+        slider.min = 1; slider.max = 6; slider.value = 1;
+        slider.style.cssText = 'flex:1; accent-color:#f1c40f; cursor:pointer;';
+        slider.oninput = () => { selectedLevel = +slider.value; updatePriceLabel(); };
+        sliderRow.append(sliderLabel, slider);
+
+        // Price label
+        const priceLabel = document.createElement('div');
+        priceLabel.style.cssText = 'font-size:13px; font-weight:bold; text-align:center;';
+
+        // Confirm button
+        const confirmBtn = document.createElement('button');
+        confirmBtn.className = 'vc-btn';
+        confirmBtn.style.cssText = 'background:#27ae60; border-color:#1e8449; width:90%; padding:6px;';
+        confirmBtn.textContent = '⚡ Forge Gem';
+        confirmBtn.onclick = () => {
+            const cost = gemTotalCostColor(selectedColor, selectedLevel, skills);
+            this.handleVocabAction(cost, () => {
+                st.structRef.gem = { color: selectedColor, level: selectedLevel };
+                this.selectTile(st.r, st.c, st.type);
+            });
+        };
+
+        wrapper.append(diamondRow, sliderRow, priceLabel, confirmBtn);
+        this.bottomBar.appendChild(wrapper);
+        updateDiamonds();
     }
 
     _renderGemStats(structRef) {
@@ -307,6 +388,24 @@ export class VcUI {
         const nextSpeed = gemFireSpeed(nextGem, gemDef);
         const nextRange = gemRange(nextGem, isTrap);
 
+        // Special effect lifetime stats
+        const sts = structRef.stats;
+        let specialStatHtml = '';
+        if (sts) {
+            if (gemDef.type === 'mana' && sts.manaLeeched > 0)
+                specialStatHtml += `<div class="vc-stat-panel-row"><span>💧 Leeched</span><span>${Math.floor(sts.manaLeeched)}</span></div>`;
+            if (gemDef.type === 'slow' && sts.slowApplied > 0)
+                specialStatHtml += `<div class="vc-stat-panel-row"><span>❄️ Slows</span><span>${sts.slowApplied}</span></div>`;
+            if (gemDef.type === 'poison' && sts.poisonDealt > 0)
+                specialStatHtml += `<div class="vc-stat-panel-row"><span>☠️ Poison</span><span>${Math.floor(sts.poisonDealt)}</span></div>`;
+            if (gemDef.type === 'armor' && sts.armorTorn > 0)
+                specialStatHtml += `<div class="vc-stat-panel-row"><span>🛡️ Torn</span><span>${sts.armorTorn.toFixed(1)}</span></div>`;
+            if (gemDef.type === 'crit' && sts.critHits > 0)
+                specialStatHtml += `<div class="vc-stat-panel-row"><span>💥 Crits</span><span>${sts.critHits}</span></div>`;
+            if (sts.totalDmg > 0)
+                specialStatHtml += `<div class="vc-stat-panel-row"><span>🎯 Total Dmg</span><span>${sts.totalDmg}</span></div>`;
+        }
+
         const panel = document.createElement('div');
         panel.className = 'vc-tower-stat-panel';
         panel.innerHTML = `
@@ -315,6 +414,7 @@ export class VcUI {
             </div>
             <div class="vc-stat-panel-rows">
                 ${stats.map(s => `<div class="vc-stat-panel-row"><span>${s.icon} ${s.label}</span><span>${s.val}</span></div>`).join('')}
+                ${specialStatHtml}
             </div>
             <div class="vc-stat-panel-next">
                 Lv.${lvl+1}: ⚔️${Math.floor(nextDmg*trapMult)} ⚡${nextSpeed.toFixed(1)}/s 🏹${nextRange}px

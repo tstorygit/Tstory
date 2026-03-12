@@ -339,7 +339,7 @@ export class VcEngine {
             } else if (st.type === 'trap') {
                 const targets = this.enemies.filter(e => Math.hypot(e.x - st.x, e.y - st.y) < range);
                 if (targets.length > 0) {
-                    targets.forEach(t => this.applyGemEffect(t, st.gem, gemData, true));
+                    targets.forEach(t => this.applyGemEffect(t, st.gem, gemData, true, st));
                     st.cooldown = 1 / (gemFireSpeed(st.gem, gemData) * this.buffs.trapSpeed);
                 }
             }
@@ -352,6 +352,7 @@ export class VcEngine {
             targetId: target.id,
             gem: source.gem,
             gemData,
+            sourceRef: source,
             speed: 200
         });
     }
@@ -366,7 +367,7 @@ export class VcEngine {
             const dy = target.y - p.y;
             const dist = Math.hypot(dx, dy);
             if (dist < 10) {
-                this.applyGemEffect(target, p.gem, p.gemData, false);
+                this.applyGemEffect(target, p.gem, p.gemData, false, p.sourceRef);
                 this.projectiles.splice(i, 1);
             } else {
                 p.x += (dx / dist) * p.speed * dt;
@@ -375,7 +376,7 @@ export class VcEngine {
         }
     }
 
-    applyGemEffect(enemy, gem, gemData, isTrap) {
+    applyGemEffect(enemy, gem, gemData, isTrap, source) {
         let dmg = gemDamage(gem, gemData);
         let specialMult = 1;
 
@@ -385,12 +386,13 @@ export class VcEngine {
         dmg *= this.buffs.dmgMult;
 
         let finalDmg = Math.max(1, dmg - Math.max(0, enemy.armor));
+        let isCrit = false;
 
         switch (gemData.type) {
             case 'crit': {
                 const baseChance = gemCritChance(gem) + (this.meta.skills.yellowMastery * 0.005);
                 const chance = Math.min(0.9, baseChance * specialMult);
-                if (Math.random() < chance) finalDmg *= gemCritMult(gem);
+                if (Math.random() < chance) { finalDmg *= gemCritMult(gem); isCrit = true; }
                 break;
             }
             case 'slow': {
@@ -399,6 +401,7 @@ export class VcEngine {
                     if (gem.color === 'blue') slow *= (1 + this.meta.skills.blueMastery * 0.01);
                     enemy.effects.slow = Math.min(0.70, slow);
                     enemy.effects.slowTimer = 3;
+                    if (source?.stats) source.stats.slowApplied++;
                 }
                 break;
             }
@@ -408,6 +411,7 @@ export class VcEngine {
                     if (gem.color === 'green') pDmg *= (1 + this.meta.skills.greenMastery * 0.02);
                     enemy.effects.poison = pDmg;
                     enemy.effects.poisonTick = 1.0;
+                    if (source?.stats) source.stats.poisonDealt += pDmg * 0.016; // approx per tick
                 }
                 break;
             }
@@ -415,15 +419,20 @@ export class VcEngine {
                 let mana = gemManaDrain(gem, gemData) * specialMult;
                 if (gem.color === 'orange') mana += this.meta.skills.orangeMastery * 0.2;
                 this.state.mana += mana;
+                if (source?.stats) source.stats.manaLeeched += mana;
                 break;
             }
             case 'armor': {
                 let tear = gemArmorTear(gem, gemData) * specialMult;
                 if (gem.color === 'purple') tear += this.meta.skills.purpleMastery * 0.1;
                 enemy.armor = Math.max(0, enemy.armor - tear);
+                if (source?.stats) source.stats.armorTorn += tear;
                 break;
             }
         }
+
+        if (isCrit && source?.stats) source.stats.critHits++;
+        if (source?.stats) source.stats.totalDmg += Math.floor(finalDmg);
 
         enemy.hp -= finalDmg;
         if (this.onUpdate) this.onUpdate(this, { type: 'dmg', x: enemy.x, y: enemy.y, amt: Math.floor(finalDmg), color: gem.color });
@@ -434,7 +443,7 @@ export class VcEngine {
         const cost = type === 'tower' ? towerCost(count, this.meta.skills) : trapCost(count, this.meta.skills);
         if (this.state.mana >= cost) {
             this.state.mana -= cost;
-            this.structures.push({ x, y, type, gem: null });
+            this.structures.push({ x, y, type, gem: null, stats: { manaLeeched: 0, poisonDealt: 0, slowApplied: 0, armorTorn: 0, critHits: 0, totalDmg: 0 } });
             return true;
         }
         return false;

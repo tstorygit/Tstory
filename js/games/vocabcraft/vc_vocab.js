@@ -54,25 +54,47 @@ export function showCard(mode, container, onResolve) {
         btn.textContent = opt;
         btn.onclick = () => {
             const isCorrect = opt === wordObj.trans;
-            btn.classList.add(isCorrect ? 'correct' : 'wrong');
-            
-            if (!isCorrect) {
-                [...grid.children].find(b => b.textContent === wordObj.trans).classList.add('correct');
+
+            if (isCorrect) {
+                // Flash green, show big ✓, close fast
+                btn.classList.add('correct');
+                const badge = document.createElement('div');
+                badge.textContent = '✓';
+                badge.style.cssText = [
+                    'position:absolute', 'top:50%', 'left:50%',
+                    'transform:translate(-50%,-50%) scale(0)',
+                    'font-size:52px', 'font-weight:900', 'color:#2ecc71',
+                    'text-shadow:0 0 20px #2ecc71, 0 2px 4px #000',
+                    'pointer-events:none', 'z-index:9999',
+                    'transition:transform 0.12s ease-out, opacity 0.15s ease-in 0.08s'
+                ].join(';');
+                container.style.position = 'relative';
+                container.appendChild(badge);
+                requestAnimationFrame(() => { badge.style.transform = 'translate(-50%,-50%) scale(1)'; });
+
+                srsDb.gradeWordInGame({ word: wordObj.word, furi: wordObj.furi, translation: wordObj.trans }, 2, true);
+                [...grid.children].forEach(b => b.disabled = true);
+
+                setTimeout(() => {
+                    badge.style.opacity = '0';
+                    container.classList.remove('active');
+                    setTimeout(() => { badge.remove(); onResolve(true); }, 80);
+                }, 200);
+
+            } else {
+                // Wrong: reveal correct answer, pause so player reads it
+                btn.classList.add('wrong');
+                const correctBtn = [...grid.children].find(b => b.textContent === wordObj.trans);
+                if (correctBtn) correctBtn.classList.add('correct');
+
+                srsDb.gradeWordInGame({ word: wordObj.word, furi: wordObj.furi, translation: wordObj.trans }, 0, true);
+                [...grid.children].forEach(b => b.disabled = true);
+
+                setTimeout(() => {
+                    container.classList.remove('active');
+                    onResolve(false);
+                }, 900);
             }
-            
-            // Centralized game grading
-            srsDb.gradeWordInGame({
-                word: wordObj.word,
-                furi: wordObj.furi,
-                translation: wordObj.trans
-            }, isCorrect ? 2 : 0, true);
-
-            [...grid.children].forEach(b => b.disabled = true);
-
-            setTimeout(() => {
-                container.classList.remove('active');
-                onResolve(isCorrect);
-            }, 600);
         };
         grid.appendChild(btn);
     });
