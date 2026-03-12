@@ -14,43 +14,67 @@
 /* --- Top Bar --- */
 .vc-topbar {
     display: flex;
-    justify-content: flex-start;
     align-items: center;
     background: #1a252f;
-    padding: 6px 8px;
-    border-bottom: 2px solid #34495e;
+    border-bottom: 1px solid #34495e;
     z-index: 10;
     gap: 6px;
     flex-shrink: 0;
     overflow: hidden;
+    padding: 4px 8px;
 }
-.vc-stats-group {
-    display: flex;
-    gap: 12px;
+
+/* Row 1: HP, Mana, spacer, Speed, Flee */
+.vc-topbar-row1 {
+    padding: 5px 8px;
     font-weight: bold;
-    font-size: 14px;
-    flex-shrink: 0;
+    font-size: 15px;
+    border-bottom: none;
 }
-.vc-health { color: #e74c3c; }
-.vc-mana { color: #f39c12; }
+.vc-health { color: #e74c3c; font-size: 14px; font-weight: bold; }
+.vc-mana   { color: #f39c12; font-size: 14px; font-weight: bold; }
+
+/* Tiny icon buttons for Speed and Flee */
+.vc-icon-btn {
+    background: #34495e;
+    color: white;
+    border: 1px solid #2c3e50;
+    border-radius: 5px;
+    padding: 3px 8px;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+.vc-icon-btn:active { transform: scale(0.93); }
+#vc-btn-speed   { background: #8e44ad; border-color: #6c3483; }
+.vc-flee-btn    { background: #e74c3c; border-color: #c0392b; }
+
+/* Row 2: Wave button + wave dot icons */
+.vc-topbar-row2 {
+    padding: 3px 8px 4px;
+    border-bottom: 2px solid #34495e;
+    min-height: 0;
+}
 .vc-wave-tracker {
     display: flex;
     align-items: center;
-    gap: 4px;
-    flex: 1;
-    overflow: hidden;
+    gap: 5px;
+    width: 100%;
     min-width: 0;
 }
 .vc-wave-icons-container {
     display: flex;
-    gap: 3px;
+    gap: 4px;
     flex-wrap: wrap;
     overflow: hidden;
-    max-height: 48px;
+    max-height: 40px;
+    flex: 1;
 }
 .vc-wave-icon {
-    width: 16px;
-    height: 16px;
+    width: 14px;
+    height: 14px;
     background: #7f8c8d;
     border-radius: 50%;
     cursor: pointer;
@@ -58,9 +82,20 @@
     transition: all 0.2s;
     flex-shrink: 0;
 }
-.vc-wave-icon.active { background: #3498db; animation: pulse 1s infinite; }
+.vc-wave-icon.active  { background: #3498db; animation: pulse 1s infinite; }
 .vc-wave-icon.enraged { background: #e74c3c; border-color: #f1c40f; }
-.vc-wave-icon.done { background: #27ae60; opacity: 0.5; }
+.vc-wave-icon.done    { background: #27ae60; opacity: 0.5; }
+
+/* Wave start button — compact */
+#vc-btn-start-wave {
+    padding: 4px 10px !important;
+    font-size: 12px !important;
+    min-width: auto !important;
+    flex-shrink: 0;
+    background: #2ecc71 !important;
+    border-color: #27ae60 !important;
+}
+
 
 /* --- Map Area --- */
 .vc-map-container {
@@ -174,8 +209,9 @@
 
 /* --- Bottom Context Bar --- */
 .vc-bottombar {
-    min-height: 80px;
-    max-height: 130px;
+    height: 100px;
+    min-height: 100px;
+    max-height: 100px;
     background: #1a252f;
     border-top: 2px solid #34495e;
     padding: 6px 8px;
@@ -187,6 +223,7 @@
     z-index: 10;
     overflow-y: auto;
     flex-shrink: 0;
+    -webkit-overflow-scrolling: touch;
 }
 .vc-btn {
     background: #34495e;

@@ -42,15 +42,16 @@ export function init(screens, onExit) {
                 </div>
             </div>
 
-            <div id="vc-battle-layer" class="vc-root" style="display:none;">
-                <div class="vc-topbar">
-                    <div class="vc-stats-group">
-                        <span class="vc-health">❤️ <span id="vc-val-hp">20</span></span>
-                        <span class="vc-mana">💧 <span id="vc-val-mana">150</span></span>
-                    </div>
+            <div id="vc-battle-layer" class="vc-root" style="display:none; position:absolute; inset:0;">
+                <div class="vc-topbar vc-topbar-row1">
+                    <span class="vc-health">❤️ <span id="vc-val-hp">20</span></span>
+                    <span class="vc-mana">💧 <span id="vc-val-mana">150</span></span>
+                    <div style="flex:1;"></div>
+                    <button class="vc-icon-btn" id="vc-btn-speed">⚡1x</button>
+                    <button class="vc-icon-btn vc-flee-btn" id="vc-btn-surrender">🏃Flee</button>
+                </div>
+                <div class="vc-topbar vc-topbar-row2">
                     <div class="vc-wave-tracker"></div>
-                    <button class="vc-btn" id="vc-btn-speed" style="min-width:auto; padding:4px 8px; background:#8e44ad; flex-shrink:0;">⚡1x</button>
-                    <button class="vc-btn" id="vc-btn-surrender" style="min-width:auto; padding:4px 8px; background:#e74c3c; margin-left:auto; flex-shrink:0;">Flee</button>
                 </div>
                 <div class="vc-map-container"><div class="vc-grid"></div></div>
                 <div class="vc-bottombar"></div>
@@ -108,8 +109,10 @@ function _show(name) {
                 el.style.flexDirection = 'column';
                 el.style.padding = '0';
                 el.style.overflow = 'hidden';
+                el.style.position = 'relative';
+                // Remove any scroll styles set by games_ui.js
+                el.style.overflowY = 'hidden';
             } else {
-                // setup and other content screens: scroll vertically
                 el.style.flexDirection = 'column';
                 el.style.overflowY = 'auto';
                 el.style.paddingBottom = '70px';

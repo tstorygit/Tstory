@@ -67,7 +67,7 @@ export class VcUI {
 
     initWaves() {
         this.topBar.waves.innerHTML = `
-            <button id="vc-btn-start-wave" class="vc-btn" style="min-width:auto; padding:4px 8px; background:#2ecc71; border-color:#27ae60;">▶ Wave</button>
+            <button id="vc-btn-start-wave" class="vc-btn">▶ Wave</button>
             <div id="vc-wave-icons" class="vc-wave-icons-container"></div>
         `;
 
