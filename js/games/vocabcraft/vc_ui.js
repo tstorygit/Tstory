@@ -49,9 +49,13 @@ export class VcUI {
         const { cols, rows, grid } = this.engine.map;
 
         // Use a comfortable fixed tile size. Map scrolls in both directions.
-        // Base size fills width at 1x zoom — user can zoom out to see more.
         const containerW = this.mapEl.clientWidth || window.innerWidth;
         this.tileSize = Math.max(36, Math.floor(containerW / cols));
+
+        // Cap the visible map area to (rows - 2) tiles tall so the bottombar
+        // always has room. The remaining rows scroll into view.
+        this.mapEl.style.maxHeight = `${(rows - 2) * this.tileSize}px`;
+        this.mapEl.style.flex = 'none';
 
         this.gridEl.style.width  = `${cols * this.tileSize}px`;
         this.gridEl.style.height = `${rows * this.tileSize}px`;
@@ -92,9 +96,12 @@ export class VcUI {
             }
 
             gridEl.style.transform = `scale(${this._zoom})`;
-            // Tell the scroll container how big the scaled content is
             gridEl.style.marginBottom = `${gridEl.offsetHeight * (this._zoom - 1)}px`;
             gridEl.style.marginRight  = `${gridEl.offsetWidth  * (this._zoom - 1)}px`;
+
+            // Keep visible area capped to (rows-2) tiles at current zoom
+            const { rows } = this.engine.map;
+            mapEl.style.maxHeight = `${(rows - 2) * this.tileSize * this._zoom}px`;
 
             if (zoomBtn) {
                 const pct = Math.round(this._zoom * 100);
