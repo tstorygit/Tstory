@@ -20,42 +20,52 @@ export const CONSTANTS = {
     trapBaseRange: 28
 };
 
-// ─── Gemcraft-style level scaling ───────────────────────────────────────────
-// Damage:    baseDmg  × level^1.5        superlinear — lv2=2.8x, lv4=8x
-// Cost:      100 × 2^(level-1)           doubles each upgrade (100,200,400,800...)
-// Fire speed:baseSpeed× level^0.4 ≤4/s   noticeable speedup
-// Range:     baseRange× level^0.3        grows meaningfully: 100→123→151→186px
-// Yellow crit multiplier scales with √level → Yellow DPS is ~quadratic
+// ─── Gemcraft: Frostborn Wrath exact scaling ────────────────────────────────
+// Multipliers derived directly from the GCFW combining formula (pure same-grade
+// combine = one upgrade): combined = c1*best + c2*worst, A=B for pure gems.
+//
+//   Damage:     (0.83+0.71) = ×1.54/grade  — notably weaker than other stats
+//   Poison:     (0.96+0.85) = ×1.81/grade
+//   Mana gain:  (0.88+0.50) = ×1.38/grade  — weakest special, always worthwhile
+//   Armor tear: (0.98+0.92) = ×1.90/grade
+//   Crit mult:  (0.88+0.50) = ×1.38/grade  — same coeff as mana in GCFW
+//   Crit chance:(0.81+0.35) = ×1.16/grade  (implemented as +4%/level instead)
+//   Fire speed: (0.74+0.44) = ×1.18/grade  (capped at 4/s)
+//   Range:      (0.694+0.388)= ×1.08/grade
+//   Slow power: (0.91+0.45) = ×1.36/grade  (capped at 70% per GCFW)
+//
+// Cost always doubles: 100 → 200 → 400 → 800 → 1600 ...
+// Every stat is always LESS than ×2 per level — core Gemcraft design principle.
 export function gemUpgradeCost(level) {
     return Math.floor(CONSTANTS.gemBaseCost * Math.pow(2, level - 1));
 }
 export function gemDamage(gem, gemData) {
-    return gemData.baseDmg * Math.pow(gem.level, 1.5);
+    return gemData.baseDmg * Math.pow(1.54, gem.level - 1);
 }
 export function gemFireSpeed(gem, gemData) {
-    return Math.min(4.0, gemData.speed * Math.pow(gem.level, 0.4));
+    return Math.min(4.0, gemData.speed * Math.pow(1.18, gem.level - 1));
 }
 export function gemRange(gem, isTrap = false) {
     const base = isTrap ? CONSTANTS.trapBaseRange : CONSTANTS.towerBaseRange;
-    return Math.floor(base * Math.pow(gem.level, 0.3));
+    return Math.floor(base * Math.pow(1.08, gem.level - 1));
 }
 export function gemCritChance(gem) {
-    return Math.min(0.6, GEMS[gem.color].baseCrit + 0.04 * gem.level);
+    return Math.min(0.8, GEMS[gem.color].baseCrit + 0.04 * gem.level);
 }
 export function gemCritMult(gem) {
-    return GEMS[gem.color].baseMult + 0.8 * Math.sqrt(gem.level);
+    return GEMS[gem.color].baseMult * Math.pow(1.38, gem.level - 1);
 }
 export function gemPoisonDps(gem, gemData) {
-    return gemData.basePoison * Math.pow(gem.level, 1.2);
+    return gemData.basePoison * Math.pow(1.81, gem.level - 1);
 }
 export function gemSlowAmount(gem, gemData) {
-    return Math.min(0.8, gemData.baseSlow * Math.pow(gem.level, 0.6));
+    return Math.min(0.70, gemData.baseSlow * Math.pow(1.36, gem.level - 1));
 }
 export function gemManaDrain(gem, gemData) {
-    return gemData.baseMana * Math.pow(gem.level, 1.1);
+    return gemData.baseMana * Math.pow(1.38, gem.level - 1);
 }
 export function gemArmorTear(gem, gemData) {
-    return gemData.baseTear * gem.level;
+    return gemData.baseTear * Math.pow(1.90, gem.level - 1);
 }
 
 export class VcEngine {
