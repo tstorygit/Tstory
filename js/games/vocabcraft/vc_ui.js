@@ -1,3 +1,4 @@
+
 import { GEMS, CONSTANTS, gemTotalCostColor, gemUpgradeCost, gemDamage, gemFireSpeed, gemRange, gemCritChance, gemCritMult, gemPoisonDps, gemSlowAmount, gemManaDrain, gemArmorTear } from './vc_engine.js';
 import { TILE_PATH, TILE_GRASS } from './vc_mapgen.js';
 
@@ -9,7 +10,7 @@ export class VcUI {
         this.tileSize = 0;
         this.selectedTile = null;
         this.selectedEnemyId = null;
-        this.tiles = [];
+        this.tiles =[];
 
         // Zoom state
         this._zoom = 1.0;
@@ -49,12 +50,9 @@ export class VcUI {
     initGrid() {
         const { cols, rows, grid } = this.engine.map;
 
-        // Use a comfortable fixed tile size. Map scrolls in both directions.
         const containerW = this.mapEl.clientWidth || window.innerWidth;
         this.tileSize = Math.max(36, Math.floor(containerW / cols));
 
-        // Cap the visible map area to (rows - 2) tiles tall so the bottombar
-        // always has room. The remaining rows scroll into view.
         this.mapEl.style.maxHeight = `${(rows - 2) * this.tileSize}px`;
         this.mapEl.style.flex = 'none';
 
@@ -63,7 +61,7 @@ export class VcUI {
         this.gridEl.style.gridTemplateColumns = `repeat(${cols}, ${this.tileSize}px)`;
         this.gridEl.style.gridTemplateRows    = `repeat(${rows}, ${this.tileSize}px)`;
 
-        this.tiles = [];
+        this.tiles =[];
         for (let r = 0; r < rows; r++) {
             for (let c = 0; c < cols; c++) {
                 const cell = document.createElement('div');
@@ -78,7 +76,7 @@ export class VcUI {
             x: p.x * this.tileSize + (this.tileSize / 2),
             y: p.y * this.tileSize + (this.tileSize / 2)
         }));
-        this.engine.tileSize = this.tileSize;  // let engine know for range calculations
+        this.engine.tileSize = this.tileSize;
     }
 
     initZoom() {
@@ -90,7 +88,6 @@ export class VcUI {
             const prev = this._zoom;
             this._zoom = Math.max(this._minZoom, Math.min(this._maxZoom, z));
 
-            // Adjust scroll so the pinch pivot stays under the fingers
             if (pivotX != null) {
                 const scaleChange = this._zoom / prev;
                 mapEl.scrollLeft = (mapEl.scrollLeft + pivotX) * scaleChange - pivotX;
@@ -101,7 +98,6 @@ export class VcUI {
             gridEl.style.marginBottom = `${gridEl.offsetHeight * (this._zoom - 1)}px`;
             gridEl.style.marginRight  = `${gridEl.offsetWidth  * (this._zoom - 1)}px`;
 
-            // Keep visible area capped to (rows-2) tiles at current zoom
             const { rows } = this.engine.map;
             mapEl.style.maxHeight = `${(rows - 2) * this.tileSize * this._zoom}px`;
 
@@ -111,8 +107,7 @@ export class VcUI {
             }
         };
 
-        // ── Button: cycle 100% → 50% → 200% → 100% ──────────────────────────
-        const ZOOM_STEPS = [1.0, 0.5, 2.0];
+        const ZOOM_STEPS =[1.0, 0.5, 2.0];
         if (zoomBtn) {
             zoomBtn.onclick = () => {
                 const idx = ZOOM_STEPS.findIndex(s => Math.abs(s - this._zoom) < 0.05);
@@ -121,7 +116,6 @@ export class VcUI {
             };
         }
 
-        // ── Pinch-to-zoom ─────────────────────────────────────────────────────
         mapEl.addEventListener('touchstart', (e) => {
             if (e.touches.length === 2) {
                 e.preventDefault();
@@ -131,7 +125,6 @@ export class VcUI {
                     t[1].clientY - t[0].clientY
                 );
                 this._pinchStartZoom = this._zoom;
-                // Pivot = midpoint relative to mapEl
                 const rect = mapEl.getBoundingClientRect();
                 this._pinchPivotX = ((t[0].clientX + t[1].clientX) / 2) - rect.left + mapEl.scrollLeft;
                 this._pinchPivotY = ((t[0].clientY + t[1].clientY) / 2) - rect.top  + mapEl.scrollTop;
@@ -155,7 +148,6 @@ export class VcUI {
             if (this._pinchStartDist) this._pinchStartDist = null;
         });
 
-        // Apply initial zoom
         applyZoom(this._zoom, null, null);
     }
 
@@ -219,7 +211,7 @@ export class VcUI {
 
     renderBottomBar() {
         this.bottomBar.innerHTML = '';
-        this._gemPickerRefresh = null;  // clear any stale gem picker callback
+        this._gemPickerRefresh = null;  
         const st = this.selectedTile;
         if (!st) {
             this.bottomBar.innerHTML = `<div style="color:#7f8c8d;">Select a tile to build.</div>`;
@@ -261,7 +253,6 @@ export class VcUI {
         const wrapper = document.createElement('div');
         wrapper.style.cssText = 'width:100%; display:flex; flex-direction:column; gap:6px; align-items:center;';
 
-        // Diamond row
         const diamondRow = document.createElement('div');
         diamondRow.style.cssText = 'display:flex; gap:10px; justify-content:center; align-items:center;';
 
@@ -269,15 +260,13 @@ export class VcUI {
 
         const updatePriceLabel = () => {
             const cost = gemTotalCostColor(selectedColor, selectedLevel, skills);
-            const canAfford = this.engine.state.mana >= cost;  // read live
+            const canAfford = this.engine.state.mana >= cost; 
             priceLabel.textContent = `${GEMS[selectedColor].label} Lv.${selectedLevel} — ${cost} 💧`;
             priceLabel.style.color = canAfford ? '#2ecc71' : '#e74c3c';
             confirmBtn.disabled = !canAfford;
             confirmBtn.dataset.manaCost = cost;
         };
 
-        // Register this picker's price label updater so _refreshBottomBarButtons
-        // can also refresh the affordability colour when mana ticks up.
         this._gemPickerRefresh = updatePriceLabel;
 
         const updateDiamonds = () => {
@@ -302,7 +291,6 @@ export class VcUI {
             svg.setAttribute('class', 'vc-gem-diamond');
             svg.dataset.color = color;
             svg.style.cssText = `cursor:pointer; transition: transform 0.15s, filter 0.15s, opacity 0.15s; flex-shrink:0;`;
-            // Diamond shape: top facet + main body
             svg.innerHTML = `
                 <polygon points="16,2 28,12 16,30 4,12" fill="${c}" opacity="0.9"/>
                 <polygon points="16,2 28,12 16,14 4,12" fill="white" opacity="0.25"/>
@@ -314,7 +302,6 @@ export class VcUI {
             diamondRow.appendChild(svg);
         });
 
-        // Level slider row
         const sliderRow = document.createElement('div');
         sliderRow.style.cssText = 'display:flex; align-items:center; gap:8px; width:90%;';
         const sliderLabel = document.createElement('span');
@@ -327,11 +314,9 @@ export class VcUI {
         slider.oninput = () => { selectedLevel = +slider.value; updatePriceLabel(); };
         sliderRow.append(sliderLabel, slider);
 
-        // Price label
         const priceLabel = document.createElement('div');
         priceLabel.style.cssText = 'font-size:13px; font-weight:bold; text-align:center;';
 
-        // Confirm button
         const confirmBtn = document.createElement('button');
         confirmBtn.className = 'vc-btn';
         confirmBtn.style.cssText = 'background:#27ae60; border-color:#1e8449; width:90%; padding:6px;';
@@ -355,23 +340,42 @@ export class VcUI {
         const gemDef = GEMS[gem.color];
         const isTrap = structRef.type === 'trap';
         const lvl = gem.level;
-        // upgradeFromHere: totalCost(color, lvl, skills) + combineCost(skills)
-        // = cost of buying one more gem of this level plus the combine fee
         const cost = gemUpgradeCost(gem.color, lvl, this.engine.meta.skills);
         const mana = this.engine.state.mana;
 
-        const dmg = gemDamage(gem, gemDef);
-        const speed = gemFireSpeed(gem, gemDef);
+        const dmg = gemDamage(gem, gemDef, this.engine.meta.skills);
+        const speed = gemFireSpeed(gem, gemDef, this.engine.meta.skills);
         const range = gemRange(gem, isTrap, this.tileSize);
-        const trapMult = isTrap ? 0.3 : 1;
+        
+        // Accurate trap multipliers for the UI display
+        const trapDmgMult = isTrap ? 0.10 + (this.engine.meta.skills.trapSpecialty || 0) * 0.01 : 1;
+        const trapSpecMult = isTrap ? 2.5 + (this.engine.meta.skills.trapSpecialty || 0) * 0.1 : 1;
+        const trapFireMult = isTrap ? 1 + (this.engine.meta.skills.trapSpecialty || 0) * 0.01 : 1;
 
-        const stats = [
+        const stats =[
             { icon: '🏹', label: 'Range',  val: range + 'px' },
-            { icon: '⚡', label: 'Fire',   val: speed.toFixed(2) + '/s' },
-            { icon: '⚔️', label: 'Damage', val: Math.floor(dmg * trapMult) + (isTrap ? '(trap)' : '') },
+            { icon: '⚡', label: 'Fire',   val: (speed * trapFireMult).toFixed(2) + '/s' },
+            { icon: '⚔️', label: 'Damage', val: Math.max(1, Math.floor(dmg * trapDmgMult)) + (isTrap ? ' (Trap)' : '') },
         ];
 
-        // Always initialize special stat rows, so they exist in DOM to be updated live
+        switch (gemDef.type) {
+            case 'crit':
+                stats.push({ icon: '💥', label: 'Crit', val: `${(gemCritChance(gem)*100).toFixed(0)}% ×${gemCritMult(gem).toFixed(1)}` });
+                break;
+            case 'slow':
+                stats.push({ icon: '❄️', label: 'Slow', val: `${Math.min(70, gemSlowAmount(gem, gemDef) * trapSpecMult * 100).toFixed(0)}%` });
+                break;
+            case 'poison':
+                stats.push({ icon: '☠️', label: 'Poison', val: `${(gemPoisonDps(gem, gemDef) * trapSpecMult).toFixed(1)}/s` });
+                break;
+            case 'mana':
+                stats.push({ icon: '💧', label: 'Leech', val: `${(gemManaDrain(gem, gemDef) * trapSpecMult).toFixed(2)}/hit` });
+                break;
+            case 'armor':
+                stats.push({ icon: '🛡️', label: 'Tear', val: `${(gemArmorTear(gem, gemDef) * trapSpecMult).toFixed(2)}/hit` });
+                break;
+        }
+
         const sts = structRef.stats || { manaLeeched: 0, poisonDealt: 0, slowApplied: 0, armorTorn: 0, critHits: 0, totalDmg: 0 };
         let specialStatHtml = '';
         
@@ -389,10 +393,9 @@ export class VcUI {
             specialStatHtml += `<div class="vc-stat-panel-row"><span>💥 Crits</span><span id="vc-live-critHits">${sts.critHits}</span></div>`;
         }
 
-        // Next level preview
         const nextGem = { color: gem.color, level: lvl + 1 };
-        const nextDmg = gemDamage(nextGem, gemDef);
-        const nextSpeed = gemFireSpeed(nextGem, gemDef);
+        const nextDmg = gemDamage(nextGem, gemDef, this.engine.meta.skills);
+        const nextSpeed = gemFireSpeed(nextGem, gemDef, this.engine.meta.skills);
         const nextRange = gemRange(nextGem, isTrap, this.tileSize);
 
         const panel = document.createElement('div');
@@ -406,7 +409,7 @@ export class VcUI {
                 ${specialStatHtml}
             </div>
             <div class="vc-stat-panel-next">
-                Lv.${lvl+1}: ⚔️${Math.floor(nextDmg*trapMult)} ⚡${nextSpeed.toFixed(1)}/s 🏹${nextRange}px
+                Lv.${lvl+1}: ⚔️${Math.max(1, Math.floor(nextDmg*trapDmgMult))} ⚡${(nextSpeed*trapFireMult).toFixed(1)}/s 🏹${nextRange}px
             </div>
         `;
         this.bottomBar.appendChild(panel);
@@ -465,14 +468,11 @@ export class VcUI {
         });
     }
 
-    // Update button enabled/disabled state in the bottombar without re-rendering.
-    // Each button stores its cost in data-mana-cost so we can check cheaply.
     _refreshBottomBarButtons(mana) {
         this.bottomBar.querySelectorAll('button[data-mana-cost]').forEach(btn => {
             const cost = +btn.dataset.manaCost;
             btn.disabled = mana < cost;
         });
-        // If the gem picker is open, refresh its price label and button too.
         if (this._gemPickerRefresh) this._gemPickerRefresh();
     }
 
@@ -480,8 +480,6 @@ export class VcUI {
         this.topBar.hp.textContent = engineState.state.hp;
         this.topBar.mana.textContent = Math.floor(engineState.state.mana);
 
-        // Re-render bottombar when mana crosses a cost threshold so buttons
-        // enable/disable live without rebuilding the whole bar every frame.
         const mana = Math.floor(engineState.state.mana);
         if (this._lastMana !== mana) {
             this._lastMana = mana;
@@ -513,7 +511,6 @@ export class VcUI {
         if (!this.entitiesEl) return;
         let html = '';
 
-        // Range indicator using level-scaled range
         if (this.selectedTile?.structRef) {
             const st = this.selectedTile.structRef;
             const radius = st.gem
@@ -524,19 +521,16 @@ export class VcUI {
             html += `<div class="vc-range-indicator" style="left:${st.x-radius}px;top:${st.y-radius}px;width:${radius*2}px;height:${radius*2}px;"></div>`;
         }
 
-        // Structures
         engineState.structures.forEach(st => {
             const isTower = st.type === 'tower';
             let inner = st.gem ? `<div class="vc-gem" style="background:${GEMS[st.gem.color].color}">${st.gem.level}</div>` : '';
             html += `<div class="vc-structure ${isTower?'vc-tower':'vc-trap'}" style="left:${st.x-this.tileSize/2}px;top:${st.y-this.tileSize/2}px;width:${this.tileSize}px;height:${this.tileSize}px;">${inner}</div>`;
         });
 
-        // Enemies — clickable, type-colored hp bar
         engineState.enemies.forEach(e => {
             const pct = (e.hp / e.maxHp) * 100;
             const isSelected = e.id === this.selectedEnemyId;
             const ring = isSelected ? `<div class="vc-enemy-selected-ring"></div>` : '';
-            // Color hp bar based on enemy type
             const hpColor = e.isBoss ? '#e74c3c' : e.typeId === 'armored' ? '#95a5a6' : e.typeId === 'fast' ? '#3498db' : e.typeId === 'healer' ? '#2ecc71' : e.typeId === 'ghost' ? '#9b59b6' : e.typeId === 'swarm' ? '#f39c12' : '#2ecc71';
             html += `<div class="vc-enemy${isSelected?' vc-enemy-focused':''}" data-eid="${e.id}" style="left:${e.x}px;top:${e.y}px;pointer-events:auto;cursor:pointer;">
                 ${ring}${e.emoji||'👾'}
@@ -545,7 +539,6 @@ export class VcUI {
             </div>`;
         });
 
-        // Projectiles
         engineState.projectiles.forEach(p => {
             html += `<div class="vc-projectile" style="left:${p.x}px;top:${p.y}px;background:${p.gemData.color};"></div>`;
         });
@@ -586,12 +579,12 @@ export class VcUI {
         }
 
         const hpPct = Math.max(0, Math.floor((e.hp / e.maxHp) * 100));
-        const effects = [];
+        const effects =[];
         if (e.effects.slow > 0) effects.push(`❄️ Slowed ${Math.floor(e.effects.slow*100)}%`);
         if (e.effects.poison > 0) effects.push(`☠️ Poison ${Math.floor(e.effects.poison)}/s`);
         if (e.regen > 0) effects.push(`💚 Regen ${(e.regen*100).toFixed(1)}%/s`);
 
-        const immunities = [];
+        const immunities =[];
         if (e.immune?.includes('slow')) immunities.push('❄️Slow');
         if (e.immune?.includes('poison')) immunities.push('☠️Poison');
 

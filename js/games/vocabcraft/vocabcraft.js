@@ -1,5 +1,6 @@
+
 import { mountVocabSelector } from '../../vocab_selector.js';
-import { loadMeta, saveMeta, addXP, SKILL_DEFS } from './vc_meta.js';
+import { loadMeta, saveMeta, addXP, resetSkills, SKILL_DEFS } from './vc_meta.js';
 import { generateMap, getWaypoints } from './vc_mapgen.js';
 import { setVocabQueue, showCard } from './vc_vocab.js';
 import { VcEngine } from './vc_engine.js';
@@ -19,12 +20,13 @@ export function init(screens, onExit) {
     _onExit = onExit;
     
     if (_screens.game) {
+        // Note: moved grimoire to root so it can overlay camp AND battle without breaking
         _screens.game.innerHTML = `
             <div id="vc-camp-layer" class="vc-camp-screen" style="display:none;">
                 <div class="vc-camp-header">
                     <div>
                         <div class="vc-camp-title">Wizard's Camp</div>
-                        <div class="vc-camp-xp" id="vc-camp-lvl">Lv. 1 (XP: 0/1000)</div>
+                        <div class="vc-camp-xp" id="vc-camp-lvl">Lv. 1 (XP: 0/100)</div>
                     </div>
                     <div>
                         <button class="vc-btn" id="vc-btn-grimoire" style="background:#f39c12; border-color:#d35400;">📖 Grimoire</button>
@@ -54,10 +56,13 @@ export function init(screens, onExit) {
             <div class="vc-grimoire-overlay" id="vc-grimoire-overlay" style="display:none;">
                 <div class="vc-grimoire-header">
                     <div class="vc-camp-title">The Grimoire</div>
-                    <div class="vc-grimoire-sp" id="vc-grimoire-sp">SP: 0</div>
+                    <div style="display:flex; gap:15px; align-items:center;">
+                        <div class="vc-grimoire-sp" id="vc-grimoire-sp">SP: 0</div>
+                        <button class="vc-btn" id="vc-btn-reset-skills" style="background:#e74c3c; border-color:#c0392b; padding:4px 8px; font-size:12px;">Reset</button>
+                    </div>
                 </div>
                 <div class="vc-skill-list" id="vc-skill-list"></div>
-                <button class="vc-btn" id="vc-btn-close-grimoire" style="margin-top:15px; padding:15px; background:#e74c3c; border-color:#c0392b;">Close Grimoire</button>
+                <button class="vc-btn" id="vc-btn-close-grimoire" style="margin-top:15px; padding:15px; background:#34495e; border-color:#2c3e50;">Close Grimoire</button>
             </div>
         `;
 
@@ -81,9 +86,15 @@ export function init(screens, onExit) {
         _screens.game.querySelector('#vc-btn-close-grimoire').onclick = () => {
             _screens.game.querySelector('#vc-grimoire-overlay').style.display = 'none';
         };
+        _screens.game.querySelector('#vc-btn-reset-skills').onclick = () => {
+            if (confirm('Refund all spent Skill Points?')) {
+                resetSkills(_meta);
+                _renderGrimoire();
+            }
+        };
         
         // Speed: cycle 1x → 2x → 3x → 5x → back to 1x
-        const SPEED_STEPS = [1, 2, 3, 5];
+        const SPEED_STEPS =[1, 2, 3, 5];
         _screens.game.querySelector('#vc-btn-speed').onclick = () => {
             if (!_engine) return;
             const idx = SPEED_STEPS.indexOf(_engine.speedMult);
@@ -120,7 +131,6 @@ export function init(screens, onExit) {
         };
     }
 
-    // Create the vocab overlay once at body level — never re-created, always reliable
     if (!document.getElementById('vc-vocab-modal')) {
         const modal = document.createElement('div');
         modal.id = 'vc-vocab-modal';
@@ -149,7 +159,6 @@ function _show(name) {
                 el.style.padding = '0';
                 el.style.overflow = 'hidden';
                 el.style.position = 'relative';
-                // Remove any scroll styles set by games_ui.js
                 el.style.overflowY = 'hidden';
             } else {
                 el.style.flexDirection = 'column';
@@ -202,7 +211,8 @@ function _showCamp() {
     _screens.game.querySelector('#vc-battle-layer').style.display = 'none';
     _screens.game.querySelector('#vc-camp-layer').style.display = 'flex';
     
-    const lvlText = `Lv. ${_meta.level} (XP: ${_meta.xp}/${_meta.level * 1000})`;
+    const nextReq = Math.floor(100 * Math.pow(1.15, _meta.level - 1));
+    const lvlText = `Lv. ${_meta.level} (XP: ${_meta.xp}/${nextReq})`;
     _screens.game.querySelector('#vc-camp-lvl').textContent = lvlText;
 
     const list = _screens.game.querySelector('#vc-stage-list');
@@ -247,7 +257,6 @@ function _renderGrimoire() {
         utility: '⚙️ Utility'
     };
 
-    // Render each group with a header
     const grouped = {};
     Object.entries(SKILL_DEFS).forEach(([key, def]) => {
         const g = def.group || 'utility';
@@ -266,8 +275,9 @@ function _renderGrimoire() {
 
         skills.forEach(([key, def]) => {
             const currentLvl = _meta.skills[key] || 0;
+            const cost = currentLvl + 1; // Triangular pricing
             const isMax = currentLvl >= def.max;
-            const canAfford = _meta.sp > 0 && !isMax;
+            const canAfford = _meta.sp >= cost && !isMax;
 
             const row = document.createElement('div');
             row.className = 'vc-skill-row';
@@ -278,14 +288,16 @@ function _renderGrimoire() {
                 </div>
                 <div style="display:flex; align-items:center;">
                     <span class="vc-skill-lvl">${currentLvl}/${def.max}</span>
-                    <button class="vc-skill-buy" ${!canAfford ? 'disabled' : ''}>+</button>
+                    <button class="vc-skill-buy" ${!canAfford ? 'disabled' : ''} style="width:auto; padding:0 8px; font-size:14px;">
+                        ${isMax ? 'MAX' : `+ (Cost: ${cost})`}
+                    </button>
                 </div>
             `;
 
             row.querySelector('.vc-skill-buy').onclick = () => {
-                if (_meta.sp > 0 && currentLvl < def.max) {
-                    _meta.sp--;
-                    _meta.skills[key]++;
+                if (_meta.sp >= cost && currentLvl < def.max) {
+                    _meta.sp -= cost;
+                    _meta.skills[key] = currentLvl + 1;
                     saveMeta(_meta);
                     _renderGrimoire();
                 }

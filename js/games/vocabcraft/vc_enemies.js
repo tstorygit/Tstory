@@ -10,7 +10,7 @@ export const ENEMY_TYPES = {
         armorBonus: 0,
         spawnCount: 1,       // how many per "slot" in the wave
         rewardMult: 1.0,
-        immune: [],          // can be: 'slow', 'poison'
+        immune:[],          // can be: 'slow', 'poison'
         regen: 0,            // HP regen per second (fraction of maxHp)
         desc: 'Standard enemy. No special traits.'
     },
@@ -23,7 +23,7 @@ export const ENEMY_TYPES = {
         armorBonus: 0,
         spawnCount: 1,
         rewardMult: 1.2,
-        immune: [],
+        immune:[],
         regen: 0,
         desc: 'Very fast but fragile. Punishes poor coverage.'
     },
@@ -36,7 +36,7 @@ export const ENEMY_TYPES = {
         armorBonus: 0,
         spawnCount: 3,       // 3 spawn per slot — overwhelms single-target towers
         rewardMult: 0.5,
-        immune: [],
+        immune:[],
         regen: 0,
         desc: 'Spawns 3 at once. Overwhelms single-target defenses.'
     },
@@ -49,7 +49,7 @@ export const ENEMY_TYPES = {
         armorBonus: 4,       // extra flat armor on top of wave base
         spawnCount: 1,
         rewardMult: 1.8,
-        immune: [],
+        immune:[],
         regen: 0,
         desc: '+4 Armor. Shrug off weak gems. Purple tears it apart.'
     },
@@ -62,7 +62,7 @@ export const ENEMY_TYPES = {
         armorBonus: 0,
         spawnCount: 1,
         rewardMult: 1.5,
-        immune: [],
+        immune:[],
         regen: 0.035,        // regens 3.5% maxHp per second — punishes slow DPS
         desc: 'Slowly regens HP. Needs burst damage to kill cleanly.'
     },
@@ -96,7 +96,7 @@ function wavePool(waveNum, tier) {
 // not every single enemy. Waves feel varied but readable.
 function pickWaveComposition(totalSlots, waveNum, tier) {
     const pool = wavePool(waveNum, tier);
-    const result = [];
+    const result =[];
 
     for (let i = 0; i < totalSlots; i++) {
         // Bias toward normal for first few slots, then random from pool
@@ -128,7 +128,7 @@ export function buildWaveEnemies(waveNum, tier, isBossWave, isEnraged, waypoints
         hpBase *= 4;
         const armor = Math.max(0, Math.floor((waveNum - 2) / 2) + (tier - 1)) + 3;
         const hp = hpBase * (isEnraged ? 1.5 : 1);
-        return [{
+        return[{
             delay: 0,
             typeId: 'boss',
             isBoss: true,
@@ -140,7 +140,7 @@ export function buildWaveEnemies(waveNum, tier, isBossWave, isEnraged, waypoints
             regen: 0.01,     // boss slowly regens too
             immune: [],
             x: waypoints[0].x, y: waypoints[0].y, wpIdx: 1,
-            effects: { slow: 0, slowTimer: 0, poison: 0, poisonTick: 0 }
+            effects: { slow: 0, slowTimer: 0, poison: 0, poisonTimer: 0, poisonTick: 0 }
         }];
     }
 
@@ -154,7 +154,7 @@ export function buildWaveEnemies(waveNum, tier, isBossWave, isEnraged, waypoints
     const enrageMult = isEnraged ? 1.5 : 1;
     const reward = isEnraged ? 3 : 1;
 
-    const enemies = [];
+    const enemies =[];
     let spawnIdx = 0;
 
     composition.forEach(typeId => {
@@ -178,7 +178,7 @@ export function buildWaveEnemies(waveNum, tier, isBossWave, isEnraged, waypoints
                 regen: typeDef.regen,
                 immune: [...typeDef.immune],
                 x: waypoints[0].x, y: waypoints[0].y, wpIdx: 1,
-                effects: { slow: 0, slowTimer: 0, poison: 0, poisonTick: 0 }
+                effects: { slow: 0, slowTimer: 0, poison: 0, poisonTimer: 0, poisonTick: 0 }
             });
             spawnIdx++;
         }
