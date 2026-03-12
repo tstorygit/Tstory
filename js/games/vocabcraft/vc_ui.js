@@ -1,4 +1,3 @@
-
 import { GEMS, CONSTANTS, gemTotalCostColor, gemUpgradeCost, gemDamage, gemFireSpeed, gemRange, gemCritChance, gemCritMult, gemPoisonDps, gemSlowAmount, gemManaDrain, gemArmorTear } from './vc_engine.js';
 import { TILE_PATH, TILE_GRASS } from './vc_mapgen.js';
 
@@ -348,9 +347,9 @@ export class VcUI {
         const range = gemRange(gem, isTrap, this.tileSize);
         
         // Accurate trap multipliers for the UI display
-        const trapDmgMult = isTrap ? 0.10 + (this.engine.meta.skills.trapSpecialty || 0) * 0.01 : 1;
-        const trapSpecMult = isTrap ? 2.5 + (this.engine.meta.skills.trapSpecialty || 0) * 0.1 : 1;
-        const trapFireMult = isTrap ? 1 + (this.engine.meta.skills.trapSpecialty || 0) * 0.01 : 1;
+        const trapDmgMult = isTrap ? 0.20 + ((this.engine.meta.skills.trapSpecialty || 0) * 0.01) : 1;
+        const trapSpecMult = isTrap ? 2.5 + ((this.engine.meta.skills.trapSpecialty || 0) * 0.1) : 1;
+        const trapFireMult = isTrap ? 3.0 + ((this.engine.meta.skills.trapSpecialty || 0) * 0.02) : 1;
 
         const stats =[
             { icon: '🏹', label: 'Range',  val: range + 'px' },
@@ -584,7 +583,7 @@ export class VcUI {
         if (e.effects.poison > 0) effects.push(`☠️ Poison ${Math.floor(e.effects.poison)}/s`);
         if (e.regen > 0) effects.push(`💚 Regen ${(e.regen*100).toFixed(1)}%/s`);
 
-        const immunities =[];
+        const immunities =  const immunities = [];
         if (e.immune?.includes('slow')) immunities.push('❄️Slow');
         if (e.immune?.includes('poison')) immunities.push('☠️Poison');
 

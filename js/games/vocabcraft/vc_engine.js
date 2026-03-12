@@ -5,7 +5,7 @@ export const GEMS = {
     red:    { label: 'Ruby',     color: '#e74c3c', type: 'dmg',   baseDmg: 18, speed: 1.5 },
     blue:   { label: 'Sapphire', color: '#3498db', type: 'slow',  baseDmg: 4,  speed: 1.0, baseSlow: 0.15 },
     green:  { label: 'Emerald',  color: '#2ecc71', type: 'poison',baseDmg: 4,  speed: 1.0, basePoison: 1.5 },
-    orange: { label: 'Topaz',    color: '#f39c12', type: 'mana',  baseDmg: 6,  speed: 1.2, baseMana: 0.2 }, 
+    orange: { label: 'Topaz',    color: '#f39c12', type: 'mana',  baseDmg: 6,  speed: 1.2, baseMana: 0.4 }, // Compensating for lack of Amplifiers
     yellow: { label: 'Citrine',  color: '#f1c40f', type: 'crit',  baseDmg: 8,  speed: 1.0, baseCrit: 0.10, baseMult: 3 },
     purple: { label: 'Amethyst', color: '#9b59b6', type: 'armor', baseDmg: 5,  speed: 1.0, baseTear: 0.2 }
 };
@@ -21,7 +21,7 @@ export const CONSTANTS = {
     vocabPenalty: 10,
     playerBaseHp: 20,
     towerBaseRange: 2.5,    // in tiles — multiplied by tileSize at render time
-    trapBaseRange:  0.5     // in tiles (Exactly 1-tile diameter for traps)
+    trapBaseRange:  0.6     // in tiles (slightly wider than 0.5 to catch corner-cutters)
 };
 
 // ─── Building cost functions ─────────────────────────────────────────────────
@@ -67,7 +67,8 @@ export function gemDamage(gem, gemData, skills = {}) {
 }
 export function gemFireSpeed(gem, gemData, skills = {}) {
     const haste = 1 + ((skills.haste || 0) * 0.02);
-    return Math.min(4.0, gemData.speed * Math.pow(1.18, gem.level - 1) * haste);
+    // GCFW caps speeds very high (30+). Removed the stifling 4.0 cap.
+    return Math.min(30.0, gemData.speed * Math.pow(1.18, gem.level - 1) * haste);
 }
 export function gemRange(gem, isTrap = false, tileSize = 40) {
     const baseTiles = isTrap ? CONSTANTS.trapBaseRange : CONSTANTS.towerBaseRange;
@@ -111,8 +112,8 @@ export class VcEngine {
         };
 
         this.enemies = [];
-        this.projectiles = [];
-        this.structures =[];
+        this.projectiles =[];
+        this.structures = [];
 
         this.spawnQueue =[];
         this._nextSpawnDelay = 0;
@@ -290,7 +291,8 @@ export class VcEngine {
                 const targets = this.enemies.filter(e => Math.hypot(e.x - st.x, e.y - st.y) < range);
                 if (targets.length > 0) {
                     targets.forEach(t => this.applyGemEffect(t, st.gem, gemData, true, st));
-                    const trapFireMult = 1 + (this.meta.skills.trapSpecialty || 0) * 0.01;
+                    // GCFW Trap Fire Rate: +200% Base (3x faster than towers) + Skills
+                    const trapFireMult = 3.0 + ((this.meta.skills.trapSpecialty || 0) * 0.02);
                     st.cooldown = 1 / (gemFireSpeed(st.gem, gemData, this.meta.skills) * trapFireMult);
                 }
             }
@@ -332,7 +334,8 @@ export class VcEngine {
         let specialMult = 1;
 
         if (isTrap) { 
-            const trapDmgMult = 0.10 + ((this.meta.skills.trapSpecialty || 0) * 0.01);
+            // GCFW Trap Multipliers: 20% Damage, 2.5x Specials
+            const trapDmgMult = 0.20 + ((this.meta.skills.trapSpecialty || 0) * 0.01);
             specialMult = 2.5 + ((this.meta.skills.trapSpecialty || 0) * 0.1);
             dmg = Math.max(1, dmg * trapDmgMult);
         }
