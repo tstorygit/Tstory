@@ -78,7 +78,6 @@ export function showCard(mode, container, onResolve) {
                     'pointer-events:none', 'z-index:9999',
                     'transition:transform 0.12s ease-out, opacity 0.15s ease-in 0.08s'
                 ].join(';');
-                container.style.position = 'relative';
                 container.appendChild(badge);
                 requestAnimationFrame(() => { badge.style.transform = 'translate(-50%,-50%) scale(1)'; });
 
