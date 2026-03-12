@@ -65,7 +65,7 @@ export function showCard(mode, container, onResolve) {
                 word: wordObj.word,
                 furi: wordObj.furi,
                 translation: wordObj.trans
-            }, isCorrect ? 3 : 0, true);
+            }, isCorrect ? 2 : 0, true);
 
             [...grid.children].forEach(b => b.disabled = true);
 

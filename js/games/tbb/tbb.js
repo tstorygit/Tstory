@@ -552,7 +552,7 @@ function _onAnswer(idx, timedOut = false) {
         word: word.word,
         furi: word.furi,
         translation: word.trans
-    }, isCorrect ? 3 : 0, true);
+    }, isCorrect ? 2 : 0, true);
 
     // Highlight buttons
     _markMcButtons(idx, isCorrect);
