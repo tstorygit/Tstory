@@ -27,8 +27,7 @@ export function init(screens, onExit) {
                         <div class="vc-camp-xp" id="vc-camp-lvl">Lv. 1 (XP: 0/1000)</div>
                     </div>
                     <div>
-                        <button class="vc-btn" id="vc-btn-grimoire" style="background:#f39c12; border-color:#d35400;">Grimoire</button>
-                        <button class="vc-btn" id="vc-btn-camp-exit" style="background:#e74c3c; border-color:#c0392b;">Exit</button>
+                        <button class="vc-btn" id="vc-btn-grimoire" style="background:#f39c12; border-color:#d35400; margin-right:50px;">📖 Grimoire</button>
                     </div>
                 </div>
                 <div class="vc-stage-list" id="vc-stage-list"></div>
@@ -62,7 +61,6 @@ export function init(screens, onExit) {
             </div>
         `;
 
-        _screens.game.querySelector('#vc-btn-camp-exit').onclick = _onExit;
         _screens.game.querySelector('#vc-btn-grimoire').onclick = () => {
             _renderGrimoire();
             _screens.game.querySelector('#vc-grimoire-overlay').style.display = 'flex';
@@ -103,10 +101,22 @@ export function launch() {
 function _show(name) {
     Object.entries(_screens).forEach(([k, el]) => {
         if (!el) return;
-        el.style.display = k === name ? 'flex' : 'none';
-        if (k === 'game' && name === 'game') {
-            el.style.flexDirection = 'column';
-            el.style.padding = '0';
+        if (k === name) {
+            el.style.display = 'flex';
+            el.style.minHeight = '0';
+            if (k === 'game') {
+                el.style.flexDirection = 'column';
+                el.style.padding = '0';
+                el.style.overflow = 'hidden';
+            } else {
+                // setup and other content screens: scroll vertically
+                el.style.flexDirection = 'column';
+                el.style.overflowY = 'auto';
+                el.style.paddingBottom = '70px';
+                el.style.webkitOverflowScrolling = 'touch';
+            }
+        } else {
+            el.style.display = 'none';
         }
     });
     const hdr = document.getElementById('games-header-title');

@@ -118,6 +118,11 @@ function _ensureScreens() {
             div.id = divId;
             if (cfg.classes) div.className = cfg.classes;
             div.style.display = 'none';
+            // Ensure screens can scroll independently inside the flex view
+            div.style.flex = '1';
+            div.style.minHeight = '0';
+            div.style.overflowY = 'auto';
+            div.style.webkitOverflowScrolling = 'touch';
             if (cfg.style) div.style.cssText += cfg.style;
             container.appendChild(div);
         }
@@ -167,6 +172,11 @@ function showList() {
     const listEl = document.getElementById('games-list-screen');
     if (!listEl) return;
     listEl.style.display = 'block';
+    listEl.style.flex = '1';
+    listEl.style.minHeight = '0';
+    listEl.style.overflowY = 'auto';
+    listEl.style.webkitOverflowScrolling = 'touch';
+    listEl.style.paddingBottom = '70px'; // clear the floating ... button
 
     const hdr = document.getElementById('games-header-title');
     if (hdr) hdr.textContent = 'Mini Games';
