@@ -1,36 +1,33 @@
 const SAVE_KEY = 'vocabcraft_save';
 
+// All skills use max:20 and small-per-level increments (like GC2's node system).
+// Cost-reduction skills: 1%/level → max −20%. Mastery skills: small flat/% per level.
 export const SKILL_DEFS = {
-    // ── Economy: mana income ──────────────────────────────────────────────────
-    startMana:      { name: "Starting Mana",      desc: "+50 Starting Mana per level.", max: 10, group: 'economy' },
+    // ── Economy ───────────────────────────────────────────────────────────────
+    startMana:       { name: "Arcane Reserves",    desc: "+25 starting mana per level (max +500).",             max: 20, group: 'economy' },
+    towerDiscount:   { name: "Mason's Art",        desc: "-1% Tower build cost per level (max -40%).",          max: 40, group: 'economy' },
+    trapDiscount:    { name: "Trap Smith",         desc: "-1% Trap build cost per level (max -40%).",           max: 40, group: 'economy' },
+    combineDiscount: { name: "Arcane Fusion",      desc: "-1% gem combine fee per level (max -40%).",           max: 40, group: 'economy' },
 
-    // ── Economy: building costs ───────────────────────────────────────────────
-    towerDiscount:  { name: "Mason's Art",         desc: "-5% Tower cost per level.",   max: 5,  group: 'economy' },
-    trapDiscount:   { name: "Trap Smith",          desc: "-5% Trap cost per level.",    max: 5,  group: 'economy' },
-
-    // ── Economy: gem costs ────────────────────────────────────────────────────
-    gemDiscount:    { name: "Gem Cutter",          desc: "-5% base gem cost per level (all colors).", max: 5, group: 'economy' },
-    combineDiscount:{ name: "Arcane Fusion",       desc: "-5% combine fee per level.",  max: 10, group: 'economy' },
-
-    // ── Per-gem color cost discounts ──────────────────────────────────────────
-    redCost:        { name: "Ruby Forging",        desc: "-8% Ruby purchase/upgrade cost per level.",    max: 5, group: 'gems' },
-    blueCost:       { name: "Sapphire Forging",    desc: "-8% Sapphire purchase/upgrade cost per level.",max: 5, group: 'gems' },
-    greenCost:      { name: "Emerald Forging",     desc: "-8% Emerald purchase/upgrade cost per level.", max: 5, group: 'gems' },
-    orangeCost:     { name: "Topaz Forging",       desc: "-8% Topaz purchase/upgrade cost per level.",   max: 5, group: 'gems' },
-    yellowCost:     { name: "Citrine Forging",     desc: "-8% Citrine purchase/upgrade cost per level.", max: 5, group: 'gems' },
-    purpleCost:     { name: "Amethyst Forging",    desc: "-8% Amethyst purchase/upgrade cost per level.",max: 5, group: 'gems' },
+    // ── Gem forging costs (1%/lv, compounds through upgrades) ────────────────
+    redCost:         { name: "Ruby Forging",       desc: "-1% Ruby base & combine cost per level (max -40%).",    max: 40, group: 'gems' },
+    blueCost:        { name: "Sapphire Forging",   desc: "-1% Sapphire base & combine cost per level (max -40%).",max: 40, group: 'gems' },
+    greenCost:       { name: "Emerald Forging",    desc: "-1% Emerald base & combine cost per level (max -40%).", max: 40, group: 'gems' },
+    orangeCost:      { name: "Topaz Forging",      desc: "-1% Topaz base & combine cost per level (max -40%).",   max: 40, group: 'gems' },
+    yellowCost:      { name: "Citrine Forging",    desc: "-1% Citrine base & combine cost per level (max -40%).", max: 40, group: 'gems' },
+    purpleCost:      { name: "Amethyst Forging",   desc: "-1% Amethyst base & combine cost per level (max -40%).",max: 40, group: 'gems' },
 
     // ── Gem combat masteries ──────────────────────────────────────────────────
-    redMastery:     { name: "Ruby Mastery",        desc: "+10% Red Gem Damage.",           max: 10, group: 'mastery' },
-    blueMastery:    { name: "Sapphire Mastery",    desc: "+5% Blue Slow Effect.",           max: 10, group: 'mastery' },
-    greenMastery:   { name: "Emerald Mastery",     desc: "+15% Green Poison Damage.",       max: 10, group: 'mastery' },
-    orangeMastery:  { name: "Topaz Mastery",       desc: "+1 Mana Leech per hit.",          max: 10, group: 'mastery' },
-    yellowMastery:  { name: "Citrine Mastery",     desc: "+2% Crit Chance.",                max: 10, group: 'mastery' },
-    purpleMastery:  { name: "Amethyst Mastery",    desc: "+1 Armor Tear per hit.",          max: 10, group: 'mastery' },
+    redMastery:      { name: "Ruby Mastery",       desc: "+1% Ruby damage per level (max +20%).",                max: 20, group: 'mastery' },
+    blueMastery:     { name: "Sapphire Mastery",   desc: "+1% Slow strength per level (max +20%).",              max: 20, group: 'mastery' },
+    greenMastery:    { name: "Emerald Mastery",    desc: "+2% Poison DPS per level (max +40%).",                 max: 20, group: 'mastery' },
+    orangeMastery:   { name: "Topaz Mastery",      desc: "+0.2 flat mana leech per hit per level (max +4).",     max: 20, group: 'mastery' },
+    yellowMastery:   { name: "Citrine Mastery",    desc: "+0.5% crit chance per level (max +10%).",              max: 20, group: 'mastery' },
+    purpleMastery:   { name: "Amethyst Mastery",   desc: "+0.1 flat armor tear per hit per level (max +2).",     max: 20, group: 'mastery' },
 
     // ── Utility ───────────────────────────────────────────────────────────────
-    trapEng:        { name: "Trap Engineering",    desc: "+10% Trap Fire Rate.",            max: 5,  group: 'utility' },
-    scholarGrace:   { name: "Scholar's Grace",     desc: "+2% Global Damage per Combo.",   max: 5,  group: 'utility' }
+    trapEng:         { name: "Trap Engineering",   desc: "+1% Trap fire rate per level (max +20%).",             max: 20, group: 'utility' },
+    scholarGrace:    { name: "Scholar's Grace",    desc: "+0.5% global damage per combo stack per level.",       max: 20, group: 'utility' }
 };
 
 export function getDefaultSave() {
@@ -39,16 +36,10 @@ export function getDefaultSave() {
         level: 1,
         sp: 0,
         skills: {
-            // economy
-            startMana: 0, towerDiscount: 0, trapDiscount: 0,
-            gemDiscount: 0, combineDiscount: 0,
-            // per-color cost
-            redCost: 0, blueCost: 0, greenCost: 0,
-            orangeCost: 0, yellowCost: 0, purpleCost: 0,
-            // mastery
+            startMana: 0, towerDiscount: 0, trapDiscount: 0, combineDiscount: 0,
+            redCost: 0, blueCost: 0, greenCost: 0, orangeCost: 0, yellowCost: 0, purpleCost: 0,
             redMastery: 0, blueMastery: 0, greenMastery: 0,
             orangeMastery: 0, yellowMastery: 0, purpleMastery: 0,
-            // utility
             trapEng: 0, scholarGrace: 0
         },
         highestTierCleared: 0

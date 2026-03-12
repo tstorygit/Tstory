@@ -31,16 +31,16 @@ export const CONSTANTS = {
 };
 
 // ─── Building cost functions ─────────────────────────────────────────────────
-// skills.towerDiscount: -5% per level (max 5 levels = -25%)
-// skills.trapDiscount:  -5% per level (max 5 levels = -25%)
+// skills.towerDiscount: -1% per level (max 20 levels = -20%)
+// skills.trapDiscount:  -1% per level (max 20 levels = -20%)
 export function towerCost(towerCount, skills = {}) {
     const base = CONSTANTS.towerCostBase + towerCount * CONSTANTS.towerCostInc;
-    const disc = 1 - ((skills.towerDiscount || 0) * 0.05);
+    const disc = 1 - ((skills.towerDiscount || 0) * 0.01);
     return Math.floor(base * disc);
 }
 export function trapCost(trapCount, skills = {}) {
     const base = CONSTANTS.trapCostBase + trapCount * CONSTANTS.trapCostInc;
-    const disc = 1 - ((skills.trapDiscount || 0) * 0.05);
+    const disc = 1 - ((skills.trapDiscount || 0) * 0.01);
     return Math.floor(base * disc);
 }
 
@@ -73,16 +73,15 @@ export function trapCost(trapCount, skills = {}) {
 //   Level 4 total: 2160    upgrade to 5: 2400
 //   Level 5 total: 4560    upgrade to 6: 4800
 //
-// skills.combineDiscount: -5% per level on combineCost (max 10 levels = -50%)
-// skills.gemDiscount:     -5% per level on gemBaseCost  (max 5 levels = -25%)
-// Per-gem color discount skills (redCost, blueCost, etc.): -8% per level (max 5)
+// skills.combineDiscount: -1% per level (max 20 = -20%)
+// Per-gem color discount skills (redCost, blueCost, etc.): -1% per level (max 20 = -20%)
 export function gemCombineCost(skills = {}) {
-    const disc = 1 - ((skills.combineDiscount || 0) * 0.05);
+    const disc = 1 - ((skills.combineDiscount || 0) * 0.01);
     return Math.floor(CONSTANTS.gemCombineCost * disc);
 }
 export function gemBaseCost(skills = {}) {
-    const disc = 1 - ((skills.gemDiscount || 0) * 0.05);
-    return Math.floor(CONSTANTS.gemBaseCost * disc);
+    // No global gem discount skill — use per-color skills instead
+    return CONSTANTS.gemBaseCost;
 }
 export function gemTotalCostColor(color, level, skills = {}) {
     // Total mana to build a gem of `color` at `level` from scratch.
@@ -96,7 +95,7 @@ export function gemTotalCostColor(color, level, skills = {}) {
     // Example with redCost=5 (−40%):
     //   base=36, combine=144
     //   Lv1=36, Lv2=216, Lv3=576, Lv4=1296  (vs no-skill: 60, 360, 960, 2160 — exactly 60%)
-    const colorDisc = 1 - ((skills[color + 'Cost'] || 0) * 0.08);
+    const colorDisc = 1 - ((skills[color + 'Cost'] || 0) * 0.01);
     const base    = Math.floor(gemBaseCost(skills) * colorDisc);
     const combine = Math.floor(gemCombineCost(skills) * colorDisc);
     if (level <= 1) return base;
@@ -110,7 +109,7 @@ export function gemTotalCostColor(color, level, skills = {}) {
 export function gemUpgradeCost(color, level, skills = {}) {
     // Cost to upgrade FROM level n TO n+1 when you already own one gem of level n.
     // Buy one more Lv-n gem of the same color, then pay the (color-discounted) combine fee.
-    const colorDisc = 1 - ((skills[color + 'Cost'] || 0) * 0.08);
+    const colorDisc = 1 - ((skills[color + 'Cost'] || 0) * 0.01);
     const combine   = Math.floor(gemCombineCost(skills) * colorDisc);
     return gemTotalCostColor(color, level, skills) + combine;
 }
@@ -153,7 +152,7 @@ export class VcEngine {
 
         this.state = {
             hp: CONSTANTS.playerBaseHp,
-            mana: 200 + (meta.skills.startMana * 50),
+            mana: 200 + (meta.skills.startMana * 25),
             wave: 0,
             maxWaves: 5 + (tier * 2),
             status: 'planning',
@@ -173,8 +172,8 @@ export class VcEngine {
         this.selectedEnemyId = null;
 
         this.buffs = {
-            dmgMult: 1 + (meta.skills.scholarGrace * 0.02 * this.state.combo),
-            trapSpeed: 1 + (meta.skills.trapEng * 0.1)
+            dmgMult: 1 + (meta.skills.scholarGrace * 0.005 * this.state.combo),
+            trapSpeed: 1 + (meta.skills.trapEng * 0.01)
         };
     }
 
@@ -207,7 +206,7 @@ export class VcEngine {
         this.updateStructures(dt);
         this.updateProjectiles(dt);
 
-        this.buffs.dmgMult = 1 + (this.meta.skills.scholarGrace * 0.02 * this.state.combo);
+        this.buffs.dmgMult = 1 + (this.meta.skills.scholarGrace * 0.005 * this.state.combo);
         this.onUpdate(this);
 
         if (this.state.hp <= 0) {
@@ -382,21 +381,22 @@ export class VcEngine {
 
         if (isTrap) { dmg = Math.max(1, dmg * 0.3); specialMult = 3; }
 
-        if (gem.color === 'red') dmg *= (1 + this.meta.skills.redMastery * 0.1);
+        if (gem.color === 'red') dmg *= (1 + this.meta.skills.redMastery * 0.01);
         dmg *= this.buffs.dmgMult;
 
         let finalDmg = Math.max(1, dmg - Math.max(0, enemy.armor));
 
         switch (gemData.type) {
             case 'crit': {
-                const chance = Math.min(0.9, gemCritChance(gem) * specialMult);
+                const baseChance = gemCritChance(gem) + (this.meta.skills.yellowMastery * 0.005);
+                const chance = Math.min(0.9, baseChance * specialMult);
                 if (Math.random() < chance) finalDmg *= gemCritMult(gem);
                 break;
             }
             case 'slow': {
                 if (!enemy.immune.includes('slow')) {
                     let slow = gemSlowAmount(gem, gemData) * specialMult;
-                    if (gem.color === 'blue') slow *= (1 + this.meta.skills.blueMastery * 0.05);
+                    if (gem.color === 'blue') slow *= (1 + this.meta.skills.blueMastery * 0.01);
                     enemy.effects.slow = Math.min(0.70, slow);
                     enemy.effects.slowTimer = 3;
                 }
@@ -405,7 +405,7 @@ export class VcEngine {
             case 'poison': {
                 if (!enemy.immune.includes('poison')) {
                     let pDmg = gemPoisonDps(gem, gemData) * specialMult;
-                    if (gem.color === 'green') pDmg *= (1 + this.meta.skills.greenMastery * 0.15);
+                    if (gem.color === 'green') pDmg *= (1 + this.meta.skills.greenMastery * 0.02);
                     enemy.effects.poison = pDmg;
                     enemy.effects.poisonTick = 1.0;
                 }
@@ -413,13 +413,13 @@ export class VcEngine {
             }
             case 'mana': {
                 let mana = gemManaDrain(gem, gemData) * specialMult;
-                if (gem.color === 'orange') mana += this.meta.skills.orangeMastery;
+                if (gem.color === 'orange') mana += this.meta.skills.orangeMastery * 0.2;
                 this.state.mana += mana;
                 break;
             }
             case 'armor': {
                 let tear = gemArmorTear(gem, gemData) * specialMult;
-                if (gem.color === 'purple') tear += this.meta.skills.purpleMastery;
+                if (gem.color === 'purple') tear += this.meta.skills.purpleMastery * 0.1;
                 enemy.armor = Math.max(0, enemy.armor - tear);
                 break;
             }

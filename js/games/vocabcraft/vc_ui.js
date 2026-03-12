@@ -227,11 +227,13 @@ export class VcUI {
 
         if (!st.structRef) {
             if (st.type === TILE_GRASS) {
-                this.createBtn(`🏰 Tower (${CONSTANTS.towerCost})`, mana >= CONSTANTS.towerCost, CONSTANTS.towerCost, () => {
+                const tCost = this.engine.getBuildCost('tower');
+                this.createBtn(`🏰 Tower (${tCost})`, mana >= tCost, tCost, () => {
                     if (this.engine.addStructure(st.x, st.y, 'tower')) this.selectTile(st.r, st.c, st.type);
                 });
             } else if (st.type === TILE_PATH) {
-                this.createBtn(`⚙️ Trap (${CONSTANTS.trapCost})`, mana >= CONSTANTS.trapCost, CONSTANTS.trapCost, () => {
+                const pCost = this.engine.getBuildCost('trap');
+                this.createBtn(`⚙️ Trap (${pCost})`, mana >= pCost, pCost, () => {
                     if (this.engine.addStructure(st.x, st.y, 'trap')) this.selectTile(st.r, st.c, st.type);
                 });
             } else {
