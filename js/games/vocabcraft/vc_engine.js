@@ -11,33 +11,108 @@ export const GEMS = {
 };
 
 export const CONSTANTS = {
-    towerCost: 50,
-    trapCost: 50,
-    gemBaseCost: 100,
+    // Building costs — match GCFW table exactly:
+    //   # built | Tower | Trap
+    //   1st      | 100   | 75
+    //   2nd      | 138   | 100
+    //   3rd      | 176   | 125
+    //   4th      | 214   | 150
+    //   5th      | 252   | 175
+    towerCostBase: 100,
+    towerCostInc: 38,
+    trapCostBase: 75,
+    trapCostInc: 25,
+    gemBaseCost: 60,        // cost of a fresh level-1 gem
+    gemCombineCost: 240,    // fixed combine fee
     vocabPenalty: 10,
     playerBaseHp: 20,
     towerBaseRange: 100,
     trapBaseRange: 28
 };
 
+// ─── Building cost functions ─────────────────────────────────────────────────
+// skills.towerDiscount: -5% per level (max 5 levels = -25%)
+// skills.trapDiscount:  -5% per level (max 5 levels = -25%)
+export function towerCost(towerCount, skills = {}) {
+    const base = CONSTANTS.towerCostBase + towerCount * CONSTANTS.towerCostInc;
+    const disc = 1 - ((skills.towerDiscount || 0) * 0.05);
+    return Math.floor(base * disc);
+}
+export function trapCost(trapCount, skills = {}) {
+    const base = CONSTANTS.trapCostBase + trapCount * CONSTANTS.trapCostInc;
+    const disc = 1 - ((skills.trapDiscount || 0) * 0.05);
+    return Math.floor(base * disc);
+}
+
 // ─── Gemcraft: Frostborn Wrath exact scaling ────────────────────────────────
 // Multipliers derived directly from the GCFW combining formula (pure same-grade
 // combine = one upgrade): combined = c1*best + c2*worst, A=B for pure gems.
 //
-//   Damage:     (0.83+0.71) = ×1.54/grade  — notably weaker than other stats
+//   Damage:     (0.83+0.71) = ×1.54/grade
 //   Poison:     (0.96+0.85) = ×1.81/grade
-//   Mana gain:  (0.88+0.50) = ×1.38/grade  — weakest special, always worthwhile
+//   Mana gain:  (0.88+0.50) = ×1.38/grade
 //   Armor tear: (0.98+0.92) = ×1.90/grade
-//   Crit mult:  (0.88+0.50) = ×1.38/grade  — same coeff as mana in GCFW
+//   Crit mult:  (0.88+0.50) = ×1.38/grade
 //   Crit chance:(0.81+0.35) = ×1.16/grade  (implemented as +4%/level instead)
 //   Fire speed: (0.74+0.44) = ×1.18/grade  (capped at 4/s)
 //   Range:      (0.694+0.388)= ×1.08/grade
 //   Slow power: (0.91+0.45) = ×1.36/grade  (capped at 70% per GCFW)
 //
-// Cost always doubles: 100 → 200 → 400 → 800 → 1600 ...
-// Every stat is always LESS than ×2 per level — core Gemcraft design principle.
-export function gemUpgradeCost(level) {
-    return Math.floor(CONSTANTS.gemBaseCost * Math.pow(2, level - 1));
+// ─── Gem cost formula ────────────────────────────────────────────────────────
+// totalCost(n) = total mana to build a gem of level n from scratch:
+//   totalCost(1) = gemBaseCost = 60
+//   totalCost(n) = 2 × totalCost(n-1) + combineCost
+//
+// upgradeFromHere(n) = cost when you already OWN a level-n gem and want n+1
+//   = totalCost(n) + combineCost   (you only need to buy one more gem of level n)
+//
+// Example values (no skill discounts):
+//   Level 1 total: 60      upgrade to 2: 300
+//   Level 2 total: 360     upgrade to 3: 600
+//   Level 3 total: 960     upgrade to 4: 1200
+//   Level 4 total: 2160    upgrade to 5: 2400
+//   Level 5 total: 4560    upgrade to 6: 4800
+//
+// skills.combineDiscount: -5% per level on combineCost (max 10 levels = -50%)
+// skills.gemDiscount:     -5% per level on gemBaseCost  (max 5 levels = -25%)
+// Per-gem color discount skills (redCost, blueCost, etc.): -8% per level (max 5)
+export function gemCombineCost(skills = {}) {
+    const disc = 1 - ((skills.combineDiscount || 0) * 0.05);
+    return Math.floor(CONSTANTS.gemCombineCost * disc);
+}
+export function gemBaseCost(skills = {}) {
+    const disc = 1 - ((skills.gemDiscount || 0) * 0.05);
+    return Math.floor(CONSTANTS.gemBaseCost * disc);
+}
+export function gemTotalCostColor(color, level, skills = {}) {
+    // Total mana to build a gem of `color` at `level` from scratch.
+    //
+    // Per-color skill (e.g. redCost) reduces BOTH the base gem price AND the combine
+    // fee for that color, so the discount compounds through every upgrade tier correctly.
+    //
+    // Formula:  totalCost(1) = floor(baseCost * colorDisc)
+    //           totalCost(n) = 2 * totalCost(n-1) + floor(combineCost * colorDisc)
+    //
+    // Example with redCost=5 (−40%):
+    //   base=36, combine=144
+    //   Lv1=36, Lv2=216, Lv3=576, Lv4=1296  (vs no-skill: 60, 360, 960, 2160 — exactly 60%)
+    const colorDisc = 1 - ((skills[color + 'Cost'] || 0) * 0.08);
+    const base    = Math.floor(gemBaseCost(skills) * colorDisc);
+    const combine = Math.floor(gemCombineCost(skills) * colorDisc);
+    if (level <= 1) return base;
+    // Use a helper that reuses the already-computed base/combine scalars
+    function inner(n) {
+        if (n <= 1) return base;
+        return 2 * inner(n - 1) + combine;
+    }
+    return inner(level);
+}
+export function gemUpgradeCost(color, level, skills = {}) {
+    // Cost to upgrade FROM level n TO n+1 when you already own one gem of level n.
+    // Buy one more Lv-n gem of the same color, then pay the (color-discounted) combine fee.
+    const colorDisc = 1 - ((skills[color + 'Cost'] || 0) * 0.08);
+    const combine   = Math.floor(gemCombineCost(skills) * colorDisc);
+    return gemTotalCostColor(color, level, skills) + combine;
 }
 export function gemDamage(gem, gemData) {
     return gemData.baseDmg * Math.pow(1.54, gem.level - 1);
@@ -78,7 +153,7 @@ export class VcEngine {
 
         this.state = {
             hp: CONSTANTS.playerBaseHp,
-            mana: 150 + (meta.skills.startMana * 50),
+            mana: 200 + (meta.skills.startMana * 50),
             wave: 0,
             maxWaves: 5 + (tier * 2),
             status: 'planning',
@@ -322,7 +397,7 @@ export class VcEngine {
                 if (!enemy.immune.includes('slow')) {
                     let slow = gemSlowAmount(gem, gemData) * specialMult;
                     if (gem.color === 'blue') slow *= (1 + this.meta.skills.blueMastery * 0.05);
-                    enemy.effects.slow = Math.min(0.8, slow);
+                    enemy.effects.slow = Math.min(0.70, slow);
                     enemy.effects.slowTimer = 3;
                 }
                 break;
@@ -355,12 +430,23 @@ export class VcEngine {
     }
 
     addStructure(x, y, type) {
-        const cost = type === 'tower' ? CONSTANTS.towerCost : CONSTANTS.trapCost;
+        const count = this.structures.filter(s => s.type === type).length;
+        const cost = type === 'tower' ? towerCost(count, this.meta.skills) : trapCost(count, this.meta.skills);
         if (this.state.mana >= cost) {
             this.state.mana -= cost;
             this.structures.push({ x, y, type, gem: null });
             return true;
         }
         return false;
+    }
+    getBuildCost(type) {
+        const count = this.structures.filter(s => s.type === type).length;
+        return type === 'tower' ? towerCost(count, this.meta.skills) : trapCost(count, this.meta.skills);
+    }
+    getGemBuyCost(color) {
+        return gemTotalCostColor(color, 1, this.meta.skills);
+    }
+    getGemUpgradeCost(color, level) {
+        return gemUpgradeCost(color, level, this.meta.skills);
     }
 }

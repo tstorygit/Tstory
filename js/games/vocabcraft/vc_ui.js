@@ -1,4 +1,4 @@
-import { GEMS, CONSTANTS, gemUpgradeCost, gemDamage, gemFireSpeed, gemRange, gemCritChance, gemCritMult, gemPoisonDps, gemSlowAmount, gemManaDrain, gemArmorTear } from './vc_engine.js';
+import { GEMS, CONSTANTS, gemTotalCostColor, gemUpgradeCost, gemDamage, gemFireSpeed, gemRange, gemCritChance, gemCritMult, gemPoisonDps, gemSlowAmount, gemManaDrain, gemArmorTear } from './vc_engine.js';
 import { TILE_PATH, TILE_GRASS } from './vc_mapgen.js';
 
 export class VcUI {
@@ -244,10 +244,11 @@ export class VcUI {
             Object.entries(GEMS).forEach(([color, data]) => {
                 const btn = document.createElement('button');
                 btn.className = `vc-btn gem-${color}`;
-                btn.textContent = `${data.label} (100)`;
-                btn.disabled = mana < CONSTANTS.gemBaseCost;
-                btn.dataset.manaCost = CONSTANTS.gemBaseCost;
-                btn.onclick = () => this.handleVocabAction(CONSTANTS.gemBaseCost, () => {
+                const cost = gemTotalCostColor(color, 1, this.engine.meta.skills);
+                btn.textContent = `${data.label} (${cost})`;
+                btn.disabled = mana < cost;
+                btn.dataset.manaCost = cost;
+                btn.onclick = () => this.handleVocabAction(cost, () => {
                     st.structRef.gem = { color, level: 1 };
                     this.selectTile(st.r, st.c, st.type);
                 });
@@ -264,8 +265,9 @@ export class VcUI {
         const gemDef = GEMS[gem.color];
         const isTrap = structRef.type === 'trap';
         const lvl = gem.level;
-        // Exponential cost: 100 × 2^(level-1) — doubles each upgrade
-        const cost = gemUpgradeCost(lvl);
+        // upgradeFromHere: totalCost(color, lvl, skills) + combineCost(skills)
+        // = cost of buying one more gem of this level plus the combine fee
+        const cost = gemUpgradeCost(gem.color, lvl, this.engine.meta.skills);
         const mana = this.engine.state.mana;
 
         const dmg = gemDamage(gem, gemDef);

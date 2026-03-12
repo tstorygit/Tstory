@@ -207,34 +207,59 @@ function _renderGrimoire() {
     const list = _screens.game.querySelector('#vc-skill-list');
     list.innerHTML = '';
 
+    const GROUP_LABELS = {
+        economy: '💰 Economy',
+        gems:    '💎 Gem Forging',
+        mastery: '⚔️ Gem Mastery',
+        utility: '⚙️ Utility'
+    };
+
+    // Render each group with a header
+    const grouped = {};
     Object.entries(SKILL_DEFS).forEach(([key, def]) => {
-        const currentLvl = _meta.skills[key] || 0;
-        const isMax = currentLvl >= def.max;
-        const canAfford = _meta.sp > 0 && !isMax;
+        const g = def.group || 'utility';
+        if (!grouped[g]) grouped[g] = [];
+        grouped[g].push([key, def]);
+    });
 
-        const row = document.createElement('div');
-        row.className = 'vc-skill-row';
-        row.innerHTML = `
-            <div class="vc-skill-info">
-                <h4>${def.name}</h4>
-                <p>${def.desc}</p>
-            </div>
-            <div style="display:flex; align-items:center;">
-                <span class="vc-skill-lvl">${currentLvl}/${def.max}</span>
-                <button class="vc-skill-buy" ${!canAfford ? 'disabled' : ''}>+</button>
-            </div>
-        `;
+    Object.entries(GROUP_LABELS).forEach(([groupKey, groupLabel]) => {
+        const skills = grouped[groupKey];
+        if (!skills) return;
 
-        row.querySelector('.vc-skill-buy').onclick = () => {
-            if (_meta.sp > 0 && currentLvl < def.max) {
-                _meta.sp--;
-                _meta.skills[key]++;
-                saveMeta(_meta);
-                _renderGrimoire(); 
-            }
-        };
+        const header = document.createElement('div');
+        header.style.cssText = 'font-size:12px; font-weight:bold; color:#f1c40f; text-transform:uppercase; letter-spacing:1px; padding:8px 0 4px; border-bottom:1px solid #34495e; margin-bottom:2px;';
+        header.textContent = groupLabel;
+        list.appendChild(header);
 
-        list.appendChild(row);
+        skills.forEach(([key, def]) => {
+            const currentLvl = _meta.skills[key] || 0;
+            const isMax = currentLvl >= def.max;
+            const canAfford = _meta.sp > 0 && !isMax;
+
+            const row = document.createElement('div');
+            row.className = 'vc-skill-row';
+            row.innerHTML = `
+                <div class="vc-skill-info">
+                    <h4>${def.name}</h4>
+                    <p>${def.desc}</p>
+                </div>
+                <div style="display:flex; align-items:center;">
+                    <span class="vc-skill-lvl">${currentLvl}/${def.max}</span>
+                    <button class="vc-skill-buy" ${!canAfford ? 'disabled' : ''}>+</button>
+                </div>
+            `;
+
+            row.querySelector('.vc-skill-buy').onclick = () => {
+                if (_meta.sp > 0 && currentLvl < def.max) {
+                    _meta.sp--;
+                    _meta.skills[key]++;
+                    saveMeta(_meta);
+                    _renderGrimoire();
+                }
+            };
+
+            list.appendChild(row);
+        });
     });
 }
 
