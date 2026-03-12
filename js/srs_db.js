@@ -168,19 +168,143 @@ export function gradeWord(wordText, grade, autoStatus = false) {
     return updated;
 }
 
+// ─── GAME INTEGRATION ────────────────────────────────────────────────────────
+
+/**
+ * Specialized grading for Games (TBB, VocabCraft).
+ * Prevents interval explosion for non-due words.
+ * @param {object} wordData - {word, furi, translation}
+ * @param {number} grade - 0-3
+ * @param {boolean} autoStatus
+ */
+export function gradeWordInGame(wordData, grade, autoStatus = false) {
+    const words = getAllWords();
+    let word = words[wordData.word];
+
+    const now = new Date();
+    
+    // If word doesn't exist in SRS DB yet, initialize it
+    if (!word) {
+        word = {
+            word: wordData.word,
+            furi: wordData.furi || '',
+            translation: wordData.trans || wordData.translation || '',
+            status: 0,
+            interval: 0,
+            ease: 2.5,
+            reviewCount: 0,
+            dueDate: now.toISOString(),
+            lastUpdated: now.toISOString()
+        };
+    }
+
+    const isDue = !word.dueDate || new Date(word.dueDate) <= now;
+
+    // The Safety Valve: Not Due + Correct -> Free Drill, no interval change.
+    if (!isDue && grade > 0) {
+        // Just update lastUpdated so it cycles to the back of the "Least Recently Seen" fallback queue
+        word.lastUpdated = now.toISOString();
+        words[word.word] = word;
+        _persist(words);
+        return word;
+    }
+
+    // Otherwise (isDue OR Wrong), perform standard SM-2 update
+    const updated = scheduleReview(word, grade);
+
+    if (autoStatus) {
+        updated.status = statusFromInterval(updated.interval);
+    }
+
+    words[updated.word] = updated;
+    _persist(words);
+    return updated;
+}
+
+/**
+ * Gets the next best word for a game session based on strict priorities.
+ * Modes:
+ * - 'srs': Strictly prefers Due -> Drill -> New
+ * - 'new': Strictly prefers New -> Drill -> Due
+ * - 'mixed': Natural order (Due -> Learning Drill (<7d) -> New -> Mature Drill)
+ * 
+ * @param {Array} sessionQueue - Array of word objects {word, furi, trans} active in the session
+ * @param {string} mode - 'srs', 'new', or 'mixed'
+ * @returns {Object} { wordObj, type: 'due'|'drill'|'new' }
+ */
+export function getNextGameWord(sessionQueue, mode = 'mixed') {
+    const words = getAllWords();
+    const now = new Date();
+    const DRILL_THRESHOLD_DAYS = 7;
+
+    let due = [];
+    let learningDrill = []; // Not due, interval < 7 days
+    let matureDrill = [];   // Not due, interval >= 7 days
+    let brandNew = [];
+
+    sessionQueue.forEach(w => {
+        const entry = words[w.word];
+        if (!entry) {
+            brandNew.push(w);
+        } else if (!entry.dueDate || new Date(entry.dueDate) <= now) {
+            due.push(w);
+        } else {
+            if ((entry.interval || 0) < DRILL_THRESHOLD_DAYS) {
+                learningDrill.push({ wordObj: w, lastUpdated: new Date(entry.lastUpdated).getTime() });
+            } else {
+                matureDrill.push({ wordObj: w, lastUpdated: new Date(entry.lastUpdated).getTime() });
+            }
+        }
+    });
+
+    // Sort drills by least recently seen first (ascending time)
+    learningDrill.sort((a, b) => a.lastUpdated - b.lastUpdated);
+    matureDrill.sort((a, b) => a.lastUpdated - b.lastUpdated);
+
+    let selected = null;
+    const pickRandom = (arr) => arr.length ? arr[Math.floor(Math.random() * arr.length)] : null;
+    const pickOldest = (arr) => arr.length ? arr[0].wordObj : null;
+
+    if (mode === 'new') {
+        selected = pickRandom(brandNew);
+        if (selected) return { wordObj: selected, type: 'new' };
+        selected = pickOldest(learningDrill);
+        if (selected) return { wordObj: selected, type: 'drill' };
+        selected = pickOldest(matureDrill);
+        if (selected) return { wordObj: selected, type: 'drill' };
+        selected = pickRandom(due);
+        if (selected) return { wordObj: selected, type: 'due' };
+    } 
+    else if (mode === 'srs') {
+        selected = pickRandom(due);
+        if (selected) return { wordObj: selected, type: 'due' };
+        selected = pickOldest(learningDrill);
+        if (selected) return { wordObj: selected, type: 'drill' };
+        selected = pickOldest(matureDrill);
+        if (selected) return { wordObj: selected, type: 'drill' };
+        selected = pickRandom(brandNew);
+        if (selected) return { wordObj: selected, type: 'new' };
+    } 
+    else {
+        // 'mixed' mode
+        selected = pickRandom(due);
+        if (selected) return { wordObj: selected, type: 'due' };
+        selected = pickOldest(learningDrill);
+        if (selected) return { wordObj: selected, type: 'drill' };
+        selected = pickRandom(brandNew);
+        if (selected) return { wordObj: selected, type: 'new' };
+        selected = pickOldest(matureDrill);
+        if (selected) return { wordObj: selected, type: 'drill' };
+    }
+
+    // Ultimate fallback (should never hit unless sessionQueue is empty)
+    return { wordObj: sessionQueue[Math.floor(Math.random() * sessionQueue.length)], type: 'due' };
+}
+
 // ─── NEKO IMPORT ─────────────────────────────────────────────────────────────
 
 /**
  * Import words from the Neko game's SRS save.
- *
- * nekoWords: array of { word, furi, trans } (Neko's internal format after
- *   being mapped via vocabQueue look-up).
- *
- * existingPolicy: 'skip' | 'merge'
- *   skip  — never touch a word already in the db
- *   merge — update furi/translation if missing, but preserve all SRS data
- *
- * Returns { added, skipped } counts.
  */
 export function importFromNeko(nekoWords, existingPolicy = 'skip') {
     const words = getAllWords();
@@ -191,32 +315,20 @@ export function importFromNeko(nekoWords, existingPolicy = 'skip') {
 
         if (words[w.word]) {
             if (existingPolicy === 'merge') {
-                // Fill in missing furi / translation but keep all SRS data intact
                 if (!words[w.word].furi        && w.furi)  words[w.word].furi        = w.furi;
                 if (!words[w.word].translation && w.trans) words[w.word].translation = w.trans;
             }
             skipped++;
         } else {
-            // Convert Neko scheduling to app SM-2 format.
-            // Neko interval is in SECONDS; app interval is in DAYS.
-            // nekoNextReview is a ms gameTime timestamp; we compute real-wall-clock dueDate
-            // by offsetting from now by the remaining time until that review.
-            // nekoInterval is in seconds; app interval is in days
-            // nekoRemainingMs is the wall-clock ms until the next Neko review
-            // (computed in neko.js as item.nextReview - _gameNow(), already adjusted for pauses)
             const nekoIntervalSec  = w.nekoInterval    || 0;
             const nekoRemainingMs  = w.nekoRemainingMs || 0;
             const ease             = w.ease            || 2.5;
 
             let intervalDays, dueDate;
             if (nekoIntervalSec > 0) {
-                // Store as fractional days so sub-day intervals are preserved exactly.
-                // e.g. 8 seconds = 8/86400 ≈ 0.0000926d  (word_manager formats this as "8s")
                 intervalDays = nekoIntervalSec / 86400;
-                // Preserve exact due time: now + remaining ms from the game clock
                 dueDate = new Date(Date.now() + nekoRemainingMs).toISOString();
             } else {
-                // No scheduling info — due immediately
                 intervalDays = 0;
                 dueDate      = new Date().toISOString();
             }
@@ -242,19 +354,13 @@ export function importFromNeko(nekoWords, existingPolicy = 'skip') {
 
 // ─── QUEUE HELPERS ───────────────────────────────────────────────────────────
 
-/**
- * Return words that are due for SRS review right now.
- * Words without a dueDate (legacy) are always included.
- * Results are sorted: overdue-longest-first, then new words.
- */
 export function getDueWords(limit = 0) {
     const now  = new Date();
     let words  = Object.values(getAllWords()).filter(w => {
-        if (!w.dueDate) return true;            // legacy — always show
+        if (!w.dueDate) return true;            
         return new Date(w.dueDate) <= now;
     });
 
-    // Sort: most overdue first (smallest/missing dueDate first)
     words.sort((a, b) => {
         const da = a.dueDate ? new Date(a.dueDate) : new Date(0);
         const db = b.dueDate ? new Date(b.dueDate) : new Date(0);
@@ -264,11 +370,6 @@ export function getDueWords(limit = 0) {
     return limit > 0 ? words.slice(0, limit) : words;
 }
 
-/**
- * Legacy filter — kept for backwards compat with story generator / trainer.
- * @param {Object} criteria { limit, minStatus, maxStatus, sort }
- *   sort: 'oldest' (default) | 'newest' | 'az'
- */
 export function getFilteredWords(criteria = {}) {
     let words = Object.values(getAllWords());
 
@@ -281,7 +382,6 @@ export function getFilteredWords(criteria = {}) {
     } else if (sort === 'az') {
         words.sort((a, b) => (a.word || '').localeCompare(b.word || ''));
     } else {
-        // 'oldest' — default
         words.sort((a, b) => new Date(a.lastUpdated) - new Date(b.lastUpdated));
     }
 

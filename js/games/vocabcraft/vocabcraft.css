@@ -281,6 +281,27 @@
 .vc-vocab-header { text-align: center; margin-bottom: 12px; flex-shrink: 0; }
 .vc-vocab-kanji { font-size: 36px; font-weight: bold; color: #ecf0f1; line-height: 1.1; }
 .vc-vocab-furi { font-size: 14px; color: #bdc3c7; }
+
+/* Status Dot Indicator for Vocab Review */
+.vc-status-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin: 0 auto 8px;
+}
+.vc-status-dot.due {
+    background-color: #2ecc71;
+    box-shadow: 0 0 6px #2ecc71;
+}
+.vc-status-dot.drill {
+    background: linear-gradient(135deg, #ff0080, #ff8c00, #40e0d0, #00aaff, #9b59b6);
+    box-shadow: 0 0 6px rgba(255,255,255,0.5);
+}
+.vc-status-dot.new {
+    background-color: #3498db;
+    box-shadow: 0 0 6px #3498db;
+}
+
 .vc-vocab-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;

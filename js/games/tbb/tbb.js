@@ -2,8 +2,9 @@
 // export { init, launch }
 
 import { mountVocabSelector } from '../../vocab_selector.js';
+import * as srsDb             from '../../srs_db.js';
 import { spawnEnemy }         from './tbb_enemies.js';
-import { getFloorData }            from './tbb_floors.js';
+import { getFloorData }       from './tbb_floors.js';
 import { PERK_DEFS, REBIRTH_MIN_LEVEL, REBIRTH_AP_DIVIDER,
          totalApSpent, canSpendAp, computePerkBonuses, calcRebirthAp } from './tbb_ascension.js';
 import { handlePlayerAttack, handlePlayerDefense, actionExp,
@@ -110,6 +111,7 @@ function _initGameState() {
         attackType:           'slash',
         // challenge
         challengeWord:        null,
+        isDrill:              false,
         mcOptions:            [],
         correctIdx:           -1,
         answerDisabled:       false,
@@ -448,8 +450,41 @@ function _executeFloorEffect(effectKey, floor) {
 
 function _prepareChallenge() {
     if (!_vocabQueue.length) return;
-    const word = _vocabQueue[Math.floor(Math.random() * _vocabQueue.length)];
+    
+    const globalSrsData = srsDb.getAllWords();
+    const now = new Date();
+    
+    let dueCandidates = [];
+    let notDueCandidates = [];
+    
+    _vocabQueue.forEach(w => {
+        const entry = globalSrsData[w.word];
+        if (!entry || !entry.dueDate || new Date(entry.dueDate) <= now) {
+            dueCandidates.push(w);
+        } else {
+            notDueCandidates.push({wordObj: w, lastUpdated: new Date(entry.lastUpdated).getTime()});
+        }
+    });
+    
+    let word = null;
+    let isDrill = false;
+    
+    if (dueCandidates.length > 0) {
+        word = dueCandidates[Math.floor(Math.random() * dueCandidates.length)];
+    } else if (notDueCandidates.length > 0) {
+        // Sort by oldest lastUpdated
+        notDueCandidates.sort((a, b) => a.lastUpdated - b.lastUpdated);
+        // Pick from the top 5 least recently seen to add slight randomness
+        const topN = notDueCandidates.slice(0, 5);
+        word = topN[Math.floor(Math.random() * topN.length)].wordObj;
+        isDrill = true;
+    } else {
+        // Fallback
+        word = _vocabQueue[Math.floor(Math.random() * _vocabQueue.length)];
+    }
+    
     _g.challengeWord  = word;
+    _g.isDrill        = isDrill;
     _g.mcOptions      = generateMcOptions(word, _vocabQueue);
     _g.correctIdx     = _g.mcOptions.indexOf(word.trans);
     _g.answerDisabled = false;
@@ -511,6 +546,13 @@ function _onAnswer(idx, timedOut = false) {
     const timeFrac  = timedOut ? 0 : _g.answerTimeLeft;
     const word      = _g.challengeWord;
     const enemy     = _g.enemy;
+
+    // Centralized SRS grading logic handles drill vs due safely
+    srsDb.gradeWordInGame({
+        word: word.word,
+        furi: word.furi,
+        translation: word.trans
+    }, isCorrect ? 3 : 0, true);
 
     // Highlight buttons
     _markMcButtons(idx, isCorrect);
@@ -690,6 +732,7 @@ function _buildGameDOM() {
 
     <div class="tbb-challenge-area">
         <div class="tbb-word-display" id="tbb-word-display">
+            <div class="tbb-status-dot" id="tbb-status-dot"></div>
             <div class="tbb-word-furi" id="tbb-word-furi"></div>
             <div class="tbb-word-kanji" id="tbb-word-kanji">—</div>
         </div>
@@ -739,6 +782,7 @@ function _buildGameDOM() {
         elvl:         root.querySelector('#tbb-elvl'),
         wordFuri:     root.querySelector('#tbb-word-furi'),
         wordKanji:    root.querySelector('#tbb-word-kanji'),
+        statusDot:    root.querySelector('#tbb-status-dot'),
         timerBar:     root.querySelector('#tbb-timer-bar'),
         mcGrid:       root.querySelector('#tbb-mc-grid'),
         mcBtns:       root.querySelectorAll('.tbb-mc-btn'),
@@ -847,6 +891,16 @@ function _renderChallenge() {
     if (!_g.challengeWord) return;
     _dom.wordFuri.textContent  = _g.challengeWord.furi !== _g.challengeWord.word ? _g.challengeWord.furi : '';
     _dom.wordKanji.textContent = _g.challengeWord.word;
+    
+    // Update Dot
+    if (_g.isDrill) {
+        _dom.statusDot.className = 'tbb-status-dot drill';
+        _dom.statusDot.title = 'Free Drill (Not Due)';
+    } else {
+        _dom.statusDot.className = 'tbb-status-dot due';
+        _dom.statusDot.title = 'Scheduled Review';
+    }
+
     _dom.mcBtns.forEach((btn, i) => {
         btn.textContent  = _g.mcOptions[i] ?? '—';
         btn.className    = 'tbb-mc-btn';
@@ -1378,6 +1432,21 @@ function _injectStyles() {
 }
 .tbb-word-furi  { font-size: 13px; color: var(--tbb-muted); min-height: 16px; }
 .tbb-word-kanji { font-size: 30px; font-weight: 900; line-height: 1.2; }
+
+.tbb-status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin: 0 auto 6px;
+}
+.tbb-status-dot.due {
+    background-color: #2ecc71;
+    box-shadow: 0 0 5px #2ecc71;
+}
+.tbb-status-dot.drill {
+    background: linear-gradient(135deg, #ff0080, #ff8c00, #40e0d0, #00aaff, #9b59b6);
+    box-shadow: 0 0 5px rgba(255,255,255,0.5);
+}
 
 /* ── Timer ──────────────────────────────────────────────────────────────── */
 .tbb-timer-wrap {

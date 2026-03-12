@@ -7,46 +7,31 @@ export function setVocabQueue(queue) {
 }
 
 export function showCard(mode, container, onResolve) {
-    const isNew = mode === 'new'; 
-    let wordObj = null;
-
-    const globalSrsData = srsDb.getAllWords();
-    const now = new Date();
-
-    if (isNew) {
-        let candidates = _activeQueue.filter(w => {
-            const entry = globalSrsData[w.word];
-            return !entry || entry.status <= 1;
-        });
-        
-        if (candidates.length === 0) {
-            candidates = _activeQueue;
-        }
-        
-        wordObj = candidates[Math.floor(Math.random() * candidates.length)];
-            
-    } else {
-        let dueCandidates = _activeQueue.filter(w => {
-            const entry = globalSrsData[w.word];
-            if (!entry) return false; 
-            if (!entry.dueDate) return true; 
-            return new Date(entry.dueDate) <= now; 
-        });
-
-        if (dueCandidates.length === 0) {
-            dueCandidates = _activeQueue.filter(w => globalSrsData[w.word]);
-        }
-        
-        if (dueCandidates.length === 0) {
-            dueCandidates = _activeQueue;
-        }
-
-        wordObj = dueCandidates[Math.floor(Math.random() * dueCandidates.length)];
+    if (_activeQueue.length === 0) {
+        onResolve(true);
+        return;
     }
+
+    // mode corresponds to 'new' (enrage) or 'mixed' (normal review)
+    const selectionMode = mode === 'new' ? 'new' : 'mixed';
+    const result = srsDb.getNextGameWord(_activeQueue, selectionMode);
+    
+    const wordObj = result.wordObj;
+    const type = result.type;
 
     if (!wordObj) {
         onResolve(true); 
         return;
+    }
+
+    let dotClass = 'due';
+    let dotTitle = 'Scheduled Review';
+    if (type === 'drill') {
+        dotClass = 'drill';
+        dotTitle = 'Free Drill (Not Due)';
+    } else if (type === 'new') {
+        dotClass = 'new';
+        dotTitle = 'New Word';
     }
 
     const pool = _activeQueue.filter(w => w.word !== wordObj.word).map(w => w.trans);
@@ -57,6 +42,7 @@ export function showCard(mode, container, onResolve) {
     const grid = container.querySelector('.vc-vocab-grid');
     
     header.innerHTML = `
+        <div class="vc-status-dot ${dotClass}" title="${dotTitle}"></div>
         <div class="vc-vocab-furi">${wordObj.furi || ''}</div>
         <div class="vc-vocab-kanji">${wordObj.word}</div>
     `;
@@ -74,11 +60,12 @@ export function showCard(mode, container, onResolve) {
                 [...grid.children].find(b => b.textContent === wordObj.trans).classList.add('correct');
             }
             
-            if (!isNew) {
-                srsDb.gradeWord(wordObj.word, isCorrect ? 3 : 0, true);
-            } else if (isCorrect) {
-                srsDb.gradeWord(wordObj.word, 2, true);
-            }
+            // Centralized game grading
+            srsDb.gradeWordInGame({
+                word: wordObj.word,
+                furi: wordObj.furi,
+                translation: wordObj.trans
+            }, isCorrect ? 3 : 0, true);
 
             [...grid.children].forEach(b => b.disabled = true);
 
