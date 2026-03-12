@@ -87,7 +87,7 @@ export function showCard(mode, container, onResolve) {
 
                 setTimeout(() => {
                     badge.style.opacity = '0';
-                    _hideOverlay(container, () => { badge.remove(); _cardBusy = false; onResolve(true); });
+                    _hideOverlay(container, () => { badge.remove(); onResolve(true); });
                 }, 200);
 
             } else {
@@ -100,35 +100,26 @@ export function showCard(mode, container, onResolve) {
                 [...grid.children].forEach(b => b.disabled = true);
 
                 setTimeout(() => {
-                    _hideOverlay(container, () => { _cardBusy = false; onResolve(false); });
+                    _hideOverlay(container, () => { onResolve(false); });
                 }, 900);
             }
         };
         grid.appendChild(btn);
     });
 
-    // Cleanly show the overlay: display:flex first, then slide up next frame
+    // Show: make visible (display:flex), then fade in next frame
     container.classList.remove('active');
     container.classList.remove('visible');
-    // Force layout so transition starts from translateY(100%)
     void container.offsetHeight;
     container.classList.add('visible');
     requestAnimationFrame(() => container.classList.add('active'));
 }
 
 function _hideOverlay(container, cb) {
-    container.classList.remove('active');
-    // Wait for slide-down transition to finish, then fully hide
-    const onEnd = () => {
-        container.removeEventListener('transitionend', onEnd);
-        container.classList.remove('visible');
-        if (cb) cb();
-    };
-    container.addEventListener('transitionend', onEnd);
-    // Safety fallback in case transitionend never fires
+    container.classList.remove('active'); // fade out via opacity transition
     setTimeout(() => {
-        container.removeEventListener('transitionend', onEnd);
-        container.classList.remove('visible');
+        container.classList.remove('visible'); // then display:none
+        _cardBusy = false;
         if (cb) cb();
-    }, 400);
+    }, 200); // matches transition duration
 }
