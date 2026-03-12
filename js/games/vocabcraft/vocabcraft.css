@@ -1,13 +1,12 @@
 .vc-root {
     display: flex;
     flex-direction: column;
-    height: 100%;
-    min-height: 0;
+    position: absolute;
+    inset: 0;
     background: #2c3e50;
     color: #ecf0f1;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     overflow: hidden;
-    position: relative;
     user-select: none;
 }
 
@@ -105,12 +104,14 @@
     background: #1a252f;
     overflow: auto;
     -webkit-overflow-scrolling: touch;
-    /* Don't center — let map fill from top-left so scroll is natural */
+    touch-action: pan-x pan-y pinch-zoom;
+    min-height: 0;
 }
 .vc-grid {
     position: relative;
     display: grid;
-    /* Size set by JS; sits inside scrollable container */
+    transform-origin: top left;
+    /* transform: scale() applied by JS for zoom */
 }
 .vc-entities {
     position: absolute;
@@ -210,9 +211,9 @@
 
 /* --- Bottom Context Bar --- */
 .vc-bottombar {
-    height: 100px;
-    min-height: 100px;
-    max-height: 100px;
+    height: 120px;
+    min-height: 120px;
+    max-height: 120px;
     background: #1a252f;
     border-top: 2px solid #34495e;
     padding: 6px 8px;

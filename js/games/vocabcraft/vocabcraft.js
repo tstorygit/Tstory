@@ -42,7 +42,7 @@ export function init(screens, onExit) {
                 </div>
             </div>
 
-            <div id="vc-battle-layer" class="vc-root" style="display:none; position:absolute; inset:0;">
+            <div id="vc-battle-layer" class="vc-root" style="display:none;">
                 <div class="vc-topbar vc-topbar-row1">
                     <span class="vc-health">❤️ <span id="vc-val-hp">20</span></span>
                     <span class="vc-mana">💧 <span id="vc-val-mana">150</span></span>
@@ -53,6 +53,7 @@ export function init(screens, onExit) {
                 </div>
                 <div class="vc-topbar vc-topbar-row2">
                     <div class="vc-wave-tracker"></div>
+                    <button class="vc-icon-btn" id="vc-btn-zoom" style="margin-left:6px; background:#2c3e50; border-color:#34495e;">🔍1x</button>
                 </div>
                 <div class="vc-map-container"><div class="vc-grid"></div></div>
                 <div class="vc-bottombar"></div>

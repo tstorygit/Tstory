@@ -11,6 +11,13 @@ export class VcUI {
         this.selectedEnemyId = null;
         this.tiles = [];
 
+        // Zoom state
+        this._zoom = 1.0;
+        this._minZoom = 0.5;
+        this._maxZoom = 3.0;
+        this._pinchStartDist = null;
+        this._pinchStartZoom = 1.0;
+
         this.mapEl = container.querySelector('.vc-map-container');
         this.gridEl = container.querySelector('.vc-grid');
         this.bottomBar = container.querySelector('.vc-bottombar');
@@ -25,6 +32,7 @@ export class VcUI {
         setTimeout(() => {
             this.initGrid();
             this.initWaves();
+            this.initZoom();
 
             this.entitiesEl = document.createElement('div');
             this.entitiesEl.className = 'vc-entities';
@@ -40,8 +48,8 @@ export class VcUI {
     initGrid() {
         const { cols, rows, grid } = this.engine.map;
 
-        // Fix tile size to fill the container width exactly, minimum 36px for tap targets.
-        // Map scrolls vertically — no shrinking to fit height.
+        // Use a comfortable fixed tile size. Map scrolls in both directions.
+        // Base size fills width at 1x zoom — user can zoom out to see more.
         const containerW = this.mapEl.clientWidth || window.innerWidth;
         this.tileSize = Math.max(36, Math.floor(containerW / cols));
 
@@ -65,6 +73,81 @@ export class VcUI {
             x: p.x * this.tileSize + (this.tileSize / 2),
             y: p.y * this.tileSize + (this.tileSize / 2)
         }));
+    }
+
+    initZoom() {
+        const mapEl   = this.mapEl;
+        const gridEl  = this.gridEl;
+        const zoomBtn = this.container.querySelector('#vc-btn-zoom');
+
+        const applyZoom = (z, pivotX, pivotY) => {
+            const prev = this._zoom;
+            this._zoom = Math.max(this._minZoom, Math.min(this._maxZoom, z));
+
+            // Adjust scroll so the pinch pivot stays under the fingers
+            if (pivotX != null) {
+                const scaleChange = this._zoom / prev;
+                mapEl.scrollLeft = (mapEl.scrollLeft + pivotX) * scaleChange - pivotX;
+                mapEl.scrollTop  = (mapEl.scrollTop  + pivotY) * scaleChange - pivotY;
+            }
+
+            gridEl.style.transform = `scale(${this._zoom})`;
+            // Tell the scroll container how big the scaled content is
+            gridEl.style.marginBottom = `${gridEl.offsetHeight * (this._zoom - 1)}px`;
+            gridEl.style.marginRight  = `${gridEl.offsetWidth  * (this._zoom - 1)}px`;
+
+            if (zoomBtn) {
+                const pct = Math.round(this._zoom * 100);
+                zoomBtn.textContent = `🔍${pct}%`;
+            }
+        };
+
+        // ── Button: cycle 100% → 50% → 200% → 100% ──────────────────────────
+        const ZOOM_STEPS = [1.0, 0.5, 2.0];
+        if (zoomBtn) {
+            zoomBtn.onclick = () => {
+                const idx = ZOOM_STEPS.findIndex(s => Math.abs(s - this._zoom) < 0.05);
+                const next = ZOOM_STEPS[(idx + 1) % ZOOM_STEPS.length];
+                applyZoom(next, null, null);
+            };
+        }
+
+        // ── Pinch-to-zoom ─────────────────────────────────────────────────────
+        mapEl.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 2) {
+                e.preventDefault();
+                const t = e.touches;
+                this._pinchStartDist = Math.hypot(
+                    t[1].clientX - t[0].clientX,
+                    t[1].clientY - t[0].clientY
+                );
+                this._pinchStartZoom = this._zoom;
+                // Pivot = midpoint relative to mapEl
+                const rect = mapEl.getBoundingClientRect();
+                this._pinchPivotX = ((t[0].clientX + t[1].clientX) / 2) - rect.left + mapEl.scrollLeft;
+                this._pinchPivotY = ((t[0].clientY + t[1].clientY) / 2) - rect.top  + mapEl.scrollTop;
+            }
+        }, { passive: false });
+
+        mapEl.addEventListener('touchmove', (e) => {
+            if (e.touches.length === 2 && this._pinchStartDist) {
+                e.preventDefault();
+                const t = e.touches;
+                const dist = Math.hypot(
+                    t[1].clientX - t[0].clientX,
+                    t[1].clientY - t[0].clientY
+                );
+                const newZoom = this._pinchStartZoom * (dist / this._pinchStartDist);
+                applyZoom(newZoom, this._pinchPivotX, this._pinchPivotY);
+            }
+        }, { passive: false });
+
+        mapEl.addEventListener('touchend', () => {
+            if (this._pinchStartDist) this._pinchStartDist = null;
+        });
+
+        // Apply initial zoom
+        applyZoom(this._zoom, null, null);
     }
 
     initWaves() {
