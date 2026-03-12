@@ -1,4 +1,3 @@
-[MODIFIED FILE] main/js/games/vocabcraft/vc_meta.js
 const SAVE_KEY = 'vocabcraft_save';
 
 // All skills use triangular SP costs (Level N costs N SP).
