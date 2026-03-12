@@ -48,8 +48,9 @@
     white-space: nowrap;
 }
 .vc-icon-btn:active { transform: scale(0.93); }
-#vc-btn-speed   { background: #8e44ad; border-color: #6c3483; }
-.vc-flee-btn    { background: #e74c3c; border-color: #c0392b; }
+#vc-btn-speed      { background: #8e44ad; border-color: #6c3483; }
+.vc-flee-btn       { background: #e74c3c; border-color: #c0392b; }
+.vc-grimoire-btn   { background: #f39c12; border-color: #d35400; }
 
 /* Row 2: Wave button + wave dot icons */
 .vc-topbar-row2 {
@@ -101,20 +102,20 @@
 .vc-map-container {
     flex: 1;
     position: relative;
-    background: #000;
-    overflow: hidden;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    background: #1a252f;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    /* Don't center — let map fill from top-left so scroll is natural */
 }
 .vc-grid {
     position: relative;
     display: grid;
+    /* Size set by JS; sits inside scrollable container */
 }
 .vc-entities {
     position: absolute;
     inset: 0;
-    pointer-events: none; /* Let clicks pass through to tiles */
+    pointer-events: none;
     z-index: 5;
 }
 
@@ -474,8 +475,10 @@
 
 /* --- Enemy Stat Window --- */
 .vc-enemy-stat-window {
-    position: absolute;
-    top: 8px; left: 8px;
+    position: sticky;
+    top: 8px;
+    left: 8px;
+    float: left; /* sticky needs a block context; float keeps it out of flow */
     background: rgba(26,37,47,0.92);
     border: 2px solid #f1c40f;
     border-radius: 8px;

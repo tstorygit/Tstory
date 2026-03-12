@@ -27,7 +27,7 @@ export function init(screens, onExit) {
                         <div class="vc-camp-xp" id="vc-camp-lvl">Lv. 1 (XP: 0/1000)</div>
                     </div>
                     <div>
-                        <button class="vc-btn" id="vc-btn-grimoire" style="background:#f39c12; border-color:#d35400; margin-right:50px;">📖 Grimoire</button>
+                        <button class="vc-btn" id="vc-btn-grimoire" style="background:#f39c12; border-color:#d35400;">📖 Grimoire</button>
                     </div>
                 </div>
                 <div class="vc-stage-list" id="vc-stage-list"></div>
@@ -47,6 +47,7 @@ export function init(screens, onExit) {
                     <span class="vc-health">❤️ <span id="vc-val-hp">20</span></span>
                     <span class="vc-mana">💧 <span id="vc-val-mana">150</span></span>
                     <div style="flex:1;"></div>
+                    <button class="vc-icon-btn vc-grimoire-btn" id="vc-btn-grimoire-battle">📖</button>
                     <button class="vc-icon-btn" id="vc-btn-speed">⚡1x</button>
                     <button class="vc-icon-btn vc-flee-btn" id="vc-btn-surrender">🏃Flee</button>
                 </div>
@@ -63,6 +64,10 @@ export function init(screens, onExit) {
         `;
 
         _screens.game.querySelector('#vc-btn-grimoire').onclick = () => {
+            _renderGrimoire();
+            _screens.game.querySelector('#vc-grimoire-overlay').style.display = 'flex';
+        };
+        _screens.game.querySelector('#vc-btn-grimoire-battle').onclick = () => {
             _renderGrimoire();
             _screens.game.querySelector('#vc-grimoire-overlay').style.display = 'flex';
         };

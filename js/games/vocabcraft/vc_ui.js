@@ -39,14 +39,16 @@ export class VcUI {
 
     initGrid() {
         const { cols, rows, grid } = this.engine.map;
-        const wRatio = (this.mapEl.clientWidth || 300) / cols;
-        const hRatio = (this.mapEl.clientHeight || 400) / rows;
-        this.tileSize = Math.floor(Math.min(wRatio, hRatio, 60));
 
-        this.gridEl.style.width = `${cols * this.tileSize}px`;
+        // Fix tile size to fill the container width exactly, minimum 36px for tap targets.
+        // Map scrolls vertically — no shrinking to fit height.
+        const containerW = this.mapEl.clientWidth || window.innerWidth;
+        this.tileSize = Math.max(36, Math.floor(containerW / cols));
+
+        this.gridEl.style.width  = `${cols * this.tileSize}px`;
         this.gridEl.style.height = `${rows * this.tileSize}px`;
         this.gridEl.style.gridTemplateColumns = `repeat(${cols}, ${this.tileSize}px)`;
-        this.gridEl.style.gridTemplateRows = `repeat(${rows}, ${this.tileSize}px)`;
+        this.gridEl.style.gridTemplateRows    = `repeat(${rows}, ${this.tileSize}px)`;
 
         this.tiles = [];
         for (let r = 0; r < rows; r++) {
