@@ -1,5 +1,6 @@
 import * as srsDb from './srs_db.js';
 import { settings } from './settings.js';
+import { initStatsUI } from './srs_stats_ui.js';
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
 let reviewQueue  = [];
@@ -99,6 +100,7 @@ export function initSRS() {
     initKeyboardControls();
     loadReviewQueue();
     updateSrsBadge();
+    initStatsUI();
     setInterval(updateSrsBadge, 30000);   // re-check every 30 s (sub-day words)
 }
 
