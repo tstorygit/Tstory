@@ -21,6 +21,10 @@ export class VcUI {
         this.mapEl = container.querySelector('.vc-map-container');
         this.gridEl = container.querySelector('.vc-grid');
         this.bottomBar = container.querySelector('.vc-bottombar');
+        this.bottomBar.addEventListener('click', e => e.stopPropagation());
+        // Vocab overlay sits over the map — stop its clicks reaching tiles too
+        const vocabOverlay = container.querySelector('.vc-vocab-overlay');
+        if (vocabOverlay) vocabOverlay.addEventListener('click', e => e.stopPropagation());
         this.gridEl.innerHTML = '';
 
         this.topBar = {
@@ -335,7 +339,8 @@ export class VcUI {
         confirmBtn.className = 'vc-btn';
         confirmBtn.style.cssText = 'background:#27ae60; border-color:#1e8449; width:90%; padding:6px;';
         confirmBtn.textContent = '⚡ Forge Gem';
-        confirmBtn.onclick = () => {
+        confirmBtn.onclick = (e) => {
+            e.stopPropagation();
             const cost = gemTotalCostColor(selectedColor, selectedLevel, skills);
             this.handleVocabAction(cost, () => {
                 st.structRef.gem = { color: selectedColor, level: selectedLevel };

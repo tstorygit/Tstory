@@ -13,11 +13,10 @@ export function showCard(mode, container, onResolve) {
         return;
     }
 
-    // If a card is already mid-close animation, queue this one to run after.
-    // Without this guard, a double-trigger causes .active to be removed then
-    // immediately re-added during the same animation frame, making it disappear.
+    // Guard: if a card is already open, don't stack another one.
+    // Resolve immediately as success so the engine doesn't get stuck paused.
     if (_cardBusy) {
-        setTimeout(() => showCard(mode, container, onResolve), 350);
+        onResolve(true);
         return;
     }
     _cardBusy = true;
