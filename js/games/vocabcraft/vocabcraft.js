@@ -56,12 +56,14 @@ export function init(screens, onExit) {
                     <div class="vc-wave-tracker"></div>
                     <button class="vc-icon-btn" id="vc-btn-zoom" style="margin-left:6px; background:#2c3e50; border-color:#34495e;">🔍1x</button>
                 </div>
-                <div class="vc-map-container"><div class="vc-grid"></div></div>
-                <div class="vc-bottombar"></div>
-                <div class="vc-vocab-overlay">
-                    <div class="vc-vocab-header"></div>
-                    <div class="vc-vocab-grid"></div>
+                <div style="position:relative; flex:1; min-height:0; overflow:hidden;">
+                    <div class="vc-map-container"><div class="vc-grid"></div></div>
+                    <div class="vc-vocab-overlay">
+                        <div class="vc-vocab-header"></div>
+                        <div class="vc-vocab-grid"></div>
+                    </div>
                 </div>
+                <div class="vc-bottombar"></div>
             </div>
         `;
 
