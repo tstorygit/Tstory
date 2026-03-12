@@ -178,7 +178,7 @@ export class VcUI {
             icon.onclick = () => {
                 if (this.engine.state.status === 'playing' && i === this.engine.state.wave) {
                     this.engine.pause();
-                    this.vocab.showCard('new', (isCorrect) => {
+                    this.vocab.showCard('enrage', (isCorrect) => {
                         if (isCorrect) { icon.classList.add('enraged'); this.engine.spawnWave(true); }
                         else { this.engine.spawnWave(false); }
                         icon.classList.remove('active'); icon.classList.add('done');
@@ -552,6 +552,10 @@ export class VcUI {
                 const eid = el.dataset.eid;
                 this.selectedEnemyId = (this.selectedEnemyId === eid) ? null : eid;
                 this.engine.selectedEnemyId = this.selectedEnemyId;
+                // Clear tile selection so bottom bar doesn't show stale gem stats
+                this.tiles.forEach(t => t.classList.remove('selected'));
+                this.selectedTile = null;
+                this.renderBottomBar();
             });
         });
 

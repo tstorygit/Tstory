@@ -1,4 +1,3 @@
-
 import * as srsDb from '../../srs_db.js';
 
 let _activeQueue =[];
@@ -22,9 +21,10 @@ export function showCard(mode, container, onResolve) {
     }
     _cardBusy = true;
 
-    // mode corresponds to 'new' (enrage) or 'mixed' (normal review)
-    const selectionMode = mode === 'new' ? 'new' : 'mixed';
-    const result = srsDb.getNextGameWord(_activeQueue, selectionMode);
+    // mode: 'enrage' = due words first, new words as fallback; 'review' = mixed
+    const selectionMode = mode === 'enrage' ? 'due' : 'mixed';
+    const result = srsDb.getNextGameWord(_activeQueue, selectionMode)
+                || srsDb.getNextGameWord(_activeQueue, 'new');
     
     const wordObj = result.wordObj;
     const type = result.type;

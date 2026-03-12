@@ -11,6 +11,7 @@ let _selector = null;
 let _meta = null;
 let _engine = null;
 let _activeTier = 1;
+let _speedMult = 1;
 
 const BANNED_KEY = 'vocabcraft_banned';
 
@@ -96,8 +97,9 @@ export function init(screens, onExit) {
         _screens.game.querySelector('#vc-btn-speed').onclick = () => {
             if (!_engine) return;
             const idx = SPEED_STEPS.indexOf(_engine.speedMult);
-            _engine.speedMult = SPEED_STEPS[(idx + 1) % SPEED_STEPS.length];
-            _screens.game.querySelector('#vc-btn-speed').textContent = `⚡${_engine.speedMult}x`;
+            _speedMult = SPEED_STEPS[(idx + 1) % SPEED_STEPS.length];
+            _engine.speedMult = _speedMult;
+            _screens.game.querySelector('#vc-btn-speed').textContent = `⚡${_speedMult}x`;
         };
 
         // Pause / Resume toggle
@@ -340,6 +342,8 @@ function _startBattle(tier) {
     });
 
     ui = new VcUI(_screens.game, _engine, uiCallbacks, () => {
+        _engine.speedMult = _speedMult;
+        _screens.game.querySelector('#vc-btn-speed').textContent = `⚡${_speedMult}x`;
         _engine.start();
     });
 }
