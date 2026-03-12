@@ -258,10 +258,26 @@ export class VcEngine {
             const dx = target.x - e.x;
             const dy = target.y - e.y;
             const dist = Math.hypot(dx, dy);
-            if (dist < 2) { e.wpIdx++; }
-            else {
-                e.x += (dx / dist) * currentSpeed * dt;
-                e.y += (dy / dist) * currentSpeed * dt;
+            const step = currentSpeed * dt;
+            if (step >= dist) {
+                // Snap to waypoint and carry leftover movement into next segment
+                e.x = target.x;
+                e.y = target.y;
+                e.wpIdx++;
+                const overflow = step - dist;
+                if (overflow > 0 && e.wpIdx < this.map.waypoints.length) {
+                    const next = this.map.waypoints[e.wpIdx];
+                    const ndx = next.x - e.x;
+                    const ndy = next.y - e.y;
+                    const ndist = Math.hypot(ndx, ndy);
+                    if (ndist > 0) {
+                        e.x += (ndx / ndist) * overflow;
+                        e.y += (ndy / ndist) * overflow;
+                    }
+                }
+            } else {
+                e.x += (dx / dist) * step;
+                e.y += (dy / dist) * step;
             }
         }
     }
