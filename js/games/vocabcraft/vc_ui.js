@@ -2,7 +2,7 @@ import { GEMS, CONSTANTS, gemTotalCostColor, gemUpgradeCost, gemDamage, gemFireS
 import { TILE_PATH, TILE_GRASS } from './vc_mapgen.js';
 
 export class VcUI {
-    constructor(container, engine, vocabCallbacks) {
+    constructor(container, engine, vocabCallbacks, onReady) {
         this.container = container;
         this.engine = engine;
         this.vocab = vocabCallbacks;
@@ -43,6 +43,8 @@ export class VcUI {
             this.enemyStatEl.className = 'vc-enemy-stat-window';
             this.enemyStatEl.style.display = 'none';
             this.mapEl.appendChild(this.enemyStatEl);
+
+            if (onReady) onReady();
         }, 10);
     }
 
@@ -583,7 +585,7 @@ export class VcUI {
         if (e.effects.poison > 0) effects.push(`☠️ Poison ${Math.floor(e.effects.poison)}/s`);
         if (e.regen > 0) effects.push(`💚 Regen ${(e.regen*100).toFixed(1)}%/s`);
 
-        const immunities =  const immunities = [];
+        const immunities = [];
         if (e.immune?.includes('slow')) immunities.push('❄️Slow');
         if (e.immune?.includes('poison')) immunities.push('☠️Poison');
 

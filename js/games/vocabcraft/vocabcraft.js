@@ -339,8 +339,9 @@ function _startBattle(tier) {
         _showCamp();
     });
 
-    ui = new VcUI(_screens.game, _engine, uiCallbacks);
-    _engine.start();
+    ui = new VcUI(_screens.game, _engine, uiCallbacks, () => {
+        _engine.start();
+    });
 }
 
 function _injectStyles() {
