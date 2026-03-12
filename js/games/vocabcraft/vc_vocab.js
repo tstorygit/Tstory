@@ -1,6 +1,7 @@
 import * as srsDb from '../../srs_db.js';
 
 let _activeQueue = [];
+let _cardBusy = false;  // prevent re-entrant card showing
 
 export function setVocabQueue(queue) {
     _activeQueue = queue;
@@ -12,6 +13,15 @@ export function showCard(mode, container, onResolve) {
         return;
     }
 
+    // If a card is already mid-close animation, queue this one to run after.
+    // Without this guard, a double-trigger causes .active to be removed then
+    // immediately re-added during the same animation frame, making it disappear.
+    if (_cardBusy) {
+        setTimeout(() => showCard(mode, container, onResolve), 350);
+        return;
+    }
+    _cardBusy = true;
+
     // mode corresponds to 'new' (enrage) or 'mixed' (normal review)
     const selectionMode = mode === 'new' ? 'new' : 'mixed';
     const result = srsDb.getNextGameWord(_activeQueue, selectionMode);
@@ -20,6 +30,7 @@ export function showCard(mode, container, onResolve) {
     const type = result.type;
 
     if (!wordObj) {
+        _cardBusy = false;
         onResolve(true); 
         return;
     }
@@ -78,7 +89,7 @@ export function showCard(mode, container, onResolve) {
                 setTimeout(() => {
                     badge.style.opacity = '0';
                     container.classList.remove('active');
-                    setTimeout(() => { badge.remove(); onResolve(true); }, 80);
+                    setTimeout(() => { badge.remove(); _cardBusy = false; onResolve(true); }, 80);
                 }, 200);
 
             } else {
@@ -92,6 +103,7 @@ export function showCard(mode, container, onResolve) {
 
                 setTimeout(() => {
                     container.classList.remove('active');
+                    _cardBusy = false;
                     onResolve(false);
                 }, 900);
             }

@@ -26,8 +26,8 @@ export const CONSTANTS = {
     gemCombineCost: 240,    // fixed combine fee
     vocabPenalty: 10,
     playerBaseHp: 20,
-    towerBaseRange: 100,
-    trapBaseRange: 28
+    towerBaseRange: 2.5,    // in tiles — multiplied by tileSize at render time
+    trapBaseRange:  0.75    // in tiles
 };
 
 // ─── Building cost functions ─────────────────────────────────────────────────
@@ -119,9 +119,9 @@ export function gemDamage(gem, gemData) {
 export function gemFireSpeed(gem, gemData) {
     return Math.min(4.0, gemData.speed * Math.pow(1.18, gem.level - 1));
 }
-export function gemRange(gem, isTrap = false) {
-    const base = isTrap ? CONSTANTS.trapBaseRange : CONSTANTS.towerBaseRange;
-    return Math.floor(base * Math.pow(1.08, gem.level - 1));
+export function gemRange(gem, isTrap = false, tileSize = 40) {
+    const baseTiles = isTrap ? CONSTANTS.trapBaseRange : CONSTANTS.towerBaseRange;
+    return Math.floor(baseTiles * tileSize * Math.pow(1.08, gem.level - 1));
 }
 export function gemCritChance(gem) {
     return Math.min(0.8, GEMS[gem.color].baseCrit + 0.04 * gem.level);
@@ -317,10 +317,11 @@ export class VcEngine {
     }
 
     updateStructures(dt) {
+        const tileSize = this.tileSize || 40;
         this.structures.forEach(st => {
             if (!st.gem) return;
             const gemData = GEMS[st.gem.color];
-            const range = gemRange(st.gem, st.type === 'trap');
+            const range = gemRange(st.gem, st.type === 'trap', tileSize);
 
             st.cooldown = (st.cooldown || 0) - dt;
             if (st.cooldown > 0) return;

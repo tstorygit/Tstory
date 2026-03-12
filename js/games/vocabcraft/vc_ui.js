@@ -77,6 +77,7 @@ export class VcUI {
             x: p.x * this.tileSize + (this.tileSize / 2),
             y: p.y * this.tileSize + (this.tileSize / 2)
         }));
+        this.engine.tileSize = this.tileSize;  // let engine know for range calculations
     }
 
     initZoom() {
@@ -359,7 +360,7 @@ export class VcUI {
 
         const dmg = gemDamage(gem, gemDef);
         const speed = gemFireSpeed(gem, gemDef);
-        const range = gemRange(gem, isTrap);
+        const range = gemRange(gem, isTrap, this.tileSize);
         const trapMult = isTrap ? 0.3 : 1;
 
         const stats = [
@@ -390,7 +391,7 @@ export class VcUI {
         const nextGem = { color: gem.color, level: lvl + 1 };
         const nextDmg = gemDamage(nextGem, gemDef);
         const nextSpeed = gemFireSpeed(nextGem, gemDef);
-        const nextRange = gemRange(nextGem, isTrap);
+        const nextRange = gemRange(nextGem, isTrap, this.tileSize);
 
         // Special effect lifetime stats
         const sts = structRef.stats;
@@ -510,8 +511,10 @@ export class VcUI {
         if (this.selectedTile?.structRef) {
             const st = this.selectedTile.structRef;
             const radius = st.gem
-                ? gemRange(st.gem, st.type === 'trap')
-                : (st.type === 'tower' ? CONSTANTS.towerBaseRange : CONSTANTS.trapBaseRange);
+                ? gemRange(st.gem, st.type === 'trap', this.tileSize)
+                : (st.type === 'tower'
+                    ? Math.floor(CONSTANTS.towerBaseRange * this.tileSize)
+                    : Math.floor(CONSTANTS.trapBaseRange * this.tileSize));
             html += `<div class="vc-range-indicator" style="left:${st.x-radius}px;top:${st.y-radius}px;width:${radius*2}px;height:${radius*2}px;"></div>`;
         }
 
