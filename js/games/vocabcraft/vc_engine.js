@@ -110,9 +110,9 @@ export class VcEngine {
             xpEarned: 0
         };
 
-        this.enemies =[];
-        this.projectiles =[];
-        this.structures = [];
+        this.enemies = [];
+        this.projectiles = [];
+        this.structures =[];
 
         this.spawnQueue =[];
         this._nextSpawnDelay = 0;
@@ -290,9 +290,8 @@ export class VcEngine {
                 const targets = this.enemies.filter(e => Math.hypot(e.x - st.x, e.y - st.y) < range);
                 if (targets.length > 0) {
                     targets.forEach(t => this.applyGemEffect(t, st.gem, gemData, true, st));
-                    
-                    const trapSpeedMult = 1 + (this.meta.skills.trapSpecialty || 0) * 0.01;
-                    st.cooldown = 1 / (gemFireSpeed(st.gem, gemData, this.meta.skills) * trapSpeedMult);
+                    const trapFireMult = 1 + (this.meta.skills.trapSpecialty || 0) * 0.01;
+                    st.cooldown = 1 / (gemFireSpeed(st.gem, gemData, this.meta.skills) * trapFireMult);
                 }
             }
         });
@@ -307,6 +306,25 @@ export class VcEngine {
             sourceRef: source,
             speed: 200
         });
+    }
+
+    updateProjectiles(dt) {
+        for (let i = this.projectiles.length - 1; i >= 0; i--) {
+            const p = this.projectiles[i];
+            const target = this.enemies.find(e => e.id === p.targetId);
+            if (!target) { this.projectiles.splice(i, 1); continue; }
+
+            const dx = target.x - p.x;
+            const dy = target.y - p.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist < 10) {
+                this.applyGemEffect(target, p.gem, p.gemData, false, p.sourceRef);
+                this.projectiles.splice(i, 1);
+            } else {
+                p.x += (dx / dist) * p.speed * dt;
+                p.y += (dy / dist) * p.speed * dt;
+            }
+        }
     }
 
     applyGemEffect(enemy, gem, gemData, isTrap, source) {

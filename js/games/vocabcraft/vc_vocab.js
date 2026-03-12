@@ -1,6 +1,7 @@
+[MODIFIED FILE] main/js/games/vocabcraft/vc_vocab.js
 import * as srsDb from '../../srs_db.js';
 
-let _activeQueue = [];
+let _activeQueue =[];
 let _cardBusy = false;  // prevent re-entrant card showing
 
 export function setVocabQueue(queue) {
@@ -70,7 +71,7 @@ export function showCard(mode, container, onResolve) {
                 btn.classList.add('correct');
                 const badge = document.createElement('div');
                 badge.textContent = '✓';
-                badge.style.cssText = [
+                badge.style.cssText =[
                     'position:absolute', 'top:50%', 'left:50%',
                     'transform:translate(-50%,-50%) scale(0)',
                     'font-size:52px', 'font-weight:900', 'color:#2ecc71',
@@ -78,6 +79,9 @@ export function showCard(mode, container, onResolve) {
                     'pointer-events:none', 'z-index:9999',
                     'transition:transform 0.12s ease-out, opacity 0.15s ease-in 0.08s'
                 ].join(';');
+                // Fixed: Do NOT set container.style.position = 'relative'
+                // Doing so knocks the fixed modal overlay into standard document flow,
+                // causing subsequent modals to render far down the screen.
                 container.appendChild(badge);
                 requestAnimationFrame(() => { badge.style.transform = 'translate(-50%,-50%) scale(1)'; });
 
