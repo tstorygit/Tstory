@@ -227,11 +227,11 @@ export class VcUI {
 
         if (!st.structRef) {
             if (st.type === TILE_GRASS) {
-                this.createBtn(`🏰 Tower (${CONSTANTS.towerCost})`, mana >= CONSTANTS.towerCost, () => {
+                this.createBtn(`🏰 Tower (${CONSTANTS.towerCost})`, mana >= CONSTANTS.towerCost, CONSTANTS.towerCost, () => {
                     if (this.engine.addStructure(st.x, st.y, 'tower')) this.selectTile(st.r, st.c, st.type);
                 });
             } else if (st.type === TILE_PATH) {
-                this.createBtn(`⚙️ Trap (${CONSTANTS.trapCost})`, mana >= CONSTANTS.trapCost, () => {
+                this.createBtn(`⚙️ Trap (${CONSTANTS.trapCost})`, mana >= CONSTANTS.trapCost, CONSTANTS.trapCost, () => {
                     if (this.engine.addStructure(st.x, st.y, 'trap')) this.selectTile(st.r, st.c, st.type);
                 });
             } else {
@@ -246,6 +246,7 @@ export class VcUI {
                 btn.className = `vc-btn gem-${color}`;
                 btn.textContent = `${data.label} (100)`;
                 btn.disabled = mana < CONSTANTS.gemBaseCost;
+                btn.dataset.manaCost = CONSTANTS.gemBaseCost;
                 btn.onclick = () => this.handleVocabAction(CONSTANTS.gemBaseCost, () => {
                     st.structRef.gem = { color, level: 1 };
                     this.selectTile(st.r, st.c, st.type);
@@ -324,6 +325,7 @@ export class VcUI {
         upBtn.className = 'vc-btn';
         upBtn.textContent = `▲ Lv.${lvl+1} (${cost} 💧)`;
         upBtn.disabled = mana < cost;
+        upBtn.dataset.manaCost = cost;
         upBtn.onclick = () => this.handleVocabAction(cost, () => {
             structRef.gem.level++;
             this.selectTile(this.selectedTile.r, this.selectedTile.c, this.selectedTile.type);
@@ -344,11 +346,12 @@ export class VcUI {
         this.bottomBar.appendChild(btnRow);
     }
 
-    createBtn(text, enabled, onClick) {
+    createBtn(text, enabled, cost, onClick) {
         const btn = document.createElement('button');
         btn.className = 'vc-btn';
         btn.textContent = text;
         btn.disabled = !enabled;
+        if (cost != null) btn.dataset.manaCost = cost;
         btn.onclick = onClick;
         this.bottomBar.appendChild(btn);
     }
@@ -369,9 +372,26 @@ export class VcUI {
         });
     }
 
+    // Update button enabled/disabled state in the bottombar without re-rendering.
+    // Each button stores its cost in data-mana-cost so we can check cheaply.
+    _refreshBottomBarButtons(mana) {
+        this.bottomBar.querySelectorAll('button[data-mana-cost]').forEach(btn => {
+            const cost = +btn.dataset.manaCost;
+            btn.disabled = mana < cost;
+        });
+    }
+
     draw(engineState, eventMsg) {
         this.topBar.hp.textContent = engineState.state.hp;
         this.topBar.mana.textContent = Math.floor(engineState.state.mana);
+
+        // Re-render bottombar when mana crosses a cost threshold so buttons
+        // enable/disable live without rebuilding the whole bar every frame.
+        const mana = Math.floor(engineState.state.mana);
+        if (this._lastMana !== mana) {
+            this._lastMana = mana;
+            this._refreshBottomBarButtons(mana);
+        }
 
         if (!this.entitiesEl) return;
         let html = '';
