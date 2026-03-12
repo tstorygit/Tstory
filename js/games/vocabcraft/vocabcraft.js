@@ -31,15 +31,6 @@ export function init(screens, onExit) {
                     </div>
                 </div>
                 <div class="vc-stage-list" id="vc-stage-list"></div>
-                
-                <div class="vc-grimoire-overlay" id="vc-grimoire-overlay" style="display:none;">
-                    <div class="vc-grimoire-header">
-                        <div class="vc-camp-title">The Grimoire</div>
-                        <div class="vc-grimoire-sp" id="vc-grimoire-sp">SP: 0</div>
-                    </div>
-                    <div class="vc-skill-list" id="vc-skill-list"></div>
-                    <button class="vc-btn" id="vc-btn-close-grimoire" style="margin-top:15px; padding:15px;">Close Grimoire</button>
-                </div>
             </div>
 
             <div id="vc-battle-layer" class="vc-root" style="display:none;">
@@ -59,6 +50,15 @@ export function init(screens, onExit) {
                 <div class="vc-map-container"><div class="vc-grid"></div></div>
                 <div class="vc-bottombar"></div>
             </div>
+
+            <div class="vc-grimoire-overlay" id="vc-grimoire-overlay" style="display:none;">
+                <div class="vc-grimoire-header">
+                    <div class="vc-camp-title">The Grimoire</div>
+                    <div class="vc-grimoire-sp" id="vc-grimoire-sp">SP: 0</div>
+                </div>
+                <div class="vc-skill-list" id="vc-skill-list"></div>
+                <button class="vc-btn" id="vc-btn-close-grimoire" style="margin-top:15px; padding:15px; background:#e74c3c; border-color:#c0392b;">Close Grimoire</button>
+            </div>
         `;
 
         _screens.game.querySelector('#vc-btn-grimoire').onclick = () => {
@@ -66,6 +66,15 @@ export function init(screens, onExit) {
             _screens.game.querySelector('#vc-grimoire-overlay').style.display = 'flex';
         };
         _screens.game.querySelector('#vc-btn-grimoire-battle').onclick = () => {
+            if (_engine && _engine.state.status === 'playing') {
+                _engine.pause();
+                const pauseBtn = _screens.game.querySelector('#vc-btn-pause');
+                if (pauseBtn) {
+                    pauseBtn.textContent = '▶';
+                    pauseBtn.style.background = '#27ae60';
+                    pauseBtn.style.borderColor = '#1e8449';
+                }
+            }
             _renderGrimoire();
             _screens.game.querySelector('#vc-grimoire-overlay').style.display = 'flex';
         };

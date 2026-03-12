@@ -371,22 +371,22 @@ export class VcUI {
             { icon: '⚔️', label: 'Damage', val: Math.floor(dmg * trapMult) + (isTrap ? '(trap)' : '') },
         ];
 
-        switch (gemDef.type) {
-            case 'crit':
-                stats.push({ icon: '💥', label: 'Crit', val: `${(gemCritChance(gem)*100).toFixed(0)}% ×${gemCritMult(gem).toFixed(1)}` });
-                break;
-            case 'slow':
-                stats.push({ icon: '❄️', label: 'Slow', val: `${(gemSlowAmount(gem, gemDef)*100).toFixed(0)}%` });
-                break;
-            case 'poison':
-                stats.push({ icon: '☠️', label: 'Poison', val: `${gemPoisonDps(gem, gemDef).toFixed(1)}/s` });
-                break;
-            case 'mana':
-                stats.push({ icon: '💧', label: 'Leech', val: `${gemManaDrain(gem, gemDef).toFixed(1)}/hit` });
-                break;
-            case 'armor':
-                stats.push({ icon: '🛡️', label: 'Tear', val: `${gemArmorTear(gem, gemDef)}/hit` });
-                break;
+        // Always initialize special stat rows, so they exist in DOM to be updated live
+        const sts = structRef.stats || { manaLeeched: 0, poisonDealt: 0, slowApplied: 0, armorTorn: 0, critHits: 0, totalDmg: 0 };
+        let specialStatHtml = '';
+        
+        specialStatHtml += `<div class="vc-stat-panel-row"><span>🎯 Total Dmg</span><span id="vc-live-totalDmg">${Math.floor(sts.totalDmg)}</span></div>`;
+
+        if (gemDef.type === 'mana') {
+            specialStatHtml += `<div class="vc-stat-panel-row"><span>💧 Leeched</span><span id="vc-live-manaLeeched">${Math.floor(sts.manaLeeched)}</span></div>`;
+        } else if (gemDef.type === 'slow') {
+            specialStatHtml += `<div class="vc-stat-panel-row"><span>❄️ Slows</span><span id="vc-live-slowApplied">${sts.slowApplied}</span></div>`;
+        } else if (gemDef.type === 'poison') {
+            specialStatHtml += `<div class="vc-stat-panel-row"><span>☠️ Poison</span><span id="vc-live-poisonDealt">${Math.floor(sts.poisonDealt)}</span></div>`;
+        } else if (gemDef.type === 'armor') {
+            specialStatHtml += `<div class="vc-stat-panel-row"><span>🛡️ Torn</span><span id="vc-live-armorTorn">${sts.armorTorn.toFixed(1)}</span></div>`;
+        } else if (gemDef.type === 'crit') {
+            specialStatHtml += `<div class="vc-stat-panel-row"><span>💥 Crits</span><span id="vc-live-critHits">${sts.critHits}</span></div>`;
         }
 
         // Next level preview
@@ -394,24 +394,6 @@ export class VcUI {
         const nextDmg = gemDamage(nextGem, gemDef);
         const nextSpeed = gemFireSpeed(nextGem, gemDef);
         const nextRange = gemRange(nextGem, isTrap, this.tileSize);
-
-        // Special effect lifetime stats
-        const sts = structRef.stats;
-        let specialStatHtml = '';
-        if (sts) {
-            if (gemDef.type === 'mana' && sts.manaLeeched > 0)
-                specialStatHtml += `<div class="vc-stat-panel-row"><span>💧 Leeched</span><span>${Math.floor(sts.manaLeeched)}</span></div>`;
-            if (gemDef.type === 'slow' && sts.slowApplied > 0)
-                specialStatHtml += `<div class="vc-stat-panel-row"><span>❄️ Slows</span><span>${sts.slowApplied}</span></div>`;
-            if (gemDef.type === 'poison' && sts.poisonDealt > 0)
-                specialStatHtml += `<div class="vc-stat-panel-row"><span>☠️ Poison</span><span>${Math.floor(sts.poisonDealt)}</span></div>`;
-            if (gemDef.type === 'armor' && sts.armorTorn > 0)
-                specialStatHtml += `<div class="vc-stat-panel-row"><span>🛡️ Torn</span><span>${sts.armorTorn.toFixed(1)}</span></div>`;
-            if (gemDef.type === 'crit' && sts.critHits > 0)
-                specialStatHtml += `<div class="vc-stat-panel-row"><span>💥 Crits</span><span>${sts.critHits}</span></div>`;
-            if (sts.totalDmg > 0)
-                specialStatHtml += `<div class="vc-stat-panel-row"><span>🎯 Total Dmg</span><span>${sts.totalDmg}</span></div>`;
-        }
 
         const panel = document.createElement('div');
         panel.className = 'vc-tower-stat-panel';
@@ -504,6 +486,28 @@ export class VcUI {
         if (this._lastMana !== mana) {
             this._lastMana = mana;
             this._refreshBottomBarButtons(mana);
+        }
+
+        // Live update stats if a structure is selected
+        if (this.selectedTile?.structRef?.stats) {
+            const sts = this.selectedTile.structRef.stats;
+            const s_dmg = this.bottomBar.querySelector('#vc-live-totalDmg');
+            if (s_dmg) s_dmg.textContent = Math.floor(sts.totalDmg);
+            
+            const s_mana = this.bottomBar.querySelector('#vc-live-manaLeeched');
+            if (s_mana) s_mana.textContent = Math.floor(sts.manaLeeched);
+            
+            const s_slow = this.bottomBar.querySelector('#vc-live-slowApplied');
+            if (s_slow) s_slow.textContent = sts.slowApplied;
+            
+            const s_pois = this.bottomBar.querySelector('#vc-live-poisonDealt');
+            if (s_pois) s_pois.textContent = Math.floor(sts.poisonDealt);
+            
+            const s_arm = this.bottomBar.querySelector('#vc-live-armorTorn');
+            if (s_arm) s_arm.textContent = sts.armorTorn.toFixed(1);
+            
+            const s_crit = this.bottomBar.querySelector('#vc-live-critHits');
+            if (s_crit) s_crit.textContent = sts.critHits;
         }
 
         if (!this.entitiesEl) return;
