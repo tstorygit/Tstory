@@ -8,10 +8,9 @@ export const ENEMY_TYPES = {
         hpMult: 1.0,
         speedMult: 1.0,
         armorBonus: 0,
-        spawnCount: 1,       // how many per "slot" in the wave
-        rewardMult: 1.0,
-        immune:[],          // can be: 'slow', 'poison'
-        regen: 0,            // HP regen per second (fraction of maxHp)
+        spawnCount: 1,
+        immune: [],
+        regen: 0,
         desc: 'Standard enemy. No special traits.'
     },
     fast: {
@@ -22,8 +21,7 @@ export const ENEMY_TYPES = {
         speedMult: 2.3,
         armorBonus: 0,
         spawnCount: 1,
-        rewardMult: 1.2,
-        immune:[],
+        immune: [],
         regen: 0,
         desc: 'Very fast but fragile. Punishes poor coverage.'
     },
@@ -34,9 +32,8 @@ export const ENEMY_TYPES = {
         hpMult: 0.32,
         speedMult: 1.1,
         armorBonus: 0,
-        spawnCount: 3,       // 3 spawn per slot — overwhelms single-target towers
-        rewardMult: 0.5,
-        immune:[],
+        spawnCount: 3,
+        immune: [],
         regen: 0,
         desc: 'Spawns 3 at once. Overwhelms single-target defenses.'
     },
@@ -46,10 +43,9 @@ export const ENEMY_TYPES = {
         emoji: '🛡️',
         hpMult: 1.6,
         speedMult: 0.75,
-        armorBonus: 4,       // extra flat armor on top of wave base
+        armorBonus: 4,
         spawnCount: 1,
-        rewardMult: 1.8,
-        immune:[],
+        immune: [],
         regen: 0,
         desc: '+4 Armor. Shrug off weak gems. Purple tears it apart.'
     },
@@ -61,9 +57,8 @@ export const ENEMY_TYPES = {
         speedMult: 0.9,
         armorBonus: 0,
         spawnCount: 1,
-        rewardMult: 1.5,
-        immune:[],
-        regen: 0.035,        // regens 3.5% maxHp per second — punishes slow DPS
+        immune: [],
+        regen: 0.035,
         desc: 'Slowly regens HP. Needs burst damage to kill cleanly.'
     },
     ghost: {
@@ -74,28 +69,27 @@ export const ENEMY_TYPES = {
         speedMult: 1.3,
         armorBonus: 0,
         spawnCount: 1,
-        rewardMult: 1.4,
-        immune: ['slow', 'poison'],   // immune to blue + green
+        immune: ['slow', 'poison'],
         regen: 0,
         desc: 'Immune to Slow and Poison. Only damage gems work.'
     }
 };
 
-// Which enemy types can appear each wave (cumulative unlock)
-function wavePool(waveNum, tier) {
+// Which enemy types can appear each wave — based on difficulty (1-10)
+function wavePool(waveNum, difficulty) {
     const pool = ['normal'];
-    if (waveNum >= 3 || tier >= 2) pool.push('fast');
-    if (waveNum >= 4 || tier >= 2) pool.push('swarm');
-    if (waveNum >= 6 || tier >= 3) pool.push('armored');
-    if (waveNum >= 7 || tier >= 3) pool.push('healer');
-    if (waveNum >= 8 || tier >= 4) pool.push('ghost');
+    if (waveNum >= 2 || difficulty >= 2) pool.push('fast');
+    if (waveNum >= 3 || difficulty >= 2) pool.push('swarm');
+    if (waveNum >= 5 || difficulty >= 3) pool.push('armored');
+    if (waveNum >= 6 || difficulty >= 5) pool.push('healer');
+    if (waveNum >= 8 || difficulty >= 7) pool.push('ghost');
     return pool;
 }
 
 // Pick enemy types for a wave — weighted so new types appear occasionally,
 // not every single enemy. Waves feel varied but readable.
-function pickWaveComposition(totalSlots, waveNum, tier) {
-    const pool = wavePool(waveNum, tier);
+function pickWaveComposition(totalSlots, waveNum, difficulty) {
+    const pool = wavePool(waveNum, difficulty);
     const result =[];
 
     for (let i = 0; i < totalSlots; i++) {
@@ -119,42 +113,44 @@ function pickWaveComposition(totalSlots, waveNum, tier) {
 
 /**
  * Build the spawn entries for one wave.
- * Returns an array of enemy objects ready to be pushed into spawnQueue.
+ * @param {number} waveNum      current wave number (1-based)
+ * @param {number} difficulty   stage difficulty (1-10)
+ * @param {boolean} isBossWave
+ * @param {boolean} isEnraged
+ * @param {Array} waypoints
  */
-export function buildWaveEnemies(waveNum, tier, isBossWave, isEnraged, waypoints) {
+export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, waypoints) {
+    // Flat ×1.15 per difficulty step, then wave-by-wave climb on top
+    const diffMult = Math.pow(1.15, difficulty - 1);
+
     if (isBossWave) {
-        // Boss is always a single massive armored unit — no type system
-        let hpBase = 18 * Math.pow(1.18, tier - 1) * Math.pow(1.15, waveNum);
-        hpBase *= 4;
-        const armor = Math.max(0, Math.floor((waveNum - 2) / 2) + (tier - 1)) + 3;
+        let hpBase = 18 * diffMult * Math.pow(1.15, waveNum) * 4;
+        const armor = Math.max(0, Math.floor((waveNum - 2) / 2) + Math.floor((difficulty - 1) / 2)) + 3;
         const hp = hpBase * (isEnraged ? 1.5 : 1);
-        return[{
+        return [{
             delay: 0,
             typeId: 'boss',
             isBoss: true,
             emoji: '👹',
             hp, maxHp: hp,
             armor: armor + (isEnraged ? 1 : 0),
-            speed: 26 + (tier * 2),
-            rewardMult: (isEnraged ? 3 : 1) * 8,
-            regen: 0.01,     // boss slowly regens too
+            speed: 26 + difficulty * 2,
+            regen: 0.01,
             immune: [],
             x: waypoints[0].x, y: waypoints[0].y, wpIdx: 1,
             effects: { slow: 0, slowTimer: 0, poison: 0, poisonTimer: 0, poisonTick: 0 }
         }];
     }
 
-    // Normal wave: pick how many slots, then expand swarm types
-    const slots = 4 + Math.floor(waveNum * 1.2) + tier;
-    const composition = pickWaveComposition(slots, waveNum, tier);
+    const slots = 4 + Math.floor(waveNum * 1.2) + Math.floor(difficulty / 2);
+    const composition = pickWaveComposition(slots, waveNum, difficulty);
 
-    // Base HP and armor for this wave
-    let hpBase = 18 * Math.pow(1.18, tier - 1) * Math.pow(1.15, waveNum);
-    const baseArmor = Math.max(0, Math.floor((waveNum - 2) / 2) + (tier - 1));
+    let hpBase = 18 * diffMult * Math.pow(1.15, waveNum);
+    // Base armor: every 2 difficulty levels adds 1, plus wave scaling
+    const baseArmor = Math.floor((difficulty - 1) / 2) + Math.max(0, Math.floor((waveNum - 2) / 2));
     const enrageMult = isEnraged ? 1.5 : 1;
-    const reward = isEnraged ? 3 : 1;
 
-    const enemies =[];
+    const enemies = [];
     let spawnIdx = 0;
 
     composition.forEach(typeId => {
@@ -173,8 +169,7 @@ export function buildWaveEnemies(waveNum, tier, isBossWave, isEnraged, waypoints
                 label: typeDef.label,
                 hp, maxHp: hp,
                 armor,
-                speed: (38 + tier * 2) * typeDef.speedMult,
-                rewardMult: reward * typeDef.rewardMult,
+                speed: (38 + difficulty * 2) * typeDef.speedMult,
                 regen: typeDef.regen,
                 immune: [...typeDef.immune],
                 x: waypoints[0].x, y: waypoints[0].y, wpIdx: 1,

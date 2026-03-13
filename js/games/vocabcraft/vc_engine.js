@@ -93,22 +93,48 @@ export function gemArmorTear(gem, gemData) {
     return gemData.baseTear * Math.pow(1.90, gem.level - 1);
 }
 
+/**
+ * Derive XP value from an enemy's actual stats.
+ * All scaling (difficulty, wave, enrage) is already baked into the enemy's
+ * maxHp/armor/speed at spawn time, so XP automatically tracks true threat.
+ *
+ * effectiveHp  = maxHp × armor_factor × regen_factor
+ * speedFactor  = 0.8 + speed/200        (~1.0 normal, ~1.15 fast)
+ * immuneFactor = 1 + immunities × 0.25  (+25% per immunity)
+ * xp = effectiveHp × speedFactor × immuneFactor / NORMALISER
+ */
+const XP_NORMALISER = 4.14;
+
+export function enemyXpValue(enemy) {
+    const armorFactor  = 1 + (enemy.armor || 0) * 0.15;
+    const regenFactor  = 1 + (enemy.regen || 0) * 8;
+    const effectiveHp  = enemy.maxHp * armorFactor * regenFactor;
+    const speedFactor  = 0.8 + (enemy.speed || 60) / 200;
+    const immuneFactor = 1 + (enemy.immune?.length || 0) * 0.25;
+    return Math.max(1, effectiveHp * speedFactor * immuneFactor / XP_NORMALISER);
+}
+
 export class VcEngine {
-    constructor(mapData, meta, tier, onUpdate, onGameOver) {
+    constructor(mapData, meta, difficulty, onUpdate, onGameOver) {
         this.map = mapData;
         this.meta = meta;
-        this.tier = tier;
+        this.difficulty = difficulty;
         this.onUpdate = onUpdate;
         this.onGameOver = onGameOver;
+
+        const baseWaves = 5 + difficulty;
+        const bonusWaves = meta.skills.bonusWaves || 0;
 
         this.state = {
             hp: CONSTANTS.playerBaseHp,
             mana: 200 + ((meta.skills.startMana || 0) * 20),
             wave: 0,
-            maxWaves: 5 + (tier * 2),
+            maxWaves: baseWaves + bonusWaves,
             status: 'planning',
             combo: 0,
-            xpEarned: 0
+            xpEarned: 0,
+            _waveLeaked: false,   // set true when any enemy reaches exit this wave
+            _hpAtWaveStart: CONSTANTS.playerBaseHp  // snapshot for leak detection
         };
 
         this.enemies = [];
@@ -117,6 +143,7 @@ export class VcEngine {
 
         this.spawnQueue =[];
         this._nextSpawnDelay = 0;
+        this._lastClearedWave = -1;
         this.lastTick = performance.now();
         this.raf = null;
         this.speedMult = 1;
@@ -171,15 +198,30 @@ export class VcEngine {
             return;
         }
 
+        // Wave-clear bonus: fires once when a wave fully drains with no leak
+        if (this._lastClearedWave !== this.state.wave
+                && this.state.wave > 0
+                && this.spawnQueue.length === 0
+                && this.enemies.length === 0) {
+            this._lastClearedWave = this.state.wave;
+            if (!this.state._waveLeaked) {
+                const bonus = Math.round(20 * this.difficulty);
+                this.state.xpEarned += bonus;
+                this.onUpdate(this, { type: 'waveClear', bonus });
+            }
+        }
+
         this.raf = requestAnimationFrame(this.loop);
     }
 
     spawnWave(isEnraged = false) {
         this.state.wave++;
+        this.state._waveLeaked = false;
+        this.state._hpAtWaveStart = this.state.hp;
         const isBossWave = (this.state.wave % 5 === 0);
 
         const entries = buildWaveEnemies(
-            this.state.wave, this.tier, isBossWave, isEnraged,
+            this.state.wave, this.difficulty, isBossWave, isEnraged,
             this.map.waypoints
         );
 
@@ -239,8 +281,8 @@ export class VcEngine {
             }
 
             if (e.hp <= 0) {
-                this.state.mana += 10 * e.rewardMult;
-                this.state.xpEarned += 5 * e.rewardMult;
+                this.state.mana += 10 * (e.rewardMult || 1);
+                this.state.xpEarned += enemyXpValue(e);
                 this.enemies.splice(i, 1);
                 continue;
             }
@@ -248,6 +290,7 @@ export class VcEngine {
             const target = this.map.waypoints[e.wpIdx];
             if (!target) {
                 this.state.hp -= (e.isBoss ? 5 : 1);
+                this.state._waveLeaked = true;
                 e.x = this.map.waypoints[0].x;
                 e.y = this.map.waypoints[0].y;
                 e.wpIdx = 1;

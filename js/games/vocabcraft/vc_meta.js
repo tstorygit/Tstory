@@ -28,7 +28,8 @@ export const SKILL_DEFS = {
     trapSpecialty:   { name: "Trap Specialization",desc: "Traps shoot 1% faster, deal +1% base dmg, and have +0.1 special multiplier per level.", max: Infinity, group: 'utility' },
     resonance:       { name: "Resonance",          desc: "+2% global damage per level.",                        max: Infinity, group: 'utility' },
     haste:           { name: "Haste",              desc: "+2% global firing speed per level.",                  max: 50,       group: 'utility' },
-    scholarGrace:    { name: "Scholar's Grace",    desc: "+0.5% dmg per combo stack per level.",                max: Infinity, group: 'utility' }
+    scholarGrace:    { name: "Scholar's Grace",    desc: "+0.5% dmg per combo stack per level.",                max: Infinity, group: 'utility' },
+    bonusWaves:      { name: "Arcane Endurance",   desc: "+1 wave per level. More enemies = more XP.",          max: Infinity, group: 'utility' }
 };
 
 export function getDefaultSave() {
@@ -41,9 +42,9 @@ export function getDefaultSave() {
             redCost: 0, blueCost: 0, greenCost: 0, orangeCost: 0, yellowCost: 0, purpleCost: 0,
             redMastery: 0, blueMastery: 0, greenMastery: 0,
             orangeMastery: 0, yellowMastery: 0, purpleMastery: 0,
-            trapSpecialty: 0, resonance: 0, haste: 0, scholarGrace: 0
+            trapSpecialty: 0, resonance: 0, haste: 0, scholarGrace: 0, bonusWaves: 0
         },
-        highestTierCleared: 0
+        clearedStages: {}   // keys: "templateId:difficulty" → true
     };
 }
 
@@ -52,14 +53,29 @@ export function loadMeta() {
         const raw = localStorage.getItem(SAVE_KEY);
         if (!raw) return getDefaultSave();
         const parsed = JSON.parse(raw);
-        
-        // Migrate legacy trapEng to trapSpecialty
+
+        // Migrate legacy trapEng → trapSpecialty
         if (parsed.skills && parsed.skills.trapEng !== undefined) {
             parsed.skills.trapSpecialty = parsed.skills.trapEng;
             delete parsed.skills.trapEng;
         }
-        
-        return { ...getDefaultSave(), ...parsed, skills: { ...getDefaultSave().skills, ...parsed.skills } };
+
+        // Migrate legacy highestTierCleared → clearedStages
+        if (parsed.highestTierCleared > 0 && !parsed.clearedStages) {
+            parsed.clearedStages = {};
+            for (let d = 1; d <= parsed.highestTierCleared; d++) {
+                parsed.clearedStages[`gauntlet:${d}`] = true;
+            }
+        }
+        delete parsed.highestTierCleared;
+
+        const def = getDefaultSave();
+        return {
+            ...def,
+            ...parsed,
+            skills: { ...def.skills, ...parsed.skills },
+            clearedStages: { ...(parsed.clearedStages || {}) }
+        };
     } catch {
         return getDefaultSave();
     }
@@ -89,10 +105,36 @@ export function resetSkills(meta) {
     for (const key in meta.skills) {
         const lvl = meta.skills[key];
         if (lvl > 0) {
-            // Refund the exact triangular sum of SP spent: (N * (N + 1)) / 2
             meta.sp += (lvl * (lvl + 1)) / 2;
             meta.skills[key] = 0;
         }
     }
     saveMeta(meta);
+}
+
+/** Mark a stage cleared and save. */
+export function clearStage(meta, templateId, difficulty) {
+    meta.clearedStages[`${templateId}:${difficulty}`] = true;
+    saveMeta(meta);
+}
+
+/** Highest difficulty cleared on ANY template — drives template unlock gates. */
+export function highestDifficultyCleared(meta) {
+    let max = 0;
+    for (const key of Object.keys(meta.clearedStages)) {
+        const d = parseInt(key.split(':')[1], 10);
+        if (!isNaN(d) && d > max) max = d;
+    }
+    return max;
+}
+
+/** True if templateId:difficulty has been cleared. */
+export function isStageCleared(meta, templateId, difficulty) {
+    return !!meta.clearedStages[`${templateId}:${difficulty}`];
+}
+
+/** True if templateId:difficulty is playable (previous difficulty cleared, or D1). */
+export function isStageUnlocked(meta, templateId, difficulty) {
+    if (difficulty === 1) return true;
+    return !!meta.clearedStages[`${templateId}:${difficulty - 1}`];
 }

@@ -1,6 +1,7 @@
 import { mountVocabSelector } from '../../vocab_selector.js';
-import { loadMeta, saveMeta, addXP, resetSkills, SKILL_DEFS } from './vc_meta.js';
-import { generateMap, getWaypoints } from './vc_mapgen.js';
+import { loadMeta, saveMeta, addXP, resetSkills, SKILL_DEFS,
+         clearStage, highestDifficultyCleared, isStageCleared, isStageUnlocked } from './vc_meta.js';
+import { generateMap, getWaypoints, getValidTemplates, getTemplateMinimap, TEMPLATES } from './vc_mapgen.js';
 import { setVocabQueue, showCard } from './vc_vocab.js';
 import { VcEngine } from './vc_engine.js';
 import { VcUI } from './vc_ui.js';
@@ -210,39 +211,131 @@ function _renderSetup() {
 function _showCamp() {
     _screens.game.querySelector('#vc-battle-layer').style.display = 'none';
     _screens.game.querySelector('#vc-camp-layer').style.display = 'flex';
-    
-    // GCFW polynomial curve
+
+    // Remove any stale confirm modal
+    const stale = _screens.game.querySelector('#vc-map-confirm');
+    if (stale) stale.remove();
+
     const nextReq = Math.floor(100 * Math.pow(_meta.level, 1.8));
-    const lvlText = `Lv. ${_meta.level} (XP: ${_meta.xp}/${nextReq})`;
-    _screens.game.querySelector('#vc-camp-lvl').textContent = lvlText;
+    _screens.game.querySelector('#vc-camp-lvl').textContent =
+        `Lv. ${_meta.level} (XP: ${_meta.xp}/${nextReq})`;
 
     const list = _screens.game.querySelector('#vc-stage-list');
     list.innerHTML = '';
 
-    const maxVisibleTier = _meta.highestTierCleared + 1;
-    
-    for (let t = 1; t <= maxVisibleTier; t++) {
-        const isLocked = t > _meta.highestTierCleared + 1;
-        const isCleared = t <= _meta.highestTierCleared;
+    const maxDiff = highestDifficultyCleared(_meta);
+
+    TEMPLATES.forEach(tpl => {
+        // Template locked if player hasn't reached its minTier difficulty yet
+        // minTier 1 = always available; minTier N = need to have cleared diff N-1 somewhere
+        const tplLocked = tpl.minTier > 1 && maxDiff < tpl.minTier - 1;
 
         const card = document.createElement('div');
-        card.className = `vc-stage-card ${isLocked ? 'locked' : ''}`;
-        if (isCleared) card.style.borderColor = '#27ae60';
+        card.className = 'vc-stage-card';
+        card.style.cssText = 'align-items:flex-start; gap:10px; cursor:default; flex-direction:column;';
+        if (tplLocked) card.style.opacity = '0.45';
 
-        card.innerHTML = `
-            <div class="vc-stage-info">
-                <h3>Sector ${t}</h3>
-                <p>Waves: ${5 + (t * 2)} | Difficulty: ${isCleared ? 'Cleared' : 'Hostile'}</p>
+        // ── Header row: minimap + title/desc ─────────────────────────────────
+        const minimapSvg = getTemplateMinimap(tpl.id, 58, 74);
+        const waveCount  = 5 + 1; // D1 baseline; shown generically
+        const headerRow  = document.createElement('div');
+        headerRow.style.cssText = 'display:flex; gap:10px; width:100%; align-items:flex-start;';
+        headerRow.innerHTML = `
+            <div style="flex-shrink:0; border-radius:4px; overflow:hidden; border:1px solid #4a5568;">
+                ${tplLocked
+                    ? `<div style="width:58px;height:74px;background:#1a252f;display:flex;align-items:center;justify-content:center;font-size:20px;">🔒</div>`
+                    : minimapSvg}
             </div>
-            <div style="font-size: 24px;">${isLocked ? '🔒' : isCleared ? '✅' : '▶️'}</div>
+            <div style="flex:1; min-width:0;">
+                <div style="font-size:15px; font-weight:bold; color:#ecf0f1; margin-bottom:3px;">${tpl.name}</div>
+                <div style="font-size:11px; color:#bdc3c7; line-height:1.4; margin-bottom:5px;">${tpl.desc}</div>
+                ${tplLocked
+                    ? `<div style="font-size:11px; color:#e74c3c;">🔒 Clear difficulty ${tpl.minTier - 1} on any map</div>`
+                    : ''}
+            </div>
         `;
+        card.appendChild(headerRow);
 
-        if (!isLocked) {
-            card.onclick = () => _startBattle(t);
+        if (!tplLocked) {
+            // ── Difficulty dots row ───────────────────────────────────────────
+            const dotsRow = document.createElement('div');
+            dotsRow.style.cssText = 'display:flex; gap:6px; flex-wrap:wrap; width:100%;';
+
+            for (let d = 1; d <= 10; d++) {
+                const cleared  = isStageCleared(_meta, tpl.id, d);
+                const unlocked = isStageUnlocked(_meta, tpl.id, d);
+                const waves    = 5 + d + (_meta.skills.bonusWaves || 0);
+
+                const dot = document.createElement('div');
+                dot.title = `D${d} — ${waves} waves${cleared ? ' ✅' : unlocked ? '' : ' 🔒'}`;
+                dot.style.cssText = [
+                    'width:28px', 'height:28px', 'border-radius:6px',
+                    'display:flex', 'align-items:center', 'justify-content:center',
+                    'font-size:11px', 'font-weight:bold', 'cursor:pointer',
+                    'border:2px solid',
+                    cleared  ? 'background:#1a5e36; border-color:#2ecc71; color:#2ecc71;' :
+                    unlocked ? 'background:#1a252f; border-color:#3498db; color:#3498db;' :
+                               'background:#1a252f; border-color:#4a5568; color:#4a5568; cursor:default; opacity:0.5;'
+                ].join(';');
+                dot.textContent = d;
+
+                if (unlocked) {
+                    dot.onclick = () => _confirmAndStartBattle(tpl.id, d);
+                }
+
+                dotsRow.appendChild(dot);
+            }
+            card.appendChild(dotsRow);
         }
 
         list.appendChild(card);
-    }
+    });
+}
+
+function _confirmAndStartBattle(templateId, difficulty) {
+    const tpl = TEMPLATES.find(t => t.id === templateId);
+    const minimapSvg = getTemplateMinimap(templateId, 90, 115);
+    const waves = 5 + difficulty + (_meta.skills.bonusWaves || 0);
+    const baseArmor = Math.floor((difficulty - 1) / 2);
+
+    const existing = _screens.game.querySelector('#vc-map-confirm');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'vc-map-confirm';
+    modal.style.cssText = [
+        'position:absolute', 'inset:0', 'background:rgba(26,37,47,0.97)',
+        'display:flex', 'flex-direction:column', 'align-items:center',
+        'justify-content:center', 'z-index:100', 'padding:24px', 'gap:14px',
+        'overflow-y:auto'
+    ].join(';');
+
+    const cleared = isStageCleared(_meta, templateId, difficulty);
+    const statusLine = cleared
+        ? `<span style="color:#2ecc71">✅ Previously cleared</span>`
+        : `<span style="color:#f39c12">⚔️ Not yet cleared</span>`;
+
+    modal.innerHTML = `
+        <div style="font-size:18px; font-weight:bold; color:#f1c40f;">${tpl.name} — D${difficulty}</div>
+        <div style="border-radius:6px; overflow:hidden; border:2px solid #3498db;">${minimapSvg}</div>
+        <div style="text-align:center; max-width:240px;">
+            <div style="font-size:12px; color:#bdc3c7; line-height:1.5; margin-bottom:8px;">${tpl.desc}</div>
+            <div style="display:flex; flex-wrap:wrap; gap:6px; justify-content:center; font-size:12px;">
+                <span style="background:#34495e; padding:3px 8px; border-radius:4px;">🌊 ${waves} waves</span>
+                <span style="background:#34495e; padding:3px 8px; border-radius:4px;">🛡️ +${baseArmor} base armor</span>
+                <span style="background:#34495e; padding:3px 8px; border-radius:4px;">💰 ${difficulty}× XP</span>
+                <span style="background:#34495e; padding:3px 8px; border-radius:4px;">${statusLine}</span>
+            </div>
+        </div>
+        <div style="display:flex; gap:12px; width:100%;">
+            <button id="vc-confirm-go"   style="flex:1;padding:14px;background:#2ecc71;border:2px solid #27ae60;border-radius:6px;color:white;font-weight:bold;font-size:15px;cursor:pointer;">⚔️ Enter</button>
+            <button id="vc-confirm-back" style="flex:1;padding:14px;background:#34495e;border:2px solid #7f8c8d;border-radius:6px;color:white;font-weight:bold;font-size:15px;cursor:pointer;">← Back</button>
+        </div>
+    `;
+
+    _screens.game.querySelector('#vc-camp-layer').appendChild(modal);
+    modal.querySelector('#vc-confirm-go').onclick = () => { modal.remove(); _startBattle(templateId, difficulty); };
+    modal.querySelector('#vc-confirm-back').onclick = () => modal.remove();
 }
 
 function _renderGrimoire() {
@@ -311,13 +404,13 @@ function _renderGrimoire() {
     });
 }
 
-function _startBattle(tier) {
-    _activeTier = tier;
-    
+function _startBattle(templateId, difficulty) {
+    _activeTier = difficulty;  // keep _activeTier for any legacy refs
+
     _screens.game.querySelector('#vc-camp-layer').style.display = 'none';
     _screens.game.querySelector('#vc-battle-layer').style.display = 'flex';
 
-    const mapData = generateMap(9, 13, tier); 
+    const mapData = generateMap(9, 13, difficulty, templateId);
 
     const uiCallbacks = {
         showCard: (mode, onRes) => {
@@ -327,16 +420,15 @@ function _startBattle(tier) {
     };
 
     let ui;
-    _engine = new VcEngine(mapData, _meta, tier, (eng, msg) => {
-        if(ui) ui.draw(eng, msg);
+    _engine = new VcEngine(mapData, _meta, difficulty, (eng, msg) => {
+        if (ui) ui.draw(eng, msg);
     }, (isWin, xp) => {
         addXP(_meta, xp);
         if (isWin) {
-            _meta.highestTierCleared = Math.max(_meta.highestTierCleared, _activeTier);
-            saveMeta(_meta);
-            alert(`Sector Cleared! +${xp} XP`);
+            clearStage(_meta, templateId, difficulty);
+            alert(`${TEMPLATES.find(t=>t.id===templateId)?.name} D${difficulty} Cleared! +${Math.floor(xp)} XP`);
         } else {
-            alert(`Defeated! You salvaged +${xp} XP`);
+            alert(`Defeated! You salvaged +${Math.floor(xp)} XP`);
         }
         _showCamp();
     });
