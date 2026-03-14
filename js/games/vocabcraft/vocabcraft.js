@@ -766,7 +766,7 @@ function _startBattle(templateId, difficulty) {
     _screens.game.querySelector('#vc-camp-layer').style.display = 'none';
     _screens.game.querySelector('#vc-battle-layer').style.display = 'flex';
 
-    const mapData = generateMap(9, 13, difficulty, templateId);
+    const mapData = generateMap(9, 12, difficulty, templateId);
 
     // If the requested template couldn't generate a valid map, show a brief toast.
     if (mapData.usedFallback) {

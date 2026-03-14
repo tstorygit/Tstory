@@ -3,6 +3,9 @@
     flex-direction: column;
     position: absolute;
     inset: 0;
+    /* dvh accounts for collapsing mobile browser chrome; fall back to svh then 100% */
+    height: 100dvh;
+    max-height: 100dvh;
     background: #2c3e50;
     color: #ecf0f1;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -210,15 +213,15 @@
 
 /* --- Bottom Context Bar --- */
 .vc-bottombar {
-    min-height: 130px;
-    /* Grow to fit content, but never more than ~40% of viewport height */
-    max-height: 42vh;
+    min-height: 140px;
+    /* Hard cap so the bar never pushes the map out of view */
+    max-height: 160px;
     height: auto;
     background: #1a252f;
     border-top: 2px solid #34495e;
-    /* Generous padding — extra bottom pad covers mobile home-indicator / notch */
-    padding: 8px 10px 18px;
-    padding-bottom: max(18px, env(safe-area-inset-bottom, 18px));
+    /* Keep padding modest; safe-area handles the notch/home-bar */
+    padding: 8px 10px;
+    padding-bottom: max(8px, env(safe-area-inset-bottom, 8px));
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
@@ -229,6 +232,15 @@
     flex-shrink: 0;
     -webkit-overflow-scrolling: touch;
     box-sizing: border-box;
+}
+
+/* Push content above the mobile browser chrome / gesture bar */
+.vc-root::after {
+    content: '';
+    display: block;
+    height: env(safe-area-inset-bottom, 0px);
+    flex-shrink: 0;
+    background: #1a252f;
 }
 .vc-btn {
     background: #34495e;
