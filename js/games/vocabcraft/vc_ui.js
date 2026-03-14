@@ -318,7 +318,12 @@ export class VcUI {
 
     renderBottomBar() {
         this.bottomBar.innerHTML = '';
-        this._gemPickerRefresh = null;  
+        this._gemPickerRefresh = null;
+        // Immediately sync the top-bar mana display — this covers the gap between
+        // when mana changes (e.g. placing a trap/tower) and the next draw() call.
+        if (this.topBar?.mana) {
+            this.topBar.mana.textContent = Math.floor(this.engine.state.mana);
+        }
         const st = this.selectedTile;
         if (!st) {
             this.bottomBar.innerHTML = `<div style="color:#7f8c8d;">Select a tile to build.</div>`;
@@ -630,7 +635,9 @@ export class VcUI {
 
         engineState.structures.forEach(st => {
             const isTower = st.type === 'tower';
-            let inner = st.gem ? `<div class="vc-gem" style="background:${GEMS[st.gem.color].color}">${st.gem.level}</div>` : '';
+            let inner = st.gem
+                ? `<div class="vc-gem" style="background:${GEMS[st.gem.color].color}">${st.gem.level}</div>`
+                : `<div style="font-size:${Math.max(10,this.tileSize*0.38)}px;opacity:0.45;line-height:1;">${isTower ? '🏰' : '⚙️'}</div>`;
             html += `<div class="vc-structure ${isTower?'vc-tower':'vc-trap'}" style="left:${st.x-this.tileSize/2}px;top:${st.y-this.tileSize/2}px;width:${this.tileSize}px;height:${this.tileSize}px;">${inner}</div>`;
         });
 
@@ -667,19 +674,29 @@ export class VcUI {
 
         this._updateEnemyStatWindow(engineState);
 
-        if (eventMsg) {
+        // Only damage events carry x/y/color — other events (waveClear, etc.) must
+        // be handled separately. Blindly reading GEMS[eventMsg.color] on a non-dmg
+        // event throws TypeError → crashes the RAF loop → engine freezes until
+        // the user manually triggers pause+resume.
+        if (eventMsg?.type === 'dmg') {
             const fl = document.createElement('div');
             fl.className = 'vc-float';
             fl.style.left = eventMsg.x + 'px';
             fl.style.top = eventMsg.y + 'px';
-            fl.style.color = GEMS[eventMsg.color].color;
+            fl.style.color = GEMS[eventMsg.color]?.color ?? '#fff';
             fl.textContent = eventMsg.amt;
             this.gridEl.appendChild(fl);
             setTimeout(() => fl.remove(), 800);
+        } else if (eventMsg?.type === 'waveClear') {
+            // Show a brief wave-clear bonus float in the top-center of the map
+            const fl = document.createElement('div');
+            fl.className = 'vc-float';
+            fl.style.cssText = 'left:50%;top:30px;transform:translateX(-50%);font-size:15px;color:#f1c40f;text-shadow:0 0 8px #f39c12,1px 1px 0 #000;';
+            fl.textContent = `✨ Perfect Wave +${eventMsg.bonus} XP`;
+            this.gridEl.appendChild(fl);
+            setTimeout(() => fl.remove(), 1200);
         }
-    }
-
-    _updateEnemyStatWindow(engineState) {
+    } {
         if (!this.enemyStatEl) return;
         if (!this.selectedEnemyId) { this.enemyStatEl.style.display = 'none'; return; }
 
