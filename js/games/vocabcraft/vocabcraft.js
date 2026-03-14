@@ -1,6 +1,6 @@
 import { mountVocabSelector, getBannedWords } from '../../vocab_selector.js';
 import * as srsDb from '../../srs_db.js';
-import { loadMeta, saveMeta, addXP, resetSkills, SKILL_DEFS,
+import { loadMeta, saveMeta, addXP, resetSkills, SKILL_DEFS, getDefaultSave,
          clearStage, highestDifficultyCleared, isStageCleared, isStageUnlocked } from './vc_meta.js';
 import { generateMap, getValidTemplates, getTemplateMinimap, TEMPLATES } from './vc_mapgen.js';
 import { setVocabQueue, showCard } from './vc_vocab.js';
@@ -36,8 +36,7 @@ export function init(screens, onExit) {
                     </div>
                     <div style="display:flex;gap:8px;align-items:center;">
                         <button class="vc-btn" id="vc-btn-grimoire" style="background:#f39c12; border-color:#d35400;">📖 Grimoire</button>
-                        <button class="vc-btn" id="vc-btn-change-words" title="Change vocabulary deck" style="background:#2c3e50;border-color:#4a5568;font-size:11px;padding:4px 8px;min-width:0;">⚙️ Words</button>
-                        <button class="vc-btn" id="vc-btn-debug-unlock" title="Debug: unlock all stages" style="background:#2c3e50;border-color:#4a5568;font-size:11px;padding:4px 8px;min-width:0;">🔒 Debug OFF</button>
+                        <button class="vc-icon-btn" id="vc-btn-settings" title="Settings" style="background:#2c3e50;border-color:#4a5568;font-size:18px;padding:4px 8px;min-width:0;line-height:1;">⚙️</button>
                     </div>
                 </div>
                 <div class="vc-stage-list" id="vc-stage-list"></div>
@@ -79,25 +78,9 @@ export function init(screens, onExit) {
             _screens.game.querySelector('#vc-grimoire-overlay').style.display = 'flex';
         };
 
-        // "⚙️ Words" — go back to the selector screen so the user can pick a custom deck.
-        // If they came from auto-SRS mode this is the only way to switch to a deck.
-        _screens.game.querySelector('#vc-btn-change-words').onclick = () => {
-            _screens.game.querySelector('#vc-camp-layer').style.display = 'none';
-            _show('setup');
-            _renderSetup();
-        };
+        // ⚙️ Settings button — opens the settings overlay
+        _screens.game.querySelector('#vc-btn-settings').onclick = () => _showSettingsOverlay();
 
-        _screens.game.querySelector('#vc-btn-debug-unlock').onclick = () => {
-            _debugUnlockAll = !_debugUnlockAll;
-            // Update button appearance to reflect current state
-            const btn = _screens.game.querySelector('#vc-btn-debug-unlock');
-            btn.textContent  = _debugUnlockAll ? '🔓 Debug ON'  : '🔒 Debug OFF';
-            btn.title        = _debugUnlockAll ? 'Debug mode: all stages unlocked (session only — not saved). Click to disable.' : 'Debug: unlock all stages for this session only';
-            btn.style.background   = _debugUnlockAll ? '#8e44ad' : '#2c3e50';
-            btn.style.borderColor  = _debugUnlockAll ? '#6c3483' : '#4a5568';
-            btn.style.color        = _debugUnlockAll ? '#f1c40f'  : '#bdc3c7';
-            _showCamp();
-        };
         _screens.game.querySelector('#vc-btn-grimoire-battle').onclick = () => {
             if (_engine && _engine.state.status === 'playing') {
                 _engine.pause();
@@ -284,6 +267,119 @@ function _renderSetup() {
     actions.append(startBtn, backBtn);
 }
 
+function _showSettingsOverlay() {
+    // Remove any stale overlay
+    const stale = _screens.game.querySelector('#vc-settings-overlay');
+    if (stale) stale.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'vc-settings-overlay';
+    overlay.style.cssText = [
+        'position:absolute','inset:0','background:rgba(26,37,47,0.98)',
+        'z-index:200','display:flex','flex-direction:column',
+        'padding:20px','gap:14px','overflow-y:auto','-webkit-overflow-scrolling:touch'
+    ].join(';');
+
+    const debugIcon  = _debugUnlockAll ? '🔓' : '🔒';
+    const debugLabel = _debugUnlockAll ? 'Debug: All Stages Unlocked (session only)' : 'Debug: Normal Stage Locks';
+    const debugStyle = _debugUnlockAll
+        ? 'background:#3d1a5e;border-color:#8e44ad;color:#f1c40f;'
+        : 'background:#1a252f;border-color:#4a5568;color:#bdc3c7;';
+
+    overlay.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #f1c40f;padding-bottom:12px;">
+            <div style="font-size:18px;font-weight:bold;color:#f1c40f;">⚙️ Settings</div>
+            <button id="vc-settings-close" style="background:#34495e;border:1px solid #7f8c8d;border-radius:6px;color:white;font-size:18px;padding:4px 10px;cursor:pointer;">✕</button>
+        </div>
+
+        <!-- Vocabulary -->
+        <div style="display:flex;flex-direction:column;gap:8px;">
+            <div style="font-size:10px;font-weight:bold;color:#f1c40f;text-transform:uppercase;letter-spacing:1px;">📚 Vocabulary</div>
+            <button id="vc-settings-words" style="background:#2c4a66;border:2px solid #3498db;border-radius:8px;color:white;font-size:14px;font-weight:bold;padding:12px;cursor:pointer;text-align:left;">
+                🗂️ Change Word Source
+                <div style="font-size:11px;color:#95a5a6;font-weight:normal;margin-top:2px;">Switch to a specific vocabulary deck</div>
+            </button>
+        </div>
+
+        <!-- Debug -->
+        <div style="display:flex;flex-direction:column;gap:8px;">
+            <div style="font-size:10px;font-weight:bold;color:#f1c40f;text-transform:uppercase;letter-spacing:1px;">🛠️ Debug</div>
+            <button id="vc-settings-debug" style="${debugStyle}border:2px solid;border-radius:8px;font-size:14px;font-weight:bold;padding:12px;cursor:pointer;text-align:left;width:100%;">
+                ${debugIcon} ${debugLabel}
+                <div style="font-size:11px;color:#95a5a6;font-weight:normal;margin-top:2px;">Not saved — resets when you leave</div>
+            </button>
+        </div>
+
+        <!-- Reset -->
+        <div style="display:flex;flex-direction:column;gap:8px;">
+            <div style="font-size:10px;font-weight:bold;color:#f1c40f;text-transform:uppercase;letter-spacing:1px;">⚠️ Reset</div>
+            <button id="vc-reset-stages" style="background:#1a252f;border:2px solid #e67e22;border-radius:8px;color:#e67e22;font-size:14px;font-weight:bold;padding:12px;cursor:pointer;text-align:left;width:100%;">
+                🗺️ Reset Stage Progress
+                <div style="font-size:11px;color:#95a5a6;font-weight:normal;margin-top:2px;">Clears all cleared-stage records. Skills and XP are kept.</div>
+            </button>
+            <button id="vc-reset-skills" style="background:#1a252f;border:2px solid #e74c3c;border-radius:8px;color:#e74c3c;font-size:14px;font-weight:bold;padding:12px;cursor:pointer;text-align:left;width:100%;">
+                📖 Reset Skills, XP &amp; Level
+                <div style="font-size:11px;color:#95a5a6;font-weight:normal;margin-top:2px;">Refunds all SP, wipes XP and level back to 1. Stage progress is kept.</div>
+            </button>
+            <button id="vc-reset-all" style="background:#2d0a0a;border:2px solid #c0392b;border-radius:8px;color:#e74c3c;font-size:14px;font-weight:bold;padding:12px;cursor:pointer;text-align:left;width:100%;">
+                💀 Reset Everything
+                <div style="font-size:11px;color:#95a5a6;font-weight:normal;margin-top:2px;">Wipes all progress: stages, skills, XP, and level.</div>
+            </button>
+        </div>
+    `;
+
+    _screens.game.querySelector('#vc-camp-layer').appendChild(overlay);
+
+    overlay.querySelector('#vc-settings-close').onclick = () => overlay.remove();
+
+    // Words
+    overlay.querySelector('#vc-settings-words').onclick = () => {
+        overlay.remove();
+        _screens.game.querySelector('#vc-camp-layer').style.display = 'none';
+        _show('setup');
+        _renderSetup();
+    };
+
+    // Debug toggle
+    overlay.querySelector('#vc-settings-debug').onclick = () => {
+        _debugUnlockAll = !_debugUnlockAll;
+        overlay.remove();
+        _showSettingsOverlay(); // re-render so icon/label updates
+        _showCamp();
+    };
+
+    // Reset stage progress only
+    overlay.querySelector('#vc-reset-stages').onclick = () => {
+        if (!confirm('Reset all stage progress? Your skills and XP are kept.')) return;
+        _meta.clearedStages = {};
+        saveMeta(_meta);
+        overlay.remove();
+        _showCamp();
+    };
+
+    // Reset skills/xp/level only
+    overlay.querySelector('#vc-reset-skills').onclick = () => {
+        if (!confirm('Reset skills, XP and level back to 1? Stage progress is kept.')) return;
+        _meta.xp = 0;
+        _meta.level = 1;
+        _meta.sp = 0;
+        for (const k in _meta.skills) _meta.skills[k] = 0;
+        saveMeta(_meta);
+        overlay.remove();
+        _showCamp();
+    };
+
+    // Reset everything
+    overlay.querySelector('#vc-reset-all').onclick = () => {
+        if (!confirm('Reset EVERYTHING? All stages, skills, XP and level will be wiped. This cannot be undone.')) return;
+        const fresh = getDefaultSave();
+        Object.assign(_meta, fresh);
+        saveMeta(_meta);
+        overlay.remove();
+        _showCamp();
+    };
+}
+
 function _showCamp() {
     _screens.game.querySelector('#vc-battle-layer').style.display = 'none';
     _screens.game.querySelector('#vc-camp-layer').style.display = 'flex';
@@ -303,18 +399,6 @@ function _showCamp() {
     const nextReq = Math.floor(100 * Math.pow(_meta.level, 1.8));
     _screens.game.querySelector('#vc-camp-lvl').textContent =
         `Lv. ${_meta.level} (XP: ${_meta.xp}/${nextReq})`;
-
-    // Keep the debug button appearance in sync with current session state
-    const debugBtn = _screens.game.querySelector('#vc-btn-debug-unlock');
-    if (debugBtn) {
-        debugBtn.textContent = _debugUnlockAll ? '🔓 Debug ON' : '🔒 Debug OFF';
-        debugBtn.title = _debugUnlockAll
-            ? 'Debug mode: all stages unlocked (session only — not saved). Click to disable.'
-            : 'Debug: unlock all stages for this session only';
-        debugBtn.style.background  = _debugUnlockAll ? '#8e44ad' : '#2c3e50';
-        debugBtn.style.borderColor = _debugUnlockAll ? '#6c3483' : '#4a5568';
-        debugBtn.style.color       = _debugUnlockAll ? '#f1c40f'  : '#bdc3c7';
-    }
 
     const list = _screens.game.querySelector('#vc-stage-list');
     list.innerHTML = '';
