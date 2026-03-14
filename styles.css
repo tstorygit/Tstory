@@ -506,7 +506,7 @@ select, textarea {
     padding-bottom: 10px;
     margin-bottom: 15px;
 }
-.popup-header h3 { display: inline-block; font-size: 24px; margin-bottom: 5px; }
+.popup-header h3 { font-size: 24px; margin-bottom: 5px; }
 #popup-furi { color: var(--text-muted); font-size: 14px; display: inline-block; }
 #popup-edit-furi-btn:hover { color: var(--primary-color) !important; }
 

@@ -424,3 +424,64 @@ export async function regenerateLastBlock(onProgress, onRawTextReady, onEnriched
         return await generateNextBlock(chosenOption, onProgress, onRawTextReady);
     }
 }
+
+/**
+ * Updates the raw text of an existing block and runs the NLP pipeline on it.
+ * Designed for user-driven manual edits.
+ */
+export async function updateBlockText(blockIndex, newText, onProgress) {
+    let stories = getStoryList();
+    let storyIndex = stories.findIndex(s => s.id === activeStoryId);
+    if (storyIndex === -1) throw new Error("Active story not found.");
+
+    const storyData = stories[storyIndex];
+    const block = storyData.blocks[blockIndex];
+    const isImported = (storyData.type === 'imported' || storyData.type === 'imported-photo');
+
+    block.isProcessing = true;
+    saveStoryList(stories);
+
+    try {
+        const enrichedData = await processTextPipeline(newText, onProgress, isImported);
+
+        block.rawJa = newText;
+        block.enrichedData = enrichedData;
+        block.isProcessing = false;
+
+        let fs = getStoryList();
+        let fsi = fs.findIndex(s => s.id === activeStoryId);
+        fs[fsi].blocks[blockIndex] = block;
+        saveStoryList(fs);
+
+        onProgress(100, "Ready!");
+        return block;
+    } catch (err) {
+        let fs = getStoryList();
+        let fsi = fs.findIndex(s => s.id === activeStoryId);
+        fs[fsi].blocks[blockIndex].isProcessing = false;
+        saveStoryList(fs);
+        throw err;
+    }
+}
+
+/**
+ * Directly overwrites the enriched JSON data of an existing block instantly.
+ * Bypasses NLP pipeline.
+ */
+export function updateBlockData(blockIndex, newEnrichedData) {
+    let stories = getStoryList();
+    let storyIndex = stories.findIndex(s => s.id === activeStoryId);
+    if (storyIndex === -1) throw new Error("Active story not found.");
+
+    const storyData = stories[storyIndex];
+    const block = storyData.blocks[blockIndex];
+
+    block.enrichedData = newEnrichedData;
+
+    let fs = getStoryList();
+    let fsi = fs.findIndex(s => s.id === activeStoryId);
+    fs[fsi].blocks[blockIndex] = block;
+    saveStoryList(fs);
+
+    return block;
+}

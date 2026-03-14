@@ -407,8 +407,10 @@ function renderBlock(index) {
     let html = '';
 
     // HEADER & NAVIGATION
-    // Build the "Read All" text so we can decide if we show the button
     const isProcessingNow = !!block.isProcessing;
+    const disabledStyle = isProcessingNow ? 'opacity:0.5; cursor:wait;' : '';
+    const disabledProp = isProcessingNow ? 'disabled' : '';
+    const regenText = isImported ? "🔁 Re-analyze This Text" : "🔁 Regenerate This Page";
 
     html += `<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">
                 <button id="btn-back-lib" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size: 14px;">&larr; Library</button>
@@ -446,22 +448,18 @@ function renderBlock(index) {
     // MAIN TEXT
     html += `<div class="japanese-text" style="font-size: 20px; line-height: 2.2; margin-bottom: 30px; letter-spacing: 1px; ${block.isProcessing ? 'opacity: 0.9;' : ''}">`;
 
-    const words = block.enrichedData.words || [];
-    const sentences = block.enrichedData.sentences || [];
+    const words = block.enrichedData?.words || [];
+    const sentences = block.enrichedData?.sentences || [];
 
-    // Pre-compute stripped sentence targets and track which word index each ends at
-    // Strategy: walk tokens, accumulate stripped surface, find the earliest sentence end
     const strip = s => s.replace(/[\s\u3000]/g, '');
 
-    // Build a flat stripped string from all surfaces so we can locate sentence boundaries
     const surfaces = words.map(w => strip(w.surface));
-    const cumulative = [];  // cumulative stripped length after each token
+    const cumulative = []; 
     let cum = 0;
     for (const s of surfaces) { cum += s.length; cumulative.push(cum); }
     const fullStripped = surfaces.join('');
 
-    // For each sentence find the char-position of its end in fullStripped
-    const sentenceEndPos = [];   // end char index (exclusive) in fullStripped
+    const sentenceEndPos = []; 
     let searchFrom = 0;
     for (const sent of sentences) {
         const target = strip(sent.ja);
@@ -470,7 +468,7 @@ function renderBlock(index) {
             sentenceEndPos.push(idx + target.length);
             searchFrom = idx + target.length;
         } else {
-            sentenceEndPos.push(-1); // not found — will fall through to end
+            sentenceEndPos.push(-1);
         }
     }
 
@@ -479,7 +477,6 @@ function renderBlock(index) {
         const w = words[i];
         html += renderWordHtml(w, useBgHighlight);
 
-        // After appending this token, check if we've reached the end of the current sentence
         while (sentIdx < sentences.length) {
             const endPos = sentenceEndPos[sentIdx];
             if (endPos === -1 || cumulative[i] >= endPos) {
@@ -494,7 +491,6 @@ function renderBlock(index) {
         }
     }
 
-    // Flush any remaining sentences not matched (safety net)
     while (sentIdx < sentences.length) {
         const transText = sentences[sentIdx].en.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
         const jaText = sentences[sentIdx].ja;
@@ -511,9 +507,6 @@ function renderBlock(index) {
         if (matches.length >= 2) {
             html += `<div class="options-container" style="display: flex; flex-direction: column; gap: 15px; margin-bottom: 30px;">
                         <h4 style="color: var(--text-muted); text-align: center;">How does the story continue?</h4>`;
-            
-            const disabledStyle = block.isProcessing ? 'opacity:0.6; cursor:wait;' : '';
-            const disabledProp = block.isProcessing ? 'disabled' : '';
 
             matches.forEach((match) => {
                 const optLetter = match[1];
@@ -576,15 +569,11 @@ function renderBlock(index) {
                  </div>`;
     }
 
-    if (isLatestBlock) {
-        const disabledStyle = block.isProcessing ? 'opacity:0.5; cursor:wait;' : '';
-        const disabledProp = block.isProcessing ? 'disabled' : '';
-        const regenText = isImported ? "🔁 Re-analyze This Text" : "🔁 Regenerate This Page";
-        
-        html += `<div style="text-align: center; margin-top: 40px; border-top: 1px solid var(--border-color); padding-top: 20px;">
-                    <button id="btn-regenerate" style="background: none; border: 1px solid var(--text-muted); color: var(--text-muted); padding: 8px 15px; border-radius: 6px; cursor: pointer; ${disabledStyle}" ${disabledProp}>${regenText}</button>
-                 </div>`;
-    }
+    // ── Edit and Regenerate buttons ───────────────────────────────────────────
+    html += `<div style="display: flex; justify-content: center; gap: 10px; margin-top: 40px; border-top: 1px solid var(--border-color); padding-top: 20px;">
+                <button id="btn-edit-text" style="background: none; border: 1px solid var(--text-muted); color: var(--text-muted); padding: 8px 15px; border-radius: 6px; cursor: pointer; ${disabledStyle}" ${disabledProp}>✏️ Edit Page</button>
+                ${isLatestBlock ? `<button id="btn-regenerate" style="background: none; border: 1px solid var(--text-muted); color: var(--text-muted); padding: 8px 15px; border-radius: 6px; cursor: pointer; ${disabledStyle}" ${disabledProp}>${regenText}</button>` : ''}
+             </div>`;
 
     // Spacer at the bottom
     html += `<div style="height: 80px;"></div>`;
@@ -742,6 +731,124 @@ function renderBlock(index) {
                 });
             }
         };
+    }
+
+    // ── Edit Page Dual-Mode Modal ───────────────────────────────────────────
+    const btnEdit = document.getElementById('btn-edit-text');
+    if (btnEdit) {
+        btnEdit.addEventListener('click', () => {
+            const overlay = document.createElement('div');
+            overlay.id = 'edit-page-overlay';
+            overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.8); z-index: 3000; display:flex; flex-direction:column; padding:20px;';
+            
+            overlay.innerHTML = `
+                <div style="background:var(--surface-color); flex:1; border-radius:12px; display:flex; flex-direction:column; padding:20px; max-width:800px; margin:0 auto; width:100%; box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+                    
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                        <h3 style="margin:0;">✏️ Edit Page</h3>
+                        <div style="display:flex; background:var(--bg-color); border-radius:8px; border:1px solid var(--border-color); overflow:hidden;">
+                            <button id="tab-raw" style="padding:6px 12px; border:none; background:var(--primary-color); color:white; font-size:13px; font-weight:bold; cursor:pointer;">Raw Text</button>
+                            <button id="tab-json" style="padding:6px 12px; border:none; background:transparent; color:var(--text-muted); font-size:13px; font-weight:bold; cursor:pointer;">Parsed Data</button>
+                        </div>
+                    </div>
+                    
+                    <div id="pane-raw" style="flex:1; display:flex; flex-direction:column;">
+                        <p style="font-size:13px; color:var(--text-muted); margin-bottom:10px;">Fix OCR mistakes or add line breaks. Saving will <strong>re-run the AI analysis</strong>.</p>
+                        <textarea id="edit-raw-area" style="flex:1; width:100%; padding:12px; font-size:16px; line-height:1.6; border:1px solid var(--border-color); border-radius:8px; resize:none; background:var(--bg-color); color:var(--text-main); font-family:sans-serif;"></textarea>
+                    </div>
+
+                    <div id="pane-json" style="flex:1; display:none; flex-direction:column;">
+                        <p style="font-size:13px; color:var(--text-muted); margin-bottom:10px;">Directly edit words, furigana, and translations. Must be valid JSON. Saving is <strong>instant</strong> (no AI call).</p>
+                        <textarea id="edit-json-area" style="flex:1; width:100%; padding:12px; font-size:13px; line-height:1.4; border:1px solid var(--border-color); border-radius:8px; resize:none; background:var(--bg-color); color:var(--text-main); font-family:monospace; white-space:pre;"></textarea>
+                    </div>
+
+                    <div style="display:flex; gap:10px; margin-top:15px;">
+                        <button id="btn-edit-cancel" style="flex:1; padding:12px; background:transparent; border:1px solid var(--border-color); color:var(--text-main); border-radius:8px; cursor:pointer; font-weight:bold;">Cancel</button>
+                        <button id="btn-edit-save" class="primary-btn" style="flex:2;">Save & Re-analyze</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+
+            // Set up Textareas
+            const rawArea = document.getElementById('edit-raw-area');
+            const jsonArea = document.getElementById('edit-json-area');
+            rawArea.value = block.rawJa;
+            jsonArea.value = JSON.stringify(block.enrichedData, null, 2);
+
+            // Set up Tabs
+            const tabRaw = document.getElementById('tab-raw');
+            const tabJson = document.getElementById('tab-json');
+            const paneRaw = document.getElementById('pane-raw');
+            const paneJson = document.getElementById('pane-json');
+            const btnSave = document.getElementById('btn-edit-save');
+            
+            let editMode = 'raw';
+
+            tabRaw.onclick = () => {
+                editMode = 'raw';
+                tabRaw.style.background = 'var(--primary-color)';
+                tabRaw.style.color = 'white';
+                tabJson.style.background = 'transparent';
+                tabJson.style.color = 'var(--text-muted)';
+                paneRaw.style.display = 'flex';
+                paneJson.style.display = 'none';
+                btnSave.textContent = 'Save & Re-analyze';
+            };
+
+            tabJson.onclick = () => {
+                editMode = 'json';
+                tabJson.style.background = 'var(--primary-color)';
+                tabJson.style.color = 'white';
+                tabRaw.style.background = 'transparent';
+                tabRaw.style.color = 'var(--text-muted)';
+                paneRaw.style.display = 'none';
+                paneJson.style.display = 'flex';
+                btnSave.textContent = 'Save Changes (Instant)';
+            };
+
+            document.getElementById('btn-edit-cancel').onclick = () => overlay.remove();
+
+            document.getElementById('btn-edit-save').onclick = async () => {
+                if (editMode === 'raw') {
+                    const newText = rawArea.value.trim();
+                    if (!newText) {
+                        alert("Text cannot be empty.");
+                        return;
+                    }
+                    overlay.remove();
+
+                    try {
+                        isBackgroundProcessing = false;
+                        showLoading(0, "Re-analyzing text...");
+                        await storyMgr.updateBlockText(currentBlockIndex, newText, updateProgress);
+                        hideLoading();
+                        renderBlock(currentBlockIndex);
+                    } catch (error) {
+                        hideLoading();
+                        showErrorModal(error.message, null);
+                    }
+                } else {
+                    const newJsonStr = jsonArea.value.trim();
+                    let newData;
+                    try {
+                        newData = JSON.parse(newJsonStr);
+                    } catch(e) {
+                        alert("Invalid JSON format. Please check your syntax.\n\nError: " + e.message);
+                        return;
+                    }
+                    
+                    if (!newData || !Array.isArray(newData.words)) {
+                        alert("JSON must contain a 'words' array.");
+                        return;
+                    }
+                    
+                    overlay.remove();
+                    storyMgr.updateBlockData(currentBlockIndex, newData);
+                    renderBlock(currentBlockIndex);
+                }
+            };
+        });
     }
 }
 
