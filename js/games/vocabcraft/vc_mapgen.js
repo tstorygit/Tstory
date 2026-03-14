@@ -31,10 +31,9 @@ export const TEMPLATES = [
     {
         id: 'uturn',
         name: 'U-Turn',
-        desc: 'Enemies charge from both top corners down their respective lanes and converge on the base at the bottom. You must defend both sides.',
+        desc: 'Enemies enter top-left, sweep down the left side, cross the bottom, then climb back up to exit top-right. Full perimeter exposure.',
         minTier: 1,
         type: 'uturn',
-        multiPath: true,
         skeleton: []
     },
     {
@@ -58,10 +57,10 @@ export const TEMPLATES = [
         minTier: 2,
         type: 'skeleton',
         skeleton: [
-            { fx: 0.0,  fy: 0.12 },
-            { fx: 0.88, fy: 0.12 },
-            { fx: 0.12, fy: 0.88 },
-            { fx: 1.0,  fy: 0.88 },
+            { fx: 0.0,  fy: 0.05 },
+            { fx: 1.0,  fy: 0.05 },
+            { fx: 0.0,  fy: 0.95 },
+            { fx: 1.0,  fy: 0.95 },
         ]
     },
     {
@@ -200,22 +199,23 @@ export function generateMap(cols, rows, tier, templateId = null) {
         const allTiles   = paths.flat();
         // Use raw length (not unique) — repeat-visit generators like pinwheel and
         // crossroads intentionally revisit tiles; unique count would undercount them.
-        // 15% threshold: skeleton templates like gauntlet/scurve produce ~25-29 unique
-        // tiles on a 9×13 grid — well above 17 — so every generator passes attempt 1.
+        // 15% threshold: all generators pass on first attempt on a 9×13 grid.
         const minLen     = Math.floor(cols * rows * 0.15);
 
         if (allTiles.length >= minLen) {
             const grid = _buildGrid(allTiles, cols, rows, tier);
-            return { grid, paths, cols, rows, templateId: tpl.id, usedFallback: false };
+            const wallEdges = _buildWallEdges(paths, grid, cols, rows);
+            return { grid, paths, cols, rows, templateId: tpl.id, usedFallback: false, wallEdges };
         }
     }
 
     // Fallback: gauntlet so we never return null.
-    // usedFallback:true tells the caller to show a warning notification.
-    console.warn(`[VocabCraft] Map gen failed for "${tpl.id}" after 10 attempts — falling back to gauntlet.`);
+    // usedFallback:true lets the caller show a warning notification.
+    console.warn(`[VocabCraft] Map gen failed after 10 attempts — falling back to gauntlet.`);
     const fallbackPath = _skeletonWalk(TEMPLATES[0].skeleton, cols, rows);
     const grid = _buildGrid(fallbackPath, cols, rows, tier);
-    return { grid, paths: [fallbackPath], cols, rows, templateId: 'gauntlet', usedFallback: true };
+    const wallEdges = _buildWallEdges([fallbackPath], grid, cols, rows);
+    return { grid, paths: [fallbackPath], cols, rows, templateId: 'gauntlet', usedFallback: true, wallEdges };
 }
 
 /**
@@ -280,17 +280,14 @@ export function getTemplateMinimap(templateId, w = 70, h = 90) {
             <circle cx="${(w/2).toFixed(1)}" cy="${(h/2).toFixed(1)}" r="6" fill="none" stroke="${exit}" stroke-width="1.5" opacity="0.6"/>`;
 
     } else if (tpl.type === 'uturn') {
-        // Two lanes from top-left and top-right, converging to base at bottom-center
-        const baseX = (w/2).toFixed(1), baseY = (h-pad).toFixed(1);
-        const lx1 = toX(0.15).toFixed(1), lx2 = toX(0.85).toFixed(1);
-        const botY = toY(0.82).toFixed(1);
+        // Single U: spawn top-left, down left side, across bottom, up to exit top-right
+        const lx  = toX(0.07).toFixed(1), rx = toX(0.93).toFixed(1);
+        const topY = String(pad),          botY = toY(0.92).toFixed(1);
+        pathD    = `M${lx},${topY} L${lx},${botY} L${rx},${botY} L${rx},${topY}`;
         extraSvg = `
-            <path d="M${lx1},${pad} L${lx1},${botY} L${baseX},${baseY}" fill="none" stroke="${stroke}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>
-            <path d="M${lx2},${pad} L${lx2},${botY} L${baseX},${baseY}" fill="none" stroke="${stroke2}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>
-            <circle cx="${lx1}" cy="${pad}" r="${dotR}" fill="${entry}"/>
-            <circle cx="${lx2}" cy="${pad}" r="${dotR}" fill="${entry}"/>
-            <circle cx="${baseX}" cy="${baseY}" r="${dotR+1}" fill="${exit}"/>
-            <circle cx="${baseX}" cy="${baseY}" r="6" fill="none" stroke="${exit}" stroke-width="1.5" opacity="0.6"/>
+            <circle cx="${lx}" cy="${topY}" r="${dotR}" fill="${entry}"/>
+            <circle cx="${rx}" cy="${topY}" r="${dotR+1}" fill="${exit}"/>
+            <circle cx="${rx}" cy="${topY}" r="6" fill="none" stroke="${exit}" stroke-width="1.5" opacity="0.6"/>
         `;
 
     } else if (tpl.type === 'crossroads') {
@@ -315,24 +312,6 @@ export function getTemplateMinimap(templateId, w = 70, h = 90) {
             `L${rCx},${midY}`, `A${rx2},${ry2} 0 1,0 ${rCx},${(h/2-0.01).toFixed(1)}`].join(' ');
         extraSvg = `<circle cx="${lCx}" cy="${(h*0.18).toFixed(1)}" r="${dotR}" fill="${entry}"/>
             <circle cx="${rCx}" cy="${(h*0.82).toFixed(1)}" r="${dotR}" fill="${exit}"/>`;
-
-    } else if (tpl.type === 'figure8') {
-        // Two vertically-stacked loops sharing a center crossing — entry top-left, exit bottom-right
-        const midY = (h/2).toFixed(1);
-        const lCx  = (w*0.30).toFixed(1), rCx = (w*0.70).toFixed(1);
-        const rx2  = (w*0.24).toFixed(1), ry2 = (h*0.34).toFixed(1);
-        // Left (top) loop — CCW; right (bottom) loop — CW; share centre crossing
-        pathD = [
-            `M${lCx},${midY}`,
-            `A${rx2},${ry2} 0 1,1 ${lCx},${(h/2+0.01).toFixed(1)}`,
-            `L${rCx},${midY}`,
-            `A${rx2},${ry2} 0 1,0 ${rCx},${(h/2-0.01).toFixed(1)}`
-        ].join(' ');
-        extraSvg = `
-            <circle cx="${lCx}" cy="${(pad+4).toFixed(1)}" r="${dotR}" fill="${entry}"/>
-            <circle cx="${(w/2).toFixed(1)}" cy="${midY}" r="${dotR+1}" fill="${exit}"/>
-            <circle cx="${(w/2).toFixed(1)}" cy="${midY}" r="6" fill="none" stroke="${exit}" stroke-width="1.5" opacity="0.6"/>
-        `;
 
     } else if (tpl.type === 'labyrinth') {
         const pts = [[0.0,0.1],[0.7,0.1],[0.7,0.3],[0.2,0.3],[0.2,0.5],
@@ -397,6 +376,39 @@ export function getTemplateMinimap(templateId, w = 70, h = 90) {
     </svg>`;
 }
 
+// ─── Wall Edge Builder ────────────────────────────────────────────────────────
+// For every pair of physically-adjacent path tiles that are NOT consecutive in
+// any path array, we record a wall edge. The UI draws a dark barrier there so
+// players can distinguish parallel corridor segments (spiral, zigzag, etc.).
+//
+// Returns array of { r, c, dir:'E'|'S' }
+//   'E' = wall on the RIGHT edge of tile (r,c)
+//   'S' = wall on the BOTTOM edge of tile (r,c)
+
+function _buildWallEdges(paths, grid, cols, rows) {
+    const connected = new Set();
+    for (const path of paths) {
+        for (let i = 0; i < path.length - 1; i++) {
+            const a = path[i], b = path[i + 1];
+            if (Math.abs(a.x - b.x) + Math.abs(a.y - b.y) !== 1) continue;
+            const [ar, ac, br, bc] = (a.y < b.y || (a.y === b.y && a.x <= b.x))
+                ? [a.y, a.x, b.y, b.x] : [b.y, b.x, a.y, a.x];
+            connected.add(`${ar},${ac}|${br},${bc}`);
+        }
+    }
+    const walls = [];
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            if (grid[r][c] !== TILE_PATH) continue;
+            if (c + 1 < cols && grid[r][c + 1] === TILE_PATH &&
+                !connected.has(`${r},${c}|${r},${c + 1}`)) walls.push({ r, c, dir: 'E' });
+            if (r + 1 < rows && grid[r + 1][c] === TILE_PATH &&
+                !connected.has(`${r},${c}|${r + 1},${c}`)) walls.push({ r, c, dir: 'S' });
+        }
+    }
+    return walls;
+}
+
 // ─── Grid builder ─────────────────────────────────────────────────────────────
 // Cellular automata pass clusters rocks into organic blobs instead of static.
 
@@ -438,7 +450,7 @@ function _buildGrid(allPathTiles, cols, rows, tier) {
 
 // ─── Generator 1: Skeleton Walk ───────────────────────────────────────────────
 // Axis-aligned segments use _forceLine (straight, deterministic).
-// Diagonal segments use _diagonalLine (Bresenham staircase — clean and deterministic).
+// Diagonal segments use _mathLine (parametric — simple, finite, cardinal-adjacent).
 
 function _skeletonWalk(skeleton, cols, rows) {
     if (skeleton.length < 2) return _fallbackWalk(cols, rows);
@@ -461,13 +473,37 @@ function _skeletonWalk(skeleton, cols, rows) {
         const isDiagonal = (goal.x !== sx) && (goal.y !== sy);
 
         if (isDiagonal) {
-            // Bresenham staircase — alternates x/y steps proportionally
-            _diagonalLine(sx, sy, goal.x, goal.y, visited, path, cols, rows);
+            // Parametric math-line: clean, finite, cardinal-adjacent
+            _mathLine(sx, sy, goal.x, goal.y, visited, path, cols, rows);
         } else {
             _forceLine(sx, sy, goal.x, goal.y, visited, path, cols, rows);
         }
     }
     return path;
+}
+
+// ─── Parametric Math Line ─────────────────────────────────────────────────────
+// Samples the ideal straight line at integer steps along the dominant axis.
+// Rounds to nearest tile. If a diagonal step occurs, inserts a horizontal bridge
+// tile first — guaranteeing every consecutive pair is cardinally adjacent.
+// Finite by construction: exactly max(|dx|,|dy|) iterations, no while-loop.
+function _mathLine(x0, y0, x1, y1, visited, path, cols, rows) {
+    const key = (x, y) => `${x},${y}`;
+    const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+    if (steps === 0) return;
+    let px = x0, py = y0;
+    for (let i = 1; i <= steps; i++) {
+        const t  = i / steps;
+        const nx = Math.max(0, Math.min(cols - 1, Math.round(x0 + t * (x1 - x0))));
+        const ny = Math.max(0, Math.min(rows - 1, Math.round(y0 + t * (y1 - y0))));
+        if (nx !== px && ny !== py) {
+            // Diagonal hop — insert horizontal bridge tile for cardinal connectivity
+            const bx = nx, by = py;
+            if (!visited.has(key(bx, by))) { visited.add(key(bx, by)); path.push({ x: bx, y: by }); }
+        }
+        if (!visited.has(key(nx, ny))) { visited.add(key(nx, ny)); path.push({ x: nx, y: ny }); }
+        px = nx; py = ny;
+    }
 }
 
 function _forceLine(x0, y0, x1, y1, visited, path, cols, rows) {
@@ -479,38 +515,6 @@ function _forceLine(x0, y0, x1, y1, visited, path, cols, rows) {
         const moveY = moveX ? 0 : dy;
         x = Math.max(0, Math.min(cols - 1, x + moveX));
         y = Math.max(0, Math.min(rows - 1, y + moveY));
-        if (!visited.has(key(x, y))) { visited.add(key(x, y)); path.push({ x, y }); }
-    }
-}
-
-// Bresenham staircase for diagonal skeleton segments.
-// Alternates x and y steps proportionally so the path looks like a proper diagonal,
-// not a horizontal or vertical run. Tiles already visited are skipped silently.
-//
-// FIX: original accumulator-only Bresenham would overshoot one axis past its target
-// and then infinite-loop when clamped at the grid boundary (e.g. gauntlet, scurve,
-// zslash, delta all have segments where ay > ax, causing x to never advance).
-// Solution: once an axis reaches its target we force-step only the remaining axis,
-// exactly like _forceLine does — guaranteeing termination regardless of ax/ay ratio.
-function _diagonalLine(x0, y0, x1, y1, visited, path, cols, rows) {
-    const key = (x, y) => `${x},${y}`;
-    let x = x0, y = y0;
-    const dx = Math.sign(x1 - x0);
-    const dy = Math.sign(y1 - y0);
-    let ex = 0, ey = 0;
-    const ax = Math.abs(x1 - x0), ay = Math.abs(y1 - y0);
-    while (x !== x1 || y !== y1) {
-        const needX = x !== x1;
-        const needY = y !== y1;
-        ex += ax; ey += ay;
-        // Only step axes that still need to move; use Bresenham ratio when both do.
-        if (needX && (!needY || ex >= ey)) {
-            x = Math.max(0, Math.min(cols - 1, x + dx));
-            ex -= ay;
-        } else if (needY) {
-            y = Math.max(0, Math.min(rows - 1, y + dy));
-            ey -= ax;
-        }
         if (!visited.has(key(x, y))) { visited.add(key(x, y)); path.push({ x, y }); }
     }
 }
@@ -818,39 +822,27 @@ function _deltaGenerator(cols, rows) {
 
 // ─── Fallback Walk ────────────────────────────────────────────────────────────
 
-// ─── Generator 13: U-Turn (multi-path) ───────────────────────────────────────
-// Two lanes from top-left and top-right corners descend to a shared base at
-// the bottom-center. Returns array of 2 path arrays.
+// ─── Generator 13: U-Turn (single path) ──────────────────────────────────────
+// Spawn top-left, descend left side, sweep across bottom, ascend right side,
+// exit top-right. Single path — not multi-lane.
 
 function _uturnGenerator(cols, rows) {
-    const laneXs = [
-        Math.floor(cols * 0.15),
-        Math.floor(cols * 0.85),
-    ];
-    const baseX  = Math.floor(cols / 2);
-    const baseY  = rows - 1;
-    const mergeY = rows - 3; // lanes converge 2 rows above base
-
-    return laneXs.map(lx => {
-        const path = [], visited = new Set();
-        const key = (x, y) => `${x},${y}`;
-        const addPt = (x, y) => {
-            x = Math.max(0, Math.min(cols - 1, x));
-            y = Math.max(0, Math.min(rows - 1, y));
-            if (!visited.has(key(x, y))) { visited.add(key(x, y)); path.push({ x, y }); }
-        };
-
-        // Descend the lane from top to merge row
-        for (let y = 0; y <= mergeY; y++) addPt(lx, y);
-        // Converge horizontally toward base column
-        const dir = Math.sign(baseX - lx);
-        if (dir !== 0)
-            for (let x = lx + dir; x !== baseX + dir; x += dir) addPt(x, mergeY);
-        // Final descent to base
-        for (let y = mergeY + 1; y <= baseY; y++) addPt(baseX, y);
-
-        return path;
-    });
+    const path = [], visited = new Set();
+    const key = (x, y) => `${x},${y}`;
+    const addPt = (x, y) => {
+        x = Math.max(0, Math.min(cols - 1, x));
+        y = Math.max(0, Math.min(rows - 1, y));
+        if (!visited.has(key(x, y))) { visited.add(key(x, y)); path.push({ x, y }); }
+    };
+    const margin = 1;
+    const lx = margin, rx = cols - 1 - margin;
+    // Descend left side
+    for (let y = 0; y <= rows - 1 - margin; y++) addPt(lx, y);
+    // Sweep bottom
+    for (let x = lx + 1; x <= rx; x++) addPt(x, rows - 1 - margin);
+    // Ascend right side
+    for (let y = rows - 2 - margin; y >= 0; y--) addPt(rx, y);
+    return [path]; // single-element array keeps paths[] convention
 }
 
 function _fallbackWalk(cols, rows) {

@@ -522,8 +522,11 @@ function _confirmAndStartBattle(templateId, difficulty) {
         <div id="vc-wv-detail" style="display:none;width:100%;background:#1a2d3d;border:1px solid #2c4a66;border-radius:7px;padding:8px;"></div>
 
         <div style="width:100%;display:flex;flex-direction:column;gap:6px;">
-            <div style="font-size:10px;font-weight:bold;color:#f1c40f;text-transform:uppercase;letter-spacing:1px;">👾 Enemy Types</div>
-            <div id="vc-legend-list" style="display:flex;flex-direction:column;gap:5px;">
+            <div id="vc-legend-toggle" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;padding:6px 8px;background:#1a2d3d;border:1px solid #2c4a66;border-radius:7px;">
+                <div style="font-size:10px;font-weight:bold;color:#f1c40f;text-transform:uppercase;letter-spacing:1px;">👾 Enemy Types</div>
+                <div id="vc-legend-chevron" style="font-size:12px;color:#7fb3d3;transition:transform 0.2s;">▶</div>
+            </div>
+            <div id="vc-legend-list" style="display:none;flex-direction:column;gap:5px;">
                 ${legendHtml}
             </div>
         </div>
@@ -537,6 +540,16 @@ function _confirmAndStartBattle(templateId, difficulty) {
     _screens.game.querySelector('#vc-camp-layer').appendChild(modal);
     modal.querySelector('#vc-confirm-go').onclick   = () => { modal.remove(); _startBattle(templateId, difficulty); };
     modal.querySelector('#vc-confirm-back').onclick = () => modal.remove();
+
+    // ── Enemy types toggle ───────────────────────────────────────────────────
+    const legendToggle = modal.querySelector('#vc-legend-toggle');
+    const legendList   = modal.querySelector('#vc-legend-list');
+    const chevron      = modal.querySelector('#vc-legend-chevron');
+    legendToggle.addEventListener('click', () => {
+        const open = legendList.style.display !== 'none';
+        legendList.style.display  = open ? 'none' : 'flex';
+        chevron.style.transform   = open ? '' : 'rotate(90deg)';
+    });
 
     // ── Wave card click → expand detail ──────────────────────────────────────
     const detailEl  = modal.querySelector('#vc-wv-detail');

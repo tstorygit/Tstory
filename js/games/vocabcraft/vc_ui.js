@@ -87,7 +87,51 @@ export class VcUI {
 
         this.engine.map.waypointSets = getWaypointsForPaths(this.engine.map.paths, this.tileSize);
         this.engine.tileSize = this.tileSize;
+
+        // Draw corridor walls: thin black lines between adjacent path tiles that
+        // are NOT consecutive on any path (e.g. spiral parallel corridors).
+        this._renderWallEdges();
     }
+
+    _renderWallEdges() {
+        // Remove stale overlay if reinitialised
+        const old = this.gridEl.querySelector('.vc-wall-edges');
+        if (old) old.remove();
+
+        const walls = this.engine.map.wallEdges;
+        if (!walls || walls.length === 0) return;
+
+        const ts  = this.tileSize;
+        const w   = this.engine.map.cols * ts;
+        const h   = this.engine.map.rows * ts;
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('width', w);
+        svg.setAttribute('height', h);
+        svg.classList.add('vc-wall-edges');
+        svg.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:3;';
+
+        for (const { r, c, dir } of walls) {
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            if (dir === 'E') {
+                // Vertical line on right edge of tile (r,c)
+                line.setAttribute('x1', (c + 1) * ts);
+                line.setAttribute('y1', r * ts + 1);
+                line.setAttribute('x2', (c + 1) * ts);
+                line.setAttribute('y2', (r + 1) * ts - 1);
+            } else {
+                // Horizontal line on bottom edge of tile (r,c)
+                line.setAttribute('x1', c * ts + 1);
+                line.setAttribute('y1', (r + 1) * ts);
+                line.setAttribute('x2', (c + 1) * ts - 1);
+                line.setAttribute('y2', (r + 1) * ts);
+            }
+            line.setAttribute('stroke', '#000');
+            line.setAttribute('stroke-width', '2');
+            line.setAttribute('stroke-linecap', 'square');
+            svg.appendChild(line);
+        }
+        // Insert before the entities layer so enemies render on top
+        this.gridEl.insertBefore(svg, this.gridEl.querySelector('.vc-entities'));
 
     _placeMapMarkers() {
         // Remove any previous markers from the stable markers layer
@@ -319,8 +363,6 @@ export class VcUI {
     renderBottomBar() {
         this.bottomBar.innerHTML = '';
         this._gemPickerRefresh = null;
-        // Immediately sync the top-bar mana display — this covers the gap between
-        // when mana changes (e.g. placing a trap/tower) and the next draw() call.
         if (this.topBar?.mana) {
             this.topBar.mana.textContent = Math.floor(this.engine.state.mana);
         }
@@ -674,10 +716,6 @@ export class VcUI {
 
         this._updateEnemyStatWindow(engineState);
 
-        // Only damage events carry x/y/color — other events (waveClear, etc.) must
-        // be handled separately. Blindly reading GEMS[eventMsg.color] on a non-dmg
-        // event throws TypeError → crashes the RAF loop → engine freezes until
-        // the user manually triggers pause+resume.
         if (eventMsg?.type === 'dmg') {
             const fl = document.createElement('div');
             fl.className = 'vc-float';
@@ -688,7 +726,6 @@ export class VcUI {
             this.gridEl.appendChild(fl);
             setTimeout(() => fl.remove(), 800);
         } else if (eventMsg?.type === 'waveClear') {
-            // Show a brief wave-clear bonus float in the top-center of the map
             const fl = document.createElement('div');
             fl.className = 'vc-float';
             fl.style.cssText = 'left:50%;top:30px;transform:translateX(-50%);font-size:15px;color:#f1c40f;text-shadow:0 0 8px #f39c12,1px 1px 0 #000;';
