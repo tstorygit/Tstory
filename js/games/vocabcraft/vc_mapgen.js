@@ -198,10 +198,11 @@ export function generateMap(cols, rows, tier, templateId = null) {
         else                                paths = [_skeletonWalk(tpl.skeleton, cols, rows)];
 
         const allTiles   = paths.flat();
-        const uniqueSize = new Set(allTiles.map(p => `${p.x},${p.y}`)).size;
+        // Use raw length (not unique) — repeat-visit generators like pinwheel and
+        // crossroads intentionally revisit tiles; unique count would undercount them.
         const minLen     = Math.floor(cols * rows * 0.25);
 
-        if (uniqueSize >= minLen) {
+        if (allTiles.length >= minLen) {
             const grid = _buildGrid(allTiles, cols, rows, tier);
             return { grid, paths, cols, rows, templateId: tpl.id };
         }
@@ -420,9 +421,8 @@ function _buildGrid(allPathTiles, cols, rows, tier) {
 }
 
 // ─── Generator 1: Skeleton Walk ───────────────────────────────────────────────
-// For axis-aligned segments (pure horizontal or pure vertical) we use _forceLine
-// directly — no randomness, guarantees clean rows/columns (critical for zigzag).
-// Random walk is only applied to genuinely diagonal segments.
+// Axis-aligned segments use _forceLine (straight, deterministic).
+// Diagonal segments use _diagonalLine (Bresenham staircase — clean and deterministic).
 
 function _skeletonWalk(skeleton, cols, rows) {
     if (skeleton.length < 2) return _fallbackWalk(cols, rows);
@@ -435,65 +435,21 @@ function _skeletonWalk(skeleton, cols, rows) {
     const visited = new Set();
     const path    = [];
     const key     = (x, y) => `${x},${y}`;
-    const dirs    = [{ dx:1,dy:0 },{ dx:-1,dy:0 },{ dx:0,dy:1 },{ dx:0,dy:-1 }];
 
     for (let seg = 0; seg < points.length - 1; seg++) {
-        let { x, y } = points[seg];
-        const goal   = points[seg + 1];
+        const { x: sx, y: sy } = points[seg];
+        const goal = points[seg + 1];
 
-        if (!visited.has(key(x, y))) { visited.add(key(x, y)); path.push({ x, y }); }
+        if (!visited.has(key(sx, sy))) { visited.add(key(sx, sy)); path.push({ x: sx, y: sy }); }
 
-        const isDiagonal = (goal.x !== x) && (goal.y !== y);
+        const isDiagonal = (goal.x !== sx) && (goal.y !== sy);
 
-        // Axis-aligned segments: just draw a straight line, no randomness
-        if (!isDiagonal) {
-            _forceLine(x, y, goal.x, goal.y, visited, path, cols, rows);
-            continue;
+        if (isDiagonal) {
+            // Bresenham staircase — alternates x/y steps proportionally
+            _diagonalLine(sx, sy, goal.x, goal.y, visited, path, cols, rows);
+        } else {
+            _forceLine(sx, sy, goal.x, goal.y, visited, path, cols, rows);
         }
-
-        // Diagonal segments: biased random walk toward goal
-        const manhattan = Math.abs(goal.x - x) + Math.abs(goal.y - y);
-        const budget    = Math.max(manhattan * 2, 16);
-
-        for (let step = 0; step < budget; step++) {
-            if (x === goal.x && y === goal.y) break;
-            const dist = Math.abs(goal.x - x) + Math.abs(goal.y - y);
-
-            const candidates = dirs.map(d => {
-                const nx = x + d.dx, ny = y + d.dy;
-                if (nx < 0 || nx >= cols || ny < 0 || ny >= rows) return null;
-                if (visited.has(key(nx, ny))) return null;
-                const adjCount = dirs
-                    .filter(od => !(od.dx === -d.dx && od.dy === -d.dy))
-                    .filter(od => {
-                        const ax = nx + od.dx, ay = ny + od.dy;
-                        return ax >= 0 && ax < cols && ay >= 0 && ay < rows && visited.has(key(ax, ay));
-                    }).length;
-                if (adjCount > 1) return null;
-                const newDist    = Math.abs(goal.x - nx) + Math.abs(goal.y - ny);
-                const towardGoal = newDist < dist ? 6 : 1;
-                const RANDOM_STRENGTH = 0; // 0 = deterministic; raise to e.g. 1.2 to re-enable jitter
-                return { nx, ny, weight: towardGoal + Math.random() * RANDOM_STRENGTH };
-            }).filter(Boolean);
-
-            if (candidates.length === 0) {
-                if (path.length > 1) {
-                    const removed = path.pop();
-                    visited.delete(key(removed.x, removed.y));
-                    x = path[path.length - 1].x;
-                    y = path[path.length - 1].y;
-                }
-                continue;
-            }
-
-            candidates.sort((a, b) => b.weight - a.weight);
-            const RANDOM_STRENGTH = 0; // 0 = always pick best; raise to re-enable variance
-            const pick = (candidates.length > 1 && Math.random() < 0.2 * RANDOM_STRENGTH) ? candidates[1] : candidates[0];
-            x = pick.nx; y = pick.ny;
-            visited.add(key(x, y)); path.push({ x, y });
-        }
-
-        _forceLine(x, y, goal.x, goal.y, visited, path, cols, rows);
     }
     return path;
 }
@@ -507,6 +463,29 @@ function _forceLine(x0, y0, x1, y1, visited, path, cols, rows) {
         const moveY = moveX ? 0 : dy;
         x = Math.max(0, Math.min(cols - 1, x + moveX));
         y = Math.max(0, Math.min(rows - 1, y + moveY));
+        if (!visited.has(key(x, y))) { visited.add(key(x, y)); path.push({ x, y }); }
+    }
+}
+
+// Bresenham staircase for diagonal skeleton segments.
+// Alternates x and y steps proportionally so the path looks like a proper diagonal,
+// not a horizontal or vertical run. Tiles already visited are skipped silently.
+function _diagonalLine(x0, y0, x1, y1, visited, path, cols, rows) {
+    const key = (x, y) => `${x},${y}`;
+    let x = x0, y = y0;
+    const dx = Math.sign(x1 - x), dy = Math.sign(y1 - y);
+    let ex = 0, ey = 0; // accumulated "error" for Bresenham
+    const ax = Math.abs(x1 - x0), ay = Math.abs(y1 - y0);
+    while (x !== x1 || y !== y1) {
+        // Step whichever axis is most "behind" relative to its total distance
+        ex += ax; ey += ay;
+        if (ex >= ey) {
+            x = Math.max(0, Math.min(cols - 1, x + dx));
+            ex -= ay; // consumed one unit of x-progress, subtract y-scale
+        } else {
+            y = Math.max(0, Math.min(rows - 1, y + dy));
+            ey -= ax;
+        }
         if (!visited.has(key(x, y))) { visited.add(key(x, y)); path.push({ x, y }); }
     }
 }
