@@ -146,30 +146,58 @@ export class VcEngine {
         this._lastClearedWave = -1;
         this.lastTick = performance.now();
         this.raf = null;
+        this._loopGen = 0;
         this.speedMult = 1;
         this.selectedEnemyId = null;
 
         this.buffs = {
             dmgMult: 1 + ((meta.skills.scholarGrace || 0) * 0.005 * this.state.combo)
         };
+
+        // On mobile, browsers throttle RAF when the page is hidden (tab switch,
+        // app backgrounded, screen lock). When the page becomes visible again the
+        // accumulated time gap would produce a huge dt spike and also risks waking
+        // a stale loop. Reset lastTick on visibility restore so dt stays sane.
+        this._onVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                this.lastTick = performance.now();
+            }
+        };
+        document.addEventListener('visibilitychange', this._onVisibilityChange);
     }
 
     start() {
+        this._loopGen = (this._loopGen || 0) + 1;
         this.state.status = 'playing';
         this.lastTick = performance.now();
-        this.loop();
+        cancelAnimationFrame(this.raf);
+        this._startLoop(this._loopGen);
     }
 
     pause() { this.state.status = 'paused'; }
     resume() {
+        if (this.state.status === 'playing') return; // already running — no-op
+        this._loopGen = (this._loopGen || 0) + 1;
         this.state.status = 'playing';
         this.lastTick = performance.now();
-        this.loop();
+        cancelAnimationFrame(this.raf);
+        this._startLoop(this._loopGen);
     }
-    stop() { cancelAnimationFrame(this.raf); }
+    stop() {
+        this._loopGen = (this._loopGen || 0) + 1; // invalidate any pending RAF
+        cancelAnimationFrame(this.raf);
+        document.removeEventListener('visibilitychange', this._onVisibilityChange);
+    }
 
-    loop = () => {
-        if (this.state.status !== 'playing') return;
+    // Each call to _startLoop captures the current generation.
+    // If _loopGen has advanced by the time the RAF fires, the callback exits silently.
+    _startLoop(gen) {
+        this.raf = requestAnimationFrame(() => this._loopTick(gen));
+    }
+
+    _loopTick(gen) {
+        if (gen !== this._loopGen) return;          // stale — a newer loop took over
+        if (this.state.status !== 'playing') return; // paused/stopped
 
         const now = performance.now();
         let dt = (now - this.lastTick) / 1000;
@@ -211,7 +239,7 @@ export class VcEngine {
             }
         }
 
-        this.raf = requestAnimationFrame(this.loop);
+        this._startLoop(gen);
     }
 
     spawnWave(isEnraged = false) {

@@ -212,7 +212,7 @@ export class VcUI {
             }
         };
 
-        const ZOOM_STEPS =[1.0, 0.5, 2.0];
+        const ZOOM_STEPS = [1.0, 0.1, 0.2, 0.25, 0.3, 0.4, 0.5, 0.75, 2.0];
         if (zoomBtn) {
             zoomBtn.onclick = () => {
                 const idx = ZOOM_STEPS.findIndex(s => Math.abs(s - this._zoom) < 0.05);

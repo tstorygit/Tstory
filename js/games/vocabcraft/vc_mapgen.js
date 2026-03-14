@@ -472,7 +472,8 @@ function _skeletonWalk(skeleton, cols, rows) {
                 if (adjCount > 1) return null;
                 const newDist    = Math.abs(goal.x - nx) + Math.abs(goal.y - ny);
                 const towardGoal = newDist < dist ? 6 : 1;
-                return { nx, ny, weight: towardGoal + Math.random() * 1.2 };
+                const RANDOM_STRENGTH = 0; // 0 = deterministic; raise to e.g. 1.2 to re-enable jitter
+                return { nx, ny, weight: towardGoal + Math.random() * RANDOM_STRENGTH };
             }).filter(Boolean);
 
             if (candidates.length === 0) {
@@ -486,7 +487,8 @@ function _skeletonWalk(skeleton, cols, rows) {
             }
 
             candidates.sort((a, b) => b.weight - a.weight);
-            const pick = (candidates.length > 1 && Math.random() < 0.2) ? candidates[1] : candidates[0];
+            const RANDOM_STRENGTH = 0; // 0 = always pick best; raise to re-enable variance
+            const pick = (candidates.length > 1 && Math.random() < 0.2 * RANDOM_STRENGTH) ? candidates[1] : candidates[0];
             x = pick.nx; y = pick.ny;
             visited.add(key(x, y)); path.push({ x, y });
         }
