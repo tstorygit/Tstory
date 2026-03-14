@@ -63,31 +63,22 @@ export class VcUI {
     initGrid() {
         const { cols, rows, grid } = this.engine.map;
 
-        // Measure available height: total container minus the two topbars and a
-        // RESERVED bottom-bar height.  We cannot measure the bottom bar here because
-        // it is still empty (renderBottomBar hasn't run yet), so measuring gives ~0
-        // and the grid would consume the entire screen.  Use a fixed reserve instead.
-        const BOTTOM_BAR_RESERVE = 160; // px — enough for 2 rows of buttons + padding
-        const battleLayer = this.container.querySelector('#vc-battle-layer') || this.container;
-        const topRow1 = battleLayer.querySelector('.vc-topbar-row1');
-        const topRow2 = battleLayer.querySelector('.vc-topbar-row2');
-        const topbarsH = (topRow1 ? topRow1.offsetHeight : 42)
-                       + (topRow2 ? topRow2.offsetHeight : 36);
-        const totalH   = battleLayer.clientHeight || window.innerHeight;
-        // Also subtract safe-area / browser chrome buffer (e.g. mobile address bar)
-        const safeBuffer = 24;
-        const availH   = Math.max(60, totalH - topbarsH - BOTTOM_BAR_RESERVE - safeBuffer);
-        const availW   = this.mapEl.clientWidth || window.innerWidth;
+        // Layout: topbar (fixed) | map (flex:1, fills gap) | bottombar (fixed).
+        // Tile size is calculated from FIXED known heights so browser zoom cannot
+        // affect whether the bottom bar is visible — only how much map is shown.
+        // Topbar row1+row2 = ~70px, bottombar = 150px (set in CSS as fixed height).
+        const TOPBAR_H = 70;
+        const BOTTOM_H = 175;
+        const availH = Math.max(60, window.innerHeight - TOPBAR_H - BOTTOM_H);
+        const availW = this.mapEl.clientWidth || window.innerWidth;
 
-        // Tile size: fit all cols×rows into available space at zoom=1
-        // Use (rows - 1) as the row divisor to shave one tile of height off the map,
-        // giving the bottom bar more breathing room.
+        // Tile size: fit entire grid into available space at zoom=1
         const tileByCols = Math.floor(availW / cols);
-        const tileByRows = Math.floor(availH / (rows - 1));
+        const tileByRows = Math.floor(availH / rows);
         this.tileSize = Math.max(16, Math.min(tileByCols, tileByRows));
 
-        // Map container: fill remaining vertical space via flex
-        this.mapEl.style.flex    = '1 1 0';
+        // Map fills the flex gap — overflows/scrolls if grid > container
+        this.mapEl.style.flex      = '1 1 0';
         this.mapEl.style.minHeight = '0';
         this.mapEl.style.maxHeight = '';
         this.mapEl.style.overflowX = 'auto';

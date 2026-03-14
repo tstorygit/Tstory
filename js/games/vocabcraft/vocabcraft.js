@@ -413,7 +413,7 @@ function _showCamp() {
 
         const card = document.createElement('div');
         card.className = 'vc-stage-card';
-        card.style.cssText = 'align-items:flex-start; gap:10px; cursor:default; flex-direction:column;';
+        card.style.cssText = 'align-items:flex-start; gap:10px; cursor:default; flex-direction:column; pointer-events:none;';
         if (tplLocked) card.style.opacity = '0.45';
 
         // ── Header row: minimap + title/desc ─────────────────────────────────
@@ -442,7 +442,7 @@ function _showCamp() {
         if (!tplLocked) {
             // ── Difficulty dots row ───────────────────────────────────────────
             const dotsRow = document.createElement('div');
-            dotsRow.style.cssText = 'display:flex; gap:6px; flex-wrap:wrap; width:100%;';
+            dotsRow.style.cssText = 'display:flex; gap:6px; flex-wrap:wrap; width:100%; pointer-events:auto;';
 
             for (let d = 1; d <= 10; d++) {
                 const clearedActual  = isStageCleared(_meta, tpl.id, d);
@@ -453,21 +453,27 @@ function _showCamp() {
                 const waves    = 5 + d + (_meta.skills.bonusWaves || 0);
 
                 const dot = document.createElement('div');
-                dot.title = `D${d} — ${waves} waves${cleared ? ' ✅' : unlocked ? '' : ' 🔒'}${_debugUnlockAll && !unlockedActual ? ' (debug)' : ''}`;
-                dot.style.cssText = [
-                    'width:28px', 'height:28px', 'border-radius:6px',
+                // No .title — native browser tooltips can cause layout reflow/jitter.
+                // The confirm modal shows all the detail the player needs.
+                const dotStyle = [
+                    'width:32px', 'height:32px', 'border-radius:6px',
                     'display:flex', 'align-items:center', 'justify-content:center',
-                    'font-size:11px', 'font-weight:bold', 'cursor:pointer',
+                    'font-size:12px', 'font-weight:bold',
                     'border:2px solid',
-                    cleared          ? 'background:#1a5e36; border-color:#2ecc71; color:#2ecc71;' :
-                    unlockedActual   ? 'background:#1a252f; border-color:#3498db; color:#3498db;' :
-                    _debugUnlockAll  ? 'background:#3d1a5e; border-color:#8e44ad; color:#c39bd3;' :
-                                       'background:#1a252f; border-color:#4a5568; color:#4a5568; cursor:default; opacity:0.5;'
+                    'flex-shrink:0',
+                    cleared          ? 'background:#1a5e36; border-color:#2ecc71; color:#2ecc71; cursor:pointer;' :
+                    unlockedActual   ? 'background:#1a252f; border-color:#3498db; color:#3498db; cursor:pointer;' :
+                    _debugUnlockAll  ? 'background:#3d1a5e; border-color:#8e44ad; color:#c39bd3; cursor:pointer;' :
+                                       'background:#1a252f; border-color:#4a5568; color:#4a5568; cursor:default; opacity:0.4;'
                 ].join(';');
+                dot.style.cssText = dotStyle;
                 dot.textContent = d;
 
                 if (unlocked) {
-                    dot.onclick = () => _confirmAndStartBattle(tpl.id, d);
+                    dot.onclick = (e) => {
+                        e.stopPropagation();
+                        _confirmAndStartBattle(tpl.id, d);
+                    };
                 }
 
                 dotsRow.appendChild(dot);
@@ -766,7 +772,7 @@ function _startBattle(templateId, difficulty) {
     _screens.game.querySelector('#vc-camp-layer').style.display = 'none';
     _screens.game.querySelector('#vc-battle-layer').style.display = 'flex';
 
-    const mapData = generateMap(9, 12, difficulty, templateId);
+    const mapData = generateMap(9, 13, difficulty, templateId);
 
     // If the requested template couldn't generate a valid map, show a brief toast.
     if (mapData.usedFallback) {
