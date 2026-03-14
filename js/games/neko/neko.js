@@ -1,7 +1,7 @@
 // js/games/neko/neko.js — NekoNihongo idle + SRS game
 // export { init, launch }
 
-import { mountVocabSelector } from '../../vocab_selector.js';
+import { mountVocabSelector, getDeckConfig } from '../../vocab_selector.js';
 
 let _screens = null;
 let _onExit  = null;
@@ -9,9 +9,10 @@ let _selector = null;
 let _vocabQueue =[]; // words from vocab_selector: { word, furi, trans, status }
 let _STARTER_COUNT = 3; // default; overridden by config on each launch
 
-const SAVE_KEY = 'neko_nihongo_save';
+const SAVE_KEY   = 'neko_nihongo_save';
 const BANNED_KEY = 'neko_banned_words';
-const CFG_KEY = 'neko_nihongo_cfg';
+const CFG_KEY    = 'neko_nihongo_cfg';
+const DECK_CFG_KEY = 'neko_nihongo_deck';  // persists chosen deck independently of vocab_selector_settings
 
 function _loadCfg() {
     try { return JSON.parse(localStorage.getItem(CFG_KEY)) || {}; } catch { return {}; }
@@ -19,14 +20,32 @@ function _loadCfg() {
 function _saveCfg(cfg) { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); }
 function _getCfg(key, def) { const v = _loadCfg()[key]; return v !== undefined ? v : def; }
 
+// ── Deck config — saved independently so it can't be clobbered by other games ──
+function _loadDeckCfg() {
+    try { return JSON.parse(localStorage.getItem(DECK_CFG_KEY)) || null; } catch { return null; }
+}
+function _saveDeckCfg(cfg) {
+    localStorage.setItem(DECK_CFG_KEY, JSON.stringify(cfg));
+}
+function _clearDeckCfg() {
+    localStorage.removeItem(DECK_CFG_KEY);
+}
+
 export function init(screens, onExit) {
     _screens = screens;
     _onExit  = onExit;
 }
 
 export function launch() {
-    _show('setup');
-    _renderSetup();
+    const savedDeck = _loadDeckCfg();
+    if (savedDeck) {
+        // ── Resume path: rebuild vocab queue from saved deck config silently ──
+        _resumeWithDeck(savedDeck);
+    } else {
+        // ── First-run path: show the selector so the player picks their deck ──
+        _show('setup');
+        _renderSetup();
+    }
 }
 
 // ─── Screen Management ────────────────────────────────────────────────────────
@@ -59,6 +78,104 @@ function _show(name) {
     });
     const hdr = document.getElementById('games-header-title');
     if (hdr) hdr.textContent = _titles[name] || 'NekoNihongo';
+}
+
+// ─── Deck Resume ─────────────────────────────────────────────────────────────
+
+/**
+ * Build a vocab queue directly from a saved deck config object, bypassing the
+ * selector UI entirely.  Returns a Promise<vocabEntry[]>.
+ */
+async function _buildVocabFromDeckCfg(deckCfg) {
+    // Mount the selector into a detached scratch div, build the queue,
+    // then discard — reuses all existing queue-building logic with zero duplication.
+    const scratch = document.createElement('div');
+    scratch.style.display = 'none';
+    document.body.appendChild(scratch);
+
+    const ctrl = mountVocabSelector(scratch, {
+        bannedKey:     BANNED_KEY,
+        preloadConfig: deckCfg,
+        title:         '_neko_internal_',
+    });
+
+    let queue = [];
+    try {
+        queue = await ctrl.getQueue();
+    } catch (e) {
+        console.warn('[Neko] Could not build vocab from saved deck:', e);
+    }
+
+    scratch.remove();
+    return queue;
+}
+
+/**
+ * Resume directly into the game using a saved deck config (no setup screen).
+ * Rebuilds _vocabQueue from the config, then kicks off the game.
+ */
+async function _resumeWithDeck(deckCfg) {
+    // Show a lightweight loading state while we rebuild the queue
+    const setupEl = _screens.setup;
+    if (setupEl) {
+        setupEl.innerHTML = `
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;
+                        height:100%;gap:14px;padding:40px 20px;text-align:center;">
+                <div style="font-size:48px;">🐱</div>
+                <div style="font-size:16px;font-weight:bold;color:var(--text-main,#333);">Resuming your Dojo…</div>
+                <div style="font-size:13px;color:#888;">${_deckCfgLabel(deckCfg)}</div>
+            </div>`;
+        _show('setup');
+    }
+
+    const queue = await _buildVocabFromDeckCfg(deckCfg);
+
+    if (!queue.length) {
+        // Saved deck produced nothing (deck file missing, banned words exhausted, etc.)
+        // Fall back to the setup screen so the player can pick again
+        console.warn('[Neko] Saved deck returned empty queue — falling back to setup screen');
+        _renderSetup();
+        return;
+    }
+
+    _vocabQueue = queue.map(w => ({
+        id: w.word, kanji: w.word,
+        kana: w.furi  || w.word,
+        eng:  w.trans || '—',
+    }));
+
+    _STARTER_COUNT = _getCfg('starter', 3);
+    _show('game');
+    _loadGame();
+    _applyVocabSlots();
+    _initGameDOM();
+    _initShops();
+    _isCooldown = false;
+    _updateSRSQueue();
+    _updateUI();
+    _updatePauseBtn();
+    _startGameLoop();
+}
+
+/** Human-readable one-liner describing the saved deck config (used in loading UI). */
+function _deckCfgLabel(deckCfg) {
+    if (!deckCfg) return '';
+    const parts = [];
+    if (deckCfg.decks) {
+        Object.entries(deckCfg.decks).forEach(([id, r]) => {
+            // Map deck id back to label — we hard-code the most common ones to
+            // avoid importing the DECKS array here (it lives in vocab_selector).
+            const labels = {
+                jlpt_n4:'JLPT N4', jlpt_n5:'JLPT N5', frequency:'Standard',
+                anime:'Anime', romance:'Romance', gamer:'Gamer',
+                foodie:'Foodie', history:'History', tourist:'Tourist', expat:'Expat',
+            };
+            const label = labels[id] || id;
+            parts.push(`${label} ${r.lo}–${r.hi}`);
+        });
+    }
+    if (deckCfg.useSrs) parts.push('SRS Deck');
+    return parts.join(' · ') || 'Custom deck';
 }
 
 // ─── Setup Screen ─────────────────────────────────────────────────────────────
@@ -94,6 +211,11 @@ async function _startGame() {
     const queue = await _selector.getQueue();
     if (!queue.length) return;
 
+    // Persist the chosen deck BEFORE touching anything else — this is the key
+    // safety step that means accidental re-opens can never clobber the deck.
+    const deckCfg = getDeckConfig(_screens.setup);
+    if (deckCfg) _saveDeckCfg(deckCfg);
+
     // Convert vocab_selector format → neko internal format
     _vocabQueue = queue.map((w) => ({
         id:    w.word,   // stable string ID — survives reordering & restarts
@@ -107,18 +229,31 @@ async function _startGame() {
 
     _show('game');
     _loadGame();
+    _applyVocabSlots();
+    _initGameDOM();
+    _initShops();
+    _isCooldown = false;
+    _updateSRSQueue();
+    _updateUI();
+    _updatePauseBtn(); // ensures overlay shows immediately if loaded while paused
+    _startGameLoop();
+}
 
-    // ── Vocab slot logic (Option B) ──────────────────────────────────────────
-    // Words in _g.srs that ARE in the new queue → stay active, keep SRS progress.
-    // Words in _g.srs that are NOT in the new queue → go dormant (kept in save,
-    //   invisible to reviews, happy-bonus, and multiplier).
-    // For each orphaned slot, one unlearned word from the new queue gets a free
-    //   fresh SRS entry (no fish cost) — up to the number of orphaned slots.
-    // Switching back to an old set re-activates dormant words with full history.
-    const newIds     = new Set(_vocabQueue.map(v => v.id));
-    const knownIds   = new Set(_g.srs.map(s => s.id));
+/**
+ * Vocab slot logic — called after _loadGame() and after _vocabQueue is populated.
+ *
+ * Words in _g.srs that ARE in the new queue  → stay active, keep SRS progress.
+ * Words in _g.srs that are NOT in the queue  → go dormant (kept in save but
+ *   invisible to reviews, happy-bonus, and multiplier calculations).
+ * For each orphaned slot, one unlearned word from the new queue gets a free
+ *   fresh SRS entry (no fish cost) — up to the number of orphaned slots.
+ * Switching back to an old set re-activates dormant words with full history.
+ */
+function _applyVocabSlots() {
+    const newIds      = new Set(_vocabQueue.map(v => v.id));
+    const knownIds    = new Set(_g.srs.map(s => s.id));
     const orphanCount = _g.srs.filter(s => !newIds.has(s.id)).length;
-    const freshPool  = _vocabQueue.filter(v => !knownIds.has(v.id));
+    const freshPool   = _vocabQueue.filter(v => !knownIds.has(v.id));
 
     const toAdd = Math.min(orphanCount, freshPool.length);
     for (let i = 0; i < toAdd; i++) {
@@ -127,22 +262,14 @@ async function _startGame() {
     }
 
     // Give _STARTER_COUNT free starter words on a brand-new save
-    const _starterCount = Math.min(_STARTER_COUNT, _vocabQueue.length);
-    if (_g.srs.length === 0 && _starterCount > 0) {
-        for (let i = 0; i < _starterCount; i++) {
+    const starterCount = Math.min(_STARTER_COUNT, _vocabQueue.length);
+    if (_g.srs.length === 0 && starterCount > 0) {
+        for (let i = 0; i < starterCount; i++) {
             const w = _vocabQueue[i];
             _g.srs.push({ id: w.id, kanji: w.kanji, kana: w.kana, eng: w.eng, nextReview: _gameNow(), interval: _getCfg('interval', 8), ease: _getCfg('ease', 1.5) });
         }
-        _g.stats.wordsLearned += _starterCount;
+        _g.stats.wordsLearned += starterCount;
     }
-
-    _initGameDOM(); 
-    _initShops();
-    _isCooldown = false;
-    _updateSRSQueue();
-    _updateUI();
-    _updatePauseBtn(); // ensures overlay shows immediately if loaded while paused
-    _startGameLoop();
 }
 
 // ─── Game State ───────────────────────────────────────────────────────────────
@@ -1192,6 +1319,21 @@ function _initGameDOM() {
                 <div id="nk-vocab-list" class="nk-vocab-list"></div>
             </div>
             <div class="nk-subtab-content" id="nk-subtab-individualize">
+                <div class="nk-shop-title">📚 Vocabulary Deck</div>
+                <div class="nk-stats-list" style="padding:14px; display:flex; flex-direction:column; gap:10px; margin-bottom:12px;">
+                    <div>
+                        <div style="font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Active Deck</div>
+                        <div id="nk-current-deck-label" style="font-size:13px;font-weight:600;color:var(--nk-text);padding:8px 10px;background:var(--nk-bg);border-radius:8px;border:1px solid rgba(0,0,0,0.07);">—</div>
+                    </div>
+                    <button id="nk-change-deck-btn" class="nk-learn-btn" style="width:100%;">
+                        📚 Change / Extend Deck
+                    </button>
+                    <div style="font-size:11px;color:#888;line-height:1.5;">
+                        Changing your deck is safe: words already learned keep their SRS progress.
+                        Removed words pause (dormant) and resume if you switch back.
+                        New words get free slots equal to the number of dormant words.
+                    </div>
+                </div>
                 <div class="nk-shop-title">⚙️ Game Settings</div>
                 <div class="nk-stats-list" style="padding:14px; display:flex; flex-direction:column; gap:14px;">
                     <div>
@@ -1327,6 +1469,7 @@ function _initGameDOM() {
     el.querySelector('#nk-wipe-full').addEventListener('click', () => {
         if (!confirm('Delete EVERYTHING including vocabulary progress? This cannot be undone.')) return;
         localStorage.removeItem(SAVE_KEY);
+        _clearDeckCfg();   // forget deck so the selector appears fresh on next launch
         _g = _freshGame();
         // Re-add the same number of starter words the player launched with
         const starterCount = Math.min(_STARTER_COUNT, _vocabQueue.length);
@@ -1386,6 +1529,21 @@ function _initGameDOM() {
 
     // ── Export vocabulary to App SRS ────────────────────────────────────────
     el.querySelector('#nk-export-srs-btn')?.addEventListener('click', _openExportToSrsModal);
+
+    // ── Change Deck ──────────────────────────────────────────────────────────
+    el.querySelector('#nk-change-deck-btn')?.addEventListener('click', _openChangeDeckModal);
+
+    // Populate current deck label whenever the Settings subtab becomes visible
+    const _refreshDeckLabel = () => {
+        const lbl = el.querySelector('#nk-current-deck-label');
+        if (lbl) lbl.textContent = _deckCfgLabel(_loadDeckCfg()) || 'No deck saved yet';
+    };
+    el.querySelectorAll('.nk-subtab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (btn.getAttribute('data-subtarget') === 'individualize') _refreshDeckLabel();
+        });
+    });
+    _refreshDeckLabel();
 }
 
 // ─── EXPORT TO APP SRS ────────────────────────────────────────────────────────
@@ -1518,6 +1676,131 @@ async function _openExportToSrsModal() {
     });
 }
 
+// ─── CHANGE DECK MODAL ────────────────────────────────────────────────────────
+
+/**
+ * Opens a full-screen overlay containing the vocab selector pre-populated with
+ * the current saved deck.  On confirm the new deck is saved, the vocab queue is
+ * rebuilt, and slot-merging logic is re-applied — all without touching the save.
+ */
+function _openChangeDeckModal() {
+    const gameEl = _screens.game;
+    if (!gameEl) return;
+
+    // Remove any stale copy
+    gameEl.querySelector('#nk-change-deck-overlay')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'nk-change-deck-overlay';
+    overlay.style.cssText = `
+        position:absolute; inset:0; z-index:400;
+        background:var(--nk-bg, #fff5e6);
+        display:flex; flex-direction:column;
+        overflow:hidden;
+    `;
+
+    // ── Header bar ──
+    overlay.innerHTML = `
+        <div style="
+            display:flex; align-items:center; justify-content:space-between;
+            padding:10px 16px; background:var(--nk-panel,#ffe4c4);
+            border-bottom:1px solid rgba(0,0,0,0.08); flex-shrink:0;
+        ">
+            <div style="font-size:15px; font-weight:bold;">📚 Change / Extend Deck</div>
+            <button id="nk-cdm-cancel" style="
+                background:none; border:none; font-size:22px; cursor:pointer;
+                color:var(--nk-text,#5c4033); line-height:1; padding:2px 6px;
+            ">✕</button>
+        </div>
+        <div id="nk-cdm-selector-wrap" style="flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;"></div>
+        <div style="
+            padding:12px 16px; background:var(--nk-panel,#ffe4c4);
+            border-top:1px solid rgba(0,0,0,0.08); flex-shrink:0;
+            display:flex; flex-direction:column; gap:8px;
+        ">
+            <div id="nk-cdm-status" style="display:none; font-size:12px; padding:6px 10px;
+                 background:#fff8e1; border:1px solid #ffe082; border-radius:6px; color:#7c6000;"></div>
+            <button id="nk-cdm-confirm" style="
+                width:100%; padding:12px; border:none; border-radius:10px;
+                background:var(--nk-btn,#ffb347); color:white;
+                font-size:15px; font-weight:bold; cursor:pointer;
+            ">✓ Apply New Deck</button>
+        </div>
+    `;
+
+    gameEl.appendChild(overlay);
+
+    // Mount selector pre-populated with the current saved deck
+    const selectorWrap = overlay.querySelector('#nk-cdm-selector-wrap');
+    const currentDeck  = _loadDeckCfg();
+    const cdmSelector  = mountVocabSelector(selectorWrap, {
+        bannedKey:     BANNED_KEY,
+        preloadConfig: currentDeck,
+        extendMode:    !!currentDeck,
+        title:         'Choose New Vocabulary',
+        defaultCount:  currentDeck?.count ?? 'All',
+    });
+
+    const statusEl = overlay.querySelector('#nk-cdm-status');
+    const showStatus = (msg, isError = false) => {
+        statusEl.textContent = msg;
+        statusEl.style.display = 'block';
+        statusEl.style.background = isError ? '#fff3f3' : '#fff8e1';
+        statusEl.style.borderColor = isError ? '#ffb3b3' : '#ffe082';
+        statusEl.style.color       = isError ? '#c0392b' : '#7c6000';
+    };
+
+    overlay.querySelector('#nk-cdm-cancel').addEventListener('click', () => overlay.remove());
+
+    overlay.querySelector('#nk-cdm-confirm').addEventListener('click', async () => {
+        const confirmBtn = overlay.querySelector('#nk-cdm-confirm');
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = '⏳ Building queue…';
+        statusEl.style.display = 'none';
+
+        // Read the new config and build queue using the selector's own logic
+        const newDeckCfg = getDeckConfig(selectorWrap);
+        const rawQueue   = await cdmSelector.getQueue();
+
+        if (!rawQueue.length) {
+            confirmBtn.disabled = false;
+            confirmBtn.textContent = '✓ Apply New Deck';
+            showStatus('No words matched — adjust your selection and try again.', true);
+            return;
+        }
+
+        // Count how many existing learned words are NOT in the new deck
+        const newIds      = new Set(rawQueue.map(w => w.word));
+        const dormantCount = _g.srs.filter(s => !newIds.has(s.id)).length;
+        const newCount     = rawQueue.filter(w => !new Set(_g.srs.map(s => s.id)).has(w.word)).length;
+
+        // Persist new deck config, rebuild queue, re-apply slots
+        if (newDeckCfg) _saveDeckCfg(newDeckCfg);
+
+        _vocabQueue = rawQueue.map(w => ({
+            id:    w.word,
+            kanji: w.word,
+            kana:  w.furi  || w.word,
+            eng:   w.trans || '—',
+        }));
+
+        _applyVocabSlots();
+        _saveGame();
+        _updateSRSQueue();
+        _updateUI();
+
+        // Update the deck label in the Settings subtab
+        const deckLblEl = gameEl.querySelector('#nk-current-deck-label');
+        if (deckLblEl) deckLblEl.textContent = _deckCfgLabel(newDeckCfg) || 'Custom deck';
+
+        // Show a summary toast and close after a beat
+        const dormantMsg = dormantCount > 0 ? ` · ${dormantCount} paused` : '';
+        const newMsg     = newCount     > 0 ? ` · ${newCount} new free slots` : '';
+        _toast(`Deck updated${dormantMsg}${newMsg}`, 'var(--nk-success)');
+        setTimeout(() => overlay.remove(), 400);
+    });
+}
+
 // ─── Shop DOM ─────────────────────────────────────────────────────────────────
 
 function _initShops() {
@@ -1630,7 +1913,9 @@ function _renderStats() {
         }
 
         const learnCost = _getLearnCost();
+        const deckLabel = _deckCfgLabel(_loadDeckCfg());
         dojoEl.innerHTML = `
+            ${deckLabel ? `<div class="nk-stat-row"><span>📚 Active Deck</span><span style="font-size:12px;color:var(--nk-btn);font-weight:600;">${deckLabel}</span></div>` : ''}
             <div class="nk-stat-row"><span>📚 Words Learned</span><span>${learned} / ${total}</span></div>
             <div class="nk-stat-row"><span>➕ Words Remaining</span><span>${remaining}</span></div>
             <div class="nk-stat-row"><span>⏳ Reviews Due Now</span><span>${due > 0 ? '<span style="color:#e17055;font-weight:bold;">' + due + '</span>' : '0'}</span></div>

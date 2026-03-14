@@ -187,3 +187,59 @@ export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, way
 
     return enemies;
 }
+/**
+ * Returns a deterministic per-wave preview for the stage-select UI.
+ * Shows which enemy types can appear each wave with their real stats at `difficulty`.
+ *
+ * @param {number} totalWaves   Total waves for the stage (e.g. 5 + difficulty + bonusWaves)
+ * @param {number} difficulty   Stage difficulty 1-10
+ * @returns {Array<WavePreview>}
+ */
+export function getWavePreview(totalWaves, difficulty) {
+    const diffMult  = Math.pow(1.15, difficulty - 1);
+    const baseArmor = Math.floor((difficulty - 1) / 2);
+
+    const result = [];
+    for (let waveNum = 1; waveNum <= totalWaves; waveNum++) {
+        const isBossWave = (waveNum % 5 === 0);
+        const hpBase     = 18 * diffMult * Math.pow(1.15, waveNum);
+
+        if (isBossWave) {
+            const armor = Math.max(0,
+                Math.floor((waveNum - 2) / 2) + Math.floor((difficulty - 1) / 2)
+            ) + 3;
+            const hp = Math.floor(hpBase * 4);
+            result.push({
+                wave: waveNum, isBoss: true,
+                slots: 1,
+                types: [{
+                    typeId: 'boss', emoji: '👹', label: 'BOSS',
+                    count: 1, hp, armor,
+                    speed: Math.floor(26 + difficulty * 2),
+                    immune: [], regen: 0.01,
+                    desc: 'Massive HP, armor, and regeneration. Needs sustained burst damage.'
+                }]
+            });
+        } else {
+            const pool  = wavePool(waveNum, difficulty);
+            const slots = 4 + Math.floor(waveNum * 1.2) + Math.floor(difficulty / 2);
+            const types = pool.map(typeId => {
+                const def = ENEMY_TYPES[typeId];
+                return {
+                    typeId,
+                    emoji:  def.emoji,
+                    label:  def.label,
+                    count:  def.spawnCount,
+                    hp:     Math.floor(hpBase * def.hpMult),
+                    armor:  Math.max(0, baseArmor + def.armorBonus),
+                    speed:  Math.floor((38 + difficulty * 2) * def.speedMult),
+                    immune: def.immune,
+                    regen:  def.regen,
+                    desc:   def.desc
+                };
+            });
+            result.push({ wave: waveNum, isBoss: false, slots, types });
+        }
+    }
+    return result;
+}

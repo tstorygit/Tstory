@@ -5,6 +5,7 @@ import { generateMap, getValidTemplates, getTemplateMinimap, TEMPLATES } from '.
 import { setVocabQueue, showCard } from './vc_vocab.js';
 import { VcEngine } from './vc_engine.js';
 import { VcUI } from './vc_ui.js';
+import { getWavePreview } from './vc_enemies.js';
 
 let _screens = null;
 let _onExit = null;
@@ -13,6 +14,10 @@ let _meta = null;
 let _engine = null;
 let _activeTier = 1;
 let _speedMult = 1;
+// Session-only debug flag — never persisted to save.
+// When true, all stages are shown as unlocked IN ADDITION to the normal unlock logic.
+// Toggled by the 🔓 button; OFF by default so real unlock state is always visible.
+let _debugUnlockAll = false;
 
 const BANNED_KEY = 'vocabcraft_banned';
 
@@ -73,9 +78,14 @@ export function init(screens, onExit) {
         };
 
         _screens.game.querySelector('#vc-btn-debug-unlock').onclick = () => {
-            TEMPLATES.forEach(tpl => {
-                for (let d = 1; d <= 10; d++) clearStage(_meta, tpl.id, d);
-            });
+            _debugUnlockAll = !_debugUnlockAll;
+            // Update button appearance to reflect current state
+            const btn = _screens.game.querySelector('#vc-btn-debug-unlock');
+            btn.textContent  = _debugUnlockAll ? '🔓 Debug ON'  : '🔒 Debug OFF';
+            btn.title        = _debugUnlockAll ? 'Debug mode: all stages unlocked (session only — not saved). Click to disable.' : 'Debug: unlock all stages for this session only';
+            btn.style.background   = _debugUnlockAll ? '#8e44ad' : '#2c3e50';
+            btn.style.borderColor  = _debugUnlockAll ? '#6c3483' : '#4a5568';
+            btn.style.color        = _debugUnlockAll ? '#f1c40f'  : '#bdc3c7';
             _showCamp();
         };
         _screens.game.querySelector('#vc-btn-grimoire-battle').onclick = () => {
@@ -228,15 +238,28 @@ function _showCamp() {
     _screens.game.querySelector('#vc-camp-lvl').textContent =
         `Lv. ${_meta.level} (XP: ${_meta.xp}/${nextReq})`;
 
+    // Keep the debug button appearance in sync with current session state
+    const debugBtn = _screens.game.querySelector('#vc-btn-debug-unlock');
+    if (debugBtn) {
+        debugBtn.textContent = _debugUnlockAll ? '🔓 Debug ON' : '🔒 Debug OFF';
+        debugBtn.title = _debugUnlockAll
+            ? 'Debug mode: all stages unlocked (session only — not saved). Click to disable.'
+            : 'Debug: unlock all stages for this session only';
+        debugBtn.style.background  = _debugUnlockAll ? '#8e44ad' : '#2c3e50';
+        debugBtn.style.borderColor = _debugUnlockAll ? '#6c3483' : '#4a5568';
+        debugBtn.style.color       = _debugUnlockAll ? '#f1c40f'  : '#bdc3c7';
+    }
+
     const list = _screens.game.querySelector('#vc-stage-list');
     list.innerHTML = '';
 
     const maxDiff = highestDifficultyCleared(_meta);
 
     TEMPLATES.forEach(tpl => {
-        // Template locked if player hasn't reached its minTier difficulty yet
-        // minTier 1 = always available; minTier N = need to have cleared diff N-1 somewhere
-        const tplLocked = tpl.minTier > 1 && maxDiff < tpl.minTier - 1;
+        // Template locked if player hasn't reached its minTier difficulty yet.
+        // Debug mode overrides: show everything as available.
+        const tplLockedActual = tpl.minTier > 1 && maxDiff < tpl.minTier - 1;
+        const tplLocked = tplLockedActual && !_debugUnlockAll;
 
         const card = document.createElement('div');
         card.className = 'vc-stage-card';
@@ -258,8 +281,10 @@ function _showCamp() {
                 <div style="font-size:15px; font-weight:bold; color:#ecf0f1; margin-bottom:3px;">${tpl.name}</div>
                 <div style="font-size:11px; color:#bdc3c7; line-height:1.4; margin-bottom:5px;">${tpl.desc}</div>
                 ${tplLocked
-                    ? `<div style="font-size:11px; color:#e74c3c;">🔒 Clear difficulty ${tpl.minTier - 1} on any map</div>`
-                    : ''}
+                    ? `<div style="font-size:11px; color:#e74c3c;">🔒 Clear difficulty ${tpl.minTier - 1} on any map to unlock</div>`
+                    : (tplLockedActual && _debugUnlockAll
+                        ? `<div style="font-size:11px; color:#8e44ad;">🔓 Debug unlocked — normally requires clearing D${tpl.minTier - 1}</div>`
+                        : '')}
             </div>
         `;
         card.appendChild(headerRow);
@@ -270,20 +295,24 @@ function _showCamp() {
             dotsRow.style.cssText = 'display:flex; gap:6px; flex-wrap:wrap; width:100%;';
 
             for (let d = 1; d <= 10; d++) {
-                const cleared  = isStageCleared(_meta, tpl.id, d);
-                const unlocked = isStageUnlocked(_meta, tpl.id, d);
+                const clearedActual  = isStageCleared(_meta, tpl.id, d);
+                // Unlocked if: (actual previous-diff cleared OR debug mode) AND template not locked
+                const unlockedActual = isStageUnlocked(_meta, tpl.id, d);
+                const unlocked = unlockedActual || _debugUnlockAll;
+                const cleared  = clearedActual;
                 const waves    = 5 + d + (_meta.skills.bonusWaves || 0);
 
                 const dot = document.createElement('div');
-                dot.title = `D${d} — ${waves} waves${cleared ? ' ✅' : unlocked ? '' : ' 🔒'}`;
+                dot.title = `D${d} — ${waves} waves${cleared ? ' ✅' : unlocked ? '' : ' 🔒'}${_debugUnlockAll && !unlockedActual ? ' (debug)' : ''}`;
                 dot.style.cssText = [
                     'width:28px', 'height:28px', 'border-radius:6px',
                     'display:flex', 'align-items:center', 'justify-content:center',
                     'font-size:11px', 'font-weight:bold', 'cursor:pointer',
                     'border:2px solid',
-                    cleared  ? 'background:#1a5e36; border-color:#2ecc71; color:#2ecc71;' :
-                    unlocked ? 'background:#1a252f; border-color:#3498db; color:#3498db;' :
-                               'background:#1a252f; border-color:#4a5568; color:#4a5568; cursor:default; opacity:0.5;'
+                    cleared          ? 'background:#1a5e36; border-color:#2ecc71; color:#2ecc71;' :
+                    unlockedActual   ? 'background:#1a252f; border-color:#3498db; color:#3498db;' :
+                    _debugUnlockAll  ? 'background:#3d1a5e; border-color:#8e44ad; color:#c39bd3;' :
+                                       'background:#1a252f; border-color:#4a5568; color:#4a5568; cursor:default; opacity:0.5;'
                 ].join(';');
                 dot.textContent = d;
 
@@ -314,8 +343,8 @@ function _confirmAndStartBattle(templateId, difficulty) {
     modal.style.cssText = [
         'position:absolute', 'inset:0', 'background:rgba(26,37,47,0.97)',
         'display:flex', 'flex-direction:column', 'align-items:center',
-        'justify-content:center', 'z-index:100', 'padding:24px', 'gap:14px',
-        'overflow-y:auto'
+        'justify-content:flex-start', 'z-index:100', 'padding:16px',
+        'gap:12px', 'overflow-y:auto', '-webkit-overflow-scrolling:touch'
     ].join(';');
 
     const cleared = isStageCleared(_meta, templateId, difficulty);
@@ -323,27 +352,183 @@ function _confirmAndStartBattle(templateId, difficulty) {
         ? `<span style="color:#2ecc71">✅ Previously cleared</span>`
         : `<span style="color:#f39c12">⚔️ Not yet cleared</span>`;
 
+    // ── Wave preview data ────────────────────────────────────────────────────
+    const preview   = getWavePreview(waves, difficulty);
+
+    // Collect all unique enemy types across all waves for the legend
+    const legendMap = new Map();
+    preview.forEach(w => w.types.forEach(t => {
+        if (!legendMap.has(t.typeId)) legendMap.set(t.typeId, t);
+    }));
+
+    // Build wave card HTML
+    const waveCardsHtml = preview.map(w => {
+        const isBoss = w.isBoss;
+        const cardBg  = isBoss ? '#3d0a0a'  : '#1e2d3d';
+        const cardBdr = isBoss ? '#e74c3c'  : '#2c4a66';
+        const numClr  = isBoss ? '#e74c3c'  : '#7fb3d3';
+        const emojis  = isBoss
+            ? `<div style="font-size:22px;line-height:1.1;margin:2px 0;">👹</div>`
+            : `<div style="font-size:14px;line-height:1.3;letter-spacing:1px;margin:2px 0;">${w.types.map(t=>t.emoji).join('')}</div>`;
+
+        const hpLine = isBoss
+            ? `<div style="font-size:9px;color:#f39c12;font-weight:bold;">❤️ ${w.types[0].hp.toLocaleString()}</div>`
+            : (() => {
+                const hps = w.types.map(t=>t.hp);
+                const lo = Math.min(...hps), hi = Math.max(...hps);
+                return `<div style="font-size:9px;color:#aac8e0;">❤️ ${lo === hi ? lo : lo+'–'+hi}</div>`;
+            })();
+
+        const armorVal = Math.max(...w.types.map(t=>t.armor));
+        const flags    = [
+            armorVal > 0 ? `🛡️${armorVal}` : null,
+            w.types.some(t=>t.immune.length) ? '🚫' : null,
+            w.types.some(t=>t.regen > 0)    ? '💚' : null,
+        ].filter(Boolean).join(' ');
+
+        const countLine = isBoss
+            ? `<div style="font-size:8px;color:#e74c3c;font-weight:bold;">BOSS</div>`
+            : `<div style="font-size:9px;color:#bdc3c7;">~${w.slots} units</div>`;
+
+        return `<div data-wcard="${w.wave}" style="
+            flex-shrink:0; width:64px; min-height:98px;
+            background:${cardBg}; border:1px solid ${cardBdr};
+            border-radius:7px; padding:5px 3px; cursor:pointer;
+            display:flex; flex-direction:column; align-items:center;
+            gap:1px; text-align:center;
+            transition:border-color 0.15s, transform 0.1s;
+        ">
+            <div style="font-size:10px;font-weight:bold;color:${numClr};">W${w.wave}${isBoss?' 🔥':''}</div>
+            ${emojis}
+            ${countLine}
+            ${hpLine}
+            <div style="font-size:9px;color:#95a5a6;">${flags || '–'}</div>
+        </div>`;
+    }).join('');
+
+    // ── Enemy type legend entries ────────────────────────────────────────────
+    const legendHtml = [...legendMap.values()].map(t => {
+        const immBadge = t.immune.length
+            ? `<span style="background:#2c3e50;padding:1px 3px;border-radius:3px;font-size:9px;color:#e74c3c;margin-left:3px;">🚫 ${t.immune.join('/')}</span>`
+            : '';
+        const regenBadge = t.regen > 0
+            ? `<span style="background:#2c3e50;padding:1px 3px;border-radius:3px;font-size:9px;color:#2ecc71;margin-left:3px;">♻️ regen</span>`
+            : '';
+        return `<div data-legend="${t.typeId}" style="
+            display:flex; align-items:flex-start; gap:6px;
+            padding:5px 6px; background:#1a252f; border-radius:5px;
+            border-left:3px solid #2c4a66; cursor:pointer; transition:border-color 0.15s;
+        ">
+            <span style="font-size:18px;line-height:1;">${t.emoji}</span>
+            <div style="flex:1;min-width:0;">
+                <div style="font-size:11px;font-weight:bold;color:#ecf0f1;">${t.label}${immBadge}${regenBadge}</div>
+                <div style="font-size:10px;color:#95a5a6;line-height:1.35;">${t.desc}</div>
+            </div>
+            <div style="text-align:right;white-space:nowrap;font-size:10px;color:#7fb3d3;">
+                ❤️${t.hp}<br>🛡️${t.armor}<br>⚡${t.speed}
+            </div>
+        </div>`;
+    }).join('');
+
     modal.innerHTML = `
-        <div style="font-size:18px; font-weight:bold; color:#f1c40f;">${tpl.name} — D${difficulty}</div>
-        <div style="border-radius:6px; overflow:hidden; border:2px solid #3498db;">${minimapSvg}</div>
-        <div style="text-align:center; max-width:240px;">
-            <div style="font-size:12px; color:#bdc3c7; line-height:1.5; margin-bottom:8px;">${tpl.desc}</div>
-            <div style="display:flex; flex-wrap:wrap; gap:6px; justify-content:center; font-size:12px;">
-                <span style="background:#34495e; padding:3px 8px; border-radius:4px;">🌊 ${waves} waves</span>
-                <span style="background:#34495e; padding:3px 8px; border-radius:4px;">🛡️ +${baseArmor} base armor</span>
-                <span style="background:#34495e; padding:3px 8px; border-radius:4px;">💰 ${difficulty}× XP</span>
-                <span style="background:#34495e; padding:3px 8px; border-radius:4px;">${statusLine}</span>
+        <div style="font-size:18px;font-weight:bold;color:#f1c40f;text-align:center;">${tpl.name} — D${difficulty}</div>
+
+        <div style="display:flex;gap:12px;align-items:flex-start;width:100%;">
+            <div style="flex-shrink:0;border-radius:6px;overflow:hidden;border:2px solid #3498db;">${minimapSvg}</div>
+            <div style="flex:1;min-width:0;">
+                <div style="font-size:11px;color:#bdc3c7;line-height:1.5;margin-bottom:8px;">${tpl.desc}</div>
+                <div style="display:flex;flex-wrap:wrap;gap:5px;font-size:11px;">
+                    <span style="background:#34495e;padding:2px 7px;border-radius:4px;">🌊 ${waves} waves</span>
+                    <span style="background:#34495e;padding:2px 7px;border-radius:4px;">🛡️ +${baseArmor} armor</span>
+                    <span style="background:#34495e;padding:2px 7px;border-radius:4px;">💰 ${difficulty}× XP</span>
+                    <span style="background:#34495e;padding:2px 7px;border-radius:4px;">${statusLine}</span>
+                </div>
             </div>
         </div>
-        <div style="display:flex; gap:12px; width:100%;">
+
+        <div style="width:100%;display:flex;flex-direction:column;gap:6px;">
+            <div style="font-size:10px;font-weight:bold;color:#f1c40f;text-transform:uppercase;letter-spacing:1px;">📋 Wave Preview</div>
+            <div id="vc-wv-scroll" style="display:flex;gap:5px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:3px 1px 6px;">
+                ${waveCardsHtml}
+            </div>
+        </div>
+
+        <div id="vc-wv-detail" style="display:none;width:100%;background:#1a2d3d;border:1px solid #2c4a66;border-radius:7px;padding:8px;"></div>
+
+        <div style="width:100%;display:flex;flex-direction:column;gap:6px;">
+            <div style="font-size:10px;font-weight:bold;color:#f1c40f;text-transform:uppercase;letter-spacing:1px;">👾 Enemy Types</div>
+            <div id="vc-legend-list" style="display:flex;flex-direction:column;gap:5px;">
+                ${legendHtml}
+            </div>
+        </div>
+
+        <div style="display:flex;gap:12px;width:100%;padding-top:4px;">
             <button id="vc-confirm-go"   style="flex:1;padding:14px;background:#2ecc71;border:2px solid #27ae60;border-radius:6px;color:white;font-weight:bold;font-size:15px;cursor:pointer;">⚔️ Enter</button>
             <button id="vc-confirm-back" style="flex:1;padding:14px;background:#34495e;border:2px solid #7f8c8d;border-radius:6px;color:white;font-weight:bold;font-size:15px;cursor:pointer;">← Back</button>
         </div>
     `;
 
     _screens.game.querySelector('#vc-camp-layer').appendChild(modal);
-    modal.querySelector('#vc-confirm-go').onclick = () => { modal.remove(); _startBattle(templateId, difficulty); };
+    modal.querySelector('#vc-confirm-go').onclick   = () => { modal.remove(); _startBattle(templateId, difficulty); };
     modal.querySelector('#vc-confirm-back').onclick = () => modal.remove();
+
+    // ── Wave card click → expand detail ──────────────────────────────────────
+    const detailEl  = modal.querySelector('#vc-wv-detail');
+    let   activeWave = null;
+
+    modal.querySelectorAll('[data-wcard]').forEach(card => {
+        card.addEventListener('click', () => {
+            const wNum = parseInt(card.dataset.wcard);
+            const w    = preview.find(x => x.wave === wNum);
+
+            // Toggle off if same card clicked twice
+            if (activeWave === wNum) {
+                activeWave = null;
+                detailEl.style.display = 'none';
+                card.style.borderColor = w.isBoss ? '#e74c3c' : '#2c4a66';
+                return;
+            }
+
+            // Deselect previous card
+            if (activeWave !== null) {
+                const prev = preview.find(x => x.wave === activeWave);
+                const prevEl = modal.querySelector(`[data-wcard="${activeWave}"]`);
+                if (prevEl) prevEl.style.borderColor = prev?.isBoss ? '#e74c3c' : '#2c4a66';
+            }
+
+            activeWave = wNum;
+            card.style.borderColor = '#f1c40f';
+            detailEl.style.display = 'block';
+
+            const headerClr = w.isBoss ? '#e74c3c' : '#7fb3d3';
+            const title     = w.isBoss
+                ? `<div style="font-size:12px;font-weight:bold;color:#e74c3c;margin-bottom:6px;">🔥 Wave ${w.wave} — Boss Wave</div>`
+                : `<div style="font-size:12px;font-weight:bold;color:#7fb3d3;margin-bottom:6px;">Wave ${w.wave} — ~${w.slots} units</div>`;
+
+            const rows = w.types.map(t => {
+                const immBadge  = t.immune.length
+                    ? `<span style="color:#e74c3c;font-size:9px;"> 🚫${t.immune.join('/')}</span>` : '';
+                const regenBadge = t.regen > 0
+                    ? `<span style="color:#2ecc71;font-size:9px;"> ♻️regen</span>` : '';
+                return `<div style="display:flex;align-items:flex-start;gap:8px;padding:4px 0;border-bottom:1px solid #1a252f;">
+                    <span style="font-size:20px;line-height:1;">${t.emoji}</span>
+                    <div style="flex:1;">
+                        <div style="font-size:11px;font-weight:bold;color:#ecf0f1;">${t.label}${immBadge}${regenBadge}</div>
+                        <div style="font-size:10px;color:#95a5a6;line-height:1.3;">${t.desc}</div>
+                    </div>
+                    <div style="font-size:10px;color:#7fb3d3;white-space:nowrap;text-align:right;">
+                        ❤️ ${t.hp.toLocaleString()}<br>
+                        🛡️ ${t.armor} &nbsp;⚡ ${t.speed}
+                    </div>
+                </div>`;
+            }).join('');
+
+            detailEl.innerHTML = title + rows;
+
+            // Scroll detail into view
+            detailEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        });
+    });
 }
 
 function _renderGrimoire() {
@@ -419,6 +604,23 @@ function _startBattle(templateId, difficulty) {
     _screens.game.querySelector('#vc-battle-layer').style.display = 'flex';
 
     const mapData = generateMap(9, 13, difficulty, templateId);
+
+    // If the requested template couldn't generate a valid map, show a brief toast.
+    if (mapData.usedFallback) {
+        const requestedName = TEMPLATES.find(t => t.id === templateId)?.name ?? templateId;
+        const toast = document.createElement('div');
+        toast.style.cssText = [
+            'position:fixed', 'top:60px', 'left:50%', 'transform:translateX(-50%)',
+            'background:#c0392b', 'color:#fff', 'font-size:13px', 'font-weight:bold',
+            'padding:8px 16px', 'border-radius:8px', 'z-index:9999',
+            'box-shadow:0 4px 12px rgba(0,0,0,0.5)', 'text-align:center',
+            'transition:opacity 0.4s ease', 'pointer-events:none'
+        ].join(';');
+        toast.textContent = `⚠️ "${requestedName}" map failed — playing Gauntlet instead`;
+        document.body.appendChild(toast);
+        setTimeout(() => { toast.style.opacity = '0'; }, 3000);
+        setTimeout(() => { toast.remove(); }, 3500);
+    }
 
     const uiCallbacks = {
         showCard: (mode, onRes) => {

@@ -200,18 +200,22 @@ export function generateMap(cols, rows, tier, templateId = null) {
         const allTiles   = paths.flat();
         // Use raw length (not unique) — repeat-visit generators like pinwheel and
         // crossroads intentionally revisit tiles; unique count would undercount them.
-        const minLen     = Math.floor(cols * rows * 0.25);
+        // 15% threshold: skeleton templates like gauntlet/scurve produce ~25-29 unique
+        // tiles on a 9×13 grid — well above 17 — so every generator passes attempt 1.
+        const minLen     = Math.floor(cols * rows * 0.15);
 
         if (allTiles.length >= minLen) {
             const grid = _buildGrid(allTiles, cols, rows, tier);
-            return { grid, paths, cols, rows, templateId: tpl.id };
+            return { grid, paths, cols, rows, templateId: tpl.id, usedFallback: false };
         }
     }
 
-    // Fallback: gauntlet so we never return null
+    // Fallback: gauntlet so we never return null.
+    // usedFallback:true tells the caller to show a warning notification.
+    console.warn(`[VocabCraft] Map gen failed for "${tpl.id}" after 10 attempts — falling back to gauntlet.`);
     const fallbackPath = _skeletonWalk(TEMPLATES[0].skeleton, cols, rows);
     const grid = _buildGrid(fallbackPath, cols, rows, tier);
-    return { grid, paths: [fallbackPath], cols, rows, templateId: 'gauntlet' };
+    return { grid, paths: [fallbackPath], cols, rows, templateId: 'gauntlet', usedFallback: true };
 }
 
 /**
@@ -276,24 +280,18 @@ export function getTemplateMinimap(templateId, w = 70, h = 90) {
             <circle cx="${(w/2).toFixed(1)}" cy="${(h/2).toFixed(1)}" r="6" fill="none" stroke="${exit}" stroke-width="1.5" opacity="0.6"/>`;
 
     } else if (tpl.type === 'uturn') {
-        // Two lanes from top-left and top-right, down to base at bottom-center
+        // Two lanes from top-left and top-right, converging to base at bottom-center
         const baseX = (w/2).toFixed(1), baseY = (h-pad).toFixed(1);
         const lx1 = toX(0.15).toFixed(1), lx2 = toX(0.85).toFixed(1);
         const botY = toY(0.82).toFixed(1);
         extraSvg = `
-            <path d="M${lx1},${pad} L${lx1},${botY} L${baseX},${baseY}" fill="none" stroke="${stroke}" stroke-width="2.5" stroke-linecap="round" opacity="0.85"/>
-            <path d="M${lx2},${pad} L${lx2},${botY} L${baseX},${baseY}" fill="none" stroke="${stroke2}" stroke-width="2.5" stroke-linecap="round" opacity="0.85"/>
+            <path d="M${lx1},${pad} L${lx1},${botY} L${baseX},${baseY}" fill="none" stroke="${stroke}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>
+            <path d="M${lx2},${pad} L${lx2},${botY} L${baseX},${baseY}" fill="none" stroke="${stroke2}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>
             <circle cx="${lx1}" cy="${pad}" r="${dotR}" fill="${entry}"/>
             <circle cx="${lx2}" cy="${pad}" r="${dotR}" fill="${entry}"/>
             <circle cx="${baseX}" cy="${baseY}" r="${dotR+1}" fill="${exit}"/>
             <circle cx="${baseX}" cy="${baseY}" r="6" fill="none" stroke="${exit}" stroke-width="1.5" opacity="0.6"/>
         `;
-        const cx = (w/2).toFixed(1), cy = (h/2).toFixed(1);
-        pathD = [`M${cx},${cy}`,
-            `C${w*0.85},${h*0.10} ${w*0.85},${h*0.46} ${cx},${cy}`,
-            `C${w*0.15},${h*0.54} ${w*0.15},${h*0.90} ${cx},${cy}`].join(' ');
-        extraSvg = `<circle cx="${(w*0.5).toFixed(1)}" cy="${(h*0.18).toFixed(1)}" r="${dotR}" fill="${entry}"/>
-            <circle cx="${(w*0.5).toFixed(1)}" cy="${(h*0.82).toFixed(1)}" r="${dotR}" fill="${exit}"/>`;
 
     } else if (tpl.type === 'crossroads') {
         const cx2 = (w/2).toFixed(1), cy2 = (h/2).toFixed(1);
@@ -317,6 +315,24 @@ export function getTemplateMinimap(templateId, w = 70, h = 90) {
             `L${rCx},${midY}`, `A${rx2},${ry2} 0 1,0 ${rCx},${(h/2-0.01).toFixed(1)}`].join(' ');
         extraSvg = `<circle cx="${lCx}" cy="${(h*0.18).toFixed(1)}" r="${dotR}" fill="${entry}"/>
             <circle cx="${rCx}" cy="${(h*0.82).toFixed(1)}" r="${dotR}" fill="${exit}"/>`;
+
+    } else if (tpl.type === 'figure8') {
+        // Two vertically-stacked loops sharing a center crossing — entry top-left, exit bottom-right
+        const midY = (h/2).toFixed(1);
+        const lCx  = (w*0.30).toFixed(1), rCx = (w*0.70).toFixed(1);
+        const rx2  = (w*0.24).toFixed(1), ry2 = (h*0.34).toFixed(1);
+        // Left (top) loop — CCW; right (bottom) loop — CW; share centre crossing
+        pathD = [
+            `M${lCx},${midY}`,
+            `A${rx2},${ry2} 0 1,1 ${lCx},${(h/2+0.01).toFixed(1)}`,
+            `L${rCx},${midY}`,
+            `A${rx2},${ry2} 0 1,0 ${rCx},${(h/2-0.01).toFixed(1)}`
+        ].join(' ');
+        extraSvg = `
+            <circle cx="${lCx}" cy="${(pad+4).toFixed(1)}" r="${dotR}" fill="${entry}"/>
+            <circle cx="${(w/2).toFixed(1)}" cy="${midY}" r="${dotR+1}" fill="${exit}"/>
+            <circle cx="${(w/2).toFixed(1)}" cy="${midY}" r="6" fill="none" stroke="${exit}" stroke-width="1.5" opacity="0.6"/>
+        `;
 
     } else if (tpl.type === 'labyrinth') {
         const pts = [[0.0,0.1],[0.7,0.1],[0.7,0.3],[0.2,0.3],[0.2,0.5],
@@ -470,19 +486,28 @@ function _forceLine(x0, y0, x1, y1, visited, path, cols, rows) {
 // Bresenham staircase for diagonal skeleton segments.
 // Alternates x and y steps proportionally so the path looks like a proper diagonal,
 // not a horizontal or vertical run. Tiles already visited are skipped silently.
+//
+// FIX: original accumulator-only Bresenham would overshoot one axis past its target
+// and then infinite-loop when clamped at the grid boundary (e.g. gauntlet, scurve,
+// zslash, delta all have segments where ay > ax, causing x to never advance).
+// Solution: once an axis reaches its target we force-step only the remaining axis,
+// exactly like _forceLine does — guaranteeing termination regardless of ax/ay ratio.
 function _diagonalLine(x0, y0, x1, y1, visited, path, cols, rows) {
     const key = (x, y) => `${x},${y}`;
     let x = x0, y = y0;
-    const dx = Math.sign(x1 - x), dy = Math.sign(y1 - y);
-    let ex = 0, ey = 0; // accumulated "error" for Bresenham
+    const dx = Math.sign(x1 - x0);
+    const dy = Math.sign(y1 - y0);
+    let ex = 0, ey = 0;
     const ax = Math.abs(x1 - x0), ay = Math.abs(y1 - y0);
     while (x !== x1 || y !== y1) {
-        // Step whichever axis is most "behind" relative to its total distance
+        const needX = x !== x1;
+        const needY = y !== y1;
         ex += ax; ey += ay;
-        if (ex >= ey) {
+        // Only step axes that still need to move; use Bresenham ratio when both do.
+        if (needX && (!needY || ex >= ey)) {
             x = Math.max(0, Math.min(cols - 1, x + dx));
-            ex -= ay; // consumed one unit of x-progress, subtract y-scale
-        } else {
+            ex -= ay;
+        } else if (needY) {
             y = Math.max(0, Math.min(rows - 1, y + dy));
             ey -= ax;
         }

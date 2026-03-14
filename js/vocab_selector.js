@@ -97,6 +97,35 @@ function _saveDeckRange(deckId, lo, hi) {
     _saveSettings({ deckRanges: ranges });
 }
 
+// ─── DECK CONFIG SNAPSHOT ────────────────────────────────────────────────────
+// Returns a plain-object snapshot of the current selector state that can be
+// persisted per-game (e.g. in neko_nihongo_cfg) and later reloaded via
+// mountVocabSelector's `preloadConfig` option to restore a saved deck choice.
+
+export function getDeckConfig(screenEl) {
+    const root = screenEl?.querySelector('.vs-root');
+    if (!root) return null;
+
+    const useSrs = root.querySelector('.vs-use-srs')?.checked ?? false;
+    const statuses = [...root.querySelectorAll('.vs-status-check:checked')].map(c => +c.value);
+    const selMode  = root.querySelector('input[name="vs-sel-mode"]:checked')?.value ?? 'random';
+    const countBtn = root.querySelector('.caro-count-btn.active');
+    const count    = countBtn ? (countBtn.getAttribute('data-count') === 'All' ? 'All' : +countBtn.getAttribute('data-count')) : 'All';
+
+    const decks = {};
+    root.querySelectorAll('.vs-use-deck').forEach(cb => {
+        if (cb.checked) {
+            const deckId   = cb.dataset.deckId;
+            const panel    = root.querySelector(`.vs-deck-range[data-for-deck="${deckId}"]`);
+            const lo = +(panel?.querySelector('.vs-range-low')?.value  || 1);
+            const hi = +(panel?.querySelector('.vs-range-high')?.value || 1000);
+            decks[deckId] = { lo, hi };
+        }
+    });
+
+    return { useSrs, statuses, selMode, count, decks };
+}
+
 // ─── MOUNT ───────────────────────────────────────────────────────────────────
 
 export function mountVocabSelector(screenEl, opts = {}) {
@@ -106,18 +135,20 @@ export function mountVocabSelector(screenEl, opts = {}) {
         defaultCounts   = [10, 20, 50, 100, 200, 500, 1000, 'All'],
         defaultCount    = 'All',
         title           = 'Setup',
+        preloadConfig   = null,   // { useSrs, statuses, selMode, count, decks:{id:{lo,hi}} }
+        extendMode      = false,  // true → show "extending existing deck" banner
     } = opts;
 
-    _render(screenEl, { bannedKey, showCountPicker, defaultCounts, defaultCount, title });
-    _wireEvents(screenEl, { bannedKey, showCountPicker, defaultCounts, defaultCount, title, opts });
+    _render(screenEl, { bannedKey, showCountPicker, defaultCounts, defaultCount, title, preloadConfig, extendMode });
+    _wireEvents(screenEl, { bannedKey, showCountPicker, defaultCounts, defaultCount, title, opts, preloadConfig });
 
     return {
         getQueue:     () => _buildQueueAsync(screenEl, { bannedKey }),
         getActionsEl: () => screenEl.querySelector('.vs-actions'),
         refresh: () => {
             const savedActions = _captureActions(screenEl);
-            _render(screenEl, { bannedKey, showCountPicker, defaultCounts, defaultCount, title });
-            _wireEvents(screenEl, { bannedKey, showCountPicker, defaultCounts, defaultCount, title, opts });
+            _render(screenEl, { bannedKey, showCountPicker, defaultCounts, defaultCount, title, preloadConfig, extendMode });
+            _wireEvents(screenEl, { bannedKey, showCountPicker, defaultCounts, defaultCount, title, opts, preloadConfig });
             _restoreActions(screenEl, savedActions);
         },
     };
@@ -125,11 +156,41 @@ export function mountVocabSelector(screenEl, opts = {}) {
 
 // ─── RENDER ──────────────────────────────────────────────────────────────────
 
-function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, title }) {
+function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, title, preloadConfig = null, extendMode = false }) {
     const srsWords = srsDb.getAllWords();
     const hasSrs   = Object.keys(srsWords).length > 0;
     const banned   = getBannedWords(bannedKey);
-    const saved    = _loadSettings();
+
+    // If a preloadConfig is provided, use it as the source of truth instead of
+    // the global vocab_selector_settings key (which is shared across all games).
+    const saved = preloadConfig
+        ? {
+            useSrs:    preloadConfig.useSrs,
+            statuses:  preloadConfig.statuses,
+            selMode:   preloadConfig.selMode,
+            count:     preloadConfig.count,
+            decks:     Object.fromEntries(DECKS.map(d => [d.id, !!preloadConfig.decks?.[d.id]])),
+            deckRanges: Object.fromEntries(
+                Object.entries(preloadConfig.decks || {}).map(([id, r]) => [id, r])
+            ),
+          }
+        : _loadSettings();
+
+    // Seed the global settings store from preloadConfig so that range-input
+    // event handlers (which call _saveDeckRange/_saveSettings) stay in sync.
+    if (preloadConfig) {
+        const seedDecks = Object.fromEntries(DECKS.map(d => [d.id, !!preloadConfig.decks?.[d.id]]));
+        const seedRanges = {};
+        Object.entries(preloadConfig.decks || {}).forEach(([id, r]) => { seedRanges[id] = r; });
+        _saveSettings({
+            useSrs:    preloadConfig.useSrs,
+            statuses:  preloadConfig.statuses,
+            selMode:   preloadConfig.selMode,
+            count:     preloadConfig.count,
+            decks:     seedDecks,
+            deckRanges: seedRanges,
+        });
+    }
 
     const useSrsChecked = saved.useSrs   !== undefined ? saved.useSrs   : hasSrs;
     const savedStatuses = saved.statuses !== undefined ? saved.statuses : [0,1,2,3];
@@ -142,6 +203,18 @@ function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, 
 
     let html = `<div class="caro-setup-panel vs-root">`;
     html += `<div class="caro-setup-section-title" style="padding:14px 20px 4px;font-size:15px;font-weight:700;">${title}</div>`;
+
+    // ── Extend-mode banner ────────────────────────────────────────────────────
+    if (extendMode) {
+        html += `
+        <div style="margin:8px 16px 0;padding:10px 14px;background:#fff8e1;border:1px solid #ffe082;
+                    border-radius:8px;font-size:12px;line-height:1.5;color:#7c6000;">
+            <strong>📚 Changing your deck</strong><br>
+            Words already learned keep their full SRS progress. Words removed from the deck go dormant
+            (paused, not deleted) — switch back and they'll resume where they left off.
+            New words are added as free slots up to the number of dormant words.
+        </div>`;
+    }
 
     // ── Word Sources ──────────────────────────────────────────────────────────
     html += `<div class="caro-setup-section">`;
@@ -277,10 +350,20 @@ function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, 
                     <input type="radio" name="vs-sel-mode" value="sequential" ${savedMode==='sequential'?'checked':''} style="display:none;">
                     📋 Sequential
                 </label>
+                <label class="vs-mode-label" style="
+                    display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:8px;
+                    cursor:pointer;font-size:13px;font-weight:500;transition:all .15s;
+                    border:2px solid ${savedMode==='reverse'?'var(--primary-color)':'var(--border-color)'};
+                    background:${savedMode==='reverse'?'var(--primary-color)':'var(--surface-color)'};
+                    color:${savedMode==='reverse'?'#fff':'var(--text-main)'};">
+                    <input type="radio" name="vs-sel-mode" value="reverse" ${savedMode==='reverse'?'checked':''} style="display:none;">
+                    🔃 Reverse
+                </label>
             </div>
             <p style="font-size:11px;color:var(--text-muted);margin:0;line-height:1.4;">
                 <strong>Random</strong> – different words each session from each deck's range.<br>
-                <strong>Sequential</strong> – always the first N words of each range (rank order).
+                <strong>Sequential</strong> – always the first N words of each range (rank order).<br>
+                <strong>Reverse</strong> – like Sequential but highest rank first (e.g. 800 → 799 → 798…).
             </p>
         </div>
     </div>`;
@@ -336,7 +419,7 @@ function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, 
 
 // ─── WIRE EVENTS ─────────────────────────────────────────────────────────────
 
-function _wireEvents(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, title, opts }) {
+function _wireEvents(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, title, opts, preloadConfig = null }) {
     const root = el.querySelector('.vs-root');
 
     // SRS toggle
@@ -540,6 +623,8 @@ async function _buildQueueAsync(el, { bannedKey }) {
         // Apply selection mode across the combined pool
         if (mode === 'sequential') {
             allEntries.sort((a, b) => a._rank - b._rank || a.deckId.localeCompare(b.deckId));
+        } else if (mode === 'reverse') {
+            allEntries.sort((a, b) => b._rank - a._rank || a.deckId.localeCompare(b.deckId));
         } else {
             allEntries.sort(() => Math.random() - 0.5);
         }
