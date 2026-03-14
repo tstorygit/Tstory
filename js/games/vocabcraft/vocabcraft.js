@@ -302,6 +302,16 @@ function _showSettingsOverlay() {
             </button>
         </div>
 
+        <!-- Game Mode -->
+        <div style="display:flex;flex-direction:column;gap:8px;">
+            <div style="font-size:10px;font-weight:bold;color:#f1c40f;text-transform:uppercase;letter-spacing:1px;">🎮 Game Mode</div>
+            <div style="display:flex;gap:6px;">
+                <button class="vc-mode-btn" data-mode="easy"   style="flex:1;padding:10px 4px;border:2px solid;border-radius:8px;color:white;font-size:13px;font-weight:bold;cursor:pointer;text-align:center;">🌿 Easy<div style="font-size:10px;color:#bdc3c7;font-weight:normal;margin-top:3px;">¼HP · ½Speed</div></button>
+                <button class="vc-mode-btn" data-mode="normal" style="flex:1;padding:10px 4px;border:2px solid;border-radius:8px;color:white;font-size:13px;font-weight:bold;cursor:pointer;text-align:center;">⚔️ Normal<div style="font-size:10px;color:#bdc3c7;font-weight:normal;margin-top:3px;">½HP</div></button>
+                <button class="vc-mode-btn" data-mode="hard"   style="flex:1;padding:10px 4px;border:2px solid;border-radius:8px;color:white;font-size:13px;font-weight:bold;cursor:pointer;text-align:center;">💀 Hard<div style="font-size:10px;color:#bdc3c7;font-weight:normal;margin-top:3px;">Full stats</div></button>
+            </div>
+        </div>
+
         <!-- Debug -->
         <div style="display:flex;flex-direction:column;gap:8px;">
             <div style="font-size:10px;font-weight:bold;color:#f1c40f;text-transform:uppercase;letter-spacing:1px;">🛠️ Debug</div>
@@ -332,6 +342,19 @@ function _showSettingsOverlay() {
     _screens.game.querySelector('#vc-camp-layer').appendChild(overlay);
 
     overlay.querySelector('#vc-settings-close').onclick = () => overlay.remove();
+
+    // Game mode buttons
+    overlay.querySelectorAll('.vc-mode-btn').forEach(btn => {
+        btn.style.background  = btn.dataset.mode === _gameMode ? '#2c6e3f' : '#1a252f';
+        btn.style.borderColor = btn.dataset.mode === _gameMode ? '#2ecc71' : '#4a5568';
+        btn.onclick = () => {
+            _gameMode = btn.dataset.mode;
+            overlay.querySelectorAll('.vc-mode-btn').forEach(b => {
+                b.style.background  = b.dataset.mode === _gameMode ? '#2c6e3f' : '#1a252f';
+                b.style.borderColor = b.dataset.mode === _gameMode ? '#2ecc71' : '#4a5568';
+            });
+        };
+    });
 
     // Words
     overlay.querySelector('#vc-settings-words').onclick = () => {
@@ -454,7 +477,7 @@ function _showCamp() {
             const dotsRow = document.createElement('div');
             dotsRow.style.cssText = 'display:flex; gap:6px; flex-wrap:wrap; width:100%;';
 
-            for (let d = 1; d <= 10; d++) {
+            for (let d = 1; d <= 18; d++) {
                 const clearedActual  = isStageCleared(_meta, tpl.id, d);
                 // Unlocked if: (actual previous-diff cleared OR debug mode) AND template not locked
                 const unlockedActual = isStageUnlocked(_meta, tpl.id, d);
@@ -625,11 +648,6 @@ function _confirmAndStartBattle(templateId, difficulty) {
             </div>
         </div>
 
-        <div style="display:flex;gap:6px;width:100%;padding-top:4px;">
-            <button class="vc-mode-btn" data-mode="easy"   style="flex:1;padding:8px 2px;border:2px solid;border-radius:8px;color:white;font-size:12px;font-weight:bold;cursor:pointer;text-align:center;">🌿 Easy<div style="font-size:9px;color:#bdc3c7;font-weight:normal;margin-top:2px;">¼HP · ½Speed</div></button>
-            <button class="vc-mode-btn" data-mode="normal" style="flex:1;padding:8px 2px;border:2px solid;border-radius:8px;color:white;font-size:12px;font-weight:bold;cursor:pointer;text-align:center;">⚔️ Normal<div style="font-size:9px;color:#bdc3c7;font-weight:normal;margin-top:2px;">½HP</div></button>
-            <button class="vc-mode-btn" data-mode="hard"   style="flex:1;padding:8px 2px;border:2px solid;border-radius:8px;color:white;font-size:12px;font-weight:bold;cursor:pointer;text-align:center;">💀 Hard<div style="font-size:9px;color:#bdc3c7;font-weight:normal;margin-top:2px;">Full stats</div></button>
-        </div>
         <div style="display:flex;gap:12px;width:100%;padding-top:4px;">
             <button id="vc-confirm-go"   style="flex:1;padding:14px;background:#2ecc71;border:2px solid #27ae60;border-radius:6px;color:white;font-weight:bold;font-size:15px;cursor:pointer;">⚔️ Enter</button>
             <button id="vc-confirm-back" style="flex:1;padding:14px;background:#34495e;border:2px solid #7f8c8d;border-radius:6px;color:white;font-weight:bold;font-size:15px;cursor:pointer;">← Back</button>
@@ -637,20 +655,6 @@ function _confirmAndStartBattle(templateId, difficulty) {
     `;
 
     _screens.game.querySelector('#vc-camp-layer').appendChild(modal);
-    // Game mode selector
-    modal.querySelectorAll('.vc-mode-btn').forEach(btn => {
-        btn.style.background = btn.dataset.mode === _gameMode ? '#2c6e3f' : '#1a252f';
-        btn.style.borderColor = btn.dataset.mode === _gameMode ? '#2ecc71' : '#4a5568';
-        btn.onclick = (e) => {
-            e.stopPropagation();
-            _gameMode = btn.dataset.mode;
-            modal.querySelectorAll('.vc-mode-btn').forEach(b => {
-                b.style.background  = b.dataset.mode === _gameMode ? '#2c6e3f' : '#1a252f';
-                b.style.borderColor = b.dataset.mode === _gameMode ? '#2ecc71' : '#4a5568';
-            });
-        };
-    });
-
     modal.querySelector('#vc-confirm-go').onclick   = () => { modal.remove(); _startBattle(templateId, difficulty, _gameMode); };
     modal.querySelector('#vc-confirm-back').onclick = () => modal.remove();
 
