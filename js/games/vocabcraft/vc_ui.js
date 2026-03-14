@@ -63,12 +63,30 @@ export class VcUI {
     initGrid() {
         const { cols, rows, grid } = this.engine.map;
 
-        const containerW = this.mapEl.clientWidth || window.innerWidth;
-        this.tileSize = Math.max(36, Math.floor(containerW / cols));
+        // Measure available height: total container minus the two topbars and bottombar
+        const battleLayer = this.container.querySelector('#vc-battle-layer') || this.container;
+        const topRow1 = battleLayer.querySelector('.vc-topbar-row1');
+        const topRow2 = battleLayer.querySelector('.vc-topbar-row2');
+        const topbarsH = (topRow1 ? topRow1.offsetHeight : 42)
+                       + (topRow2 ? topRow2.offsetHeight : 36);
+        const bottomH  = 120; // fixed bottombar height from CSS
+        const totalH   = battleLayer.clientHeight || window.innerHeight;
+        const availH   = Math.max(60, totalH - topbarsH - bottomH);
+        const availW   = this.mapEl.clientWidth || window.innerWidth;
 
-        this.mapEl.style.maxHeight = `${(rows - 2) * this.tileSize}px`;
-        this.mapEl.style.flex = 'none';
+        // Tile size: fit all cols×rows into available space at zoom=1
+        const tileByCols = Math.floor(availW / cols);
+        const tileByRows = Math.floor(availH / rows);
+        this.tileSize = Math.max(16, Math.min(tileByCols, tileByRows));
 
+        // Map container: fill remaining vertical space via flex
+        this.mapEl.style.flex    = '1 1 0';
+        this.mapEl.style.minHeight = '0';
+        this.mapEl.style.maxHeight = '';
+        this.mapEl.style.overflowX = 'auto';
+        this.mapEl.style.overflowY = 'auto';
+
+        // Grid natural size (zoom=1): exactly cols×rows tiles
         this.gridEl.style.width  = `${cols * this.tileSize}px`;
         this.gridEl.style.height = `${rows * this.tileSize}px`;
         this.gridEl.style.gridTemplateColumns = `repeat(${cols}, ${this.tileSize}px)`;
@@ -238,18 +256,19 @@ export class VcUI {
             const prev = this._zoom;
             this._zoom = Math.max(this._minZoom, Math.min(this._maxZoom, z));
 
+            // Scroll adjustment to keep pivot in place
             if (pivotX != null) {
                 const scaleChange = this._zoom / prev;
                 mapEl.scrollLeft = (mapEl.scrollLeft + pivotX) * scaleChange - pivotX;
                 mapEl.scrollTop  = (mapEl.scrollTop  + pivotY) * scaleChange - pivotY;
             }
 
-            gridEl.style.transform = `scale(${this._zoom})`;
+            // Only the inner grid scales — top/bottom UI is untouched
+            gridEl.style.transform       = `scale(${this._zoom})`;
+            gridEl.style.transformOrigin = 'top left';
+            // Expand scroll area to match scaled size
             gridEl.style.marginBottom = `${gridEl.offsetHeight * (this._zoom - 1)}px`;
             gridEl.style.marginRight  = `${gridEl.offsetWidth  * (this._zoom - 1)}px`;
-
-            const { rows } = this.engine.map;
-            mapEl.style.maxHeight = `${(rows - 2) * this.tileSize * this._zoom}px`;
 
             if (zoomBtn) {
                 const pct = Math.round(this._zoom * 100);
@@ -257,11 +276,36 @@ export class VcUI {
             }
         };
 
-        const ZOOM_STEPS = [1.0, 0.1, 0.2, 0.25, 0.3, 0.4, 0.5, 0.75, 2.0];
+        // Compute default zoom: path bounding box + 1 tile margin must fit the container.
+        // Use paths from engine map for the bounding box.
+        const _computeDefaultZoom = () => {
+            const { cols, rows, paths } = this.engine.map;
+            const ts = this.tileSize;
+            let minX = cols, maxX = 0, minY = rows, maxY = 0;
+            for (const path of paths) {
+                for (const { x, y } of path) {
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                }
+            }
+            // Add 1-tile margin on each side
+            const pathW = (maxX - minX + 3) * ts; // +1 on each side = +2 tiles; +1 for tile width = +3 effective
+            const pathH = (maxY - minY + 3) * ts;
+            const mapW  = mapEl.clientWidth  || cols * ts;
+            const mapH  = mapEl.clientHeight || rows * ts;
+            const zoomToFit = Math.min(mapW / pathW, mapH / pathH);
+            return Math.max(this._minZoom, Math.min(1.0, zoomToFit));
+        };
+
         if (zoomBtn) {
             zoomBtn.onclick = () => {
-                const idx = ZOOM_STEPS.findIndex(s => Math.abs(s - this._zoom) < 0.05);
-                const next = ZOOM_STEPS[(idx + 1) % ZOOM_STEPS.length];
+                // Cycle: current → 1.5× → 2× → default-fit
+                const defaultZ = _computeDefaultZoom();
+                const steps = [defaultZ, 1.0, 1.5, 2.0].filter((v, i, a) => a.indexOf(v) === i);
+                const idx = steps.findIndex(s => Math.abs(s - this._zoom) < 0.05);
+                const next = steps[(idx + 1) % steps.length];
                 applyZoom(next, null, null);
             };
         }
@@ -298,7 +342,10 @@ export class VcUI {
             if (this._pinchStartDist) this._pinchStartDist = null;
         });
 
-        applyZoom(this._zoom, null, null);
+        // Apply default zoom: fit path + 1-tile margin in the available container
+        const defaultZ = _computeDefaultZoom();
+        this._zoom = defaultZ; // set before applyZoom to avoid prev=0 issues
+        applyZoom(defaultZ, null, null);
     }
 
     initWaves() {

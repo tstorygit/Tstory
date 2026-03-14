@@ -398,7 +398,7 @@ function _showCamp() {
 
     const nextReq = Math.floor(100 * Math.pow(_meta.level, 1.8));
     _screens.game.querySelector('#vc-camp-lvl').textContent =
-        `Lv. ${_meta.level} (XP: ${_meta.xp}/${nextReq})`;
+        `Lv. ${_meta.level} (XP: ${Math.floor(_meta.xp)}/${nextReq})`;
 
     const list = _screens.game.querySelector('#vc-stage-list');
     list.innerHTML = '';

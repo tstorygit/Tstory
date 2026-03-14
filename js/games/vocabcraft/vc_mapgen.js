@@ -377,33 +377,41 @@ export function getTemplateMinimap(templateId, w = 70, h = 90) {
 }
 
 // ─── Wall Edge Builder ────────────────────────────────────────────────────────
-// For every pair of physically-adjacent path tiles that are NOT consecutive in
-// any path array, we record a wall edge. The UI draws a dark barrier there so
-// players can distinguish parallel corridor segments (spiral, zigzag, etc.).
+// Draws a visible wall between two adjacent path tiles ONLY when no path
+// EVER traverses the edge between them in either direction.
+//
+// Tiles visited multiple times (crossroads hub, pinwheel centre, spiral corners)
+// are handled correctly because we record every consecutive pair A→B and also
+// treat it as B→A via the canonical edge key.
 //
 // Returns array of { r, c, dir:'E'|'S' }
 //   'E' = wall on the RIGHT edge of tile (r,c)
 //   'S' = wall on the BOTTOM edge of tile (r,c)
 
 function _buildWallEdges(paths, grid, cols, rows) {
-    const connected = new Set();
+    // Canonical undirected edge key — A↔B and B↔A map to the same string
+    const edgeKey = (r1, c1, r2, c2) =>
+        (r1 < r2 || (r1 === r2 && c1 < c2))
+            ? `${r1},${c1}|${r2},${c2}`
+            : `${r2},${c2}|${r1},${c1}`;
+
+    const traversed = new Set();
     for (const path of paths) {
-        for (let i = 0; i < path.length - 1; i++) {
+        for (let i = 0; i + 1 < path.length; i++) {
             const a = path[i], b = path[i + 1];
             if (Math.abs(a.x - b.x) + Math.abs(a.y - b.y) !== 1) continue;
-            const [ar, ac, br, bc] = (a.y < b.y || (a.y === b.y && a.x <= b.x))
-                ? [a.y, a.x, b.y, b.x] : [b.y, b.x, a.y, a.x];
-            connected.add(`${ar},${ac}|${br},${bc}`);
+            traversed.add(edgeKey(a.y, a.x, b.y, b.x));
         }
     }
+
     const walls = [];
     for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
             if (grid[r][c] !== TILE_PATH) continue;
             if (c + 1 < cols && grid[r][c + 1] === TILE_PATH &&
-                !connected.has(`${r},${c}|${r},${c + 1}`)) walls.push({ r, c, dir: 'E' });
+                !traversed.has(edgeKey(r, c, r, c + 1))) walls.push({ r, c, dir: 'E' });
             if (r + 1 < rows && grid[r + 1][c] === TILE_PATH &&
-                !connected.has(`${r},${c}|${r + 1},${c}`)) walls.push({ r, c, dir: 'S' });
+                !traversed.has(edgeKey(r, c, r + 1, c))) walls.push({ r, c, dir: 'S' });
         }
     }
     return walls;
@@ -483,26 +491,34 @@ function _skeletonWalk(skeleton, cols, rows) {
 }
 
 // ─── Parametric Math Line ─────────────────────────────────────────────────────
-// Samples the ideal straight line at integer steps along the dominant axis.
-// Rounds to nearest tile. If a diagonal step occurs, inserts a horizontal bridge
-// tile first — guaranteeing every consecutive pair is cardinally adjacent.
-// Finite by construction: exactly max(|dx|,|dy|) iterations, no while-loop.
+// Follows the mathematically closest axis-aligned (4-way) path to the ideal
+// straight line between two points.  At each step we advance whichever axis is
+// furthest behind the ideal line — this is the Bresenham "closest to the line"
+// rule, guaranteeing every consecutive tile pair is cardinally adjacent and the
+// overall route hugs the diagonal as tightly as possible on a grid.
 function _mathLine(x0, y0, x1, y1, visited, path, cols, rows) {
+    // Classic Bresenham line — every step is strictly cardinal (H or V, never diagonal).
+    // err accumulates the fractional offset from the ideal line × 2*absDx.
+    // When err crosses zero we take a vertical step; otherwise horizontal.
+    // Total steps = |dx| + |dy|, so the loop is always finite.
     const key = (x, y) => `${x},${y}`;
-    const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+    const absDx = Math.abs(x1 - x0), absDy = Math.abs(y1 - y0);
+    const sx = Math.sign(x1 - x0), sy = Math.sign(y1 - y0);
+    const steps = absDx + absDy;
     if (steps === 0) return;
-    let px = x0, py = y0;
-    for (let i = 1; i <= steps; i++) {
-        const t  = i / steps;
-        const nx = Math.max(0, Math.min(cols - 1, Math.round(x0 + t * (x1 - x0))));
-        const ny = Math.max(0, Math.min(rows - 1, Math.round(y0 + t * (y1 - y0))));
-        if (nx !== px && ny !== py) {
-            // Diagonal hop — insert horizontal bridge tile for cardinal connectivity
-            const bx = nx, by = py;
-            if (!visited.has(key(bx, by))) { visited.add(key(bx, by)); path.push({ x: bx, y: by }); }
+    let x = x0, y = y0, err = 0;
+    for (let i = 0; i < steps; i++) {
+        // Move horizontally when doing so stays closest to the ideal line.
+        // Standard integer Bresenham decision: pick H if err + absDy < absDx / 2,
+        // equivalently 2*(err + absDy) < absDx.  Otherwise pick V.
+        if (absDy === 0 || (absDx > 0 && 2 * (err + absDy) < absDx)) {
+            x = Math.max(0, Math.min(cols - 1, x + sx));
+            err += absDy;
+        } else {
+            y = Math.max(0, Math.min(rows - 1, y + sy));
+            err -= absDx;
         }
-        if (!visited.has(key(nx, ny))) { visited.add(key(nx, ny)); path.push({ x: nx, y: ny }); }
-        px = nx; py = ny;
+        if (!visited.has(key(x, y))) { visited.add(key(x, y)); path.push({ x, y }); }
     }
 }
 
