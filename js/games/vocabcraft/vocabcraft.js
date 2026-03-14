@@ -28,8 +28,9 @@ export function init(screens, onExit) {
                         <div class="vc-camp-title">Wizard's Camp</div>
                         <div class="vc-camp-xp" id="vc-camp-lvl">Lv. 1 (XP: 0/100)</div>
                     </div>
-                    <div>
+                    <div style="display:flex;gap:8px;align-items:center;">
                         <button class="vc-btn" id="vc-btn-grimoire" style="background:#f39c12; border-color:#d35400;">📖 Grimoire</button>
+                        <button class="vc-btn" id="vc-btn-debug-unlock" title="Debug: unlock all stages" style="background:#2c3e50;border-color:#4a5568;font-size:11px;padding:4px 8px;min-width:0;">🔓</button>
                     </div>
                 </div>
                 <div class="vc-stage-list" id="vc-stage-list"></div>
@@ -69,6 +70,13 @@ export function init(screens, onExit) {
         _screens.game.querySelector('#vc-btn-grimoire').onclick = () => {
             _renderGrimoire();
             _screens.game.querySelector('#vc-grimoire-overlay').style.display = 'flex';
+        };
+
+        _screens.game.querySelector('#vc-btn-debug-unlock').onclick = () => {
+            TEMPLATES.forEach(tpl => {
+                for (let d = 1; d <= 10; d++) clearStage(_meta, tpl.id, d);
+            });
+            _showCamp();
         };
         _screens.game.querySelector('#vc-btn-grimoire-battle').onclick = () => {
             if (_engine && _engine.state.status === 'playing') {

@@ -420,6 +420,9 @@ function _buildGrid(allPathTiles, cols, rows, tier) {
 }
 
 // ─── Generator 1: Skeleton Walk ───────────────────────────────────────────────
+// For axis-aligned segments (pure horizontal or pure vertical) we use _forceLine
+// directly — no randomness, guarantees clean rows/columns (critical for zigzag).
+// Random walk is only applied to genuinely diagonal segments.
 
 function _skeletonWalk(skeleton, cols, rows) {
     if (skeleton.length < 2) return _fallbackWalk(cols, rows);
@@ -440,8 +443,17 @@ function _skeletonWalk(skeleton, cols, rows) {
 
         if (!visited.has(key(x, y))) { visited.add(key(x, y)); path.push({ x, y }); }
 
+        const isDiagonal = (goal.x !== x) && (goal.y !== y);
+
+        // Axis-aligned segments: just draw a straight line, no randomness
+        if (!isDiagonal) {
+            _forceLine(x, y, goal.x, goal.y, visited, path, cols, rows);
+            continue;
+        }
+
+        // Diagonal segments: biased random walk toward goal
         const manhattan = Math.abs(goal.x - x) + Math.abs(goal.y - y);
-        const budget    = Math.max(manhattan * 2, 16); // tighter than before (was ×3)
+        const budget    = Math.max(manhattan * 2, 16);
 
         for (let step = 0; step < budget; step++) {
             if (x === goal.x && y === goal.y) break;
@@ -459,7 +471,7 @@ function _skeletonWalk(skeleton, cols, rows) {
                     }).length;
                 if (adjCount > 1) return null;
                 const newDist    = Math.abs(goal.x - nx) + Math.abs(goal.y - ny);
-                const towardGoal = newDist < dist ? 6 : 1; // stronger pull (was 4)
+                const towardGoal = newDist < dist ? 6 : 1;
                 return { nx, ny, weight: towardGoal + Math.random() * 1.2 };
             }).filter(Boolean);
 

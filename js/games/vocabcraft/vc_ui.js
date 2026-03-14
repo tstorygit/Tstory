@@ -121,17 +121,67 @@ export class VcUI {
         });
     }
 
-    // Flash path tiles for 1.5 s to orient the player at wave start
+    // Show enemy path as SVG polylines for 2 seconds, then fade out.
+    // One colored line per path — much clearer than tile glow.
     _flashPathTiles() {
-        const { grid, cols } = this.engine.map;
-        this.tiles.forEach((el, idx) => {
-            const r = Math.floor(idx / cols);
-            const c = idx % cols;
-            if (grid[r][c] === TILE_PATH) {
-                el.classList.add('path-pulse');
-                setTimeout(() => el.classList.remove('path-pulse'), 1500);
-            }
+        // Remove any existing preview
+        const old = this.gridEl.querySelector('.vc-path-preview');
+        if (old) old.remove();
+
+        const sets = this.engine.map.waypointSets;
+        const w    = this.engine.map.cols * this.tileSize;
+        const h    = this.engine.map.rows * this.tileSize;
+
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('width',  w);
+        svg.setAttribute('height', h);
+        svg.classList.add('vc-path-preview');
+        svg.style.cssText = `position:absolute;inset:0;pointer-events:none;z-index:9;opacity:1;transition:opacity 0.4s ease;`;
+
+        // Two colours: blue for single/first path, orange for additional lanes
+        const colors = ['#3498db', '#e67e22', '#2ecc71'];
+
+        sets.forEach((wps, i) => {
+            const pts = wps.map(p => `${p.x},${p.y}`).join(' ');
+
+            // Glow / shadow pass
+            const glow = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+            glow.setAttribute('points', pts);
+            glow.setAttribute('fill', 'none');
+            glow.setAttribute('stroke', colors[i % colors.length]);
+            glow.setAttribute('stroke-width', '8');
+            glow.setAttribute('stroke-linecap', 'round');
+            glow.setAttribute('stroke-linejoin', 'round');
+            glow.setAttribute('opacity', '0.25');
+            svg.appendChild(glow);
+
+            // Main line pass
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+            line.setAttribute('points', pts);
+            line.setAttribute('fill', 'none');
+            line.setAttribute('stroke', colors[i % colors.length]);
+            line.setAttribute('stroke-width', '3');
+            line.setAttribute('stroke-linecap', 'round');
+            line.setAttribute('stroke-linejoin', 'round');
+            line.setAttribute('opacity', '0.9');
+
+            // Animated dash — draws the line from start to end
+            const totalLen = wps.reduce((acc, p, j) => {
+                if (j === 0) return 0;
+                return acc + Math.hypot(p.x - wps[j-1].x, p.y - wps[j-1].y);
+            }, 0);
+            line.style.strokeDasharray  = totalLen;
+            line.style.strokeDashoffset = totalLen;
+            line.style.animation = `vcPathDraw 0.6s ease-out ${i * 0.15}s forwards`;
+
+            svg.appendChild(line);
         });
+
+        this.gridEl.appendChild(svg);
+
+        // Fade out after 2 s, then remove
+        setTimeout(() => { svg.style.opacity = '0'; }, 2000);
+        setTimeout(() => { if (svg.parentNode) svg.remove(); }, 2400);
     }
 
     initZoom() {
