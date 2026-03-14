@@ -132,6 +132,7 @@ export class VcUI {
         }
         // Insert before the entities layer so enemies render on top
         this.gridEl.insertBefore(svg, this.gridEl.querySelector('.vc-entities'));
+    }
 
     _placeMapMarkers() {
         // Remove any previous markers from the stable markers layer
