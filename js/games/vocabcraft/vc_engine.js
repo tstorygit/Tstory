@@ -115,15 +115,16 @@ export function enemyXpValue(enemy) {
 }
 
 export class VcEngine {
-    constructor(mapData, meta, difficulty, onUpdate, onGameOver) {
+    constructor(mapData, meta, difficulty, onUpdate, onGameOver, gameMode = 'hard') {
         this.map = mapData;
         this.meta = meta;
         this.difficulty = difficulty;
+        this.gameMode = gameMode;
         this.onUpdate = onUpdate;
         this.onGameOver = onGameOver;
 
-        const baseWaves = 10 + 7 * difficulty;
-        const bonusWaves = (meta.skills.bonusWaves || 0) * 3;
+        const baseWaves = 5 + difficulty;
+        const bonusWaves = meta.skills.bonusWaves || 0;
 
         this.state = {
             hp: CONSTANTS.playerBaseHp,
@@ -250,7 +251,7 @@ export class VcEngine {
 
         const entries = buildWaveEnemies(
             this.state.wave, this.difficulty, isBossWave, isEnraged,
-            this.map.waypointSets   // array of waypoint arrays, one per path
+            this.map.waypointSets, this.gameMode
         );
 
         const waveOffset = this._nextSpawnDelay || 0;

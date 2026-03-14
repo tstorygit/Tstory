@@ -63,22 +63,26 @@ export class VcUI {
     initGrid() {
         const { cols, rows, grid } = this.engine.map;
 
-        // Layout: topbar (fixed) | map (flex:1, fills gap) | bottombar (fixed).
-        // Tile size is calculated from FIXED known heights so browser zoom cannot
-        // affect whether the bottom bar is visible — only how much map is shown.
-        // Topbar row1+row2 = ~70px, bottombar = 150px (set in CSS as fixed height).
-        const TOPBAR_H = 70;
-        const BOTTOM_H = 200;
-        const availH = Math.max(60, window.innerHeight - TOPBAR_H - BOTTOM_H);
-        const availW = this.mapEl.clientWidth || window.innerWidth;
+        // Measure available height: total container minus the two topbars and bottombar
+        const battleLayer = this.container.querySelector('#vc-battle-layer') || this.container;
+        const topRow1 = battleLayer.querySelector('.vc-topbar-row1');
+        const topRow2 = battleLayer.querySelector('.vc-topbar-row2');
+        const bottomBarEl = battleLayer.querySelector('.vc-bottombar');
+        const topbarsH = (topRow1 ? topRow1.offsetHeight : 42)
+                       + (topRow2 ? topRow2.offsetHeight : 36);
+        // Use measured bottombar height; fall back to 140 (generous default for auto-height bar)
+        const bottomH  = bottomBarEl ? bottomBarEl.offsetHeight : 140;
+        const totalH   = battleLayer.clientHeight || window.innerHeight;
+        const availH   = Math.max(60, totalH - topbarsH - bottomH);
+        const availW   = this.mapEl.clientWidth || window.innerWidth;
 
-        // Tile size: fit entire grid into available space at zoom=1
+        // Tile size: fit all cols×rows into available space at zoom=1
         const tileByCols = Math.floor(availW / cols);
         const tileByRows = Math.floor(availH / rows);
         this.tileSize = Math.max(16, Math.min(tileByCols, tileByRows));
 
-        // Map fills the flex gap — overflows/scrolls if grid > container
-        this.mapEl.style.flex      = '1 1 0';
+        // Map container: fill remaining vertical space via flex
+        this.mapEl.style.flex    = '1 1 0';
         this.mapEl.style.minHeight = '0';
         this.mapEl.style.maxHeight = '';
         this.mapEl.style.overflowX = 'auto';
@@ -587,7 +591,7 @@ export class VcUI {
         } else if (gemDef.type === 'poison') {
             specialStatHtml += `<div class="vc-stat-panel-row"><span>☠️ Poison</span><span id="vc-live-poisonDealt">${Math.floor(sts.poisonDealt)}</span></div>`;
         } else if (gemDef.type === 'armor') {
-            specialStatHtml += `<div class="vc-stat-panel-row"><span>🛡️ Torn</span><span id="vc-live-armorTorn">${sts.armorTorn.toFixed(1)}</span></div>`;
+            specialStatHtml += `<div class="vc-stat-panel-row"><span>🛡️ Torn</span><span id="vc-live-armorTorn">${Math.round(sts.armorTorn)}</span></div>`;
         } else if (gemDef.type === 'crit') {
             specialStatHtml += `<div class="vc-stat-panel-row"><span>💥 Crits</span><span id="vc-live-critHits">${sts.critHits}</span></div>`;
         }
@@ -701,7 +705,7 @@ export class VcUI {
             if (s_pois) s_pois.textContent = Math.floor(sts.poisonDealt);
             
             const s_arm = this.bottomBar.querySelector('#vc-live-armorTorn');
-            if (s_arm) s_arm.textContent = sts.armorTorn.toFixed(1);
+            if (s_arm) s_arm.textContent = Math.round(sts.armorTorn);
             
             const s_crit = this.bottomBar.querySelector('#vc-live-critHits');
             if (s_crit) s_crit.textContent = sts.critHits;
@@ -736,7 +740,7 @@ export class VcUI {
             html += `<div class="vc-enemy${isSelected?' vc-enemy-focused':''}" data-eid="${e.id}" style="left:${e.x}px;top:${e.y}px;pointer-events:auto;cursor:pointer;">
                 ${ring}${e.emoji||'👾'}
                 <div class="vc-enemy-hp-bar"><div class="vc-enemy-hp-fill" style="width:${pct}%;background:${hpColor}"></div></div>
-                ${e.armor>0?`<div class="vc-enemy-armor">🛡️${e.armor}</div>`:''}
+                ${e.armor>0?`<div class="vc-enemy-armor">🛡️${Math.round(e.armor)}</div>`:''}
             </div>`;
         });
 
@@ -805,7 +809,7 @@ export class VcUI {
             <div class="vc-stat-title">${e.emoji} ${e.isBoss ? '<span style="color:#e74c3c">BOSS</span>' : (e.label || 'Enemy')}</div>
             <div class="vc-stat-row">❤️ <span>${Math.floor(e.hp)} / ${Math.floor(e.maxHp)}</span></div>
             <div class="vc-stat-hpbar"><div class="vc-stat-hpfill" style="width:${hpPct}%"></div></div>
-            ${e.armor > 0 ? `<div class="vc-stat-row">🛡️ Armor <span>${e.armor}</span></div>` : ''}
+            ${e.armor > 0 ? `<div class="vc-stat-row">🛡️ Armor <span>${Math.round(e.armor)}</span></div>` : ''}
             ${immunities.length ? `<div class="vc-stat-fx">🚫 Immune: ${immunities.join(' ')}</div>` : ''}
             ${effects.map(fx => `<div class="vc-stat-fx">${fx}</div>`).join('')}
             <div class="vc-stat-hint">🎯 Towers focusing</div>

@@ -19,6 +19,7 @@ let _speedMult = 1;
 // When true, all stages are shown as unlocked IN ADDITION to the normal unlock logic.
 // Toggled by the 🔓 button; OFF by default so real unlock state is always visible.
 let _debugUnlockAll = false;
+let _gameMode = 'hard'; // 'easy' | 'normal' | 'hard'
 
 const BANNED_KEY = 'vocabcraft_banned';
 
@@ -340,11 +341,20 @@ function _showSettingsOverlay() {
         _renderSetup();
     };
 
-    // Debug toggle
+    // Debug toggle — also maxes all skills when enabled
     overlay.querySelector('#vc-settings-debug').onclick = () => {
         _debugUnlockAll = !_debugUnlockAll;
+        if (_debugUnlockAll) {
+            // Max all capped skills to their cap, uncapped ones to 1000
+            Object.entries(SKILL_DEFS).forEach(([key, def]) => {
+                const cap = def.max === Infinity ? 1000 : def.max;
+                _meta.skills[key] = cap;
+            });
+            _meta.sp = 0;
+            saveMeta(_meta);
+        }
         overlay.remove();
-        _showSettingsOverlay(); // re-render so icon/label updates
+        _showSettingsOverlay();
         _showCamp();
     };
 
@@ -413,7 +423,7 @@ function _showCamp() {
 
         const card = document.createElement('div');
         card.className = 'vc-stage-card';
-        card.style.cssText = 'align-items:flex-start; gap:10px; cursor:default; flex-direction:column; pointer-events:none;';
+        card.style.cssText = 'align-items:flex-start; gap:10px; cursor:default; flex-direction:column;';
         if (tplLocked) card.style.opacity = '0.45';
 
         // ── Header row: minimap + title/desc ─────────────────────────────────
@@ -442,7 +452,7 @@ function _showCamp() {
         if (!tplLocked) {
             // ── Difficulty dots row ───────────────────────────────────────────
             const dotsRow = document.createElement('div');
-            dotsRow.style.cssText = 'display:flex; gap:6px; flex-wrap:wrap; width:100%; pointer-events:auto;';
+            dotsRow.style.cssText = 'display:flex; gap:6px; flex-wrap:wrap; width:100%;';
 
             for (let d = 1; d <= 10; d++) {
                 const clearedActual  = isStageCleared(_meta, tpl.id, d);
@@ -450,30 +460,24 @@ function _showCamp() {
                 const unlockedActual = isStageUnlocked(_meta, tpl.id, d);
                 const unlocked = unlockedActual || _debugUnlockAll;
                 const cleared  = clearedActual;
-                const waves    = 10 + 7 * d + (_meta.skills.bonusWaves || 0) * 3;
+                const waves    = 5 + d + (_meta.skills.bonusWaves || 0);
 
                 const dot = document.createElement('div');
-                // No .title — native browser tooltips can cause layout reflow/jitter.
-                // The confirm modal shows all the detail the player needs.
-                const dotStyle = [
-                    'width:32px', 'height:32px', 'border-radius:6px',
+                dot.title = `D${d} — ${waves} waves${cleared ? ' ✅' : unlocked ? '' : ' 🔒'}${_debugUnlockAll && !unlockedActual ? ' (debug)' : ''}`;
+                dot.style.cssText = [
+                    'width:28px', 'height:28px', 'border-radius:6px',
                     'display:flex', 'align-items:center', 'justify-content:center',
-                    'font-size:12px', 'font-weight:bold',
+                    'font-size:11px', 'font-weight:bold', 'cursor:pointer',
                     'border:2px solid',
-                    'flex-shrink:0',
-                    cleared          ? 'background:#1a5e36; border-color:#2ecc71; color:#2ecc71; cursor:pointer;' :
-                    unlockedActual   ? 'background:#1a252f; border-color:#3498db; color:#3498db; cursor:pointer;' :
-                    _debugUnlockAll  ? 'background:#3d1a5e; border-color:#8e44ad; color:#c39bd3; cursor:pointer;' :
-                                       'background:#1a252f; border-color:#4a5568; color:#4a5568; cursor:default; opacity:0.4;'
+                    cleared          ? 'background:#1a5e36; border-color:#2ecc71; color:#2ecc71;' :
+                    unlockedActual   ? 'background:#1a252f; border-color:#3498db; color:#3498db;' :
+                    _debugUnlockAll  ? 'background:#3d1a5e; border-color:#8e44ad; color:#c39bd3;' :
+                                       'background:#1a252f; border-color:#4a5568; color:#4a5568; cursor:default; opacity:0.5;'
                 ].join(';');
-                dot.style.cssText = dotStyle;
                 dot.textContent = d;
 
                 if (unlocked) {
-                    dot.onclick = (e) => {
-                        e.stopPropagation();
-                        _confirmAndStartBattle(tpl.id, d);
-                    };
+                    dot.onclick = () => _confirmAndStartBattle(tpl.id, d);
                 }
 
                 dotsRow.appendChild(dot);
@@ -488,7 +492,7 @@ function _showCamp() {
 function _confirmAndStartBattle(templateId, difficulty) {
     const tpl = TEMPLATES.find(t => t.id === templateId);
     const minimapSvg = getTemplateMinimap(templateId, 90, 115);
-    const waves = 10 + 7 * difficulty + (_meta.skills.bonusWaves || 0) * 3;
+    const waves = 5 + difficulty + (_meta.skills.bonusWaves || 0);
     const baseArmor = Math.floor((difficulty - 1) / 2);
 
     const existing = _screens.game.querySelector('#vc-map-confirm');
@@ -621,6 +625,11 @@ function _confirmAndStartBattle(templateId, difficulty) {
             </div>
         </div>
 
+        <div style="display:flex;gap:6px;width:100%;padding-top:4px;">
+            <button class="vc-mode-btn" data-mode="easy"   style="flex:1;padding:8px 2px;border:2px solid;border-radius:8px;color:white;font-size:12px;font-weight:bold;cursor:pointer;text-align:center;">🌿 Easy<div style="font-size:9px;color:#bdc3c7;font-weight:normal;margin-top:2px;">¼HP · ½Speed</div></button>
+            <button class="vc-mode-btn" data-mode="normal" style="flex:1;padding:8px 2px;border:2px solid;border-radius:8px;color:white;font-size:12px;font-weight:bold;cursor:pointer;text-align:center;">⚔️ Normal<div style="font-size:9px;color:#bdc3c7;font-weight:normal;margin-top:2px;">½HP</div></button>
+            <button class="vc-mode-btn" data-mode="hard"   style="flex:1;padding:8px 2px;border:2px solid;border-radius:8px;color:white;font-size:12px;font-weight:bold;cursor:pointer;text-align:center;">💀 Hard<div style="font-size:9px;color:#bdc3c7;font-weight:normal;margin-top:2px;">Full stats</div></button>
+        </div>
         <div style="display:flex;gap:12px;width:100%;padding-top:4px;">
             <button id="vc-confirm-go"   style="flex:1;padding:14px;background:#2ecc71;border:2px solid #27ae60;border-radius:6px;color:white;font-weight:bold;font-size:15px;cursor:pointer;">⚔️ Enter</button>
             <button id="vc-confirm-back" style="flex:1;padding:14px;background:#34495e;border:2px solid #7f8c8d;border-radius:6px;color:white;font-weight:bold;font-size:15px;cursor:pointer;">← Back</button>
@@ -628,7 +637,21 @@ function _confirmAndStartBattle(templateId, difficulty) {
     `;
 
     _screens.game.querySelector('#vc-camp-layer').appendChild(modal);
-    modal.querySelector('#vc-confirm-go').onclick   = () => { modal.remove(); _startBattle(templateId, difficulty); };
+    // Game mode selector
+    modal.querySelectorAll('.vc-mode-btn').forEach(btn => {
+        btn.style.background = btn.dataset.mode === _gameMode ? '#2c6e3f' : '#1a252f';
+        btn.style.borderColor = btn.dataset.mode === _gameMode ? '#2ecc71' : '#4a5568';
+        btn.onclick = (e) => {
+            e.stopPropagation();
+            _gameMode = btn.dataset.mode;
+            modal.querySelectorAll('.vc-mode-btn').forEach(b => {
+                b.style.background  = b.dataset.mode === _gameMode ? '#2c6e3f' : '#1a252f';
+                b.style.borderColor = b.dataset.mode === _gameMode ? '#2ecc71' : '#4a5568';
+            });
+        };
+    });
+
+    modal.querySelector('#vc-confirm-go').onclick   = () => { modal.remove(); _startBattle(templateId, difficulty, _gameMode); };
     modal.querySelector('#vc-confirm-back').onclick = () => modal.remove();
 
     // ── Enemy types toggle ───────────────────────────────────────────────────
@@ -766,7 +789,7 @@ function _renderGrimoire() {
     });
 }
 
-function _startBattle(templateId, difficulty) {
+function _startBattle(templateId, difficulty, gameMode = 'hard') {
     _activeTier = difficulty;  // keep _activeTier for any legacy refs
 
     _screens.game.querySelector('#vc-camp-layer').style.display = 'none';
@@ -810,8 +833,9 @@ function _startBattle(templateId, difficulty) {
             alert(`Defeated! You salvaged +${Math.floor(xp)} XP`);
         }
         _showCamp();
-    });
+    }, gameMode);
 
+    // gameMode already stored on _engine via constructor
     ui = new VcUI(_screens.game, _engine, uiCallbacks, () => {
         _engine.speedMult = _speedMult;
         _screens.game.querySelector('#vc-btn-speed').textContent = `⚡${_speedMult}x`;
