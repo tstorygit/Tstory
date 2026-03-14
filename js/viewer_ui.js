@@ -74,6 +74,10 @@ export function initViewer() {
         });
     });
 
+    document.addEventListener('srs:furi-changed', () => {
+        if (!isLibraryView) renderBlock(currentBlockIndex);
+    });
+
     renderLibrary();
 }
 
@@ -341,21 +345,31 @@ function renderReader() {
 }
 
 function renderWordHtml(wordObj, useBgHighlight) {
-    const srsEntry = srsDb.getWord(wordObj.base);
+    const base = wordObj.base || wordObj.surface;
+    const srsEntry = srsDb.getWord(base);
     const status = srsEntry ? srsEntry.status : 'unknown';
     
     const isPro5 = settings.proLevel5 && status === 5;
     
     const statusClass = isPro5 ? '' : (useBgHighlight ? `status-${status}-bg word-tag` : `status-${status}-text`);
-    const wordDataStr = encodeURIComponent(JSON.stringify(wordObj));
+    
+    // Apply SRS reading if defined (allows user to override NLP reading via popup)
+    let displayFuri = wordObj.furi;
+    if (srsEntry && srsEntry.furi !== undefined) {
+        displayFuri = srsEntry.furi;
+    }
+
+    const tokenForPopup = { ...wordObj, furi: displayFuri };
+    const wordDataStr = encodeURIComponent(JSON.stringify(tokenForPopup));
+    
     const styleExtras = (useBgHighlight || isPro5) ? '' : 'border-bottom:1px dashed var(--border-color);';
 
-    const showFuri = !isPro5 && settings.showFurigana && wordObj.furi;
+    const showFuri = !isPro5 && settings.showFurigana && displayFuri;
     const showRoma = !isPro5 && settings.showRomaji && wordObj.roma;
 
     if (showFuri || showRoma) {
         let rtLines =[];
-        if (showFuri) rtLines.push(`<span style="font-size:10px; color:var(--text-muted);">${wordObj.furi}</span>`);
+        if (showFuri) rtLines.push(`<span style="font-size:10px; color:var(--text-muted);">${displayFuri}</span>`);
         if (showRoma) rtLines.push(`<span style="font-size:9px; color:var(--primary-color); font-style:italic;">${wordObj.roma}</span>`);
         const rtContent = rtLines.join('<br>');
         return `<ruby><span class="clickable-word ${statusClass}" data-word="${wordDataStr}" style="cursor:pointer; ${styleExtras}">${wordObj.surface}</span><rt style="text-align:center; line-height:1.3;">${rtContent}</rt></ruby>`;

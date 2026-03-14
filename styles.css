@@ -506,8 +506,9 @@ select, textarea {
     padding-bottom: 10px;
     margin-bottom: 15px;
 }
-.popup-header h3 { font-size: 24px; margin-bottom: 5px; }
-#popup-furi { color: var(--text-muted); font-size: 14px; }
+.popup-header h3 { display: inline-block; font-size: 24px; margin-bottom: 5px; }
+#popup-furi { color: var(--text-muted); font-size: 14px; display: inline-block; }
+#popup-edit-furi-btn:hover { color: var(--primary-color) !important; }
 
 .popup-body p { margin-bottom: 8px; font-size: 15px; }
 .popup-note {
@@ -709,21 +710,29 @@ select, textarea {
     pointer-events: none;
 }
 
-.vocab-delete-btn {
+.vocab-actions {
     flex-shrink: 0;
     margin-left: 8px;
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+.vocab-row:hover .vocab-actions {
+    opacity: 1;
+}
+.vocab-edit-btn, .vocab-delete-btn {
     padding: 4px 8px;
     background: none;
     border: none;
     font-size: 16px;
     cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.15s;
     border-radius: 6px;
     color: var(--text-muted);
 }
-.vocab-row:hover .vocab-delete-btn {
-    opacity: 1;
+.vocab-edit-btn:hover {
+    background: rgba(74, 144, 226, 0.1);
+    color: var(--primary-color);
 }
 .vocab-delete-btn:hover {
     background: rgba(220, 50, 50, 0.1);

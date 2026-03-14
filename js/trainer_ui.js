@@ -107,6 +107,13 @@ export function initTrainer() {
         });
     }
 
+    document.addEventListener('srs:furi-changed', () => {
+        const viewTrainer = document.getElementById('view-trainer');
+        if (viewTrainer && viewTrainer.classList.contains('active')) {
+            renderTrainer();
+        }
+    });
+
     // Eagerly load the active deck so the trainer is fast on first open
     trainerMgr.loadDeck(trainerMgr.getActiveDeckId());
 }
@@ -299,6 +306,12 @@ function renderStateA(content, wordObj, rank) {
     const deckId = trainerMgr.getActiveDeckId();
     const total = trainerMgr.getTotalWords(deckId);
     const nextWordObj = rank < total ? trainerMgr.getWordByRank(rank + 1, deckId) : null;
+    
+    // Apply SRS reading if defined
+    const srsEntry = srsDb.getWord(wordObj.word);
+    if (srsEntry && srsEntry.furi !== undefined) {
+        wordObj.furi = srsEntry.furi;
+    }
 
     content.innerHTML = `
         <div style="max-width: 800px; margin: 0 auto;">
@@ -406,6 +419,13 @@ function renderStateA(content, wordObj, rank) {
 // Show raw sentences + translations immediately, with inline NLP spinner
 function renderStateB_raw(content, wordObj, rank, sentences) {
     if (!wordObj) return;
+    
+    // Apply SRS reading if defined
+    const srsEntry = srsDb.getWord(wordObj.word);
+    if (srsEntry && srsEntry.furi !== undefined) {
+        wordObj.furi = srsEntry.furi;
+    }
+    
     let html = `
         <div style="max-width: 800px; margin: 0 auto;">
             <div style="height: ${calcHeaderHeight(wordObj.word, !!wordObj.furi)}px; min-height: ${calcHeaderHeight(wordObj.word, !!wordObj.furi)}px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; align-items: center; border-bottom: 1px solid var(--border-color); margin-bottom: 20px; padding-top: 15px; overflow: visible;">
@@ -477,6 +497,12 @@ function renderStateB(content, block, rank, total) {
 
     // Target word header — perfectly matches State A's rigid 240px height and layout to prevent UI jumping
     const tw = block.targetWord;
+    
+    // Apply SRS reading if defined
+    const srsEntry = srsDb.getWord(tw.word);
+    if (srsEntry && srsEntry.furi !== undefined) {
+        tw.furi = srsEntry.furi;
+    }
     
     html += `
         <div style="max-width: 800px; margin: 0 auto;">
@@ -677,7 +703,16 @@ function renderTrainerWordHtml(token, useBg, extMode, targetWord = null) {
     const isPro5 = settings.proLevel5 && status === 5;
     
     const statusClass = isTarget ? '' : (isPro5 ? '' : (useBg ? `status-${status}-bg word-tag` : `status-${status}-text`));
-    const wordDataStr = encodeURIComponent(JSON.stringify(token));
+    
+    // Allow the SRS reading to override NLP reading
+    let displayFuri = token.furi;
+    if (srsEntry && srsEntry.furi !== undefined) {
+        displayFuri = srsEntry.furi;
+    }
+    
+    // Merge new furi into token to ensure popup receives the overridden version
+    const tokenForPopup = { ...token, furi: displayFuri };
+    const wordDataStr = encodeURIComponent(JSON.stringify(tokenForPopup));
     
     let styleExtras = '';
     if (!useBg && !isTarget && !isPro5) {
@@ -687,7 +722,7 @@ function renderTrainerWordHtml(token, useBg, extMode, targetWord = null) {
     const isExt = token.isExternal === true;
 
     let surfaceDisplay = token.surface;
-    let furiDisplay = token.furi;
+    let furiDisplay = displayFuri;
     let extClass = '';
 
     if (isExt && !isTarget) {
@@ -701,7 +736,7 @@ function renderTrainerWordHtml(token, useBg, extMode, targetWord = null) {
         }
     }
 
-    const showFuri = !isPro5 && settings.showFurigana && (furiDisplay || token.furi);
+    const showFuri = !isPro5 && settings.showFurigana && (furiDisplay || displayFuri);
     const showRoma = !isPro5 && settings.showRomaji && token.roma;
     const showAnnotation = showFuri || showRoma;
 
@@ -711,7 +746,7 @@ function renderTrainerWordHtml(token, useBg, extMode, targetWord = null) {
 
     if (showAnnotation) {
         let rtLines = [];
-        if (showFuri) rtLines.push(`<span style="font-size:10px; color:var(--text-muted);">${furiDisplay || token.furi}</span>`);
+        if (showFuri) rtLines.push(`<span style="font-size:10px; color:var(--text-muted);">${furiDisplay || displayFuri}</span>`);
         if (showRoma) rtLines.push(`<span style="font-size:9px; color:var(--primary-color); font-style:italic;">${token.roma}</span>`);
         return `<ruby><span class="clickable-word ${combinedClass}" data-word="${wordDataStr}" style="cursor:pointer; ${styleExtras}">${innerContent}</span><rt style="text-align:center; line-height:1.3;">${rtLines.join('<br>')}</rt></ruby>`;
     } else {

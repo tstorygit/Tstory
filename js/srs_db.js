@@ -85,6 +85,17 @@ export function updateWordStatus(wordText, newStatus) {
     return false;
 }
 
+export function updateWordFuri(wordText, newFuri) {
+    const words = getAllWords();
+    if (words[wordText]) {
+        words[wordText].furi = newFuri;
+        words[wordText].lastUpdated = new Date().toISOString();
+        _persist(words);
+        return true;
+    }
+    return false;
+}
+
 export function deleteWord(wordText) {
     const words = getAllWords();
     if (words[wordText]) {

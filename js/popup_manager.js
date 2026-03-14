@@ -181,6 +181,34 @@ export function initPopup() {
         const btn = e.target.closest('.status-btn');
         if (btn) _handleStatus(parseInt(btn.getAttribute('data-status'), 10));
     });
+
+    // Edit furigana reading
+    $id('popup-edit-furi-btn')?.addEventListener('click', () => {
+        const wd = _state.wordData;
+        if (!wd) return;
+        const newFuri = prompt(`Edit reading for ${wd.surface}:`, wd.furi || "");
+        if (newFuri !== null) {
+            wd.furi = newFuri.trim();
+            _setField('popup-furi', wd.furi, settings.showFurigana);
+            
+            const base = wd.base || wd.surface;
+            let srsEntry = srsDb.getWord(base);
+            if (!srsEntry) {
+                // If it isn't tracked yet, save it as status 0 so we don't lose the reading
+                srsDb.saveWord({
+                    word: base,
+                    furi: wd.furi,
+                    translation: wd.trans_base || wd.trans_context || wd.translation || '',
+                    status: 0
+                });
+            } else {
+                srsDb.updateWordFuri(base, wd.furi);
+            }
+            
+            // Notify UI components to re-render using the new reading
+            document.dispatchEvent(new CustomEvent('srs:furi-changed'));
+        }
+    });
 }
 
 /**
@@ -284,9 +312,18 @@ export function closePopup() {
 function _setField(id, value, settingEnabled) {
     const el = $id(id);
     if (!el) return;
-    const show       = !!(settingEnabled && value);
-    el.textContent   = show ? value : '';
-    el.style.display = show ? 'inline' : 'none';
+    
+    if (id === 'popup-furi') {
+        // Tie both the furigana text and the gear icon to the setting
+        el.textContent = value || '';
+        el.style.display = settingEnabled ? 'inline' : 'none';
+        const editBtn = $id('popup-edit-furi-btn');
+        if (editBtn) editBtn.style.display = settingEnabled ? 'inline-block' : 'none';
+    } else {
+        const show       = !!(settingEnabled && value);
+        el.textContent   = show ? value : '';
+        el.style.display = show ? 'inline' : 'none';
+    }
 }
 
 /** Called by the delegated status-group listener. */

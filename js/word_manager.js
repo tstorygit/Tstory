@@ -21,6 +21,13 @@ export function initWordManager() {
     searchInput.addEventListener('input',  renderVocabList);
     filterSelect.addEventListener('change', renderVocabList);
     sortSelect.addEventListener('change',   renderVocabList);
+
+    document.addEventListener('srs:furi-changed', () => {
+        const viewVocab = document.getElementById('view-vocab');
+        if (viewVocab && viewVocab.classList.contains('active')) {
+            renderVocabList();
+        }
+    });
 }
 
 export function renderVocabList() {
@@ -107,12 +114,26 @@ export function renderVocabList() {
                 </div>
                 <div class="vocab-trans">${w.translation || 'No translation'}</div>
             </div>
-            <button class="vocab-delete-btn" title="Delete word" aria-label="Delete ${w.word}">🗑</button>
+            <div class="vocab-actions">
+                <button class="vocab-edit-btn" title="Edit Reading" aria-label="Edit Reading">⚙️</button>
+                <button class="vocab-delete-btn" title="Delete word" aria-label="Delete ${w.word}">🗑</button>
+            </div>
         `;
+        
+        row.querySelector('.vocab-edit-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            const newFuri = prompt(`Edit reading for ${w.word}:`, w.furi || '');
+            if (newFuri !== null) {
+                srsDb.updateWordFuri(w.word, newFuri.trim());
+                renderVocabList();
+            }
+        });
+
         row.querySelector('.vocab-delete-btn').addEventListener('click', (e) => {
             e.stopPropagation();
             _confirmDelete(w.word);
         });
+        
         row.addEventListener('click', () => _openPopupForWord(w));
         fragment.appendChild(row);
     });
