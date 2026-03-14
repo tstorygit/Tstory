@@ -67,9 +67,11 @@ export class VcUI {
         const battleLayer = this.container.querySelector('#vc-battle-layer') || this.container;
         const topRow1 = battleLayer.querySelector('.vc-topbar-row1');
         const topRow2 = battleLayer.querySelector('.vc-topbar-row2');
+        const bottomBarEl = battleLayer.querySelector('.vc-bottombar');
         const topbarsH = (topRow1 ? topRow1.offsetHeight : 42)
                        + (topRow2 ? topRow2.offsetHeight : 36);
-        const bottomH  = 120; // fixed bottombar height from CSS
+        // Use measured bottombar height; fall back to 140 (generous default for auto-height bar)
+        const bottomH  = bottomBarEl ? bottomBarEl.offsetHeight : 140;
         const totalH   = battleLayer.clientHeight || window.innerHeight;
         const availH   = Math.max(60, totalH - topbarsH - bottomH);
         const availW   = this.mapEl.clientWidth || window.innerWidth;
@@ -294,8 +296,7 @@ export class VcUI {
             const pathW = (maxX - minX + 3) * ts; // +1 on each side = +2 tiles; +1 for tile width = +3 effective
             const pathH = (maxY - minY + 3) * ts;
             const mapW  = mapEl.clientWidth  || cols * ts;
-            const mapH  = mapEl.clientHeight || rows * ts;
-            const zoomToFit = Math.min(mapW / pathW, mapH / pathH);
+            const mapH  = mapEl.clientHeight || rows * ts;            const zoomToFit = Math.min(mapW / pathW, mapH / pathH);
             return Math.max(this._minZoom, Math.min(1.0, zoomToFit));
         };
 

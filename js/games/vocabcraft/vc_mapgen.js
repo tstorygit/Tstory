@@ -534,6 +534,32 @@ function _forceLine(x0, y0, x1, y1, visited, path, cols, rows) {
         if (!visited.has(key(x, y))) { visited.add(key(x, y)); path.push({ x, y }); }
     }
 }
+// ─── Cardinal Bridge Post-Pass ────────────────────────────────────────────────
+// Any generator may produce a path array with non-adjacent consecutive entries
+// (because visited-set deduplication skips tiles already in the path, leaving
+// gaps).  This pass inserts the missing intermediate tiles using a simple
+// cardinal walk so every consecutive pair in the final path is exactly 1 step
+// apart.  Does NOT deduplicate — re-visits are intentional (crossroads hub etc).
+function _ensureCardinal(path, cols, rows) {
+    const result = [];
+    for (let i = 0; i < path.length; i++) {
+        result.push(path[i]);
+        if (i + 1 >= path.length) break;
+        let { x, y } = path[i];
+        const { x: tx, y: ty } = path[i + 1];
+        while (x !== tx || y !== ty) {
+            const dx = tx - x, dy = ty - y;
+            if (Math.abs(dx) >= Math.abs(dy) && dx !== 0)
+                x += dx > 0 ? 1 : -1;
+            else
+                y += dy > 0 ? 1 : -1;
+            x = Math.max(0, Math.min(cols - 1, x));
+            y = Math.max(0, Math.min(rows - 1, y));
+            if (x !== tx || y !== ty) result.push({ x, y });
+        }
+    }
+    return result;
+}
 
 // ─── Generator 2: Spiral ─────────────────────────────────────────────────────
 
@@ -577,42 +603,56 @@ function _spiralGenerator(cols, rows) {
         // Spiral inward to the center — the base is at the heart of the map
         _forceLine(last.x, last.y, Math.floor(cols / 2), Math.floor(rows / 2), visited, path, cols, rows);
     }
-    return path;
+    return _ensureCardinal(path, cols, rows);
 }
 
 // ─── Generator 3: Figure-8 ───────────────────────────────────────────────────
 
 function _figure8Generator(cols, rows) {
-    const visited = new Set(), path = [];
-    const key = (x, y) => `${x},${y}`;
-    const addPt = (x, y) => {
-        x = Math.max(0, Math.min(cols - 1, x));
-        y = Math.max(0, Math.min(rows - 1, y));
-        visited.add(key(x, y)); path.push({ x, y });
-    };
+    // Two rectangular loops sharing the horizontal center row (cy).
+    // Every transition is an explicit cardinal run — no diagonal jumps.
+    // Entry: top border at entryX, descends to cy.
+    // Top loop:    left along cy → up left wall → right across top → down right wall → back to cy.
+    // Crossing:    right-to-left along cy to cx (the shared hub tile).
+    // Bottom loop: cx right along cy → down right wall → left across bottom → up left wall → cy.
+    // Exit:        right along cy to exitX → down to bottom border.
+    const path = [];
+    const addPt = (x, y) => path.push({
+        x: Math.max(0, Math.min(cols - 1, x)),
+        y: Math.max(0, Math.min(rows - 1, y))
+    });
     const cx = Math.floor(cols / 2), cy = Math.floor(rows / 2);
-    const margin = 1, topY = margin, botY = rows - 1 - margin;
+    const margin = 1;
+    const topY = margin, botY = rows - 1 - margin;
     const leftX = margin, rightX = cols - 1 - margin;
-    const entryX = Math.floor(cols * 0.3);
-    for (let y = 0; y <= topY; y++) addPt(entryX, y);
-    for (let x = entryX; x >= leftX; x--) addPt(x, topY);
-    for (let y = topY; y <= cy; y++) addPt(leftX, y);
-    for (let x = leftX; x <= cx; x++) addPt(x, cy);
-    for (let x = cx; x <= rightX; x++) addPt(x, cy - 1);
-    for (let y = cy - 1; y >= topY; y--) addPt(rightX, y);
-    for (let x = rightX; x >= entryX; x--) addPt(x, topY);
-    for (let y = topY; y <= cy; y++) addPt(entryX, y);
-    for (let x = cx; x >= leftX; x--) addPt(x, cy + 1);
-    for (let y = cy + 1; y <= botY; y++) addPt(leftX, y);
-    const exitX = Math.floor(cols * 0.7);
-    for (let x = leftX; x <= exitX; x++) addPt(x, botY);
-    for (let y = botY; y >= cy + 1; y--) addPt(rightX, y);
-    for (let x = rightX; x >= cx; x--) addPt(x, cy + 1);
-    for (let y = cy + 1; y >= cy; y--) addPt(cx, y);
-    for (let y = cy; y <= rows - 1; y++) addPt(exitX, y);
+    // entryX: midpoint of left half;  exitX: midpoint of right half
+    const entryX = leftX + Math.floor((cx - leftX) / 2);
+    const exitX  = cx    + Math.floor((rightX - cx) / 2);
+
+    // Entry: top border down to cy
+    for (let y = 0; y <= cy; y++) addPt(entryX, y);
+
+    // Top loop (counter-clockwise when viewed normally):
+    for (let x = entryX - 1; x >= leftX; x--) addPt(x, cy);    // left along cy
+    for (let y = cy - 1; y >= topY; y--)       addPt(leftX, y); // up left wall
+    for (let x = leftX + 1; x <= rightX; x++)  addPt(x, topY);  // right across top
+    for (let y = topY + 1; y <= cy; y++)        addPt(rightX, y);// down right wall to cy
+
+    // Crossing: right → left along cy back to hub
+    for (let x = rightX - 1; x >= cx; x--)    addPt(x, cy);
+
+    // Bottom loop:
+    for (let x = cx + 1; x <= rightX; x++)     addPt(x, cy);    // right along cy
+    for (let y = cy + 1; y <= botY; y++)        addPt(rightX, y);// down right wall
+    for (let x = rightX - 1; x >= leftX; x--) addPt(x, botY);   // left across bottom
+    for (let y = botY - 1; y >= cy; y--)        addPt(leftX, y); // up left wall to cy
+
+    // Exit: left → right along cy to exitX, then down to bottom border
+    for (let x = leftX + 1; x <= exitX; x++)   addPt(x, cy);
+    for (let y = cy + 1; y < rows; y++)         addPt(exitX, y);
+
     return path;
 }
-
 // ─── Generator 5: Crossroads (proper + shape) ────────────────────────────────
 // Horizontal run left→right, with a full vertical detour at center column
 // (up to row 1, then down to row rows-2) before continuing right.

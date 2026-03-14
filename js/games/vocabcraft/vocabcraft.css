@@ -210,21 +210,25 @@
 
 /* --- Bottom Context Bar --- */
 .vc-bottombar {
-    height: 120px;
-    min-height: 120px;
-    max-height: 120px;
+    min-height: 130px;
+    /* Grow to fit content, but never more than ~40% of viewport height */
+    max-height: 42vh;
+    height: auto;
     background: #1a252f;
     border-top: 2px solid #34495e;
-    padding: 6px 8px;
+    /* Generous padding — extra bottom pad covers mobile home-indicator / notch */
+    padding: 8px 10px 18px;
+    padding-bottom: max(18px, env(safe-area-inset-bottom, 18px));
     display: flex;
     flex-wrap: wrap;
-    gap: 5px;
-    align-items: center;
+    gap: 6px;
+    align-items: flex-start;
     justify-content: center;
     z-index: 10;
     overflow-y: auto;
     flex-shrink: 0;
     -webkit-overflow-scrolling: touch;
+    box-sizing: border-box;
 }
 .vc-btn {
     background: #34495e;
