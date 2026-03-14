@@ -62,7 +62,7 @@ export function gemUpgradeCost(color, level, skills = {}) {
 }
 
 export function gemDamage(gem, gemData, skills = {}) {
-    const resonance = 1 + ((skills.resonance || 0) * 0.02);
+    const resonance = 1 + ((skills.resonance || 0) * 0.03);
     return gemData.baseDmg * Math.pow(1.54, gem.level - 1) * resonance;
 }
 export function gemFireSpeed(gem, gemData, skills = {}) {
@@ -152,7 +152,7 @@ export class VcEngine {
         this.selectedEnemyId = null;
 
         this.buffs = {
-            dmgMult: 1 + ((meta.skills.scholarGrace || 0) * 0.005 * this.state.combo)
+            dmgMult: 1 + ((meta.skills.scholarGrace || 0) * 0.01 * this.state.combo)
         };
 
         // On mobile, browsers throttle RAF when the page is hidden (tab switch,
@@ -212,7 +212,7 @@ export class VcEngine {
         this.updateStructures(dt);
         this.updateProjectiles(dt);
 
-        this.buffs.dmgMult = 1 + ((this.meta.skills.scholarGrace || 0) * 0.005 * this.state.combo);
+        this.buffs.dmgMult = 1 + ((this.meta.skills.scholarGrace || 0) * 0.01 * this.state.combo);
         this.onUpdate(this);
 
         if (this.state.hp <= 0) {
@@ -376,7 +376,7 @@ export class VcEngine {
                 if (targets.length > 0) {
                     targets.forEach(t => this.applyGemEffect(t, st.gem, gemData, true, st));
                     // GCFW Trap Fire Rate: +200% Base (3x faster than towers) + Skills
-                    const trapFireMult = 3.0 + ((this.meta.skills.trapSpecialty || 0) * 0.02);
+                    const trapFireMult = 3.5 + ((this.meta.skills.trapSpecialty || 0) * 0.03);
                     st.cooldown = 1 / (gemFireSpeed(st.gem, gemData, this.meta.skills) * trapFireMult);
                 }
             }
@@ -419,7 +419,7 @@ export class VcEngine {
 
         if (isTrap) { 
             // GCFW Trap Multipliers: 20% Damage, 2.5x Specials
-            const trapDmgMult = 0.20 + ((this.meta.skills.trapSpecialty || 0) * 0.01);
+            const trapDmgMult = 0.50 + ((this.meta.skills.trapSpecialty || 0) * 0.015);
             specialMult = 2.5 + ((this.meta.skills.trapSpecialty || 0) * 0.1);
             dmg = Math.max(1, dmg * trapDmgMult);
         }
@@ -440,7 +440,7 @@ export class VcEngine {
             case 'slow': {
                 if (!enemy.immune.includes('slow')) {
                     let slow = gemSlowAmount(gem, gemData) * specialMult;
-                    if (gem.color === 'blue') slow *= (1 + (this.meta.skills.blueMastery || 0) * 0.01);
+                    if (gem.color === 'blue') slow = Math.min(0.85, slow * (1 + (this.meta.skills.blueMastery || 0) * 0.02));
                     enemy.effects.slow = Math.min(0.70, slow);
                     enemy.effects.slowTimer = 3;
                     if (source?.stats) source.stats.slowApplied++;
@@ -450,7 +450,7 @@ export class VcEngine {
             case 'poison': {
                 if (!enemy.immune.includes('poison')) {
                     let pDmg = gemPoisonDps(gem, gemData) * specialMult;
-                    if (gem.color === 'green') pDmg *= (1 + (this.meta.skills.greenMastery || 0) * 0.02);
+                    if (gem.color === 'green') pDmg *= (1 + (this.meta.skills.greenMastery || 0) * 0.03);
                     enemy.effects.poison = pDmg;
                     enemy.effects.poisonTimer = 5.0; 
                     enemy.effects.poisonTick = 1.0;
@@ -460,14 +460,14 @@ export class VcEngine {
             }
             case 'mana': {
                 let mana = gemManaDrain(gem, gemData) * specialMult;
-                if (gem.color === 'orange') mana += (this.meta.skills.orangeMastery || 0) * 0.2;
+                if (gem.color === 'orange') mana *= 1 + (this.meta.skills.orangeMastery || 0) * 0.04;
                 this.state.mana += mana;
                 if (source?.stats) source.stats.manaLeeched += mana;
                 break;
             }
             case 'armor': {
                 let tear = gemArmorTear(gem, gemData) * specialMult;
-                if (gem.color === 'purple') tear += (this.meta.skills.purpleMastery || 0) * 0.1;
+                if (gem.color === 'purple') tear *= 1 + (this.meta.skills.purpleMastery || 0) * 0.04;
                 enemy.armor = Math.max(0, enemy.armor - tear);
                 if (source?.stats) source.stats.armorTorn += tear;
                 break;

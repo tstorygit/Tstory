@@ -18,17 +18,17 @@ export const SKILL_DEFS = {
 
     // ── Gem combat masteries (UNCAPPED) ───────────────────────────────────────
     redMastery:      { name: "Ruby Mastery",       desc: "+1% Ruby damage per level.",                          max: Infinity, group: 'mastery' },
-    blueMastery:     { name: "Sapphire Mastery",   desc: "+1% Slow strength per level.",                        max: Infinity, group: 'mastery' },
-    greenMastery:    { name: "Emerald Mastery",    desc: "+2% Poison DPS per level.",                           max: Infinity, group: 'mastery' },
-    orangeMastery:   { name: "Topaz Mastery",      desc: "+0.2 flat mana leech per hit per level.",             max: Infinity, group: 'mastery' },
+    blueMastery:     { name: "Sapphire Mastery",   desc: "+2% Slow strength per level (max 85% slow).",                        max: Infinity, group: 'mastery' },
+    greenMastery:    { name: "Emerald Mastery",    desc: "+3% Poison DPS per level.",                           max: Infinity, group: 'mastery' },
+    orangeMastery:   { name: "Topaz Mastery",      desc: "+4% mana leech per hit per level.",             max: Infinity, group: 'mastery' },
     yellowMastery:   { name: "Citrine Mastery",    desc: "+0.5% crit chance per level.",                        max: Infinity, group: 'mastery' },
-    purpleMastery:   { name: "Amethyst Mastery",   desc: "+0.1 flat armor tear per hit per level.",             max: Infinity, group: 'mastery' },
+    purpleMastery:   { name: "Amethyst Mastery",   desc: "+4% armor tear per hit per level.",             max: Infinity, group: 'mastery' },
 
     // ── Utility (UNCAPPED except Haste) ───────────────────────────────────────
     trapSpecialty:   { name: "Trap Specialization",desc: "Traps shoot 1% faster, deal +1% base dmg, and have +0.1 special multiplier per level.", max: Infinity, group: 'utility' },
-    resonance:       { name: "Resonance",          desc: "+2% global damage per level.",                        max: Infinity, group: 'utility' },
+    resonance:       { name: "Resonance",          desc: "+3% global damage per level.",                        max: Infinity, group: 'utility' },
     haste:           { name: "Haste",              desc: "+2% global firing speed per level.",                  max: 50,       group: 'utility' },
-    scholarGrace:    { name: "Scholar's Grace",    desc: "+0.5% dmg per combo stack per level.",                max: Infinity, group: 'utility' },
+    scholarGrace:    { name: "Scholar's Grace",    desc: "+1% dmg per combo stack per level.",                max: Infinity, group: 'utility' },
     bonusWaves:      { name: "Arcane Endurance",   desc: "+3 waves per level. More enemies = more XP.",          max: Infinity, group: 'utility' }
 };
 
