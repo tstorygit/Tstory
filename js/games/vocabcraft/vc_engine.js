@@ -122,8 +122,8 @@ export class VcEngine {
         this.onUpdate = onUpdate;
         this.onGameOver = onGameOver;
 
-        const baseWaves = 5 + difficulty;
-        const bonusWaves = meta.skills.bonusWaves || 0;
+        const baseWaves = 10 + 7 * difficulty;
+        const bonusWaves = (meta.skills.bonusWaves || 0) * 3;
 
         this.state = {
             hp: CONSTANTS.playerBaseHp,

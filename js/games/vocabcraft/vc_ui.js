@@ -68,7 +68,7 @@ export class VcUI {
         // affect whether the bottom bar is visible — only how much map is shown.
         // Topbar row1+row2 = ~70px, bottombar = 150px (set in CSS as fixed height).
         const TOPBAR_H = 70;
-        const BOTTOM_H = 175;
+        const BOTTOM_H = 200;
         const availH = Math.max(60, window.innerHeight - TOPBAR_H - BOTTOM_H);
         const availW = this.mapEl.clientWidth || window.innerWidth;
 

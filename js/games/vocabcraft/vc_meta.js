@@ -29,7 +29,7 @@ export const SKILL_DEFS = {
     resonance:       { name: "Resonance",          desc: "+2% global damage per level.",                        max: Infinity, group: 'utility' },
     haste:           { name: "Haste",              desc: "+2% global firing speed per level.",                  max: 50,       group: 'utility' },
     scholarGrace:    { name: "Scholar's Grace",    desc: "+0.5% dmg per combo stack per level.",                max: Infinity, group: 'utility' },
-    bonusWaves:      { name: "Arcane Endurance",   desc: "+1 wave per level. More enemies = more XP.",          max: Infinity, group: 'utility' }
+    bonusWaves:      { name: "Arcane Endurance",   desc: "+3 waves per level. More enemies = more XP.",          max: Infinity, group: 'utility' }
 };
 
 export function getDefaultSave() {

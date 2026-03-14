@@ -217,10 +217,10 @@
 /* --- Bottom Context Bar --- */
 .vc-bottombar {
     /* Fixed height so the tile-size calculation in JS knows exactly how
-       much space is reserved. Must match BOTTOM_H=175 in initGrid(). */
-    height: 175px;
-    min-height: 175px;
-    max-height: 175px;
+       much space is reserved. Must match BOTTOM_H=200 in initGrid(). */
+    height: 200px;
+    min-height: 200px;
+    max-height: 200px;
     background: #1a252f;
     border-top: 2px solid #34495e;
     padding: 6px 8px;

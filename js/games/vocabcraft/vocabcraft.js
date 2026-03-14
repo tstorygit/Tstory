@@ -450,7 +450,7 @@ function _showCamp() {
                 const unlockedActual = isStageUnlocked(_meta, tpl.id, d);
                 const unlocked = unlockedActual || _debugUnlockAll;
                 const cleared  = clearedActual;
-                const waves    = 5 + d + (_meta.skills.bonusWaves || 0);
+                const waves    = 10 + 7 * d + (_meta.skills.bonusWaves || 0) * 3;
 
                 const dot = document.createElement('div');
                 // No .title — native browser tooltips can cause layout reflow/jitter.
@@ -488,7 +488,7 @@ function _showCamp() {
 function _confirmAndStartBattle(templateId, difficulty) {
     const tpl = TEMPLATES.find(t => t.id === templateId);
     const minimapSvg = getTemplateMinimap(templateId, 90, 115);
-    const waves = 5 + difficulty + (_meta.skills.bonusWaves || 0);
+    const waves = 10 + 7 * difficulty + (_meta.skills.bonusWaves || 0) * 3;
     const baseArmor = Math.floor((difficulty - 1) / 2);
 
     const existing = _screens.game.querySelector('#vc-map-confirm');
