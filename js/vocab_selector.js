@@ -195,7 +195,7 @@ function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, 
     const useSrsChecked = saved.useSrs   !== undefined ? saved.useSrs   : hasSrs;
     const savedStatuses = saved.statuses !== undefined ? saved.statuses : [0,1,2,3];
     const savedCount    = saved.count    !== undefined ? saved.count    : defaultCount;
-    const savedMode     = saved.selMode  !== undefined ? saved.selMode  : 'random';
+    const savedMode     = saved.selMode  !== undefined ? saved.selMode  : 'sequential';
 
     // Deck enabled state — migrate legacy single "useList" flag
     let savedDecks = saved.decks ?? { frequency: saved.useList ?? true };

@@ -1,4 +1,5 @@
-import { mountVocabSelector } from '../../vocab_selector.js';
+import { mountVocabSelector, getBannedWords } from '../../vocab_selector.js';
+import * as srsDb from '../../srs_db.js';
 import { loadMeta, saveMeta, addXP, resetSkills, SKILL_DEFS,
          clearStage, highestDifficultyCleared, isStageCleared, isStageUnlocked } from './vc_meta.js';
 import { generateMap, getValidTemplates, getTemplateMinimap, TEMPLATES } from './vc_mapgen.js';
@@ -35,7 +36,8 @@ export function init(screens, onExit) {
                     </div>
                     <div style="display:flex;gap:8px;align-items:center;">
                         <button class="vc-btn" id="vc-btn-grimoire" style="background:#f39c12; border-color:#d35400;">📖 Grimoire</button>
-                        <button class="vc-btn" id="vc-btn-debug-unlock" title="Debug: unlock all stages" style="background:#2c3e50;border-color:#4a5568;font-size:11px;padding:4px 8px;min-width:0;">🔓</button>
+                        <button class="vc-btn" id="vc-btn-change-words" title="Change vocabulary deck" style="background:#2c3e50;border-color:#4a5568;font-size:11px;padding:4px 8px;min-width:0;">⚙️ Words</button>
+                        <button class="vc-btn" id="vc-btn-debug-unlock" title="Debug: unlock all stages" style="background:#2c3e50;border-color:#4a5568;font-size:11px;padding:4px 8px;min-width:0;">🔒 Debug OFF</button>
                     </div>
                 </div>
                 <div class="vc-stage-list" id="vc-stage-list"></div>
@@ -75,6 +77,14 @@ export function init(screens, onExit) {
         _screens.game.querySelector('#vc-btn-grimoire').onclick = () => {
             _renderGrimoire();
             _screens.game.querySelector('#vc-grimoire-overlay').style.display = 'flex';
+        };
+
+        // "⚙️ Words" — go back to the selector screen so the user can pick a custom deck.
+        // If they came from auto-SRS mode this is the only way to switch to a deck.
+        _screens.game.querySelector('#vc-btn-change-words').onclick = () => {
+            _screens.game.querySelector('#vc-camp-layer').style.display = 'none';
+            _show('setup');
+            _renderSetup();
         };
 
         _screens.game.querySelector('#vc-btn-debug-unlock').onclick = () => {
@@ -160,11 +170,39 @@ export function init(screens, onExit) {
     }
 }
 
+/**
+ * Build a vocab queue directly from the SRS database.
+ * Includes all statuses (0–5) and respects the vocabcraft ban list.
+ * Returns the queue array — empty if no SRS words exist.
+ */
+function _buildSrsQueue() {
+    const banned = new Set(getBannedWords(BANNED_KEY));
+    return Object.values(srsDb.getAllWords())
+        .filter(w => !banned.has(w.word))
+        .map(w => ({
+            word:   w.word,
+            furi:   w.furi,
+            trans:  w.translation,
+            status: w.status,
+            deckId: 'srs',
+        }));
+}
+
 export function launch() {
     _injectStyles();
     _meta = loadMeta();
-    _show('setup');
-    _renderSetup();
+
+    const srsQueue = _buildSrsQueue();
+    if (srsQueue.length > 0) {
+        // SRS words available — skip the selector, go straight to camp.
+        setVocabQueue(srsQueue);
+        _show('game');
+        _showCamp();
+    } else {
+        // No SRS words yet — show the deck selector as fallback.
+        _show('setup');
+        _renderSetup();
+    }
 }
 
 function _show(name) {
@@ -197,13 +235,23 @@ function _renderSetup() {
     const el = _screens.setup;
     if (!el) return;
 
+    const srsCount = Object.keys(srsDb.getAllWords()).length;
+
     _selector = mountVocabSelector(el, {
         bannedKey: BANNED_KEY,
         defaultCount: 40,
-        title: `VocabCraft - Select Vocabulary`
+        title: `VocabCraft — Select Vocabulary`
     });
 
     const actions = _selector.getActionsEl();
+
+    // Info banner when user has SRS words — remind them this is optional
+    if (srsCount > 0) {
+        const info = document.createElement('div');
+        info.style.cssText = 'font-size:12px;color:#bdc3c7;background:#1a252f;border:1px solid #2ecc71;border-radius:6px;padding:8px 10px;margin-top:4px;line-height:1.5;';
+        info.innerHTML = `💡 You have <strong style="color:#2ecc71">${srsCount} SRS words</strong> — VocabCraft already uses them by default. Choose a deck here only if you want to add or switch to a specific word list.`;
+        actions.appendChild(info);
+    }
 
     const startBtn = document.createElement('button');
     startBtn.className = 'primary-btn';
@@ -220,8 +268,18 @@ function _renderSetup() {
 
     const backBtn = document.createElement('button');
     backBtn.className = 'caro-back-btn';
-    backBtn.textContent = '← Back';
-    backBtn.addEventListener('click', _onExit);
+    // If _meta is already loaded we came from camp → go back to camp.
+    // Otherwise (first launch, no SRS) → exit the game entirely.
+    backBtn.textContent = (_meta && srsCount > 0) ? '← Back to Camp' : '← Back';
+    backBtn.addEventListener('click', () => {
+        if (_meta && srsCount > 0) {
+            // Re-use SRS queue and return to camp without changing it
+            _show('game');
+            _showCamp();
+        } else {
+            _onExit();
+        }
+    });
 
     actions.append(startBtn, backBtn);
 }
@@ -233,6 +291,14 @@ function _showCamp() {
     // Remove any stale confirm modal
     const stale = _screens.game.querySelector('#vc-map-confirm');
     if (stale) stale.remove();
+
+    // Silently refresh the SRS queue each time we return to camp — this picks up
+    // any words that became due mid-session. Only refreshes if the current queue
+    // is SRS-sourced (i.e. user hasn't manually chosen a custom deck).
+    const freshSrs = _buildSrsQueue();
+    if (freshSrs.length > 0) {
+        setVocabQueue(freshSrs);
+    }
 
     const nextReq = Math.floor(100 * Math.pow(_meta.level, 1.8));
     _screens.game.querySelector('#vc-camp-lvl').textContent =

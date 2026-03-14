@@ -6,7 +6,8 @@ import { mountVocabSelector, getDeckConfig } from '../../vocab_selector.js';
 let _screens = null;
 let _onExit  = null;
 let _selector = null;
-let _vocabQueue =[]; // words from vocab_selector: { word, furi, trans, status }
+let _vocabQueue = []; // words from vocab_selector: { word, furi, trans, status }
+let _vocabQueueFull = []; // full unsliced pool from the same deck (used to pin learned words back after a random/count-limited restart)
 let _STARTER_COUNT = 3; // default; overridden by config on each launch
 
 const SAVE_KEY   = 'neko_nihongo_save';
@@ -144,6 +145,10 @@ async function _resumeWithDeck(deckCfg) {
         eng:  w.trans || '—',
     }));
 
+    // Build full unsliced pool so already-learned words can always be pinned back
+    const fullQueue = await _buildVocabFromDeckCfg({ ...deckCfg, count: 'All' });
+    _vocabQueueFull = fullQueue.map(w => ({ id: w.word, kanji: w.word, kana: w.furi || w.word, eng: w.trans || '—' }));
+
     _STARTER_COUNT = _getCfg('starter', 3);
     _show('game');
     _loadGame();
@@ -218,11 +223,20 @@ async function _startGame() {
 
     // Convert vocab_selector format → neko internal format
     _vocabQueue = queue.map((w) => ({
-        id:    w.word,   // stable string ID — survives reordering & restarts
+        id:    w.word,
         kanji: w.word,
         kana:  w.furi  || w.word,
         eng:   w.trans || '—',
     }));
+
+    // Build the full unsliced pool (count='All') so _applyVocabSlots can pin
+    // already-learned words back even when a count limit or random mode dropped them.
+    if (deckCfg) {
+        const fullQueue = await _buildVocabFromDeckCfg({ ...deckCfg, count: 'All' });
+        _vocabQueueFull = fullQueue.map(w => ({ id: w.word, kanji: w.word, kana: w.furi || w.word, eng: w.trans || '—' }));
+    } else {
+        _vocabQueueFull = [..._vocabQueue];
+    }
 
     // Pull config settings
     _STARTER_COUNT = _getCfg('starter', 3);
@@ -242,16 +256,52 @@ async function _startGame() {
 /**
  * Vocab slot logic — called after _loadGame() and after _vocabQueue is populated.
  *
- * Words in _g.srs that ARE in the new queue  → stay active, keep SRS progress.
- * Words in _g.srs that are NOT in the queue  → go dormant (kept in save but
- *   invisible to reviews, happy-bonus, and multiplier calculations).
- * For each orphaned slot, one unlearned word from the new queue gets a free
- *   fresh SRS entry (no fish cost) — up to the number of orphaned slots.
- * Switching back to an old set re-activates dormant words with full history.
+ * Already-learned words are ALWAYS kept active, even if the random shuffle or
+ * session-size limit didn't include them in the raw queue.  They are silently
+ * re-injected so they can never become accidental orphans on a simple restart.
+ *
+ * True orphans (words learned under a completely different deck that is no longer
+ * selected) do go dormant — but a same-deck restart never orphans anything.
+ *
+ * For each genuine orphan, one unlearned word from the new queue gets a free
+ * fresh SRS entry (no fish cost).  Switching back to an old set re-activates
+ * dormant words with their full history intact.
  */
 function _applyVocabSlots() {
+    const queueIds = new Set(_vocabQueue.map(v => v.id));
+    const knownIds = new Set(_g.srs.map(s => s.id));
+
+    // ── Pin learned words back into the queue ────────────────────────────────
+    // If a word is already in _g.srs but was dropped by a random shuffle or
+    // count limit, re-add it to _vocabQueue so it stays active this session.
+    // We need the full deck list for this — we store a "full pool" alongside the
+    // queue in _vocabQueueFull (set by callers that have the raw data), or fall
+    // back to rebuilding from _g.srs kanji/kana/eng fields stored at learn-time.
+    _g.srs.forEach(srsItem => {
+        if (!queueIds.has(srsItem.id)) {
+            // Word is learned but not in the current queue — pin it back.
+            // Try to find rich data from the full pool first; fall back to the
+            // sparse data stored on the SRS item itself at learn time.
+            const fromFull = _vocabQueueFull?.find(v => v.id === srsItem.id);
+            if (fromFull) {
+                _vocabQueue.push(fromFull);
+            } else if (srsItem.kanji || srsItem.id) {
+                // Reconstruct a minimal entry from whatever was saved on the item
+                _vocabQueue.push({
+                    id:    srsItem.id,
+                    kanji: srsItem.kanji || srsItem.id,
+                    kana:  srsItem.kana  || srsItem.id,
+                    eng:   srsItem.eng   || '—',
+                });
+            }
+            queueIds.add(srsItem.id);
+        }
+    });
+
+    // ── Orphan / slot logic ──────────────────────────────────────────────────
+    // After pinning, the only true orphans are words learned under a deck that
+    // is genuinely no longer selected (different deck entirely).
     const newIds      = new Set(_vocabQueue.map(v => v.id));
-    const knownIds    = new Set(_g.srs.map(s => s.id));
     const orphanCount = _g.srs.filter(s => !newIds.has(s.id)).length;
     const freshPool   = _vocabQueue.filter(v => !knownIds.has(v.id));
 
@@ -261,7 +311,7 @@ function _applyVocabSlots() {
         _g.srs.push({ id: w.id, nextReview: _gameNow(), interval: _getCfg('interval', 8), ease: _getCfg('ease', 1.5) });
     }
 
-    // Give _STARTER_COUNT free starter words on a brand-new save
+    // ── Starter words on a brand-new save ───────────────────────────────────
     const starterCount = Math.min(_STARTER_COUNT, _vocabQueue.length);
     if (_g.srs.length === 0 && starterCount > 0) {
         for (let i = 0; i < starterCount; i++) {
@@ -1783,6 +1833,14 @@ function _openChangeDeckModal() {
             kana:  w.furi  || w.word,
             eng:   w.trans || '—',
         }));
+
+        // Full pool for pin-back logic
+        if (newDeckCfg) {
+            const fullRaw = await _buildVocabFromDeckCfg({ ...newDeckCfg, count: 'All' });
+            _vocabQueueFull = fullRaw.map(w => ({ id: w.word, kanji: w.word, kana: w.furi || w.word, eng: w.trans || '—' }));
+        } else {
+            _vocabQueueFull = [..._vocabQueue];
+        }
 
         _applyVocabSlots();
         _saveGame();
