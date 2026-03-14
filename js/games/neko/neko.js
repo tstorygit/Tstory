@@ -1519,21 +1519,18 @@ function _initGameDOM() {
     el.querySelector('#nk-wipe-full').addEventListener('click', () => {
         if (!confirm('Delete EVERYTHING including vocabulary progress? This cannot be undone.')) return;
         localStorage.removeItem(SAVE_KEY);
-        _clearDeckCfg();   // forget deck so the selector appears fresh on next launch
+        _clearDeckCfg();   // forget deck so the selector appears on next launch
+        _stopGameLoop();
         _g = _freshGame();
-        // Re-add the same number of starter words the player launched with
-        const starterCount = Math.min(_STARTER_COUNT, _vocabQueue.length);
-        for (let i = 0; i < starterCount; i++) {
-            const w = _vocabQueue[i];
-            _g.srs.push({ id: w.id, kanji: w.kanji, kana: w.kana, eng: w.eng, nextReview: _gameNow(), interval: _getCfg('interval', 8), ease: _getCfg('ease', 1.5) });
-        }
-        _g.stats.wordsLearned += starterCount;
-        _saveGame();
+        _vocabQueue     = [];
+        _vocabQueueFull = [];
         el.querySelector('#nk-wipe-overlay').style.display = 'none';
-        _initShops();
-        _updateSRSQueue();
-        _updateUI();
         _toast('All progress wiped.', '#d63031');
+        // Go straight to the selector so the player picks a fresh deck now
+        setTimeout(() => {
+            _show('setup');
+            _renderSetup();
+        }, 350);
     });
 
     el.querySelectorAll('.nk-nav-btn').forEach(btn => {
@@ -1738,12 +1735,12 @@ function _openChangeDeckModal() {
     if (!gameEl) return;
 
     // Remove any stale copy
-    gameEl.querySelector('#nk-change-deck-overlay')?.remove();
+    document.getElementById('nk-change-deck-overlay')?.remove();
 
     const overlay = document.createElement('div');
     overlay.id = 'nk-change-deck-overlay';
     overlay.style.cssText = `
-        position:absolute; inset:0; z-index:400;
+        position:fixed; inset:0; z-index:9000;
         background:var(--nk-bg, #fff5e6);
         display:flex; flex-direction:column;
         overflow:hidden;
@@ -1778,7 +1775,7 @@ function _openChangeDeckModal() {
         </div>
     `;
 
-    gameEl.appendChild(overlay);
+    document.body.appendChild(overlay);
 
     // Mount selector pre-populated with the current saved deck
     const selectorWrap = overlay.querySelector('#nk-cdm-selector-wrap');
@@ -1847,15 +1844,17 @@ function _openChangeDeckModal() {
         _updateSRSQueue();
         _updateUI();
 
-        // Update the deck label in the Settings subtab
+        // Refresh all visible stats — deck label, dojo section, vocab list
         const deckLblEl = gameEl.querySelector('#nk-current-deck-label');
         if (deckLblEl) deckLblEl.textContent = _deckCfgLabel(newDeckCfg) || 'Custom deck';
+        _renderStats();
+        _renderVocabList();
 
-        // Show a summary toast and close after a beat
+        // Show a summary toast and close immediately
         const dormantMsg = dormantCount > 0 ? ` · ${dormantCount} paused` : '';
         const newMsg     = newCount     > 0 ? ` · ${newCount} new free slots` : '';
         _toast(`Deck updated${dormantMsg}${newMsg}`, 'var(--nk-success)');
-        setTimeout(() => overlay.remove(), 400);
+        overlay.remove();
     });
 }
 

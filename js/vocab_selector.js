@@ -144,7 +144,11 @@ export function mountVocabSelector(screenEl, opts = {}) {
 
     return {
         getQueue:     () => _buildQueueAsync(screenEl, { bannedKey }),
-        getActionsEl: () => screenEl.querySelector('.vs-actions'),
+        getActionsEl: () => {
+            const el = screenEl.querySelector('.vs-actions');
+            if (el) el.style.display = 'flex'; // reveal now that caller is adding buttons
+            return el;
+        },
         refresh: () => {
             const savedActions = _captureActions(screenEl);
             _render(screenEl, { bannedKey, showCountPicker, defaultCounts, defaultCount, title, preloadConfig, extendMode });
@@ -400,8 +404,15 @@ function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, 
 
     html += `
         <div class="vs-warning" style="display:none;padding:10px 14px;background:#fff3cd;
-             border:1px solid #ffc107;border-radius:8px;font-size:13px;color:#856404;margin-top:8px;"></div>
-        <div class="vs-actions"></div>
+             border:1px solid #ffc107;border-radius:8px;font-size:13px;color:#856404;margin-top:8px;margin-bottom:4px;"></div>
+        <div class="vs-actions" style="
+            position:sticky; bottom:0;
+            background:var(--bg-color,#fff);
+            padding:10px 16px 16px;
+            border-top:1px solid var(--border-color,#eee);
+            display:none; flex-direction:column; gap:6px;
+            z-index:10;
+        "></div>
     </div>`; // .vs-root
 
     el.innerHTML = html;
@@ -678,5 +689,6 @@ function _captureActions(el) {
 function _restoreActions(el, nodes) {
     const actionsEl = el.querySelector('.vs-actions');
     if (!actionsEl || !nodes.length) return;
+    actionsEl.style.display = 'flex';
     nodes.forEach(n => actionsEl.appendChild(n));
 }

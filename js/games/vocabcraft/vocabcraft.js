@@ -409,7 +409,7 @@ function _confirmAndStartBattle(templateId, difficulty) {
     modal.style.cssText = [
         'position:absolute', 'inset:0', 'background:rgba(26,37,47,0.97)',
         'display:flex', 'flex-direction:column', 'align-items:center',
-        'justify-content:flex-start', 'z-index:100', 'padding:16px',
+        'justify-content:flex-start', 'z-index:100', 'padding:16px 16px 80px',
         'gap:12px', 'overflow-y:auto', '-webkit-overflow-scrolling:touch'
     ].join(';');
 

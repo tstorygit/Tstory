@@ -696,7 +696,9 @@ export class VcUI {
             this.gridEl.appendChild(fl);
             setTimeout(() => fl.remove(), 1200);
         }
-    } {
+    }
+
+    _updateEnemyStatWindow(engineState) {
         if (!this.enemyStatEl) return;
         if (!this.selectedEnemyId) { this.enemyStatEl.style.display = 'none'; return; }
 
