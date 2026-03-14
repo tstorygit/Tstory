@@ -1,7 +1,7 @@
 import { mountVocabSelector } from '../../vocab_selector.js';
 import { loadMeta, saveMeta, addXP, resetSkills, SKILL_DEFS,
          clearStage, highestDifficultyCleared, isStageCleared, isStageUnlocked } from './vc_meta.js';
-import { generateMap, getWaypoints, getValidTemplates, getTemplateMinimap, TEMPLATES } from './vc_mapgen.js';
+import { generateMap, getValidTemplates, getTemplateMinimap, TEMPLATES } from './vc_mapgen.js';
 import { setVocabQueue, showCard } from './vc_vocab.js';
 import { VcEngine } from './vc_engine.js';
 import { VcUI } from './vc_ui.js';

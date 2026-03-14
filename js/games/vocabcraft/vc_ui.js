@@ -1,5 +1,5 @@
 import { GEMS, CONSTANTS, gemTotalCostColor, gemUpgradeCost, gemDamage, gemFireSpeed, gemRange, gemCritChance, gemCritMult, gemPoisonDps, gemSlowAmount, gemManaDrain, gemArmorTear } from './vc_engine.js';
-import { TILE_PATH, TILE_GRASS } from './vc_mapgen.js';
+import { TILE_PATH, TILE_GRASS, getWaypointsForPaths } from './vc_mapgen.js';
 
 export class VcUI {
     constructor(container, engine, vocabCallbacks, onReady) {
@@ -39,6 +39,18 @@ export class VcUI {
             this.entitiesEl.className = 'vc-entities';
             this.gridEl.appendChild(this.entitiesEl);
 
+            // Stable overlay for spawn/base markers — lives above tiles,
+            // never touched by the per-frame entitiesEl.innerHTML rewrite
+            this.markersEl = document.createElement('div');
+            this.markersEl.className = 'vc-entities'; // same positioning rules
+            this.markersEl.style.zIndex = '8';        // above enemies (z-index 6)
+            this.markersEl.style.pointerEvents = 'none';
+            this.gridEl.appendChild(this.markersEl);
+
+            // Place spawn/base markers now that markersEl exists
+            this._baseMakerKeys = null;
+            this._placeMapMarkers();
+
             this.enemyStatEl = document.createElement('div');
             this.enemyStatEl.className = 'vc-enemy-stat-window';
             this.enemyStatEl.style.display = 'none';
@@ -73,11 +85,53 @@ export class VcUI {
             }
         }
 
-        this.engine.map.waypoints = this.engine.map.path.map(p => ({
-            x: p.x * this.tileSize + (this.tileSize / 2),
-            y: p.y * this.tileSize + (this.tileSize / 2)
-        }));
+        this.engine.map.waypointSets = getWaypointsForPaths(this.engine.map.paths, this.tileSize);
         this.engine.tileSize = this.tileSize;
+    }
+
+    _placeMapMarkers() {
+        // Remove any previous markers from the stable markers layer
+        if (this.markersEl) this.markersEl.innerHTML = '';
+        this._baseMakerKeys = new Set();
+
+        const sets = this.engine.map.waypointSets;
+
+        sets.forEach((wps, i) => {
+            const isMulti = sets.length > 1;
+
+            // Spawn marker at path start
+            const spawnEl = document.createElement('div');
+            spawnEl.className = 'vc-map-marker vc-spawn-marker';
+            spawnEl.textContent = isMulti ? `⚔️${i + 1}` : '⚔️';
+            spawnEl.style.cssText = `left:${wps[0].x}px;top:${wps[0].y}px;`;
+            this.markersEl.appendChild(spawnEl);
+
+            // Base marker at path end — deduplicate by pixel position
+            // (convergent multi-path maps share one base tile)
+            const last = wps[wps.length - 1];
+            const key  = `${Math.round(last.x)},${Math.round(last.y)}`;
+            if (!this._baseMakerKeys.has(key)) {
+                this._baseMakerKeys.add(key);
+                const baseEl = document.createElement('div');
+                baseEl.className = 'vc-map-marker vc-base-marker';
+                baseEl.textContent = '🏰';
+                baseEl.style.cssText = `left:${last.x}px;top:${last.y}px;`;
+                this.markersEl.appendChild(baseEl);
+            }
+        });
+    }
+
+    // Flash path tiles for 1.5 s to orient the player at wave start
+    _flashPathTiles() {
+        const { grid, cols } = this.engine.map;
+        this.tiles.forEach((el, idx) => {
+            const r = Math.floor(idx / cols);
+            const c = idx % cols;
+            if (grid[r][c] === TILE_PATH) {
+                el.classList.add('path-pulse');
+                setTimeout(() => el.classList.remove('path-pulse'), 1500);
+            }
+        });
     }
 
     initZoom() {
@@ -163,6 +217,7 @@ export class VcUI {
 
         startBtn.onclick = () => {
             if (this.engine.state.status === 'playing' && this.engine.state.wave < this.engine.state.maxWaves) {
+                this._flashPathTiles();
                 this.engine.spawnWave(false);
                 const icons = this.waveIconsContainer.children;
                 const wIdx = this.engine.state.wave - 1;
@@ -181,6 +236,7 @@ export class VcUI {
                     this.vocab.showCard('enrage', (isCorrect) => {
                         if (isCorrect) { icon.classList.add('enraged'); this.engine.spawnWave(true); }
                         else { this.engine.spawnWave(false); }
+                        this._flashPathTiles();
                         icon.classList.remove('active'); icon.classList.add('done');
                         this.activateNextWaveIcon(i + 1);
                         this.engine.resume();

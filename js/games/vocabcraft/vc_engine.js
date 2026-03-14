@@ -222,7 +222,7 @@ export class VcEngine {
 
         const entries = buildWaveEnemies(
             this.state.wave, this.difficulty, isBossWave, isEnraged,
-            this.map.waypoints
+            this.map.waypointSets   // array of waypoint arrays, one per path
         );
 
         const waveOffset = this._nextSpawnDelay || 0;
@@ -287,14 +287,17 @@ export class VcEngine {
                 continue;
             }
 
-            const target = this.map.waypoints[e.wpIdx];
+            const pathIdx   = e.pathIdx ?? 0;
+            const waypoints = this.map.waypointSets[pathIdx] || this.map.waypointSets[0];
+            const target = waypoints[e.wpIdx];
             if (!target) {
                 this.state.hp -= (e.isBoss ? 5 : 1);
                 this.state._waveLeaked = true;
-                e.x = this.map.waypoints[0].x;
-                e.y = this.map.waypoints[0].y;
+                // Reset enemy to start of its own path with a small HP refund
+                e.x    = waypoints[0].x;
+                e.y    = waypoints[0].y;
                 e.wpIdx = 1;
-                e.hp = Math.min(e.maxHp, e.hp + e.maxHp * 0.2);
+                e.hp   = Math.min(e.maxHp, e.hp + e.maxHp * 0.2);
                 continue;
             }
 
@@ -303,20 +306,13 @@ export class VcEngine {
             const dist = Math.hypot(dx, dy);
             const step = currentSpeed * dt;
             if (step >= dist) {
-                // Snap to waypoint and carry leftover movement into next segment
-                e.x = target.x;
-                e.y = target.y;
-                e.wpIdx++;
+                e.x = target.x; e.y = target.y; e.wpIdx++;
                 const overflow = step - dist;
-                if (overflow > 0 && e.wpIdx < this.map.waypoints.length) {
-                    const next = this.map.waypoints[e.wpIdx];
-                    const ndx = next.x - e.x;
-                    const ndy = next.y - e.y;
+                if (overflow > 0 && e.wpIdx < waypoints.length) {
+                    const next  = waypoints[e.wpIdx];
+                    const ndx   = next.x - e.x, ndy = next.y - e.y;
                     const ndist = Math.hypot(ndx, ndy);
-                    if (ndist > 0) {
-                        e.x += (ndx / ndist) * overflow;
-                        e.y += (ndy / ndist) * overflow;
-                    }
+                    if (ndist > 0) { e.x += (ndx / ndist) * overflow; e.y += (ndy / ndist) * overflow; }
                 }
             } else {
                 e.x += (dx / dist) * step;
