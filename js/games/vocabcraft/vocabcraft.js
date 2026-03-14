@@ -451,7 +451,7 @@ function _showCamp() {
 
         // ── Header row: minimap + title/desc ─────────────────────────────────
         const minimapSvg = getTemplateMinimap(tpl.id, 58, 74);
-        const waveCount  = 5 + 1; // D1 baseline; shown generically
+        const waveCount  = 10 + 7 * 1; // D1 baseline; shown generically
         const headerRow  = document.createElement('div');
         headerRow.style.cssText = 'display:flex; gap:10px; width:100%; align-items:flex-start;';
         headerRow.innerHTML = `
@@ -483,7 +483,7 @@ function _showCamp() {
                 const unlockedActual = isStageUnlocked(_meta, tpl.id, d);
                 const unlocked = unlockedActual || _debugUnlockAll;
                 const cleared  = clearedActual;
-                const waves    = 5 + d + (_meta.skills.bonusWaves || 0);
+                const waves    = 10 + 7 * d + (_meta.skills.bonusWaves || 0) * 3;
 
                 const dot = document.createElement('div');
                 dot.title = `D${d} — ${waves} waves${cleared ? ' ✅' : unlocked ? '' : ' 🔒'}${_debugUnlockAll && !unlockedActual ? ' (debug)' : ''}`;
@@ -515,7 +515,7 @@ function _showCamp() {
 function _confirmAndStartBattle(templateId, difficulty) {
     const tpl = TEMPLATES.find(t => t.id === templateId);
     const minimapSvg = getTemplateMinimap(templateId, 90, 115);
-    const waves = 5 + difficulty + (_meta.skills.bonusWaves || 0);
+    const waves = 10 + 7 * difficulty + (_meta.skills.bonusWaves || 0) * 3;
     const baseArmor = Math.floor((difficulty - 1) / 2);
 
     const existing = _screens.game.querySelector('#vc-map-confirm');
