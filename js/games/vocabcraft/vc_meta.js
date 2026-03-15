@@ -28,7 +28,8 @@ export const SKILL_DEFS = {
     trapSpecialty:   { name: "Trap Specialization",desc: "Traps shoot 1% faster, deal +1% base dmg, and have +0.1 special multiplier per level.", max: Infinity, group: 'utility' },
     resonance:       { name: "Resonance",          desc: "+3% global damage per level.",                        max: Infinity, group: 'utility' },
     haste:           { name: "Haste",              desc: "+2% global firing speed per level.",                  max: 50,       group: 'utility' },
-    scholarGrace:    { name: "Scholar's Grace",    desc: "+1% dmg per combo stack per level.",                max: Infinity, group: 'utility' },
+    scholarGrace:    { name: "Scholar's Grace",    desc: "+0.5% combo damage coefficient per level. Base: ×(1 + log(kills) × 10%).",  max: Infinity, group: 'utility' },
+    comboKeep:       { name: "Combo Mastery",       desc: "+1s combo window per level. Base window: 5s before combo starts to decay.",     max: Infinity, group: 'utility' },
     bonusWaves:      { name: "Arcane Endurance",   desc: "+3 waves per level. More enemies = more XP.",          max: Infinity, group: 'utility' }
 };
 
@@ -42,7 +43,7 @@ export function getDefaultSave() {
             redCost: 0, blueCost: 0, greenCost: 0, orangeCost: 0, yellowCost: 0, purpleCost: 0,
             redMastery: 0, blueMastery: 0, greenMastery: 0,
             orangeMastery: 0, yellowMastery: 0, purpleMastery: 0,
-            trapSpecialty: 0, resonance: 0, haste: 0, scholarGrace: 0, bonusWaves: 0
+            trapSpecialty: 0, resonance: 0, haste: 0, scholarGrace: 0, comboKeep: 0, bonusWaves: 0
         },
         clearedStages: {}   // keys: "templateId:difficulty" → true
     };

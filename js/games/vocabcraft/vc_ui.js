@@ -27,8 +27,12 @@ export class VcUI {
         this.topBar = {
             mana:      container.querySelector('#vc-val-mana'),
             manaBar:   container.querySelector('#vc-mana-bar-fill'),
-            poolLevel: container.querySelector('#vc-val-pool-level'),
-            poolCap:   container.querySelector('#vc-val-pool-cap'),
+            poolLevel:  container.querySelector('#vc-val-pool-level'),
+            poolCap:    container.querySelector('#vc-val-pool-cap'),
+            combo:      container.querySelector('#vc-val-combo'),
+            comboWrap:  container.querySelector('#vc-combo-wrap'),
+            comboBar:   container.querySelector('#vc-combo-bar'),
+            comboBar:   container.querySelector('#vc-combo-bar'),
             waves:     container.querySelector('.vc-wave-tracker')
         };
 
@@ -782,11 +786,9 @@ export class VcUI {
         this.vocab.showCard('review', (isCorrect) => {
             if (isCorrect) {
                 this.engine.state.mana -= manaCost;
-                this.engine.state.combo++;
                 onSuccess();
             } else {
                 this.engine.state.mana = Math.max(0, this.engine.state.mana - CONSTANTS.vocabPenalty);
-                this.engine.state.combo = 0;
             }
             this.engine.resume();
             this.renderBottomBar();
@@ -822,6 +824,24 @@ export class VcUI {
         }
         if (this.topBar.poolCap) {
             this.topBar.poolCap.textContent = poolCap.toLocaleString();
+        }
+        // Combo display with countdown bar
+        const combo = engineState.state.combo || 0;
+        if (this.topBar.combo) this.topBar.combo.textContent = combo;
+        if (this.topBar.comboWrap) {
+            this.topBar.comboWrap.style.display = combo > 0 ? 'flex' : 'none';
+            const comboColor = combo >= 100 ? '#ecf0f1' : combo >= 25 ? '#f1c40f' : '#e67e22';
+            const comboLabel = this.topBar.comboWrap.querySelector('span');
+            if (comboLabel) comboLabel.style.color = comboColor;
+        }
+        if (this.topBar.comboBar && combo > 0) {
+            const timer  = engineState.state.comboDecayTimer || 0;
+            const window = engineState.state.comboDecayWindow || 5;
+            // Bar fills right-to-left: 100% = just killed, 0% = about to drop
+            const pct = Math.max(0, Math.min(100, (1 - timer / window) * 100));
+            this.topBar.comboBar.style.width = pct + '%';
+            // Bar color: green→orange→red as it drains
+            this.topBar.comboBar.style.background = pct > 60 ? '#2ecc71' : pct > 30 ? '#f39c12' : '#e74c3c';
         }
         const manaEl = this.topBar.mana?.parentElement?.parentElement;
         if (manaEl) manaEl.classList.toggle('vc-mana-danger', manaVal / poolCap < 0.15);

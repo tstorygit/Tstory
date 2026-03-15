@@ -138,6 +138,7 @@ export class VcEngine {
             maxWaves: baseWaves + bonusWaves,
             status: 'planning',
             combo: 0,
+            comboDecayTimer: 0,  // seconds since last kill — combo decays after 5s
             xpEarned: 0,
             _waveLeaked: false,
             _manaAtWaveStart: startMana
@@ -157,7 +158,7 @@ export class VcEngine {
         this.selectedEnemyId = null;
 
         this.buffs = {
-            dmgMult: 1 + ((meta.skills.scholarGrace || 0) * 0.01 * this.state.combo)
+            dmgMult: 1.0  // recalculated each frame from combo
         };
 
         // On mobile, browsers throttle RAF when the page is hidden (tab switch,
@@ -212,12 +213,29 @@ export class VcEngine {
         if (dt > 0.1) dt = 0.1;
         dt *= this.speedMult;
 
+        // Combo decay: window = 5s base + 0.5s per Scholar's Grace level
+        const comboWindow = 5 + (this.meta.skills.comboKeep || 0) * 1.0;
+        this.state.comboDecayWindow = comboWindow;  // expose for UI progress bar
+        if (this.state.combo > 0) {
+            this.state.comboDecayTimer += dt;
+            if (this.state.comboDecayTimer >= comboWindow) {
+                this.state.combo = Math.max(0, this.state.combo - 1);
+                this.state.comboDecayTimer = 0;
+            }
+        } else {
+            this.state.comboDecayTimer = 0;
+        }
+
         this.updateSpawns(dt);
         this.updateEnemies(dt);
         this.updateStructures(dt);
         this.updateProjectiles(dt);
 
-        this.buffs.dmgMult = 1 + ((this.meta.skills.scholarGrace || 0) * 0.01 * this.state.combo);
+        // Kill-based combo: (1 + log(combo) * coefficient). scholarGrace boosts the coefficient.
+        const comboCoeff = 0.10 + (this.meta.skills.scholarGrace || 0) * 0.005;
+        this.buffs.dmgMult = this.state.combo > 0
+            ? 1 + Math.log(this.state.combo) * comboCoeff
+            : 1.0;
 
         // Pool level-up: when mana reaches the cap, level up and grow the cap.
         // Cap grows ×1.8 each level (GCFW multiplier). Gem damage bonus: +5% per level above 1.
@@ -367,6 +385,8 @@ export class VcEngine {
             if (e.hp <= 0) {
                 this.state.mana += 10 * (e.rewardMult || 1) * (this.buffs.poolMult || 1);
                 this.state.xpEarned += enemyXpValue(e);
+                this.state.combo++;
+                this.state.comboDecayTimer = 0;  // reset decay on kill
                 // Splitter: on death spawn 2 fast children
                 if (e.onDeath === 'split') {
                     const fastDef = ENEMY_TYPES['fast'];
@@ -398,6 +418,7 @@ export class VcEngine {
                 const drain = Math.ceil(this.state.poolCap * drainPct * (e.manaLeachMult || 1));
                 this.state.mana -= drain;
                 this.state._waveLeaked = true;
+                this.state.combo = 0;  // combo resets when enemy leaks
                 this.onUpdate(this, { type: 'manaLeak', amt: drain, x: e.x, y: e.y });
                 // GCFW: enemy that reaches the exit grows stronger and starts over.
                 // Increase maxHp by 30% each pass — becomes a serious threat if not killed.

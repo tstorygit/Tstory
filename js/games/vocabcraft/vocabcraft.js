@@ -51,6 +51,12 @@ export function init(screens, onExit) {
                             <span class="vc-mana">💧 <span id="vc-val-mana">300</span></span>
                             <span style="font-size:10px;color:#bdc3c7;">/ <span id="vc-val-pool-cap">300</span></span>
                             <span style="font-size:11px;color:#f1c40f;font-weight:bold;">P<span id="vc-val-pool-level">1</span></span>
+                            <div id="vc-combo-wrap" style="display:none;flex-direction:column;gap:1px;min-width:36px;">
+                                <span style="font-size:11px;font-weight:bold;color:#e67e22;">⚡<span id="vc-val-combo">0</span>×</span>
+                                <div style="height:3px;background:rgba(255,255,255,0.15);border-radius:2px;overflow:hidden;">
+                                    <div id="vc-combo-bar" style="height:100%;width:100%;background:#e67e22;border-radius:2px;transition:width 0.1s linear;"></div>
+                                </div>
+                            </div>
                         </div>
                         <div style="height:6px;background:#1a252f;border-radius:3px;overflow:hidden;width:100%;">
                             <div id="vc-mana-bar-fill" style="height:100%;width:100%;background:#f1c40f;transition:width 0.2s,background 0.3s;border-radius:3px;"></div>
