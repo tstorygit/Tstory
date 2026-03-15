@@ -213,13 +213,13 @@ export class VcEngine {
         if (dt > 0.1) dt = 0.1;
         dt *= this.speedMult;
 
-        // Combo decay: window = 5s base + 0.5s per Scholar's Grace level
-        const comboWindow = 5 + (this.meta.skills.comboKeep || 0) * 1.0;
-        this.state.comboDecayWindow = comboWindow;  // expose for UI progress bar
+        // Combo decay: full reset after 5s with no kill
+        const comboWindow = 5;
+        this.state.comboDecayWindow = comboWindow;
         if (this.state.combo > 0) {
             this.state.comboDecayTimer += dt;
             if (this.state.comboDecayTimer >= comboWindow) {
-                this.state.combo = Math.max(0, this.state.combo - 1);
+                this.state.combo = 0;
                 this.state.comboDecayTimer = 0;
             }
         } else {
