@@ -1,5 +1,5 @@
 import { SKILL_DEFS } from './vc_meta.js';
-import { buildWaveEnemies } from './vc_enemies.js';
+import { buildWaveEnemies, ENEMY_TYPES } from './vc_enemies.js';
 
 export const GEMS = {
     red:    { label: 'Ruby',     color: '#e74c3c', type: 'dmg',   baseDmg: 18, speed: 1.5 },
@@ -233,7 +233,7 @@ export class VcEngine {
 
         this.onUpdate(this);
 
-        if (this.state.mana <= 0) {
+        if (this.state.mana < 0) {
             this.state.status = 'gameover';
             this.onGameOver(false, this.state.xpEarned);
             return;
@@ -325,6 +325,34 @@ export class VcEngine {
                 e.hp = Math.min(e.maxHp, e.hp + e.maxHp * e.regen * dt);
             }
 
+            // Berserker: speed scales up as HP drops (×3 at 10% HP)
+            if (e.berserk && e.baseSpeed) {
+                const hpFrac = Math.max(0, e.hp / e.maxHp);
+                e.speed = e.baseSpeed * (1 + 2 * (1 - hpFrac));
+            }
+
+            // Swarm Lord: spawns a swarm unit periodically
+            if (e.spawnsSwarm && e.swarmSpawnTimer > 0) {
+                e.swarmSpawnTimer -= dt;
+                if (e.swarmSpawnTimer <= 0) {
+                    e.swarmSpawnTimer = 3.0;
+                    const swarmDef = ENEMY_TYPES['swarm'];
+                    const waypoints = this.map.waypointSets[e.pathIdx ?? 0] || this.map.waypointSets[0];
+                    this.enemies.push({
+                        delay: 0,
+                        typeId: 'swarm', isBoss: false,
+                        emoji: swarmDef.emoji, label: swarmDef.label,
+                        hp: e.maxHp * 0.2, maxHp: e.maxHp * 0.2,
+                        armor: 0, speed: e.speed * 1.3, baseSpeed: e.speed * 1.3,
+                        regen: 0, immune: [], onDeath: null,
+                        manaLeachMult: 1, berserk: false, spawnsSwarm: false, swarmSpawnTimer: 0,
+                        pathIdx: e.pathIdx ?? 0,
+                        x: e.x, y: e.y, wpIdx: e.wpIdx,
+                        effects: { slow:0, slowTimer:0, poison:0, poisonTimer:0, poisonTick:0, lastHit:'', flashTimer:0, flashColor:'' }
+                    });
+                }
+            }
+
             if (e.effects.flashTimer > 0) {
                 e.effects.flashTimer -= dt;
                 if (e.effects.flashTimer <= 0) e.effects.flashColor = '';
@@ -340,6 +368,24 @@ export class VcEngine {
             if (e.hp <= 0) {
                 this.state.mana += 10 * (e.rewardMult || 1);
                 this.state.xpEarned += enemyXpValue(e);
+                // Splitter: on death spawn 2 fast children
+                if (e.onDeath === 'split') {
+                    const fastDef = ENEMY_TYPES['fast'];
+                    const waypoints = this.map.waypointSets[e.pathIdx ?? 0] || this.map.waypointSets[0];
+                    for (let s = 0; s < 2; s++) {
+                        this.enemies.push({
+                            delay: 0, typeId: 'fast', isBoss: false,
+                            emoji: fastDef.emoji, label: 'Shard',
+                            hp: e.maxHp * 0.3, maxHp: e.maxHp * 0.3,
+                            armor: 0, speed: e.baseSpeed * 2.0, baseSpeed: e.baseSpeed * 2.0,
+                            regen: 0, immune: [], onDeath: null,
+                            manaLeachMult: 1, berserk: false, spawnsSwarm: false, swarmSpawnTimer: 0,
+                            pathIdx: e.pathIdx ?? 0,
+                            x: e.x, y: e.y, wpIdx: e.wpIdx,
+                            effects: { slow:0, slowTimer:0, poison:0, poisonTimer:0, poisonTick:0, lastHit:'', flashTimer:0, flashColor:'' }
+                        });
+                    }
+                }
                 this.enemies.splice(i, 1);
                 continue;
             }
@@ -350,7 +396,7 @@ export class VcEngine {
             if (!target) {
                 // Mana drain: enemy reaching exit costs % of maxMana
                 const drainPct = e.isBoss ? CONSTANTS.exitDrainBoss : CONSTANTS.exitDrainNormal;
-                const drain = Math.ceil(this.state.poolCap * drainPct);
+                const drain = Math.ceil(this.state.poolCap * drainPct * (e.manaLeachMult || 1));
                 this.state.mana -= drain;
                 this.state._waveLeaked = true;
                 this.onUpdate(this, { type: 'manaLeak', amt: drain, x: e.x, y: e.y });
@@ -441,12 +487,16 @@ export class VcEngine {
             const dx = target.x - p.x;
             const dy = target.y - p.y;
             const dist = Math.hypot(dx, dy);
-            if (dist < 10) {
+            const step = p.speed * dt;
+
+            // Hit if the projectile would reach or pass the target this frame.
+            // Using step >= dist prevents overshoot at high game speed.
+            if (dist <= 14 || step >= dist) {
                 this.applyGemEffect(target, p.gem, p.gemData, false, p.sourceRef);
                 this.projectiles.splice(i, 1);
             } else {
-                p.x += (dx / dist) * p.speed * dt;
-                p.y += (dy / dist) * p.speed * dt;
+                p.x += (dx / dist) * step;
+                p.y += (dy / dist) * step;
             }
         }
     }
@@ -464,6 +514,15 @@ export class VcEngine {
 
         if (gem.color === 'red') dmg *= (1 + (this.meta.skills.redMastery || 0) * 0.01);
         dmg *= this.buffs.dmgMult * (this.buffs.poolMult || 1);
+
+        // Cursed: 90% damage reduction from non-purple gems
+        if (enemy.immune?.includes('dmg_nonpurple') && gem.color !== 'purple') {
+            dmg *= 0.10;
+        }
+        // Phantom: only traps and mana leech deal full damage; tower gems do 5%
+        if (enemy.immune?.includes('dmg_nontrap') && !isTrap && gemData.type !== 'mana') {
+            dmg *= 0.05;
+        }
 
         let finalDmg = Math.max(1, dmg - Math.max(0, enemy.armor));
         let isCrit = false;

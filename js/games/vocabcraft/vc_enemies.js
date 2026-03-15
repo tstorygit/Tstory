@@ -72,17 +72,138 @@ export const ENEMY_TYPES = {
         immune: ['slow', 'poison'],
         regen: 0,
         desc: 'Immune to Slow and Poison. Only damage gems work.'
+    },
+
+    // ── D6+ enemies ───────────────────────────────────────────────────────
+    giant: {
+        id: 'giant',
+        label: 'Colossus',
+        emoji: '🗿',
+        hpMult: 4.0,
+        speedMult: 0.45,
+        armorBonus: 6,
+        spawnCount: 1,
+        immune: [],
+        regen: 0,
+        desc: '×4 HP, +6 Armor, very slow. Absorbs massive punishment.'
+    },
+    splitter: {
+        id: 'splitter',
+        label: 'Splitter',
+        emoji: '🔱',
+        hpMult: 1.8,
+        speedMult: 0.85,
+        armorBonus: 0,
+        spawnCount: 1,
+        immune: [],
+        regen: 0,
+        onDeath: 'split',   // special: spawns 2 fast children on death
+        desc: 'Splits into two Dashers on death. Kill fast or face two.'
+    },
+
+    // ── D8+ enemies ───────────────────────────────────────────────────────
+    manasucker: {
+        id: 'manasucker',
+        label: 'Mana Thief',
+        emoji: '💸',
+        hpMult: 1.1,
+        speedMult: 1.2,
+        armorBonus: 0,
+        spawnCount: 1,
+        immune: [],
+        regen: 0,
+        manaLeachMult: 2.5,  // drains 2.5× normal mana on exit
+        desc: 'Steals 2.5× mana if it reaches your base. Top priority.'
+    },
+    berserker: {
+        id: 'berserker',
+        label: 'Berserker',
+        emoji: '🔥',
+        hpMult: 1.2,
+        speedMult: 1.4,
+        armorBonus: 0,
+        spawnCount: 1,
+        immune: [],
+        regen: 0,
+        berserk: true,  // special: speeds up as HP drops
+        desc: 'Accelerates as HP drops — at 10% HP it moves at 3× speed.'
+    },
+
+    // ── D10+ enemies ──────────────────────────────────────────────────────
+    cursed: {
+        id: 'cursed',
+        label: 'Cursed',
+        emoji: '💀',
+        hpMult: 1.5,
+        speedMult: 1.0,
+        armorBonus: 0,
+        spawnCount: 1,
+        immune: ['dmg_nonpurple'],  // special flag: 90% resist to non-purple damage
+        regen: 0,
+        desc: '90% damage reduction from non-Amethyst gems. Purple is the only answer.'
+    },
+
+    // ── D12+ enemies ──────────────────────────────────────────────────────
+    swarmleader: {
+        id: 'swarmleader',
+        label: 'Swarm Lord',
+        emoji: '👑',
+        hpMult: 2.2,
+        speedMult: 0.8,
+        armorBonus: 2,
+        spawnCount: 1,
+        immune: [],
+        regen: 0,
+        spawnsSwarm: true,  // special: spawns a swarm unit every 3s while alive
+        desc: 'Spawns swarm units while alive. Kill it first.'
+    },
+
+    // ── D14+ enemies ──────────────────────────────────────────────────────
+    phantom: {
+        id: 'phantom',
+        label: 'Phantom',
+        emoji: '🌫️',
+        hpMult: 1.0,
+        speedMult: 1.5,
+        armorBonus: 0,
+        spawnCount: 1,
+        immune: ['slow', 'poison', 'dmg_nontrap'],  // only traps and mana leech deal full damage
+        regen: 0,
+        desc: 'Immune to slow, poison, and tower gems. Only traps and leech work.'
+    },
+
+    // ── D16+ enemies ──────────────────────────────────────────────────────
+    titan: {
+        id: 'titan',
+        label: 'Titan',
+        emoji: '🦣',
+        hpMult: 8.0,
+        speedMult: 0.5,
+        armorBonus: 8,
+        spawnCount: 1,
+        immune: [],
+        regen: 0.02,
+        desc: '×8 HP, +8 Armor, regenerates. A boss-tier unit in regular waves.'
     }
 };
 
 // Which enemy types can appear each wave — based on difficulty (1-10)
 function wavePool(waveNum, difficulty) {
     const pool = ['normal'];
-    if (waveNum >= 2 || difficulty >= 2) pool.push('fast');
-    if (waveNum >= 3 || difficulty >= 2) pool.push('swarm');
-    if (waveNum >= 5 || difficulty >= 3) pool.push('armored');
-    if (waveNum >= 6 || difficulty >= 5) pool.push('healer');
-    if (waveNum >= 8 || difficulty >= 7) pool.push('ghost');
+    if (waveNum >= 2  || difficulty >= 2)  pool.push('fast');
+    if (waveNum >= 3  || difficulty >= 2)  pool.push('swarm');
+    if (waveNum >= 5  || difficulty >= 3)  pool.push('armored');
+    if (waveNum >= 6  || difficulty >= 5)  pool.push('healer');
+    if (waveNum >= 8  || difficulty >= 7)  pool.push('ghost');
+    // New enemy types — higher difficulty/wave thresholds
+    if (waveNum >= 10 || difficulty >= 6)  pool.push('giant');
+    if (waveNum >= 12 || difficulty >= 6)  pool.push('splitter');
+    if (waveNum >= 14 || difficulty >= 8)  pool.push('manasucker');
+    if (waveNum >= 16 || difficulty >= 8)  pool.push('berserker');
+    if (waveNum >= 20 || difficulty >= 10) pool.push('cursed');
+    if (waveNum >= 24 || difficulty >= 12) pool.push('swarmleader');
+    if (waveNum >= 30 || difficulty >= 14) pool.push('phantom');
+    if (waveNum >= 36 || difficulty >= 16) pool.push('titan');
     return pool;
 }
 
@@ -98,8 +219,12 @@ function pickWaveComposition(totalSlots, waveNum, difficulty) {
         if (pool.length === 1 || (i === 0 && waveNum <= 3)) {
             pick = 'normal';
         } else {
-            // Weight normal at ~40%, others equally share remaining 60%
-            const weights = pool.map(id => id === 'normal' ? 2 : 1);
+            // Weight: normal=4, common=2, rare/powerful=1
+            const rareTypes = new Set(['giant','titan','swarmleader','phantom','cursed']);
+            const commonTypes = new Set(['fast','swarm','armored','healer','ghost','splitter','manasucker','berserker']);
+            const weights = pool.map(id =>
+                id === 'normal' ? 4 : rareTypes.has(id) ? 1 : commonTypes.has(id) ? 2 : 1
+            );
             const total = weights.reduce((a, b) => a + b, 0);
             let r = Math.random() * total;
             let idx = 0;
@@ -182,8 +307,14 @@ export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, way
                 hp, maxHp: hp,
                 armor,
                 speed: (38 + difficulty * 2) * typeDef.speedMult * modeSpeedMult * loopMult,
+                baseSpeed: (38 + difficulty * 2) * typeDef.speedMult * modeSpeedMult * loopMult,
                 regen: typeDef.regen,
                 immune: [...typeDef.immune],
+                onDeath: typeDef.onDeath || null,
+                manaLeachMult: typeDef.manaLeachMult || 1,
+                berserk: typeDef.berserk || false,
+                spawnsSwarm: typeDef.spawnsSwarm || false,
+                swarmSpawnTimer: typeDef.spawnsSwarm ? 3.0 : 0,
                 pathIdx,
                 x: spawn.x, y: spawn.y, wpIdx: 1,
                 effects: { slow: 0, slowTimer: 0, poison: 0, poisonTimer: 0, poisonTick: 0, lastHit: '', flashTimer: 0, flashColor: '' }

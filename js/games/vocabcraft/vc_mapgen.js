@@ -67,7 +67,7 @@ export const TEMPLATES = [
         id: 'spiral',
         name: 'Spiral-In',
         desc: 'Enemies coil inward from the edge. The center tile sees everything — guard it.',
-        minTier: 3,
+        minTier: 4,
         type: 'spiral',
         skeleton: []
     },
@@ -75,7 +75,7 @@ export const TEMPLATES = [
         id: 'figure8',
         name: 'Figure-8',
         desc: 'Two loops share a crossing at the center. One tower there covers the whole map.',
-        minTier: 3,
+        minTier: 2,
         type: 'figure8',
         skeleton: []
     },
@@ -99,18 +99,19 @@ export const TEMPLATES = [
         ]
     },
     {
-        id: 'crossroads',
-        name: 'Crossroads',
-        desc: 'A proper + intersection. The crossing tile sees every enemy — but you can only build one tower there.',
-        minTier: 2,
-        type: 'crossroads',
+        id: 'trident',
+        name: 'Trident',
+        desc: 'Three spawners in three arms converge on a base in the fourth. Asymmetric pressure — no side is safe.',
+        minTier: 3,
+        type: 'trident',
+        multiPath: true,
         skeleton: []
     },
     {
         id: 'comb',
         name: 'The Comb',
         desc: 'A spine with four teeth. Enemies dip into each tooth and back — short exposure windows.',
-        minTier: 2,
+        minTier: 1,
         type: 'comb',
         skeleton: []
     },
@@ -118,7 +119,7 @@ export const TEMPLATES = [
         id: 'doubleloop',
         name: 'Double Loop',
         desc: 'Two ovals joined by a bridge. Enemies run the full circuit twice — plan for both halves.',
-        minTier: 3,
+        minTier: 2,
         type: 'doubleloop',
         skeleton: []
     },
@@ -126,16 +127,17 @@ export const TEMPLATES = [
         id: 'labyrinth',
         name: 'Labyrinth',
         desc: 'A dense winding maze. The longest path on the smallest space — traps are essential.',
-        minTier: 4,
+        minTier: 1,
         type: 'labyrinth',
         skeleton: []
     },
     {
-        id: 'pinwheel',
-        name: 'Pinwheel',
-        desc: 'Four arms radiate from the center. Every enemy passes the hub — place your best gem there.',
-        minTier: 4,
-        type: 'pinwheel',
+        id: 'fourcorners',
+        name: 'Four Corners',
+        desc: 'Enemies spawn at all four corners and converge on your base at the center. No single approach — total encirclement.',
+        minTier: 5,
+        type: 'fourcorners',
+        multiPath: true,
         skeleton: []
     },
     // ── Multi-path templates ──────────────────────────────────────────────────
@@ -160,6 +162,52 @@ export const TEMPLATES = [
 ];
 
 // ─── Public API ───────────────────────────────────────────────────────────────
+
+
+/**
+ * Returns hex grid positions for the world map.
+ * Pointy-top hexagons arranged in an offset grid.
+ * Each entry: { templateId, col, row, tier }
+ * Tier 1=easy(green), 2=medium(yellow), 3=hard(orange), 4=vhard(red), 5=extreme(purple)
+ */
+export function getHexWorldLayout() {
+    // Flat-top hex grid. col%2===1 shifts down by half a row.
+    // Groups are arranged so same-tier hexes share edges.
+    // Tier 1 (6 maps): 2 columns of 3, cols 0-1
+    // Tier 2 (4 maps): 2 columns of 2, cols 2-3
+    // Tier 3 (2 maps): col 4, rows 0-1
+    // Tier 4 (1 map):  col 4, row 2 (or 5, 0)
+    // Tier 5 (1 map):  col 5, row 0
+    return [
+        // Tier 1 — Easy (green) — 6 maps in a 2×3 block
+        { id: 'gauntlet',    hexCol: 0, hexRow: 0, tier: 1 },
+        { id: 'zigzag',      hexCol: 0, hexRow: 1, tier: 1 },
+        { id: 'uturn',       hexCol: 0, hexRow: 2, tier: 1 },
+        { id: 'scurve',      hexCol: 1, hexRow: 0, tier: 1 },
+        { id: 'labyrinth',   hexCol: 1, hexRow: 1, tier: 1 },
+        { id: 'comb',        hexCol: 1, hexRow: 2, tier: 1 },
+        // Tier 2 — Medium (yellow) — 4 maps in a 2×2 block
+        { id: 'zslash',      hexCol: 2, hexRow: 0, tier: 2 },
+        { id: 'doubleloop',  hexCol: 2, hexRow: 1, tier: 2 },
+        { id: 'figure8',     hexCol: 3, hexRow: 0, tier: 2 },
+        { id: 'delta',       hexCol: 3, hexRow: 1, tier: 2 },
+        // Tier 3 — Hard (orange) — 2 maps stacked
+        { id: 'siege',       hexCol: 4, hexRow: 0, tier: 3 },
+        { id: 'trident',     hexCol: 4, hexRow: 1, tier: 3 },
+        // Tier 4 — Very Hard (red)
+        { id: 'spiral',      hexCol: 5, hexRow: 0, tier: 4 },
+        // Tier 5 — Extreme (purple)
+        { id: 'fourcorners', hexCol: 5, hexRow: 1, tier: 5 },
+    ];
+}
+
+export const HEX_TIER_COLORS = {
+    1: { bg: '#1a3d1a', border: '#2ecc71', label: 'Easy' },
+    2: { bg: '#3d3200', border: '#f1c40f', label: 'Medium' },
+    3: { bg: '#3d1a00', border: '#e67e22', label: 'Hard' },
+    4: { bg: '#3d0a0a', border: '#e74c3c', label: 'Very Hard' },
+    5: { bg: '#2a0a3d', border: '#9b59b6', label: 'Extreme' },
+};
 
 export function getValidTemplates(tier) {
     return TEMPLATES.filter(t => t.minTier <= tier);
@@ -190,7 +238,8 @@ export function generateMap(cols, rows, tier, templateId = null) {
         else if (tpl.type === 'doubleloop') paths = [_doubleLoopGenerator(cols, rows)];
         else if (tpl.type === 'labyrinth')  paths = [_labyrinthGenerator(cols, rows)];
         else if (tpl.type === 'pinwheel')   paths = [_pinwheelGenerator(cols, rows)];
-        else if (tpl.type === 'crossroads') paths = [_crossroadsGenerator(cols, rows)];
+        else if (tpl.type === 'trident')    paths = _tridentGenerator(cols, rows);
+        else if (tpl.type === 'fourcorners') paths = _fourCornersGenerator(cols, rows);
         else if (tpl.type === 'siege')      paths = _siegeGenerator(cols, rows);
         else if (tpl.type === 'delta')      paths = _deltaGenerator(cols, rows);
         else if (tpl.type === 'uturn')      paths = _uturnGenerator(cols, rows);
@@ -290,12 +339,21 @@ export function getTemplateMinimap(templateId, w = 70, h = 90) {
             <circle cx="${rx}" cy="${topY}" r="6" fill="none" stroke="${exit}" stroke-width="1.5" opacity="0.6"/>
         `;
 
-    } else if (tpl.type === 'crossroads') {
-        const cx2 = (w/2).toFixed(1), cy2 = (h/2).toFixed(1);
-        pathD = `M${pad},${cy2} L${(w-pad).toFixed(1)},${cy2} M${cx2},${pad} L${cx2},${(h-pad).toFixed(1)}`;
-        extraSvg = `<circle cx="${pad}" cy="${cy2}" r="${dotR}" fill="${entry}"/>
-            <circle cx="${cx2}" cy="${cy2}" r="${dotR+1}" fill="${exit}"/>
-            <circle cx="${cx2}" cy="${cy2}" r="6" fill="none" stroke="${exit}" stroke-width="1.5" opacity="0.6"/>`;
+    } else if (tpl.type === 'trident') {
+        // 3 spawners → base bottom-right
+        const bx = (w-pad).toFixed(1), by = (h-pad).toFixed(1);
+        const s1x = (pad+iw*0.1).toFixed(1), s1y = String(pad);   // top-left
+        const s2x = (w-pad).toFixed(1),       s2y = String(pad);   // top-right
+        const s3x = String(pad),               s3y = (h/2).toFixed(1); // left-mid
+        extraSvg = `
+            <path d="M${s1x},${s1y} L${bx},${by}" fill="none" stroke="${stroke}" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
+            <path d="M${s2x},${s2y} L${bx},${by}" fill="none" stroke="${stroke2}" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
+            <path d="M${s3x},${s3y} L${bx},${by}" fill="none" stroke="${stroke}" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
+            <circle cx="${s1x}" cy="${s1y}" r="${dotR}" fill="${entry}"/>
+            <circle cx="${s2x}" cy="${s2y}" r="${dotR}" fill="${entry}"/>
+            <circle cx="${s3x}" cy="${s3y}" r="${dotR}" fill="${entry}"/>
+            <circle cx="${bx}" cy="${by}" r="${dotR+1}" fill="${exit}"/>
+            <circle cx="${bx}" cy="${by}" r="6" fill="none" stroke="${exit}" stroke-width="1.5" opacity="0.6"/>`;
 
     } else if (tpl.type === 'comb') {
         const spineY = (h*0.62).toFixed(1), toothTop = (pad+0.08*ih).toFixed(1);
@@ -321,15 +379,23 @@ export function getTemplateMinimap(templateId, w = 70, h = 90) {
         extraSvg = `<circle cx="${toX(0.0).toFixed(1)}" cy="${toY(0.1).toFixed(1)}" r="${dotR}" fill="${entry}"/>
             <circle cx="${toX(1.0).toFixed(1)}" cy="${toY(0.9).toFixed(1)}" r="${dotR}" fill="${exit}"/>`;
 
-    } else if (tpl.type === 'pinwheel') {
+    } else if (tpl.type === 'fourcorners') {
         const cx2 = (w/2).toFixed(1), cy2 = (h/2).toFixed(1);
-        pathD = [`M${cx2},${cy2} L${cx2},${pad.toFixed(1)} L${cx2},${cy2}`,
-            `M${cx2},${cy2} L${(w-pad).toFixed(1)},${cy2} L${cx2},${cy2}`,
-            `M${cx2},${cy2} L${cx2},${(h-pad).toFixed(1)} L${cx2},${cy2}`,
-            `M${cx2},${cy2} L${pad.toFixed(1)},${cy2} L${cx2},${cy2}`].join(' ');
-        extraSvg = `<circle cx="${cx2}" cy="${pad.toFixed(1)}" r="${dotR}" fill="${entry}"/>
+        const tl = [String(pad), String(pad)];
+        const tr = [(w-pad).toFixed(1), String(pad)];
+        const bl = [String(pad), (h-pad).toFixed(1)];
+        const br = [(w-pad).toFixed(1), (h-pad).toFixed(1)];
+        extraSvg = `
+            <path d="M${tl[0]},${tl[1]} L${cx2},${cy2}" fill="none" stroke="${stroke}" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
+            <path d="M${tr[0]},${tr[1]} L${cx2},${cy2}" fill="none" stroke="${stroke2}" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
+            <path d="M${bl[0]},${bl[1]} L${cx2},${cy2}" fill="none" stroke="${stroke}" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
+            <path d="M${br[0]},${br[1]} L${cx2},${cy2}" fill="none" stroke="${stroke2}" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
+            <circle cx="${tl[0]}" cy="${tl[1]}" r="${dotR}" fill="${entry}"/>
+            <circle cx="${tr[0]}" cy="${tr[1]}" r="${dotR}" fill="${entry}"/>
+            <circle cx="${bl[0]}" cy="${bl[1]}" r="${dotR}" fill="${entry}"/>
+            <circle cx="${br[0]}" cy="${br[1]}" r="${dotR}" fill="${entry}"/>
             <circle cx="${cx2}" cy="${cy2}" r="${dotR+1}" fill="${exit}"/>
-            <circle cx="${cx2}" cy="${cy2}" r="6" fill="none" stroke="${exit}" stroke-width="1.5" opacity="0.6"/>`;
+            <circle cx="${cx2}" cy="${cy2}" r="8" fill="none" stroke="${exit}" stroke-width="1.5" opacity="0.6"/>`;
 
     } else if (tpl.type === 'siege') {
         const baseX = (w/2).toFixed(1), baseY = (h-pad).toFixed(1), mergeY = (h*0.78).toFixed(1);
@@ -653,46 +719,68 @@ function _figure8Generator(cols, rows) {
 
     return path;
 }
-// ─── Generator 5: Crossroads (proper + shape) ────────────────────────────────
-// Horizontal run left→right, with a full vertical detour at center column
-// (up to row 1, then down to row rows-2) before continuing right.
+// ─── Generator: Trident (multi-path) ────────────────────────────────────────
+// 3 spawners: top-left, top-right, left-middle → base at bottom-right corner.
 
-function _crossroadsGenerator(cols, rows) {
-    const path = [], visited = new Set();
-    const key = (x, y) => `${x},${y}`;
-    const addPt = (x, y) => {
-        x = Math.max(0, Math.min(cols - 1, x));
-        y = Math.max(0, Math.min(rows - 1, y));
-        if (!visited.has(key(x, y))) { visited.add(key(x, y)); path.push({ x, y }); }
-    };
-    // Re-visits allowed — center tile is visited multiple times
-    const addAlways = (x, y) => {
-        x = Math.max(0, Math.min(cols - 1, x));
-        y = Math.max(0, Math.min(rows - 1, y));
-        path.push({ x, y }); visited.add(key(x, y));
-    };
-
-    const cx = Math.floor(cols / 2), cy = Math.floor(rows / 2);
-
-    // Entry: left edge → center
-    for (let x = 0; x <= cx; x++) addPt(x, cy);
-
-    // North arm: out to top edge and back to center
-    for (let y = cy - 1; y >= 0; y--) addAlways(cx, y);
-    for (let y = 0; y <= cy; y++)     addAlways(cx, y);
-
-    // South arm: out to bottom edge and back to center
-    for (let y = cy + 1; y <= rows - 1; y++) addAlways(cx, y);
-    for (let y = rows - 1; y >= cy; y--)     addAlways(cx, y);
-
-    // East arm: out to right edge and back to center (base)
-    for (let x = cx + 1; x <= cols - 1; x++) addAlways(x, cy);
-    for (let x = cols - 1; x >= cx; x--)     addAlways(x, cy);
-
-    // Final point is (cx, cy) — the base
-    return path;
+function _tridentGenerator(cols, rows) {
+    const baseX = cols - 2, baseY = rows - 2;
+    const spawns = [
+        { x: 1,              y: 0 },           // top-left
+        { x: cols - 2,       y: 0 },           // top-right
+        { x: 0,              y: Math.floor(rows / 2) }  // left-middle
+    ];
+    return spawns.map(spawn => {
+        const path = [], visited = new Set();
+        const key = (x, y) => `${x},${y}`;
+        const addPt = (x, y) => {
+            x = Math.max(0, Math.min(cols - 1, x));
+            y = Math.max(0, Math.min(rows - 1, y));
+            if (!visited.has(key(x, y))) { visited.add(key(x, y)); path.push({ x, y }); }
+        };
+        // Walk from spawn to base: first go toward base column, then toward base row
+        let cx = spawn.x, cy = spawn.y;
+        addPt(cx, cy);
+        // Move horizontally toward baseX
+        const stepX = cx < baseX ? 1 : -1;
+        while (cx !== baseX) { cx += stepX; addPt(cx, cy); }
+        // Move vertically toward baseY
+        const stepY = cy < baseY ? 1 : -1;
+        while (cy !== baseY) { cy += stepY; addPt(cx, cy); }
+        return path;
+    });
 }
 
+// ─── Generator: Four Corners (multi-path) ────────────────────────────────────
+// 4 spawners at the four corners → base at center. Total encirclement.
+
+function _fourCornersGenerator(cols, rows) {
+    const cx = Math.floor(cols / 2), cy = Math.floor(rows / 2);
+    const corners = [
+        { x: 0,        y: 0 },
+        { x: cols - 1, y: 0 },
+        { x: 0,        y: rows - 1 },
+        { x: cols - 1, y: rows - 1 }
+    ];
+    return corners.map(corner => {
+        const path = [], visited = new Set();
+        const key = (x, y) => `${x},${y}`;
+        const addPt = (x, y) => {
+            x = Math.max(0, Math.min(cols - 1, x));
+            y = Math.max(0, Math.min(rows - 1, y));
+            if (!visited.has(key(x, y))) { visited.add(key(x, y)); path.push({ x, y }); }
+        };
+        let px = corner.x, py = corner.y;
+        addPt(px, py);
+        // Walk diagonally: alternate x then y steps toward center
+        while (px !== cx || py !== cy) {
+            if (px !== cx) { px += px < cx ? 1 : -1; addPt(px, py); }
+            if (py !== cy) { py += py < cy ? 1 : -1; addPt(px, py); }
+        }
+        return path;
+    });
+}
+
+// ─── Generator 8: Labyrinth ───────────────────────────────────────────────────
 // ─── Generator 6: Comb ───────────────────────────────────────────────────────
 
 function _combGenerator(cols, rows) {
@@ -799,35 +887,6 @@ function _labyrinthGenerator(cols, rows) {
     }
     const startTile = cellToTile(0, 0), endTile = cellToTile(endCell.c, endCell.r);
     return [{ x: 0, y: startTile.y }, ...tilePath, { x: cols - 1, y: endTile.y }];
-}
-
-// ─── Generator 9: Pinwheel ───────────────────────────────────────────────────
-
-function _pinwheelGenerator(cols, rows) {
-    const path = [];
-    const addPt = (x, y) => path.push({
-        x: Math.max(0, Math.min(cols - 1, x)),
-        y: Math.max(0, Math.min(rows - 1, y))
-    });
-    const cx = Math.floor(cols / 2), cy = Math.floor(rows / 2), margin = 1;
-
-    // Entry: top edge down to hub
-    for (let y = 0; y < cy; y++) addPt(cx, y);
-
-    // East arm: hub → right edge → back to hub
-    for (let x = cx; x <= cols - 1 - margin; x++) addPt(x, cy);
-    for (let x = cols - 1 - margin; x >= cx; x--) addPt(x, cy);
-
-    // South arm: hub → bottom edge → back to hub
-    for (let y = cy; y <= rows - 1 - margin; y++) addPt(cx, y);
-    for (let y = rows - 1 - margin; y >= cy; y--) addPt(cx, y);
-
-    // West arm: hub → left edge → back to hub
-    for (let x = cx; x >= margin; x--) addPt(x, cy);
-    for (let x = margin; x <= cx; x++) addPt(x, cy);
-
-    // Final point is (cx, cy) — the base, at the hub
-    return path;
 }
 
 // ─── Generator 11: Siege (multi-path) ────────────────────────────────────────

@@ -2,7 +2,7 @@ import { mountVocabSelector, getBannedWords } from '../../vocab_selector.js';
 import * as srsDb from '../../srs_db.js';
 import { loadMeta, saveMeta, addXP, resetSkills, SKILL_DEFS, getDefaultSave,
          clearStage, highestDifficultyCleared, isStageCleared, isStageUnlocked } from './vc_meta.js';
-import { generateMap, getValidTemplates, getTemplateMinimap, TEMPLATES } from './vc_mapgen.js';
+import { generateMap, getValidTemplates, getTemplateMinimap, TEMPLATES, getHexWorldLayout, HEX_TIER_COLORS } from './vc_mapgen.js';
 import { setVocabQueue, showCard } from './vc_vocab.js';
 import { VcEngine } from './vc_engine.js';
 import { VcUI } from './vc_ui.js';
@@ -420,6 +420,26 @@ function _showSettingsOverlay() {
     };
 }
 
+
+/**
+ * Returns the highest tier that is fully unlocked for play.
+ * Tier 1 is always unlocked.
+ * Tier N unlocks when every map of tier N-1 has been cleared at least on D1.
+ */
+function _highestUnlockedTier() {
+    const layout = getHexWorldLayout();
+    let tier = 1;
+    while (true) {
+        const thisTierMaps = layout.filter(n => n.tier === tier);
+        if (thisTierMaps.length === 0) break;
+        // All maps in this tier must have D1 cleared
+        const allDone = thisTierMaps.every(n => isStageCleared(_meta, n.id, 1));
+        if (!allDone) break;
+        tier++;
+    }
+    return tier; // highest tier accessible
+}
+
 function _showCamp() {
     _screens.game.querySelector('#vc-battle-layer').style.display = 'none';
     _screens.game.querySelector('#vc-camp-layer').style.display = 'flex';
@@ -442,81 +462,369 @@ function _showCamp() {
 
     const list = _screens.game.querySelector('#vc-stage-list');
     list.innerHTML = '';
+    _renderHexWorldMap(list);
+}
 
-    const maxDiff = highestDifficultyCleared(_meta);
+function _renderHexWorldMap(container) {
+    const layout       = getHexWorldLayout();
+    const unlockedTier = _highestUnlockedTier();
 
-    TEMPLATES.forEach(tpl => {
-        // Template locked if player hasn't reached its minTier difficulty yet.
-        // Debug mode overrides: show everything as available.
-        const tplLockedActual = tpl.minTier > 1 && maxDiff < tpl.minTier - 1;
-        const tplLocked = tplLockedActual && !_debugUnlockAll;
+    // Flat-top hexagons — wider than tall, better for horizontal text labels.
+    // R = outer radius. Flat-top: width = 2R, height = sqrt(3)*R.
+    // Adjacent hexes share an edge when centres are 2R apart horizontally
+    // or sqrt(3)*R apart vertically.
+    const HEX_R    = 68;
+    const HEX_W    = 2 * HEX_R;                // 136px
+    const HEX_H    = Math.sqrt(3) * HEX_R;     // ~118px
+    const COL_STEP = HEX_W * 0.75;             // touching: 3/4 of width
+    const ROW_STEP = HEX_H;                    // touching: full height
+    const PAD      = HEX_R;
 
-        const card = document.createElement('div');
-        card.className = 'vc-stage-card';
-        card.style.cssText = 'align-items:flex-start; gap:10px; cursor:default; flex-direction:column;';
-        if (tplLocked) card.style.opacity = '0.45';
+    // Flat-top hex: col offset every other column by half a row
+    function hexCenter(col, row) {
+        const x = PAD + col * COL_STEP;
+        const y = PAD + row * ROW_STEP + (col % 2 === 1 ? HEX_H / 2 : 0);
+        return { x, y };
+    }
 
-        // ── Header row: minimap + title/desc ─────────────────────────────────
-        const minimapSvg = getTemplateMinimap(tpl.id, 58, 74);
-        const waveCount  = 10 + 7 * 1; // D1 baseline; shown generically
-        const headerRow  = document.createElement('div');
-        headerRow.style.cssText = 'display:flex; gap:10px; width:100%; align-items:flex-start;';
-        headerRow.innerHTML = `
-            <div style="flex-shrink:0; border-radius:4px; overflow:hidden; border:1px solid #4a5568;">
-                ${tplLocked
-                    ? `<div style="width:58px;height:74px;background:#1a252f;display:flex;align-items:center;justify-content:center;font-size:20px;">🔒</div>`
-                    : minimapSvg}
-            </div>
-            <div style="flex:1; min-width:0;">
-                <div style="font-size:15px; font-weight:bold; color:#ecf0f1; margin-bottom:3px;">${tpl.name}</div>
-                <div style="font-size:11px; color:#bdc3c7; line-height:1.4; margin-bottom:5px;">${tpl.desc}</div>
-                ${tplLocked
-                    ? `<div style="font-size:11px; color:#e74c3c;">🔒 Clear difficulty ${tpl.minTier - 1} on any map to unlock</div>`
-                    : (tplLockedActual && _debugUnlockAll
-                        ? `<div style="font-size:11px; color:#8e44ad;">🔓 Debug unlocked — normally requires clearing D${tpl.minTier - 1}</div>`
-                        : '')}
-            </div>
-        `;
-        card.appendChild(headerRow);
+    // Flat-top hex path (vertex at left/right)
+    function hexPath(cx, cy, r) {
+        const pts = [];
+        for (let i = 0; i < 6; i++) {
+            const a = Math.PI / 180 * (60 * i);   // 0°=right vertex
+            pts.push(`${(cx + r * Math.cos(a)).toFixed(1)},${(cy + r * Math.sin(a)).toFixed(1)}`);
+        }
+        return `M${pts.join('L')}Z`;
+    }
+
+    // Compute canvas bounds
+    const centres = layout.map(n => hexCenter(n.hexCol, n.hexRow));
+    const svgW = Math.ceil(Math.max(...centres.map(c => c.x)) + PAD + HEX_R);
+    const svgH = Math.ceil(Math.max(...centres.map(c => c.y)) + PAD + HEX_H * 0.5);
+
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const svg   = document.createElementNS(svgNS, 'svg');
+    svg.setAttribute('width',  svgW);
+    svg.setAttribute('height', svgH);
+    svg.style.cssText = 'display:block;margin:0 auto;overflow:visible;touch-action:pan-y;';
+
+    // Single shared defs block
+    const defs = document.createElementNS(svgNS, 'defs');
+    svg.appendChild(defs);
+
+    layout.forEach((node, idx) => {
+        const tpl = TEMPLATES.find(t => t.id === node.id);
+        if (!tpl) return;
+
+        const tplLockedActual = node.tier > unlockedTier;
+        const tplLocked       = tplLockedActual && !_debugUnlockAll;
+        const colors          = HEX_TIER_COLORS[node.tier];
+        const { x: cx, y: cy } = centres[idx];
+
+        // ── Hex background ──────────────────────────────────────────────────
+        const hexBg = document.createElementNS(svgNS, 'path');
+        hexBg.setAttribute('d', hexPath(cx, cy, HEX_R - 1));
+        hexBg.setAttribute('fill',   tplLocked ? '#111' : colors.bg);
+        hexBg.setAttribute('stroke', tplLocked ? '#2a2a2a' : colors.border);
+        hexBg.setAttribute('stroke-width', '2.5');
+        svg.appendChild(hexBg);
 
         if (!tplLocked) {
-            // ── Difficulty dots row ───────────────────────────────────────────
-            const dotsRow = document.createElement('div');
-            dotsRow.style.cssText = 'display:flex; gap:6px; flex-wrap:wrap; width:100%;';
+            // ── Minimap clipped to hex ──────────────────────────────────────
+            const clipId   = `hclip-${node.id}`;
+            const clip     = document.createElementNS(svgNS, 'clipPath');
+            clip.setAttribute('id', clipId);
+            const cp = document.createElementNS(svgNS, 'path');
+            cp.setAttribute('d', hexPath(cx, cy, HEX_R - 4));
+            clip.appendChild(cp);
+            defs.appendChild(clip);
 
-            for (let d = 1; d <= 18; d++) {
-                const clearedActual  = isStageCleared(_meta, tpl.id, d);
-                // Unlocked if: (actual previous-diff cleared OR debug mode) AND template not locked
-                const unlockedActual = isStageUnlocked(_meta, tpl.id, d);
-                const unlocked = unlockedActual || _debugUnlockAll;
-                const cleared  = clearedActual;
-                const waves    = 10 + 7 * d + (_meta.skills.bonusWaves || 0) * 3;
+            // Minimap fills the inner hex
+            const mmSize   = Math.floor(HEX_R * 1.55);
+            const mmSvgStr = getTemplateMinimap(tpl.id, mmSize, mmSize);
+            const fo = document.createElementNS(svgNS, 'foreignObject');
+            fo.setAttribute('x', (cx - mmSize / 2).toFixed(1));
+            fo.setAttribute('y', (cy - mmSize / 2).toFixed(1));
+            fo.setAttribute('width',  mmSize);
+            fo.setAttribute('height', mmSize);
+            fo.setAttribute('clip-path', `url(#${clipId})`);
+            fo.setAttribute('pointer-events', 'none');
+            fo.innerHTML = mmSvgStr;
+            svg.appendChild(fo);
 
-                const dot = document.createElement('div');
-                dot.title = `D${d} — ${waves} waves${cleared ? ' ✅' : unlocked ? '' : ' 🔒'}${_debugUnlockAll && !unlockedActual ? ' (debug)' : ''}`;
-                dot.style.cssText = [
-                    'width:28px', 'height:28px', 'border-radius:6px',
-                    'display:flex', 'align-items:center', 'justify-content:center',
-                    'font-size:11px', 'font-weight:bold', 'cursor:pointer',
-                    'border:2px solid',
-                    cleared          ? 'background:#1a5e36; border-color:#2ecc71; color:#2ecc71;' :
-                    unlockedActual   ? 'background:#1a252f; border-color:#3498db; color:#3498db;' :
-                    _debugUnlockAll  ? 'background:#3d1a5e; border-color:#8e44ad; color:#c39bd3;' :
-                                       'background:#1a252f; border-color:#4a5568; color:#4a5568; cursor:default; opacity:0.5;'
-                ].join(';');
-                dot.textContent = d;
-
-                if (unlocked) {
-                    dot.onclick = () => _confirmAndStartBattle(tpl.id, d);
-                }
-
-                dotsRow.appendChild(dot);
-            }
-            card.appendChild(dotsRow);
+            // Semi-transparent overlay so label is readable
+            const ov = document.createElementNS(svgNS, 'path');
+            ov.setAttribute('d',    hexPath(cx, cy, HEX_R - 4));
+            ov.setAttribute('fill', 'rgba(0,0,0,0.30)');
+            ov.setAttribute('pointer-events', 'none');
+            svg.appendChild(ov);
+        } else {
+            // Lock icon centred
+            const lock = document.createElementNS(svgNS, 'text');
+            lock.setAttribute('x', cx);
+            lock.setAttribute('y', (cy + 10).toFixed(1));
+            lock.setAttribute('text-anchor', 'middle');
+            lock.setAttribute('font-size', '30');
+            lock.setAttribute('pointer-events', 'none');
+            lock.textContent = '🔒';
+            svg.appendChild(lock);
         }
 
-        list.appendChild(card);
+        // ── Name label — centred, inside lower third ────────────────────────
+        const label = document.createElementNS(svgNS, 'text');
+        label.setAttribute('x', cx);
+        label.setAttribute('y', (cy + HEX_H * 0.28).toFixed(1));
+        label.setAttribute('text-anchor', 'middle');
+        label.setAttribute('font-size', tpl.name.length > 10 ? '9' : '10');
+        label.setAttribute('font-weight', 'bold');
+        label.setAttribute('font-family', 'Segoe UI, sans-serif');
+        label.setAttribute('fill',   tplLocked ? '#444' : '#ecf0f1');
+        label.setAttribute('pointer-events', 'none');
+        // Drop shadow via paint-order so text is readable over the minimap
+        label.setAttribute('stroke', 'rgba(0,0,0,0.8)');
+        label.setAttribute('stroke-width', '2.5');
+        label.setAttribute('paint-order', 'stroke');
+        label.textContent = tpl.name;
+        svg.appendChild(label);
+
+        // ── Best-cleared badge ──────────────────────────────────────────────
+        if (!tplLocked) {
+            let bestD = 0;
+            for (let d = 18; d >= 1; d--) {
+                if (isStageCleared(_meta, tpl.id, d)) { bestD = d; break; }
+            }
+            if (bestD > 0) {
+                const badge = document.createElementNS(svgNS, 'text');
+                badge.setAttribute('x', (cx + HEX_R * 0.62).toFixed(1));
+                badge.setAttribute('y', (cy - HEX_H * 0.3).toFixed(1));
+                badge.setAttribute('text-anchor', 'middle');
+                badge.setAttribute('font-size', '10');
+                badge.setAttribute('font-weight', 'bold');
+                badge.setAttribute('fill', '#f1c40f');
+                badge.setAttribute('stroke', 'rgba(0,0,0,0.8)');
+                badge.setAttribute('stroke-width', '2');
+                badge.setAttribute('paint-order', 'stroke');
+                badge.setAttribute('pointer-events', 'none');
+                badge.textContent = `★D${bestD}`;
+                svg.appendChild(badge);
+            }
+        }
+
+        // ── Transparent click target on top (catches all events reliably) ───
+        const hitArea = document.createElementNS(svgNS, 'path');
+        hitArea.setAttribute('d',    hexPath(cx, cy, HEX_R - 1));
+        hitArea.setAttribute('fill', 'transparent');
+        hitArea.setAttribute('stroke', 'none');
+        hitArea.style.cursor = tplLocked ? 'default' : 'pointer';
+        if (!tplLocked) {
+            hitArea.addEventListener('click', () => _showHexDetail(tpl, node, colors, tplLockedActual));
+        }
+        svg.appendChild(hitArea);
     });
+
+    container.appendChild(svg);
+}
+
+function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
+    // Full-screen overlay replacing the camp layer content
+    const existing = _screens.game.querySelector('#vc-hex-detail');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'vc-hex-detail';
+    overlay.style.cssText = [
+        'position:absolute', 'inset:0', 'background:#1a252f',
+        'z-index:50', 'display:flex', 'flex-direction:column',
+        'overflow:hidden'
+    ].join(';');
+
+    // ── Header ──────────────────────────────────────────────────────────────
+    const mmSvg = getTemplateMinimap(tpl.id, 56, 72);
+    const header = document.createElement('div');
+    header.style.cssText = `display:flex;gap:10px;align-items:flex-start;padding:12px 14px 10px;border-bottom:2px solid ${colors.border};flex-shrink:0;`;
+    header.innerHTML = `
+        <div style="flex-shrink:0;border-radius:6px;overflow:hidden;border:2px solid ${colors.border};">${mmSvg}</div>
+        <div style="flex:1;min-width:0;">
+            <div style="font-size:15px;font-weight:bold;color:${colors.border};">${tpl.name}</div>
+            <div style="font-size:11px;color:#bdc3c7;line-height:1.4;margin-top:2px;">${tpl.desc}</div>
+            ${tplLockedActual && !_debugUnlockAll ? `<div style="font-size:10px;color:#e74c3c;margin-top:3px;">🔒 Clear all Tier ${node.tier-1} maps on D1 to unlock</div>` : ''}
+        </div>
+        <button id="vc-hex-close" style="background:none;border:none;color:#7f8c8d;font-size:22px;cursor:pointer;padding:0 4px;flex-shrink:0;line-height:1;">✕</button>
+    `;
+    overlay.appendChild(header);
+
+    // ── Scrollable body ──────────────────────────────────────────────────────
+    const body = document.createElement('div');
+    body.style.cssText = 'flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px 14px 20px;display:flex;flex-direction:column;gap:10px;';
+    overlay.appendChild(body);
+
+    // ── Difficulty selector ──────────────────────────────────────────────────
+    let selectedD = (() => {
+        // Default to highest cleared+1, or 1
+        for (let d = 18; d >= 1; d--) if (isStageCleared(_meta, tpl.id, d)) return Math.min(18, d + 1);
+        return 1;
+    })();
+
+    const diffSection = document.createElement('div');
+    diffSection.innerHTML = `<div style="font-size:10px;font-weight:bold;color:#f1c40f;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">⚔️ Select Difficulty</div>`;
+    const dotsWrap = document.createElement('div');
+    dotsWrap.style.cssText = 'display:flex;gap:5px;flex-wrap:wrap;';
+
+    function renderDots() {
+        dotsWrap.innerHTML = '';
+        for (let d = 1; d <= 18; d++) {
+            const cleared        = isStageCleared(_meta, tpl.id, d);
+            const unlockedActual = isStageUnlocked(_meta, tpl.id, d);
+            const unlocked       = unlockedActual || _debugUnlockAll;
+            const isSelected     = d === selectedD;
+            const dot = document.createElement('div');
+            dot.style.cssText = [
+                'width:32px', 'height:32px', 'border-radius:6px', 'flex-shrink:0',
+                'display:flex', 'align-items:center', 'justify-content:center',
+                'font-size:12px', 'font-weight:bold', 'border:2px solid',
+                isSelected       ? 'background:#f1c40f;border-color:#f1c40f;color:#1a252f;cursor:pointer;' :
+                cleared          ? 'background:#1a5e36;border-color:#2ecc71;color:#2ecc71;cursor:pointer;' :
+                unlockedActual   ? 'background:#1a252f;border-color:#3498db;color:#3498db;cursor:pointer;' :
+                _debugUnlockAll  ? 'background:#3d1a5e;border-color:#8e44ad;color:#c39bd3;cursor:pointer;' :
+                                   'background:#111;border-color:#333;color:#444;cursor:default;opacity:0.4;'
+            ].join(';');
+            dot.textContent = d;
+            if (unlocked) {
+                dot.addEventListener('click', e => {
+                    e.stopPropagation();
+                    selectedD = d;
+                    renderDots();
+                    renderWavePreview();
+                });
+            }
+            dotsWrap.appendChild(dot);
+        }
+    }
+    diffSection.appendChild(dotsWrap);
+    body.appendChild(diffSection);
+
+    // ── Wave preview (updates when difficulty changes) ───────────────────────
+    const waveSection = document.createElement('div');
+    body.appendChild(waveSection);
+
+    function renderWavePreview() {
+        const waves   = 10 + 7 * selectedD + (_meta.skills.bonusWaves || 0) * 3;
+        const baseArmor = Math.floor((selectedD - 1) / 2);
+        const cleared = isStageCleared(_meta, tpl.id, selectedD);
+        const statusLine = cleared ? '✅ Cleared' : '⚔️ Not cleared';
+
+        const preview = getWavePreview(waves, selectedD);
+        const fullPool = getWavePreview(80, selectedD);
+        const legendMap = new Map();
+        fullPool.forEach(w => w.types.forEach(t => {
+            if (!legendMap.has(t.typeId)) legendMap.set(t.typeId, t);
+        }));
+
+        const waveCardsHtml = preview.map(w => {
+            const isBoss = w.isBoss;
+            const cardBg  = isBoss ? '#3d0a0a' : '#1e2d3d';
+            const cardBdr = isBoss ? '#e74c3c' : '#2c4a66';
+            const numClr  = isBoss ? '#e74c3c' : '#7fb3d3';
+            const emojis  = isBoss
+                ? `<div style="font-size:20px;line-height:1.1;margin:2px 0;">👹</div>`
+                : `<div style="font-size:13px;line-height:1.3;letter-spacing:1px;margin:2px 0;">${w.types.map(t=>t.emoji).join('')}</div>`;
+            const hps = w.types.map(t=>t.hp);
+            const lo = Math.min(...hps), hi = Math.max(...hps);
+            const hpLine = `<div style="font-size:9px;color:${isBoss?'#f39c12':'#aac8e0'};">❤️ ${lo===hi?lo:lo+'–'+hi}</div>`;
+            const armorVal = Math.max(...w.types.map(t=>t.armor));
+            const flags = [armorVal>0?`🛡️${armorVal}`:null, w.types.some(t=>t.immune.length)?'🚫':null, w.types.some(t=>t.regen>0)?'💚':null].filter(Boolean).join(' ');
+            return `<div data-wcard="${w.wave}" style="flex-shrink:0;width:60px;min-height:95px;background:${cardBg};border:1px solid ${cardBdr};border-radius:7px;padding:4px 2px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:1px;text-align:center;">
+                <div style="font-size:10px;font-weight:bold;color:${numClr};">W${w.wave}${isBoss?' 🔥':''}</div>
+                ${emojis}
+                <div style="font-size:9px;color:#bdc3c7;">${isBoss?'BOSS':'~'+w.slots}</div>
+                ${hpLine}
+                <div style="font-size:9px;color:#95a5a6;">${flags||'–'}</div>
+            </div>`;
+        }).join('');
+
+        const legendHtml = [...legendMap.values()].map(t => {
+            const immBadge = t.immune.filter(i => !i.startsWith('dmg_')).length
+                ? `<span style="font-size:9px;color:#e74c3c;margin-left:3px;">🚫${t.immune.filter(i=>!i.startsWith('dmg_')).join('/')}</span>` : '';
+            const regenBadge = t.regen > 0 ? `<span style="font-size:9px;color:#2ecc71;margin-left:3px;">♻️</span>` : '';
+            return `<div style="display:flex;align-items:flex-start;gap:6px;padding:5px 6px;background:#1a252f;border-radius:5px;border-left:3px solid #2c4a66;">
+                <span style="font-size:18px;line-height:1;">${t.emoji}</span>
+                <div style="flex:1;min-width:0;">
+                    <div style="font-size:11px;font-weight:bold;color:#ecf0f1;">${t.label}${immBadge}${regenBadge}</div>
+                    <div style="font-size:10px;color:#95a5a6;line-height:1.3;">${t.desc}</div>
+                </div>
+                <div style="text-align:right;white-space:nowrap;font-size:10px;color:#7fb3d3;">❤️${t.hp}<br>🛡️${t.armor}</div>
+            </div>`;
+        }).join('');
+
+        waveSection.innerHTML = `
+            <div style="display:flex;flex-wrap:wrap;gap:5px;font-size:11px;margin-bottom:6px;">
+                <span style="background:#34495e;padding:3px 8px;border-radius:4px;color:#ecf0f1;font-size:11px;font-weight:bold;">🌊 ${waves} waves</span>
+                <span style="background:#34495e;padding:3px 8px;border-radius:4px;color:#ecf0f1;font-size:11px;font-weight:bold;">🛡️ +${baseArmor} base armor</span>
+                <span style="background:#34495e;padding:3px 8px;border-radius:4px;color:#ecf0f1;font-size:11px;font-weight:bold;">💰 ${selectedD}× XP</span>
+                <span style="background:#34495e;padding:3px 8px;border-radius:4px;color:#ecf0f1;font-size:11px;font-weight:bold;">${statusLine}</span>
+            </div>
+            <div style="font-size:10px;font-weight:bold;color:#f1c40f;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px;">📋 Wave Preview</div>
+            <div style="display:flex;gap:5px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:3px 1px 8px;">${waveCardsHtml}</div>
+            <div id="vc-wv-detail2" style="display:none;background:#1a2d3d;border:1px solid #2c4a66;border-radius:7px;padding:8px;margin-bottom:6px;"></div>
+            <div id="vc-legend-toggle2" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;padding:6px 8px;background:#1a2d3d;border:1px solid #2c4a66;border-radius:7px;margin-top:2px;">
+                <div style="font-size:10px;font-weight:bold;color:#f1c40f;text-transform:uppercase;letter-spacing:1px;">👾 Enemy Types</div>
+                <div id="vc-legend-chevron2" style="font-size:12px;color:#7fb3d3;transition:transform 0.2s;">▶</div>
+            </div>
+            <div id="vc-legend-list2" style="display:none;flex-direction:column;gap:4px;">${legendHtml}</div>
+        `;
+
+        // Enemy types toggle — collapsed by default
+        const lt2 = waveSection.querySelector('#vc-legend-toggle2');
+        const ll2 = waveSection.querySelector('#vc-legend-list2');
+        const lc2 = waveSection.querySelector('#vc-legend-chevron2');
+        if (lt2 && ll2) {
+            lt2.addEventListener('click', () => {
+                const open = ll2.style.display !== 'none';
+                ll2.style.display = open ? 'none' : 'flex';
+                if (lc2) lc2.style.transform = open ? '' : 'rotate(90deg)';
+            });
+        }
+
+        // Wave card click
+        const det2 = waveSection.querySelector('#vc-wv-detail2');
+        let activeWave = null;
+        waveSection.querySelectorAll('[data-wcard]').forEach(card => {
+            card.addEventListener('click', () => {
+                const wNum = parseInt(card.dataset.wcard);
+                const w = preview.find(x => x.wave === wNum);
+                if (activeWave === wNum) { activeWave = null; det2.style.display = 'none'; return; }
+                activeWave = wNum;
+                det2.style.display = 'block';
+                const rows = w.types.map(t => `<div style="display:flex;align-items:flex-start;gap:8px;padding:4px 0;border-bottom:1px solid #1a252f;">
+                    <span style="font-size:18px;">${t.emoji}</span>
+                    <div style="flex:1;"><div style="font-size:11px;font-weight:bold;color:#ecf0f1;">${t.label}</div>
+                    <div style="font-size:10px;color:#95a5a6;">${t.desc}</div></div>
+                    <div style="font-size:10px;color:#7fb3d3;white-space:nowrap;text-align:right;">❤️${t.hp}<br>🛡️${t.armor}</div>
+                </div>`).join('');
+                det2.innerHTML = `<div style="font-size:11px;font-weight:bold;color:#7fb3d3;margin-bottom:5px;">Wave ${wNum}${w.isBoss?' — 🔥 Boss':''}</div>${rows}`;
+            });
+        });
+    }
+
+    renderDots();
+    renderWavePreview();
+
+    // ── Bottom action bar ────────────────────────────────────────────────────
+    const footer = document.createElement('div');
+    footer.style.cssText = 'flex-shrink:0;padding:10px 14px 16px;border-top:1px solid #34495e;background:#1a252f;';
+    footer.innerHTML = `<button id="vc-hex-go" style="width:100%;padding:14px;background:#2ecc71;border:2px solid #27ae60;border-radius:8px;color:white;font-weight:bold;font-size:16px;cursor:pointer;">⚔️ Enter Battle</button>`;
+    overlay.appendChild(footer);
+
+    footer.querySelector('#vc-hex-go').onclick = () => {
+        const unlockedActual = isStageUnlocked(_meta, tpl.id, selectedD);
+        if (!unlockedActual && !_debugUnlockAll) return;
+        overlay.remove();
+        _startBattle(tpl.id, selectedD, _gameMode);
+    };
+
+    header.querySelector('#vc-hex-close').onclick = () => overlay.remove();
+
+    _screens.game.querySelector('#vc-camp-layer').appendChild(overlay);
 }
 
 function _confirmAndStartBattle(templateId, difficulty) {
@@ -545,9 +853,11 @@ function _confirmAndStartBattle(templateId, difficulty) {
     // ── Wave preview data ────────────────────────────────────────────────────
     const preview   = getWavePreview(waves, difficulty);
 
-    // Collect all unique enemy types across all waves for the legend
+    // Show ALL enemy types that can appear at this difficulty (not just in preview wave count).
+    // Use a high wave number to capture late-unlocking types.
+    const fullPool = getWavePreview(80, difficulty);
     const legendMap = new Map();
-    preview.forEach(w => w.types.forEach(t => {
+    fullPool.forEach(w => w.types.forEach(t => {
         if (!legendMap.has(t.typeId)) legendMap.set(t.typeId, t);
     }));
 
@@ -628,10 +938,10 @@ function _confirmAndStartBattle(templateId, difficulty) {
             <div style="flex:1;min-width:0;">
                 <div style="font-size:11px;color:#bdc3c7;line-height:1.5;margin-bottom:8px;">${tpl.desc}</div>
                 <div style="display:flex;flex-wrap:wrap;gap:5px;font-size:11px;">
-                    <span style="background:#34495e;padding:2px 7px;border-radius:4px;">🌊 ${waves} waves</span>
-                    <span style="background:#34495e;padding:2px 7px;border-radius:4px;">🛡️ +${baseArmor} armor</span>
-                    <span style="background:#34495e;padding:2px 7px;border-radius:4px;">💰 ${difficulty}× XP</span>
-                    <span style="background:#34495e;padding:2px 7px;border-radius:4px;">${statusLine}</span>
+                    <span style="background:#34495e;padding:3px 8px;border-radius:4px;color:#ecf0f1;font-size:11px;font-weight:bold;">🌊 ${waves} waves</span>
+                    <span style="background:#34495e;padding:3px 8px;border-radius:4px;color:#ecf0f1;font-size:11px;font-weight:bold;">🛡️ +${baseArmor} armor</span>
+                    <span style="background:#34495e;padding:3px 8px;border-radius:4px;color:#ecf0f1;font-size:11px;font-weight:bold;">💰 ${difficulty}× XP</span>
+                    <span style="background:#34495e;padding:3px 8px;border-radius:4px;color:#ecf0f1;font-size:11px;font-weight:bold;">${statusLine}</span>
                 </div>
             </div>
         </div>
