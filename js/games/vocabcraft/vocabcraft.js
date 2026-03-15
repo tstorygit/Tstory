@@ -20,6 +20,7 @@ let _speedMult = 1;
 // Toggled by the 🔓 button; OFF by default so real unlock state is always visible.
 let _debugUnlockAll = false;
 let _gameMode = 'hard'; // 'easy' | 'normal' | 'hard'
+let _customDeckActive = false; // true when user explicitly chose a non-SRS deck
 
 const BANNED_KEY = 'vocabcraft_banned';
 
@@ -184,15 +185,19 @@ export function launch() {
     _meta = loadMeta();
 
     const srsQueue = _buildSrsQueue();
-    if (srsQueue.length > 0) {
-        // SRS words available — skip the selector, go straight to camp.
+    if (srsQueue.length > 0 && !_customDeckActive) {
+        // SRS words available and user hasn't chosen a custom deck — use SRS.
         setVocabQueue(srsQueue);
         _show('game');
         _showCamp();
-    } else {
-        // No SRS words yet — show the deck selector as fallback.
+    } else if (srsQueue.length === 0) {
+        // No SRS words at all — show the deck selector.
         _show('setup');
         _renderSetup();
+    } else {
+        // Custom deck active — go straight to camp with whatever queue is set.
+        _show('game');
+        _showCamp();
     }
 }
 
@@ -252,6 +257,7 @@ function _renderSetup() {
     startBtn.addEventListener('click', async () => {
         const queue = await _selector.getQueue();
         if (!queue.length) return;
+        _customDeckActive = true;  // user explicitly chose this deck — don't override with SRS
         setVocabQueue(queue);
         _show('game');
         _showCamp();
@@ -366,6 +372,7 @@ function _showSettingsOverlay() {
     // Words
     overlay.querySelector('#vc-settings-words').onclick = () => {
         overlay.remove();
+        _customDeckActive = false;  // reset so user can re-select SRS or a new deck
         _screens.game.querySelector('#vc-camp-layer').style.display = 'none';
         _show('setup');
         _renderSetup();
@@ -448,12 +455,12 @@ function _showCamp() {
     const stale = _screens.game.querySelector('#vc-map-confirm');
     if (stale) stale.remove();
 
-    // Silently refresh the SRS queue each time we return to camp — this picks up
-    // any words that became due mid-session. Only refreshes if the current queue
-    // is SRS-sourced (i.e. user hasn't manually chosen a custom deck).
-    const freshSrs = _buildSrsQueue();
-    if (freshSrs.length > 0) {
-        setVocabQueue(freshSrs);
+    // Only refresh the SRS queue if the user hasn't explicitly chosen a custom deck.
+    if (!_customDeckActive) {
+        const freshSrs = _buildSrsQueue();
+        if (freshSrs.length > 0) {
+            setVocabQueue(freshSrs);
+        }
     }
 
     const nextReq = Math.floor(100 * Math.pow(_meta.level, 1.8));
