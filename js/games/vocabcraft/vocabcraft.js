@@ -513,7 +513,7 @@ function _renderHexWorldMap(container) {
     const svg   = document.createElementNS(svgNS, 'svg');
     svg.setAttribute('width',  svgW);
     svg.setAttribute('height', svgH);
-    svg.style.cssText = 'display:block;margin:0 auto;overflow:visible;touch-action:pan-y;';
+    svg.style.cssText = 'display:block;overflow:visible;touch-action:pan-x pan-y;';
 
     // Single shared defs block
     const defs = document.createElementNS(svgNS, 'defs');

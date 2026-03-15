@@ -381,7 +381,9 @@
     display: flex;
     flex-direction: column;
     z-index: 50;
+    /* overflow:hidden was blocking horizontal touch scroll in the stage list child */
     overflow: hidden;
+    touch-action: pan-x pan-y;
 }
 .vc-camp-header {
     background: #1a252f;
@@ -403,8 +405,12 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 0;
+    /* Both axes need touch scroll on mobile */
     -webkit-overflow-scrolling: touch;
+    touch-action: pan-x pan-y;
     position: relative;
+    /* Prevent the parent from swallowing horizontal swipes */
+    overscroll-behavior-x: contain;
 }
 .vc-stage-card {
     background: #34495e;
