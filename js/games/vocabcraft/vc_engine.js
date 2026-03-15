@@ -231,10 +231,10 @@ export class VcEngine {
         this.updateStructures(dt);
         this.updateProjectiles(dt);
 
-        // Kill-based combo: (1 + log(combo) * coefficient). scholarGrace boosts the coefficient.
-        const comboCoeff = 0.10 + (this.meta.skills.scholarGrace || 0) * 0.005;
+        // Kill-based combo: 1 + log(combo)/divisor. scholarGrace reduces the divisor (stronger bonus).
+        const comboDivisor = Math.max(1, 5 - (this.meta.skills.scholarGrace || 0) * 0.1);
         this.buffs.dmgMult = this.state.combo > 0
-            ? 1 + Math.log(this.state.combo) * comboCoeff
+            ? 1 + Math.log(this.state.combo) / comboDivisor
             : 1.0;
 
         // Pool level-up: when mana reaches the cap, level up and grow the cap.
