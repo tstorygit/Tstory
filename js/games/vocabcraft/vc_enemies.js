@@ -340,12 +340,12 @@ export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, way
  */
 export function getWavePreview(totalWaves, difficulty) {
     const diffMult  = Math.pow(1.15, difficulty - 1);
-    const baseArmor = Math.floor((difficulty - 1) / 2);
+    const baseArmor = Math.floor(((difficulty - 1) / 2) * GLOBAL_SCALE);
 
     const result = [];
     for (let waveNum = 1; waveNum <= totalWaves; waveNum++) {
         const isBossWave = (waveNum % 5 === 0);
-        const hpBase     = 18 * diffMult * Math.pow(1.15, waveNum);
+        const hpBase     = 18 * GLOBAL_SCALE * diffMult * Math.pow(1.15, waveNum);
 
         if (isBossWave) {
             const armor = Math.max(0,
@@ -358,7 +358,7 @@ export function getWavePreview(totalWaves, difficulty) {
                 types: [{
                     typeId: 'boss', emoji: '👹', label: 'BOSS',
                     count: 1, hp, armor,
-                    speed: Math.floor(26 + difficulty * 2),
+                    speed: Math.floor((26 + difficulty * 2) * GLOBAL_SCALE),
                     immune: [], regen: 0.01,
                     desc: 'Massive HP, armor, and regeneration. Needs sustained burst damage.'
                 }]
@@ -375,7 +375,7 @@ export function getWavePreview(totalWaves, difficulty) {
                     count:  def.spawnCount,
                     hp:     Math.floor(hpBase * def.hpMult),
                     armor:  Math.max(0, baseArmor + def.armorBonus),
-                    speed:  Math.floor((38 + difficulty * 2) * def.speedMult),
+                    speed:  Math.floor((38 + difficulty * 2) * GLOBAL_SCALE * def.speedMult),
                     immune: def.immune,
                     regen:  def.regen,
                     desc:   def.desc
