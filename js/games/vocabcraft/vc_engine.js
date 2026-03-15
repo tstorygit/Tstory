@@ -19,7 +19,9 @@ export const CONSTANTS = {
     gemBaseCost: 60,        // cost of a fresh level-1 gem
     gemCombineCost: 240,    // fixed combine fee
     vocabPenalty: 10,
-    playerBaseHp: 20,
+    // Enemy exit drains mana: boss=15% of maxMana, normal=5%, scaled
+    exitDrainNormal: 0.05,
+    exitDrainBoss:   0.15,
     towerBaseRange: 2.5,    // in tiles — multiplied by tileSize at render time
     trapBaseRange:  0.6     // in tiles (slightly wider than 0.5 to catch corner-cutters)
 };
@@ -127,16 +129,18 @@ export class VcEngine {
         const baseWaves = 10 + 7 * difficulty;
         const bonusWaves = (meta.skills.bonusWaves || 0) * 3;
 
+        const startMana = 300 + ((meta.skills.startMana || 0) * 30);
         this.state = {
-            hp: CONSTANTS.playerBaseHp,
-            mana: 300 + ((meta.skills.startMana || 0) * 30),
+            mana: startMana,
+            poolLevel: 1,            // GCFW pool level — increases when mana fills the cap
+            poolCap: startMana,      // current capacity — fills up, triggers level-up, then grows
             wave: 0,
             maxWaves: baseWaves + bonusWaves,
             status: 'planning',
             combo: 0,
             xpEarned: 0,
-            _waveLeaked: false,   // set true when any enemy reaches exit this wave
-            _hpAtWaveStart: CONSTANTS.playerBaseHp  // snapshot for leak detection
+            _waveLeaked: false,
+            _manaAtWaveStart: startMana
         };
 
         this.enemies = [];
@@ -214,9 +218,22 @@ export class VcEngine {
         this.updateProjectiles(dt);
 
         this.buffs.dmgMult = 1 + ((this.meta.skills.scholarGrace || 0) * 0.01 * this.state.combo);
+
+        // Pool level-up: when mana reaches the cap, level up and grow the cap.
+        // Cap grows ×1.8 each level (GCFW multiplier). Gem damage bonus: +5% per level above 1.
+        // Mana does NOT reset — it just keeps accumulating above the old cap.
+        while (this.state.mana >= this.state.poolCap) {
+            this.state.poolLevel++;
+            this.state.poolCap = Math.floor(this.state.poolCap * 1.8);
+            this.onUpdate(this, { type: 'poolLevelUp', level: this.state.poolLevel });
+        }
+
+        // Pool multiplier applied to all gem damage (recalculated each frame, cheap)
+        this.buffs.poolMult = 1 + (this.state.poolLevel - 1) * 0.05;
+
         this.onUpdate(this);
 
-        if (this.state.hp <= 0) {
+        if (this.state.mana <= 0) {
             this.state.status = 'gameover';
             this.onGameOver(false, this.state.xpEarned);
             return;
@@ -247,7 +264,7 @@ export class VcEngine {
     spawnWave(isEnraged = false) {
         this.state.wave++;
         this.state._waveLeaked = false;
-        this.state._hpAtWaveStart = this.state.hp;
+        this.state._manaAtWaveStart = this.state.mana;
 
         // Passive wave mana income — GCFW gives free mana each wave regardless of kills.
         // Scales gently: 30 base + 5×wave + 8×difficulty. Wave 1 D1 = ~43, W5 D3 = ~79.
@@ -257,7 +274,7 @@ export class VcEngine {
 
         const entries = buildWaveEnemies(
             this.state.wave, this.difficulty, isBossWave, isEnraged,
-            this.map.waypointSets, this.gameMode
+            this.map.waypointSets, this.gameMode, this.state.loop
         );
 
         const waveOffset = this._nextSpawnDelay || 0;
@@ -331,13 +348,23 @@ export class VcEngine {
             const waypoints = this.map.waypointSets[pathIdx] || this.map.waypointSets[0];
             const target = waypoints[e.wpIdx];
             if (!target) {
-                this.state.hp -= (e.isBoss ? 5 : 1);
+                // Mana drain: enemy reaching exit costs % of maxMana
+                const drainPct = e.isBoss ? CONSTANTS.exitDrainBoss : CONSTANTS.exitDrainNormal;
+                const drain = Math.ceil(this.state.poolCap * drainPct);
+                this.state.mana -= drain;
                 this.state._waveLeaked = true;
-                // Reset enemy to start of its own path with a small HP refund
-                e.x    = waypoints[0].x;
-                e.y    = waypoints[0].y;
-                e.wpIdx = 1;
-                e.hp   = Math.min(e.maxHp, e.hp + e.maxHp * 0.2);
+                this.onUpdate(this, { type: 'manaLeak', amt: drain, x: e.x, y: e.y });
+                // GCFW: enemy that reaches the exit grows stronger and starts over.
+                // Increase maxHp by 30% each pass — becomes a serious threat if not killed.
+                e.passCount = (e.passCount || 0) + 1;
+                e.maxHp  *= 1.3;
+                e.speed  *= 1.1;
+                e.hp      = e.maxHp;  // full heal on re-entry
+                e.x       = waypoints[0].x;
+                e.y       = waypoints[0].y;
+                e.wpIdx   = 1;
+                e.effects.slow = 0; e.effects.slowTimer = 0;
+                e.effects.poison = 0; e.effects.poisonTimer = 0;
                 continue;
             }
 
@@ -387,7 +414,7 @@ export class VcEngine {
                 if (targets.length > 0) {
                     targets.forEach(t => this.applyGemEffect(t, st.gem, gemData, true, st));
                     // GCFW Trap Fire Rate: +200% Base (3x faster than towers) + Skills
-                    const trapFireMult = 3.5 + ((this.meta.skills.trapSpecialty || 0) * 0.03);
+                    const trapFireMult = 2.0 + ((this.meta.skills.trapSpecialty || 0) * 0.02);
                     st.cooldown = 1 / (gemFireSpeed(st.gem, gemData, this.meta.skills) * trapFireMult);
                 }
             }
@@ -430,13 +457,13 @@ export class VcEngine {
 
         if (isTrap) { 
             // GCFW Trap Multipliers: 20% Damage, 2.5x Specials
-            const trapDmgMult = 0.50 + ((this.meta.skills.trapSpecialty || 0) * 0.015);
-            specialMult = 2.5 + ((this.meta.skills.trapSpecialty || 0) * 0.1);
+            const trapDmgMult = 0.20 + ((this.meta.skills.trapSpecialty || 0) * 0.01);
+            specialMult = 1.5 + ((this.meta.skills.trapSpecialty || 0) * 0.05);
             dmg = Math.max(1, dmg * trapDmgMult);
         }
 
         if (gem.color === 'red') dmg *= (1 + (this.meta.skills.redMastery || 0) * 0.01);
-        dmg *= this.buffs.dmgMult;
+        dmg *= this.buffs.dmgMult * (this.buffs.poolMult || 1);
 
         let finalDmg = Math.max(1, dmg - Math.max(0, enemy.armor));
         let isCrit = false;
@@ -474,7 +501,7 @@ export class VcEngine {
                 break;
             }
             case 'mana': {
-                let mana = gemManaDrain(gem, gemData) * specialMult;
+                let mana = gemManaDrain(gem, gemData) * specialMult * (this.buffs.poolMult || 1);
                 if (gem.color === 'orange') mana *= 1 + (this.meta.skills.orangeMastery || 0) * 0.04;
                 this.state.mana += mana;
                 if (source?.stats) source.stats.manaLeeched += mana;

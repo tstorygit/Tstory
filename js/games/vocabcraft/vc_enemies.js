@@ -119,13 +119,15 @@ function pickWaveComposition(totalSlots, waveNum, difficulty) {
  * @param {boolean} isEnraged
  * @param {Array<Array<{x,y}>>} waypointSets  one array per path (pixel coords)
  */
-export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, waypointSets, gameMode = 'hard') {
+export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, waypointSets, gameMode = 'hard', loop = 1) {
     // Game mode multipliers applied to ALL enemies (including boss)
     // hard: baseline (×1.0 hp, ×1.0 speed)
     // normal: half hp
     // easy: quarter hp, half speed
     const modeHpMult    = gameMode === 'easy' ? 0.25 : gameMode === 'normal' ? 0.5 : 1.0;
     const modeSpeedMult = gameMode === 'easy' ? 0.5  : 1.0;
+    // GCFW roundtrip: +50% HP and speed per additional loop
+    const loopMult = Math.pow(1.5, loop - 1);
 
     const diffMult   = Math.pow(1.15, difficulty - 1);
     const numPaths   = waypointSets.length;
@@ -134,7 +136,7 @@ export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, way
         const spawn = waypointSets[0][0];
         let hpBase = 18 * diffMult * Math.pow(1.15, waveNum) * 4;
         const armor = Math.max(0, Math.floor((waveNum - 2) / 2) + Math.floor((difficulty - 1) / 2)) + 3;
-        const hp = hpBase * (isEnraged ? 1.5 : 1) * modeHpMult;
+        const hp = hpBase * (isEnraged ? 1.5 : 1) * modeHpMult * loopMult;
         return [{
             delay: 0,
             typeId: 'boss',
@@ -142,7 +144,7 @@ export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, way
             emoji: '👹',
             hp, maxHp: hp,
             armor: armor + (isEnraged ? 1 : 0),
-            speed: (26 + difficulty * 2) * modeSpeedMult,
+            speed: (26 + difficulty * 2) * modeSpeedMult * loopMult,
             regen: 0.01,
             immune: [],
             pathIdx: 0,
@@ -168,7 +170,7 @@ export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, way
         for (let s = 0; s < count; s++) {
             const pathIdx = spawnIdx % numPaths;
             const spawn   = waypointSets[pathIdx][0];
-            const hp      = hpBase * typeDef.hpMult * enrageMult * modeHpMult;
+            const hp      = hpBase * typeDef.hpMult * enrageMult * modeHpMult * loopMult;
             const armor   = Math.max(0, baseArmor + typeDef.armorBonus) + (isEnraged ? 1 : 0);
 
             enemies.push({
@@ -179,7 +181,7 @@ export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, way
                 label: typeDef.label,
                 hp, maxHp: hp,
                 armor,
-                speed: (38 + difficulty * 2) * typeDef.speedMult * modeSpeedMult,
+                speed: (38 + difficulty * 2) * typeDef.speedMult * modeSpeedMult * loopMult,
                 regen: typeDef.regen,
                 immune: [...typeDef.immune],
                 pathIdx,

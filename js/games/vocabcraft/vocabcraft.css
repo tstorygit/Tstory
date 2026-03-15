@@ -36,7 +36,12 @@
     font-size: 15px;
     border-bottom: none;
 }
-.vc-health { color: #e74c3c; font-size: 14px; font-weight: bold; }
+/* mana bar pulses red when critically low */
+@keyframes vcManaDanger {
+    0%,100% { opacity: 1; }
+    50%      { opacity: 0.4; }
+}
+.vc-mana-danger { animation: vcManaDanger 0.6s infinite; }
 .vc-mana   { color: #f39c12; font-size: 14px; font-weight: bold; }
 
 /* Tiny icon buttons for Speed and Flee */

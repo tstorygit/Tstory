@@ -45,9 +45,16 @@ export function init(screens, onExit) {
 
             <div id="vc-battle-layer" class="vc-root" style="display:none;">
                 <div class="vc-topbar vc-topbar-row1">
-                    <span class="vc-health">❤️ <span id="vc-val-hp">20</span></span>
-                    <span class="vc-mana">💧 <span id="vc-val-mana">150</span></span>
-                    <div style="flex:1;"></div>
+                    <div style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;">
+                        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                            <span class="vc-mana">💧 <span id="vc-val-mana">300</span></span>
+                            <span style="font-size:10px;color:#bdc3c7;">/ <span id="vc-val-pool-cap">300</span></span>
+                            <span style="font-size:11px;color:#f1c40f;font-weight:bold;">P<span id="vc-val-pool-level">1</span></span>
+                        </div>
+                        <div style="height:6px;background:#1a252f;border-radius:3px;overflow:hidden;width:100%;">
+                            <div id="vc-mana-bar-fill" style="height:100%;width:100%;background:#f1c40f;transition:width 0.2s,background 0.3s;border-radius:3px;"></div>
+                        </div>
+                    </div>
                     <button class="vc-icon-btn vc-grimoire-btn" id="vc-btn-grimoire-battle">📖</button>
                     <button class="vc-icon-btn" id="vc-btn-speed">⚡1x</button>
                     <button class="vc-icon-btn" id="vc-btn-pause" style="background:#2980b9; border-color:#1a5276;">⏸</button>

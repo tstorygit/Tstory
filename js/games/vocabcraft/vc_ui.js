@@ -25,9 +25,11 @@ export class VcUI {
         this.gridEl.innerHTML = '';
 
         this.topBar = {
-            hp: container.querySelector('#vc-val-hp'),
-            mana: container.querySelector('#vc-val-mana'),
-            waves: container.querySelector('.vc-wave-tracker')
+            mana:      container.querySelector('#vc-val-mana'),
+            manaBar:   container.querySelector('#vc-mana-bar-fill'),
+            poolLevel: container.querySelector('#vc-val-pool-level'),
+            poolCap:   container.querySelector('#vc-val-pool-cap'),
+            waves:     container.querySelector('.vc-wave-tracker')
         };
 
         setTimeout(() => {
@@ -63,26 +65,22 @@ export class VcUI {
     initGrid() {
         const { cols, rows, grid } = this.engine.map;
 
-        // Measure available height: total container minus the two topbars and bottombar
-        const battleLayer = this.container.querySelector('#vc-battle-layer') || this.container;
-        const topRow1 = battleLayer.querySelector('.vc-topbar-row1');
-        const topRow2 = battleLayer.querySelector('.vc-topbar-row2');
-        const bottomBarEl = battleLayer.querySelector('.vc-bottombar');
-        const topbarsH = (topRow1 ? topRow1.offsetHeight : 42)
-                       + (topRow2 ? topRow2.offsetHeight : 36);
-        // Use measured bottombar height; fall back to 140 (generous default for auto-height bar)
-        const bottomH  = bottomBarEl ? bottomBarEl.offsetHeight : 140;
-        const totalH   = battleLayer.clientHeight || window.innerHeight;
-        const availH   = Math.max(60, totalH - topbarsH - bottomH);
-        const availW   = this.mapEl.clientWidth || window.innerWidth;
+        // Layout: topbar (fixed) | map (flex:1, fills gap) | bottombar (fixed).
+        // Tile size is calculated from FIXED known heights so browser zoom cannot
+        // affect whether the bottom bar is visible — only how much map is shown.
+        // Topbar row1+row2 = ~70px, bottombar = 150px (set in CSS as fixed height).
+        const TOPBAR_H = 70;
+        const BOTTOM_H = 200;
+        const availH = Math.max(60, window.innerHeight - TOPBAR_H - BOTTOM_H);
+        const availW = this.mapEl.clientWidth || window.innerWidth;
 
-        // Tile size: fit all cols×rows into available space at zoom=1
+        // Tile size: fit entire grid into available space at zoom=1
         const tileByCols = Math.floor(availW / cols);
         const tileByRows = Math.floor(availH / rows);
         this.tileSize = Math.max(16, Math.min(tileByCols, tileByRows));
 
-        // Map container: fill remaining vertical space via flex
-        this.mapEl.style.flex    = '1 1 0';
+        // Map fills the flex gap — overflows/scrolls if grid > container
+        this.mapEl.style.flex      = '1 1 0';
         this.mapEl.style.minHeight = '0';
         this.mapEl.style.maxHeight = '';
         this.mapEl.style.overflowX = 'auto';
@@ -591,7 +589,7 @@ export class VcUI {
         } else if (gemDef.type === 'poison') {
             specialStatHtml += `<div class="vc-stat-panel-row"><span>☠️ Poison</span><span id="vc-live-poisonDealt">${Math.floor(sts.poisonDealt)}</span></div>`;
         } else if (gemDef.type === 'armor') {
-            specialStatHtml += `<div class="vc-stat-panel-row"><span>🛡️ Torn</span><span id="vc-live-armorTorn">${Math.round(sts.armorTorn)}</span></div>`;
+            specialStatHtml += `<div class="vc-stat-panel-row"><span>🛡️ Torn</span><span id="vc-live-armorTorn">${sts.armorTorn.toFixed(1)}</span></div>`;
         } else if (gemDef.type === 'crit') {
             specialStatHtml += `<div class="vc-stat-panel-row"><span>💥 Crits</span><span id="vc-live-critHits">${sts.critHits}</span></div>`;
         }
@@ -680,8 +678,29 @@ export class VcUI {
     }
 
     draw(engineState, eventMsg) {
-        this.topBar.hp.textContent = engineState.state.hp;
-        this.topBar.mana.textContent = Math.floor(engineState.state.mana);
+        const manaVal  = Math.max(0, Math.floor(engineState.state.mana));
+        const poolCap  = engineState.state.poolCap  || manaVal || 1;
+        const poolLevel= engineState.state.poolLevel || 1;
+        // Bar shows mana vs poolCap — fills up to level-up, meaningful at all times
+        const manaPct  = Math.max(0, Math.min(100, (manaVal / poolCap) * 100));
+        this.topBar.mana.textContent = manaVal;
+        if (this.topBar.manaBar) {
+            this.topBar.manaBar.style.width = manaPct + '%';
+            // Colour: danger red when low absolute mana, otherwise gold→green as pool fills
+            const absPct = manaVal / (engineState.state.poolCap || 300);
+            this.topBar.manaBar.style.background =
+                absPct < 0.15 ? '#e74c3c' :
+                absPct < 0.35 ? '#f39c12' :
+                manaPct > 80  ? '#2ecc71' : '#f1c40f';
+        }
+        if (this.topBar.poolLevel) {
+            this.topBar.poolLevel.textContent = poolLevel;
+        }
+        if (this.topBar.poolCap) {
+            this.topBar.poolCap.textContent = poolCap.toLocaleString();
+        }
+        const manaEl = this.topBar.mana?.parentElement?.parentElement;
+        if (manaEl) manaEl.classList.toggle('vc-mana-danger', manaVal / poolCap < 0.15);
 
         const mana = Math.floor(engineState.state.mana);
         if (this._lastMana !== mana) {
@@ -705,7 +724,7 @@ export class VcUI {
             if (s_pois) s_pois.textContent = Math.floor(sts.poisonDealt);
             
             const s_arm = this.bottomBar.querySelector('#vc-live-armorTorn');
-            if (s_arm) s_arm.textContent = Math.round(sts.armorTorn);
+            if (s_arm) s_arm.textContent = sts.armorTorn.toFixed(1);
             
             const s_crit = this.bottomBar.querySelector('#vc-live-critHits');
             if (s_crit) s_crit.textContent = sts.critHits;
@@ -737,7 +756,26 @@ export class VcUI {
             const isSelected = e.id === this.selectedEnemyId;
             const ring = isSelected ? `<div class="vc-enemy-selected-ring"></div>` : '';
             const hpColor = e.isBoss ? '#e74c3c' : e.typeId === 'armored' ? '#95a5a6' : e.typeId === 'fast' ? '#3498db' : e.typeId === 'healer' ? '#2ecc71' : e.typeId === 'ghost' ? '#9b59b6' : e.typeId === 'swarm' ? '#f39c12' : '#2ecc71';
-            html += `<div class="vc-enemy${isSelected?' vc-enemy-focused':''}" data-eid="${e.id}" style="left:${e.x}px;top:${e.y}px;pointer-events:auto;cursor:pointer;">
+
+            // Status tint: flash (crit=yellow, armor=purple) overrides persistent tints.
+            // Slow=blue tint, poison=green tint. Both active: alternate every 400ms.
+            let tintStyle = '';
+            const fx = e.effects || {};
+            if (fx.flashTimer > 0 && fx.flashColor) {
+                tintStyle = fx.flashColor === 'crit'
+                    ? 'filter:drop-shadow(0 0 8px #f1c40f) brightness(1.5) sepia(0.4) hue-rotate(30deg);'
+                    : 'filter:drop-shadow(0 0 8px #9b59b6) brightness(1.4) sepia(0.5) hue-rotate(240deg);';
+            } else if (fx.slow > 0 && fx.poison > 0) {
+                tintStyle = Math.floor(Date.now() / 400) % 2 === 0
+                    ? 'filter:drop-shadow(0 0 5px #3498db) sepia(0.5) hue-rotate(180deg) saturate(2);'
+                    : 'filter:drop-shadow(0 0 5px #2ecc71) sepia(0.5) hue-rotate(80deg) saturate(2);';
+            } else if (fx.slow > 0) {
+                tintStyle = 'filter:drop-shadow(0 0 5px #3498db) sepia(0.6) hue-rotate(180deg) saturate(2.5);';
+            } else if (fx.poison > 0) {
+                tintStyle = 'filter:drop-shadow(0 0 5px #2ecc71) sepia(0.6) hue-rotate(80deg) saturate(2.5);';
+            }
+
+            html += `<div class="vc-enemy${isSelected?' vc-enemy-focused':''}" data-eid="${e.id}" style="left:${e.x}px;top:${e.y}px;pointer-events:auto;cursor:pointer;${tintStyle}">
                 ${ring}${e.emoji||'👾'}
                 <div class="vc-enemy-hp-bar"><div class="vc-enemy-hp-fill" style="width:${pct}%;background:${hpColor}"></div></div>
                 ${e.armor>0?`<div class="vc-enemy-armor">🛡️${Math.round(e.armor)}</div>`:''}
@@ -774,6 +812,29 @@ export class VcUI {
             fl.textContent = eventMsg.amt;
             this.gridEl.appendChild(fl);
             setTimeout(() => fl.remove(), 800);
+        } else if (eventMsg?.type === 'poolLevelUp') {
+            const bar = this.topBar.manaBar;
+            if (bar) {
+                bar.style.transition = 'none';
+                bar.style.background = '#fff';
+                setTimeout(() => { bar.style.transition = 'width 0.2s, background 0.3s'; }, 80);
+            }
+            const fl = document.createElement('div');
+            fl.className = 'vc-float';
+            fl.style.cssText = 'left:50%;top:20px;transform:translateX(-50%);font-size:14px;color:#f1c40f;text-shadow:0 0 8px #f39c12,1px 1px 0 #000;white-space:nowrap;';
+            fl.textContent = `✨ Pool Lv${eventMsg.level} — gems +${(eventMsg.level-1)*5}%`;
+            this.gridEl.appendChild(fl);
+            setTimeout(() => fl.remove(), 1400);
+        } else if (eventMsg?.type === 'manaLeak') {
+            const fl = document.createElement('div');
+            fl.className = 'vc-float';
+            fl.style.left = (eventMsg.x || 50) + 'px';
+            fl.style.top  = (eventMsg.y || 50) + 'px';
+            fl.style.color = '#e74c3c';
+            fl.style.fontSize = '14px';
+            fl.textContent = '-' + eventMsg.amt + '💧';
+            this.gridEl.appendChild(fl);
+            setTimeout(() => fl.remove(), 900);
         } else if (eventMsg?.type === 'waveClear') {
             const fl = document.createElement('div');
             fl.className = 'vc-float';
@@ -809,7 +870,7 @@ export class VcUI {
             <div class="vc-stat-title">${e.emoji} ${e.isBoss ? '<span style="color:#e74c3c">BOSS</span>' : (e.label || 'Enemy')}</div>
             <div class="vc-stat-row">❤️ <span>${Math.floor(e.hp)} / ${Math.floor(e.maxHp)}</span></div>
             <div class="vc-stat-hpbar"><div class="vc-stat-hpfill" style="width:${hpPct}%"></div></div>
-            ${e.armor > 0 ? `<div class="vc-stat-row">🛡️ Armor <span>${Math.round(e.armor)}</span></div>` : ''}
+            ${e.armor > 0 ? `<div class="vc-stat-row">🛡️ Armor <span>${e.armor}</span></div>` : ''}
             ${immunities.length ? `<div class="vc-stat-fx">🚫 Immune: ${immunities.join(' ')}</div>` : ''}
             ${effects.map(fx => `<div class="vc-stat-fx">${fx}</div>`).join('')}
             <div class="vc-stat-hint">🎯 Towers focusing</div>

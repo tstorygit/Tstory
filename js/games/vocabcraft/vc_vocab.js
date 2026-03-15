@@ -21,28 +21,40 @@ export function showCard(mode, container, onResolve) {
     }
     _cardBusy = true;
 
-    // mode: 'enrage' = due words first, new words as fallback; 'review' = mixed
-    const selectionMode = mode === 'enrage' ? 'due' : 'mixed';
-    const result = srsDb.getNextGameWord(_activeQueue, selectionMode)
-                || srsDb.getNextGameWord(_activeQueue, 'new');
-    
-    const wordObj = result.wordObj;
-    const type = result.type;
+    // Detect whether the queue is SRS-sourced or a plain vocab deck.
+    // SRS words have deckId:'srs'; plain deck words have no SRS status so
+    // getNextGameWord would return nothing useful — pick randomly instead.
+    const isSrsQueue = _activeQueue.some(w => w.deckId === 'srs');
+
+    let wordObj, type, isSrs;
+    if (isSrsQueue) {
+        const selectionMode = mode === 'enrage' ? 'due' : 'mixed';
+        const result = srsDb.getNextGameWord(_activeQueue, selectionMode)
+                    || srsDb.getNextGameWord(_activeQueue, 'new');
+        if (!result?.wordObj) { _cardBusy = false; onResolve(true); return; }
+        wordObj = result.wordObj;
+        type    = result.type;
+        isSrs   = true;
+    } else {
+        // Plain deck: pick a random word every time
+        wordObj = _activeQueue[Math.floor(Math.random() * _activeQueue.length)];
+        // Normalise field names — plain decks may use 'translation' instead of 'trans'
+        if (!wordObj.trans && wordObj.translation) wordObj = { ...wordObj, trans: wordObj.translation };
+        type  = 'drill';
+        isSrs = false;
+    }
 
     if (!wordObj) {
         _cardBusy = false;
-        onResolve(true); 
+        onResolve(true);
         return;
     }
 
-    let dotClass = 'due';
-    let dotTitle = 'Scheduled Review';
-    if (type === 'drill') {
-        dotClass = 'drill';
-        dotTitle = 'Free Drill (Not Due)';
-    } else if (type === 'new') {
-        dotClass = 'new';
-        dotTitle = 'New Word';
+    let dotClass = 'drill';
+    let dotTitle = 'Free Drill';
+    if (isSrs) {
+        dotClass = type === 'new' ? 'new' : type === 'drill' ? 'drill' : 'due';
+        dotTitle  = type === 'new' ? 'New Word' : type === 'drill' ? 'Free Drill (Not Due)' : 'Scheduled Review';
     }
 
     const pool = _activeQueue.filter(w => w.word !== wordObj.word).map(w => w.trans);
@@ -85,7 +97,7 @@ export function showCard(mode, container, onResolve) {
                 container.appendChild(badge);
                 requestAnimationFrame(() => { badge.style.transform = 'translate(-50%,-50%) scale(1)'; });
 
-                srsDb.gradeWordInGame({ word: wordObj.word, furi: wordObj.furi, translation: wordObj.trans }, 2, true);
+                if (isSrs) srsDb.gradeWordInGame({ word: wordObj.word, furi: wordObj.furi, translation: wordObj.trans }, 2, true);
                 [...grid.children].forEach(b => b.disabled = true);
 
                 setTimeout(() => {
@@ -99,7 +111,7 @@ export function showCard(mode, container, onResolve) {
                 const correctBtn = [...grid.children].find(b => b.textContent === wordObj.trans);
                 if (correctBtn) correctBtn.classList.add('correct');
 
-                srsDb.gradeWordInGame({ word: wordObj.word, furi: wordObj.furi, translation: wordObj.trans }, 0, true);
+                if (isSrs) srsDb.gradeWordInGame({ word: wordObj.word, furi: wordObj.furi, translation: wordObj.trans }, 0, true);
                 [...grid.children].forEach(b => b.disabled = true);
 
                 setTimeout(() => {
