@@ -1,5 +1,8 @@
 // vc_enemies.js — Enemy type definitions and wave composition
 
+// Global difficulty scale — tune this one value to make the game easier/harder.
+const GLOBAL_SCALE = 0.75;  // 1.0 = full difficulty, 0.8 = 80% HP/speed/armor
+
 export const ENEMY_TYPES = {
     normal: {
         id: 'normal',
@@ -259,7 +262,7 @@ export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, way
 
     if (isBossWave) {
         const spawn = waypointSets[0][0];
-        let hpBase = 18 * diffMult * Math.pow(1.15, waveNum) * 4;
+        let hpBase = 18 * GLOBAL_SCALE * diffMult * Math.pow(1.15, waveNum) * 4;
         const armor = Math.max(0, Math.floor((waveNum - 2) / 2) + Math.floor((difficulty - 1) / 2)) + 3;
         const hp = hpBase * (isEnraged ? 1.5 : 1) * modeHpMult * loopMult;
         return [{
@@ -269,7 +272,7 @@ export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, way
             emoji: '👹',
             hp, maxHp: hp,
             armor: armor + (isEnraged ? 1 : 0),
-            speed: (26 + difficulty * 2) * modeSpeedMult * loopMult,
+            speed: (26 + difficulty * 2) * GLOBAL_SCALE * modeSpeedMult * loopMult,
             regen: 0.01,
             immune: [],
             pathIdx: 0,
@@ -281,8 +284,8 @@ export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, way
     const slots       = 4 + Math.floor(waveNum * 1.2) + Math.floor(difficulty / 2);
     const composition = pickWaveComposition(slots, waveNum, difficulty);
 
-    let hpBase = 18 * diffMult * Math.pow(1.15, waveNum);
-    const baseArmor  = Math.floor((difficulty - 1) / 2) + Math.max(0, Math.floor((waveNum - 2) / 2));
+    let hpBase = 18 * GLOBAL_SCALE * diffMult * Math.pow(1.15, waveNum);
+    const baseArmor  = Math.floor(((difficulty - 1) / 2 + Math.max(0, Math.floor((waveNum - 2) / 2))) * GLOBAL_SCALE);
     const enrageMult = isEnraged ? 1.5 : 1;
 
     const enemies  = [];
@@ -306,8 +309,8 @@ export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, way
                 label: typeDef.label,
                 hp, maxHp: hp,
                 armor,
-                speed: (38 + difficulty * 2) * typeDef.speedMult * modeSpeedMult * loopMult,
-                baseSpeed: (38 + difficulty * 2) * typeDef.speedMult * modeSpeedMult * loopMult,
+                speed: (38 + difficulty * 2) * GLOBAL_SCALE * typeDef.speedMult * modeSpeedMult * loopMult,
+                baseSpeed: (38 + difficulty * 2) * GLOBAL_SCALE * typeDef.speedMult * modeSpeedMult * loopMult,
                 regen: typeDef.regen,
                 immune: [...typeDef.immune],
                 onDeath: typeDef.onDeath || null,
