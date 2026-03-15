@@ -3,7 +3,7 @@ const SAVE_KEY = 'vocabcraft_save';
 // All skills use triangular SP costs (Level N costs N SP).
 export const SKILL_DEFS = {
     // ── Economy (CAPPED) ──────────────────────────────────────────────────────
-    startMana:       { name: "Arcane Reserves",    desc: "+20 starting mana per level.",                        max: 50, group: 'economy' },
+    startMana:       { name: "Arcane Reserves",    desc: "+30 starting mana per level. Base is 300 (matches GCFW).",                        max: 50, group: 'economy' },
     towerDiscount:   { name: "Mason's Art",        desc: "-1% Tower build cost per level (max 50%).",           max: 50, group: 'economy' },
     trapDiscount:    { name: "Trap Smith",         desc: "-1% Trap build cost per level (max 50%).",            max: 50, group: 'economy' },
     combineDiscount: { name: "Arcane Fusion",      desc: "-1% gem combine fee per level (max 50%).",            max: 50, group: 'economy' },
@@ -18,7 +18,7 @@ export const SKILL_DEFS = {
 
     // ── Gem combat masteries (UNCAPPED) ───────────────────────────────────────
     redMastery:      { name: "Ruby Mastery",       desc: "+1% Ruby damage per level.",                          max: Infinity, group: 'mastery' },
-    blueMastery:     { name: "Sapphire Mastery",   desc: "+2% Slow strength per level (max 85% slow).",                        max: Infinity, group: 'mastery' },
+    blueMastery:     { name: "Sapphire Mastery",   desc: "+2% Slow strength per level, +5% Slow duration per level.",                        max: Infinity, group: 'mastery' },
     greenMastery:    { name: "Emerald Mastery",    desc: "+3% Poison DPS per level.",                           max: Infinity, group: 'mastery' },
     orangeMastery:   { name: "Topaz Mastery",      desc: "+4% mana leech per hit per level.",             max: Infinity, group: 'mastery' },
     yellowMastery:   { name: "Citrine Mastery",    desc: "+0.5% crit chance per level.",                        max: Infinity, group: 'mastery' },

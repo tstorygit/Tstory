@@ -147,7 +147,7 @@ export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, way
             immune: [],
             pathIdx: 0,
             x: spawn.x, y: spawn.y, wpIdx: 1,
-            effects: { slow: 0, slowTimer: 0, poison: 0, poisonTimer: 0, poisonTick: 0 }
+            effects: { slow: 0, slowTimer: 0, poison: 0, poisonTimer: 0, poisonTick: 0, lastHit: '', flashTimer: 0, flashColor: '' }
         }];
     }
 
@@ -184,7 +184,7 @@ export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, way
                 immune: [...typeDef.immune],
                 pathIdx,
                 x: spawn.x, y: spawn.y, wpIdx: 1,
-                effects: { slow: 0, slowTimer: 0, poison: 0, poisonTimer: 0, poisonTick: 0 }
+                effects: { slow: 0, slowTimer: 0, poison: 0, poisonTimer: 0, poisonTick: 0, lastHit: '', flashTimer: 0, flashColor: '' }
             });
             spawnIdx++;
         }

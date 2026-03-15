@@ -3,7 +3,7 @@ import { buildWaveEnemies } from './vc_enemies.js';
 
 export const GEMS = {
     red:    { label: 'Ruby',     color: '#e74c3c', type: 'dmg',   baseDmg: 18, speed: 1.5 },
-    blue:   { label: 'Sapphire', color: '#3498db', type: 'slow',  baseDmg: 4,  speed: 1.0, baseSlow: 0.15 },
+    blue:   { label: 'Sapphire', color: '#3498db', type: 'slow',  baseDmg: 4,  speed: 1.0, baseSlow: 0.18 },
     green:  { label: 'Emerald',  color: '#2ecc71', type: 'poison',baseDmg: 4,  speed: 1.0, basePoison: 1.5 },
     orange: { label: 'Topaz',    color: '#f39c12', type: 'mana',  baseDmg: 6,  speed: 1.2, baseMana: 0.4 }, // Compensating for lack of Amplifiers
     yellow: { label: 'Citrine',  color: '#f1c40f', type: 'crit',  baseDmg: 8,  speed: 1.0, baseCrit: 0.10, baseMult: 3 },
@@ -12,7 +12,7 @@ export const GEMS = {
 
 export const CONSTANTS = {
     // Building costs — match GCFW table exactly:
-    towerCostBase: 100,
+    towerCostBase: 75,
     towerCostInc: 38,
     trapCostBase: 75,
     trapCostInc: 25,
@@ -84,7 +84,8 @@ export function gemPoisonDps(gem, gemData) {
     return gemData.basePoison * Math.pow(1.81, gem.level - 1);
 }
 export function gemSlowAmount(gem, gemData) {
-    return Math.min(0.70, gemData.baseSlow * Math.pow(1.36, gem.level - 1));
+    // GCFW: G1=18% slow, both % and duration grow per grade. Skill only boosts duration.
+    return Math.min(0.92, gemData.baseSlow * Math.pow(1.36, gem.level - 1));
 }
 export function gemManaDrain(gem, gemData) {
     return gemData.baseMana * Math.pow(1.38, gem.level - 1);
@@ -128,7 +129,7 @@ export class VcEngine {
 
         this.state = {
             hp: CONSTANTS.playerBaseHp,
-            mana: 200 + ((meta.skills.startMana || 0) * 20),
+            mana: 300 + ((meta.skills.startMana || 0) * 30),
             wave: 0,
             maxWaves: baseWaves + bonusWaves,
             status: 'planning',
@@ -247,6 +248,11 @@ export class VcEngine {
         this.state.wave++;
         this.state._waveLeaked = false;
         this.state._hpAtWaveStart = this.state.hp;
+
+        // Passive wave mana income — GCFW gives free mana each wave regardless of kills.
+        // Scales gently: 30 base + 5×wave + 8×difficulty. Wave 1 D1 = ~43, W5 D3 = ~79.
+        const waveIncome = Math.floor(30 + 5 * this.state.wave + 8 * this.difficulty);
+        this.state.mana += waveIncome;
         const isBossWave = (this.state.wave % 5 === 0);
 
         const entries = buildWaveEnemies(
@@ -300,6 +306,11 @@ export class VcEngine {
 
             if (e.regen > 0) {
                 e.hp = Math.min(e.maxHp, e.hp + e.maxHp * e.regen * dt);
+            }
+
+            if (e.effects.flashTimer > 0) {
+                e.effects.flashTimer -= dt;
+                if (e.effects.flashTimer <= 0) e.effects.flashColor = '';
             }
 
             let currentSpeed = e.speed;
@@ -439,10 +450,13 @@ export class VcEngine {
             }
             case 'slow': {
                 if (!enemy.immune.includes('slow')) {
-                    let slow = gemSlowAmount(gem, gemData) * specialMult;
-                    if (gem.color === 'blue') slow = Math.min(0.85, slow * (1 + (this.meta.skills.blueMastery || 0) * 0.02));
-                    enemy.effects.slow = Math.min(0.70, slow);
-                    enemy.effects.slowTimer = 3;
+                    // % slow scales with gem level. Mastery boosts duration only (GCFW Slowing skill).
+                    const slow = gemSlowAmount(gem, gemData) * specialMult;
+                    enemy.effects.slow = slow;
+                    const slowDur = 3 * Math.pow(1.3, gem.level - 1)
+                        * (1 + (this.meta.skills.blueMastery || 0) * 0.05);
+                    enemy.effects.slowTimer = slowDur;
+                    enemy.effects.lastHit = 'slow';
                     if (source?.stats) source.stats.slowApplied++;
                 }
                 break;
@@ -452,9 +466,10 @@ export class VcEngine {
                     let pDmg = gemPoisonDps(gem, gemData) * specialMult;
                     if (gem.color === 'green') pDmg *= (1 + (this.meta.skills.greenMastery || 0) * 0.03);
                     enemy.effects.poison = pDmg;
-                    enemy.effects.poisonTimer = 5.0; 
+                    enemy.effects.poisonTimer = 5.0;
                     enemy.effects.poisonTick = 1.0;
-                    if (source?.stats) source.stats.poisonDealt += pDmg * 5.0; 
+                    enemy.effects.lastHit = 'poison';
+                    if (source?.stats) source.stats.poisonDealt += pDmg * 5.0;
                 }
                 break;
             }
@@ -469,12 +484,18 @@ export class VcEngine {
                 let tear = gemArmorTear(gem, gemData) * specialMult;
                 if (gem.color === 'purple') tear *= 1 + (this.meta.skills.purpleMastery || 0) * 0.04;
                 enemy.armor = Math.max(0, enemy.armor - tear);
+                enemy.effects.flashTimer = 0.18;
+                enemy.effects.flashColor = 'purple';
                 if (source?.stats) source.stats.armorTorn += tear;
                 break;
             }
         }
 
-        if (isCrit && source?.stats) source.stats.critHits++;
+        if (isCrit) {
+            if (source?.stats) source.stats.critHits++;
+            enemy.effects.flashTimer = 0.18;
+            enemy.effects.flashColor = 'crit';
+        }
         if (source?.stats) source.stats.totalDmg += Math.floor(finalDmg);
 
         enemy.hp -= finalDmg;
