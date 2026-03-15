@@ -374,14 +374,7 @@ export class VcUI {
             icon.onclick = () => {
                 if (this.engine.state.status === 'playing' && i === this.engine.state.wave) {
                     this.engine.pause();
-                    this.vocab.showCard('enrage', (isCorrect) => {
-                        if (isCorrect) { icon.classList.add('enraged'); this.engine.spawnWave(true); }
-                        else { this.engine.spawnWave(false); }
-                        this._flashPathTiles();
-                        icon.classList.remove('active'); icon.classList.add('done');
-                        this.activateNextWaveIcon(i + 1);
-                        this.engine.resume();
-                    });
+                    this._showEnrageScreen(icon, i);
                 }
             };
             this.waveIconsContainer.appendChild(icon);
@@ -653,6 +646,137 @@ export class VcUI {
         this.bottomBar.appendChild(btn);
     }
 
+    _enrageCost(level) {
+        // Same formula as gem combine cost: Lv1=60, Lv2=360, Lv3=960...
+        let cost = 60;
+        for (let l = 1; l < level; l++) cost = 2 * cost + 240;
+        return cost;
+    }
+
+    _showEnrageScreen(icon, waveIdx) {
+        // Remove stale screen
+        const stale = this.container.querySelector('#vc-enrage-screen');
+        if (stale) stale.remove();
+
+        const screen = document.createElement('div');
+        screen.id = 'vc-enrage-screen';
+        screen.style.cssText = [
+            'position:fixed','inset:0','background:rgba(26,37,47,0.97)',
+            'z-index:300','display:flex','flex-direction:column',
+            'padding:16px 16px 0','gap:10px','overflow-y:auto',
+            '-webkit-overflow-scrolling:touch'
+        ].join(';');
+
+        let selectedLevel = 1;
+        const MAX_LEVEL = 20;
+
+        const render = () => {
+            const cost = this._enrageCost(selectedLevel);
+            const canAfford = this.engine.state.mana >= cost;
+            const numCards = Math.max(1, Math.round(Math.sqrt(selectedLevel)));
+            const enrageMult = (1 + selectedLevel * 0.1).toFixed(1);
+
+            screen.innerHTML = `
+                <div style="font-size:18px;font-weight:bold;color:#e74c3c;text-align:center;">⚡ Enrage Wave</div>
+                <div style="font-size:11px;color:#bdc3c7;text-align:center;line-height:1.5;">
+                    Spend mana to enrage the next wave. Enraged enemies have boosted HP &amp; speed.<br>
+                    Answer more correct than wrong to succeed.
+                </div>
+
+                <div style="display:flex;flex-direction:column;gap:6px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <span style="font-size:12px;color:#bdc3c7;">Enrage Level: <strong style="color:#e74c3c;font-size:16px;">${selectedLevel}</strong></span>
+                        <span style="font-size:12px;color:#bdc3c7;">${numCards} vocab card${numCards>1?'s':''}</span>
+                    </div>
+                    <input type="range" id="vc-enrage-slider" min="1" max="${MAX_LEVEL}" value="${selectedLevel}"
+                        style="width:100%;accent-color:#e74c3c;">
+                    <div style="display:flex;justify-content:space-between;font-size:10px;color:#7f8c8d;">
+                        <span>Lv1 — 60💧</span><span>Lv10 — 153K💧</span><span>Lv20 — 157M💧</span>
+                    </div>
+                </div>
+
+                <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;">
+                    <div style="background:#2c3e50;border-radius:8px;padding:10px 16px;text-align:center;min-width:80px;">
+                        <div style="font-size:10px;color:#7f8c8d;">Cost</div>
+                        <div style="font-size:14px;font-weight:bold;color:${canAfford?'#f1c40f':'#e74c3c'};">${cost>=1e6?(cost/1e6).toFixed(1)+'M':cost>=1e3?(cost/1e3).toFixed(1)+'K':cost}💧</div>
+                    </div>
+                    <div style="background:#2c3e50;border-radius:8px;padding:10px 16px;text-align:center;min-width:80px;">
+                        <div style="font-size:10px;color:#7f8c8d;">HP ×</div>
+                        <div style="font-size:14px;font-weight:bold;color:#e74c3c;">${enrageMult}×</div>
+                    </div>
+                    <div style="background:#2c3e50;border-radius:8px;padding:10px 16px;text-align:center;min-width:80px;">
+                        <div style="font-size:10px;color:#7f8c8d;">Vocab</div>
+                        <div style="font-size:14px;font-weight:bold;color:#3498db;">${numCards} card${numCards>1?'s':''}</div>
+                    </div>
+                    <div style="background:#2c3e50;border-radius:8px;padding:10px 16px;text-align:center;min-width:80px;">
+                        <div style="font-size:10px;color:#7f8c8d;">Your mana</div>
+                        <div style="font-size:14px;font-weight:bold;color:${canAfford?'#2ecc71':'#e74c3c'};">${Math.floor(this.engine.state.mana)>=1e6?(Math.floor(this.engine.state.mana)/1e6).toFixed(1)+'M':Math.floor(this.engine.state.mana)>=1e3?(Math.floor(this.engine.state.mana)/1e3).toFixed(1)+'K':Math.floor(this.engine.state.mana)}💧</div>
+                    </div>
+                </div>
+
+                <div style="flex:1;"></div>
+
+                <div style="display:flex;gap:10px;padding-bottom:max(20px,env(safe-area-inset-bottom,20px));">
+                    <button id="vc-enrage-cancel" style="flex:1;padding:14px;background:#34495e;border:2px solid #7f8c8d;border-radius:8px;color:white;font-weight:bold;font-size:15px;cursor:pointer;">✕ Cancel</button>
+                    <button id="vc-enrage-go" style="flex:2;padding:14px;background:${canAfford?'#e74c3c':'#555'};border:2px solid ${canAfford?'#c0392b':'#444'};border-radius:8px;color:white;font-weight:bold;font-size:15px;cursor:pointer;${canAfford?'':'opacity:0.5;'}"
+                        ${canAfford?'':'disabled'}>⚡ Enrage!</button>
+                </div>
+            `;
+
+            screen.querySelector('#vc-enrage-slider').oninput = (e) => {
+                selectedLevel = parseInt(e.target.value);
+                render();
+            };
+
+            screen.querySelector('#vc-enrage-cancel').onclick = () => {
+                screen.remove();
+                // Spawn wave without enrage
+                this.engine.spawnWave(false);
+                this._flashPathTiles();
+                icon.classList.remove('active'); icon.classList.add('done');
+                this.activateNextWaveIcon(waveIdx + 1);
+                this.engine.resume();
+            };
+
+            if (canAfford) {
+                screen.querySelector('#vc-enrage-go').onclick = () => {
+                    screen.remove();
+                    this.engine.state.mana -= this._enrageCost(selectedLevel);
+                    this._runEnrageVocab(selectedLevel, icon, waveIdx);
+                };
+            }
+        };
+
+        render();
+        document.body.appendChild(screen);
+    }
+
+    _runEnrageVocab(enrageLevel, icon, waveIdx) {
+        const numCards = Math.max(1, Math.round(Math.sqrt(enrageLevel)));
+        let correct = 0, wrong = 0, remaining = numCards;
+
+        const onCard = (isCorrect) => {
+            if (isCorrect) correct++; else wrong++;
+            remaining--;
+            if (remaining > 0) {
+                // Show next card
+                this.vocab.showCard('enrage', onCard);
+            } else {
+                // Majority correct = enrage succeeds
+                const success = correct > wrong;
+                if (success) icon.classList.add('enraged');
+                // Pass enrageLevel to spawnWave for scaled HP/speed
+                this.engine.spawnWave(success, enrageLevel);
+                this._flashPathTiles();
+                icon.classList.remove('active'); icon.classList.add('done');
+                this.activateNextWaveIcon(waveIdx + 1);
+                this.engine.resume();
+            }
+        };
+
+        this.vocab.showCard('enrage', onCard);
+    }
+
     handleVocabAction(manaCost, onSuccess) {
         this.engine.pause();
         this.vocab.showCard('review', (isCorrect) => {
@@ -757,27 +881,22 @@ export class VcUI {
             const ring = isSelected ? `<div class="vc-enemy-selected-ring"></div>` : '';
             const hpColor = e.isBoss ? '#e74c3c' : e.typeId === 'armored' ? '#95a5a6' : e.typeId === 'fast' ? '#3498db' : e.typeId === 'healer' ? '#2ecc71' : e.typeId === 'ghost' ? '#9b59b6' : e.typeId === 'swarm' ? '#f39c12' : '#2ecc71';
 
-            // Status tint: flash (crit=yellow, armor=purple) overrides persistent tints.
-            // Slow=blue tint, poison=green tint. Both active: alternate every 400ms.
-            let tintStyle = '';
+            // Status icons — shown under HP bar. No CSS filter tinting (unreliable on emoji).
+            // Flash: drop-shadow only (no hue shift) for crit=yellow, armor=purple.
             const fx = e.effects || {};
+            let flashStyle = '';
             if (fx.flashTimer > 0 && fx.flashColor) {
-                tintStyle = fx.flashColor === 'crit'
-                    ? 'filter:drop-shadow(0 0 8px #f1c40f) brightness(1.5) sepia(0.4) hue-rotate(30deg);'
-                    : 'filter:drop-shadow(0 0 8px #9b59b6) brightness(1.4) sepia(0.5) hue-rotate(240deg);';
-            } else if (fx.slow > 0 && fx.poison > 0) {
-                tintStyle = Math.floor(Date.now() / 400) % 2 === 0
-                    ? 'filter:drop-shadow(0 0 5px #3498db) sepia(0.5) hue-rotate(180deg) saturate(2);'
-                    : 'filter:drop-shadow(0 0 5px #2ecc71) sepia(0.5) hue-rotate(80deg) saturate(2);';
-            } else if (fx.slow > 0) {
-                tintStyle = 'filter:drop-shadow(0 0 5px #3498db) sepia(0.6) hue-rotate(180deg) saturate(2.5);';
-            } else if (fx.poison > 0) {
-                tintStyle = 'filter:drop-shadow(0 0 5px #2ecc71) sepia(0.6) hue-rotate(80deg) saturate(2.5);';
+                flashStyle = fx.flashColor === 'crit'
+                    ? 'filter:drop-shadow(0 0 6px #f1c40f);'
+                    : 'filter:drop-shadow(0 0 6px #9b59b6);';
             }
+            const statusIcons = (fx.slow > 0 ? '<span class="vc-fx-icon">❄️</span>' : '')
+                              + (fx.poison > 0 ? '<span class="vc-fx-icon">☠️</span>' : '');
 
-            html += `<div class="vc-enemy${isSelected?' vc-enemy-focused':''}" data-eid="${e.id}" style="left:${e.x}px;top:${e.y}px;pointer-events:auto;cursor:pointer;${tintStyle}">
+            html += `<div class="vc-enemy${isSelected?' vc-enemy-focused':''}" data-eid="${e.id}" style="left:${e.x}px;top:${e.y}px;pointer-events:auto;cursor:pointer;${flashStyle}">
                 ${ring}${e.emoji||'👾'}
                 <div class="vc-enemy-hp-bar"><div class="vc-enemy-hp-fill" style="width:${pct}%;background:${hpColor}"></div></div>
+                ${statusIcons ? `<div class="vc-fx-icons">${statusIcons}</div>` : ''}
                 ${e.armor>0?`<div class="vc-enemy-armor">🛡️${Math.round(e.armor)}</div>`:''}
             </div>`;
         });

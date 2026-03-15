@@ -261,20 +261,19 @@ export class VcEngine {
         this._startLoop(gen);
     }
 
-    spawnWave(isEnraged = false) {
+    spawnWave(isEnraged = false, enrageLevel = 1) {
         this.state.wave++;
         this.state._waveLeaked = false;
         this.state._manaAtWaveStart = this.state.mana;
 
-        // Passive wave mana income — GCFW gives free mana each wave regardless of kills.
-        // Scales gently: 30 base + 5×wave + 8×difficulty. Wave 1 D1 = ~43, W5 D3 = ~79.
-        const waveIncome = Math.floor(30 + 5 * this.state.wave + 8 * this.difficulty);
+        // Passive wave mana income
+        const waveIncome = Math.floor((30 + 5 * this.state.wave + 8 * this.difficulty) * (this.buffs.poolMult || 1));
         this.state.mana += waveIncome;
         const isBossWave = (this.state.wave % 5 === 0);
 
         const entries = buildWaveEnemies(
             this.state.wave, this.difficulty, isBossWave, isEnraged,
-            this.map.waypointSets, this.gameMode, this.state.loop
+            this.map.waypointSets, this.gameMode, this.state.loop, enrageLevel
         );
 
         const waveOffset = this._nextSpawnDelay || 0;
@@ -366,7 +365,7 @@ export class VcEngine {
             }
 
             if (e.hp <= 0) {
-                this.state.mana += 10 * (e.rewardMult || 1);
+                this.state.mana += 10 * (e.rewardMult || 1) * (this.buffs.poolMult || 1);
                 this.state.xpEarned += enemyXpValue(e);
                 // Splitter: on death spawn 2 fast children
                 if (e.onDeath === 'split') {
