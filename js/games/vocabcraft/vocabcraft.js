@@ -634,6 +634,12 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
     overlay.id = 'vc-hex-detail';
     overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:#1a252f;z-index:50;display:flex;flex-direction:column;overflow:hidden;';
 
+    // ── Back bar ────────────────────────────────────────────────────────────
+    const backBar = document.createElement('div');
+    backBar.style.cssText = 'flex-shrink:0;padding:8px 14px;background:#1a252f;border-bottom:1px solid #34495e;';
+    backBar.innerHTML = `<button id="vc-hex-close" style="display:flex;align-items:center;gap:6px;background:none;border:none;color:#bdc3c7;font-size:14px;font-weight:bold;cursor:pointer;padding:4px 0;">← Back to World Map</button>`;
+    overlay.appendChild(backBar);
+
     // ── Header ──────────────────────────────────────────────────────────────
     const mmSvg = getTemplateMinimap(tpl.id, 56, 72);
     const header = document.createElement('div');
@@ -645,7 +651,6 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
             <div style="font-size:11px;color:#bdc3c7;line-height:1.4;margin-top:2px;">${tpl.desc}</div>
             ${tplLockedActual && !_debugUnlockAll ? `<div style="font-size:10px;color:#e74c3c;margin-top:3px;">🔒 Clear all Tier ${node.tier-1} maps on D1 to unlock</div>` : ''}
         </div>
-        <button id="vc-hex-close" style="background:none;border:none;color:#7f8c8d;font-size:22px;cursor:pointer;padding:0 4px;flex-shrink:0;line-height:1;">✕</button>
     `;
     overlay.appendChild(header);
 
@@ -818,7 +823,7 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
         _startBattle(tpl.id, selectedD, _gameMode);
     };
 
-    header.querySelector('#vc-hex-close').onclick = () => overlay.remove();
+    backBar.querySelector('#vc-hex-close').onclick = () => overlay.remove();
 
     _screens.game.querySelector('#vc-camp-layer').appendChild(overlay);
 }
