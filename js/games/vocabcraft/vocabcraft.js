@@ -811,8 +811,8 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
 
     // ── Bottom action bar ────────────────────────────────────────────────────
     const footer = document.createElement('div');
-    footer.style.cssText = 'flex-shrink:0;padding:10px 14px 16px;border-top:1px solid #34495e;background:#1a252f;';
-    footer.innerHTML = `<button id="vc-hex-go" style="width:100%;padding:14px;background:#2ecc71;border:2px solid #27ae60;border-radius:8px;color:white;font-weight:bold;font-size:16px;cursor:pointer;">⚔️ Enter Battle</button>`;
+    footer.style.cssText = 'flex-shrink:0;padding:10px 14px;padding-bottom:max(20px,env(safe-area-inset-bottom,20px));border-top:1px solid #34495e;background:#1a252f;';
+    footer.innerHTML = `<button id="vc-hex-go" style="width:100%;padding:16px;background:#2ecc71;border:2px solid #27ae60;border-radius:8px;color:white;font-weight:bold;font-size:17px;cursor:pointer;letter-spacing:0.5px;">⚔️ Enter Battle</button>`;
     overlay.appendChild(footer);
 
     footer.querySelector('#vc-hex-go').onclick = () => {
