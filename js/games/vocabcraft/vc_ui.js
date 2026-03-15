@@ -830,7 +830,8 @@ export class VcUI {
         const combo = engineState.state.combo || 0;
         if (this.topBar.combo) this.topBar.combo.textContent = combo;
         if (this.topBar.comboWrap) {
-            this.topBar.comboWrap.style.display = combo > 0 ? 'flex' : 'none';
+            this.topBar.comboWrap.style.visibility = combo > 0 ? 'visible' : 'hidden';
+            this.topBar.comboWrap.style.opacity = combo > 0 ? '1' : '0';
         }
         if (combo > 0) {
             const divisor = Math.max(1, 5 - ((engineState.meta?.skills?.scholarGrace || 0) * 0.1));
@@ -838,13 +839,17 @@ export class VcUI {
             if (this.topBar.comboMult) this.topBar.comboMult.textContent = `(×${mult})`;
             const col = combo >= 100 ? '#ecf0f1' : combo >= 25 ? '#f1c40f' : '#e67e22';
             if (this.topBar.comboInner) this.topBar.comboInner.style.color = col;
-            // Decay bar: full width = just killed, empty = about to reset
+            // Decay bar: full = just killed, empty = about to reset
             if (this.topBar.comboBar) {
                 const timer = engineState.state.comboDecayTimer || 0;
                 const pct = Math.max(0, Math.min(100, (1 - timer / 5) * 100));
                 this.topBar.comboBar.style.width = pct + '%';
                 this.topBar.comboBar.style.background = pct > 60 ? '#2ecc71' : pct > 30 ? '#f39c12' : '#e74c3c';
             }
+        } else if (this.topBar.comboBar) {
+            // Reset bar to full when combo is 0 so it's ready for next streak
+            this.topBar.comboBar.style.width = '100%';
+            this.topBar.comboBar.style.background = '#e67e22';
         }
         const manaEl = this.topBar.mana?.parentElement?.parentElement;
         if (manaEl) manaEl.classList.toggle('vc-mana-danger', manaVal / poolCap < 0.15);
