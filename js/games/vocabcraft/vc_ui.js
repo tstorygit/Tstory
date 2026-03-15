@@ -25,19 +25,16 @@ export class VcUI {
         this.gridEl.innerHTML = '';
 
         this.topBar = {
-            mana:      container.querySelector('#vc-val-mana'),
-            manaBar:   container.querySelector('#vc-mana-bar-fill'),
+            mana:       container.querySelector('#vc-val-mana'),
+            manaBar:    container.querySelector('#vc-mana-bar-fill'),
             poolLevel:  container.querySelector('#vc-val-pool-level'),
             poolCap:    container.querySelector('#vc-val-pool-cap'),
             combo:      container.querySelector('#vc-val-combo'),
             comboMult:  container.querySelector('#vc-val-combo-mult'),
             comboWrap:  container.querySelector('#vc-combo-wrap'),
-            comboMult:  container.querySelector('#vc-val-combo-mult'),
-            comboInner: container.querySelector('#vc-combo-inner'),
             comboInner: container.querySelector('#vc-combo-inner'),
             comboBar:   container.querySelector('#vc-combo-bar'),
-            comboBar:   container.querySelector('#vc-combo-bar'),
-            waves:     container.querySelector('.vc-wave-tracker')
+            waves:      container.querySelector('.vc-wave-tracker')
         };
 
         setTimeout(() => {
@@ -841,6 +838,13 @@ export class VcUI {
             if (this.topBar.comboMult) this.topBar.comboMult.textContent = `(×${mult})`;
             const col = combo >= 100 ? '#ecf0f1' : combo >= 25 ? '#f1c40f' : '#e67e22';
             if (this.topBar.comboInner) this.topBar.comboInner.style.color = col;
+            // Decay bar: full width = just killed, empty = about to reset
+            if (this.topBar.comboBar) {
+                const timer = engineState.state.comboDecayTimer || 0;
+                const pct = Math.max(0, Math.min(100, (1 - timer / 5) * 100));
+                this.topBar.comboBar.style.width = pct + '%';
+                this.topBar.comboBar.style.background = pct > 60 ? '#2ecc71' : pct > 30 ? '#f39c12' : '#e74c3c';
+            }
         }
         const manaEl = this.topBar.mana?.parentElement?.parentElement;
         if (manaEl) manaEl.classList.toggle('vc-mana-danger', manaVal / poolCap < 0.15);
