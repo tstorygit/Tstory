@@ -632,11 +632,7 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
 
     const overlay = document.createElement('div');
     overlay.id = 'vc-hex-detail';
-    overlay.style.cssText = [
-        'position:absolute', 'inset:0', 'background:#1a252f',
-        'z-index:50', 'display:flex', 'flex-direction:column',
-        'overflow:hidden'
-    ].join(';');
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:#1a252f;z-index:50;display:flex;flex-direction:column;overflow:hidden;';
 
     // ── Header ──────────────────────────────────────────────────────────────
     const mmSvg = getTemplateMinimap(tpl.id, 56, 72);
@@ -655,7 +651,7 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
 
     // ── Scrollable body ──────────────────────────────────────────────────────
     const body = document.createElement('div');
-    body.style.cssText = 'flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px 14px 20px;display:flex;flex-direction:column;gap:10px;';
+    body.style.cssText = 'flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px 14px 24px;display:flex;flex-direction:column;gap:10px;min-height:0;';
     overlay.appendChild(body);
 
     // ── Difficulty selector ──────────────────────────────────────────────────
@@ -811,8 +807,8 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
 
     // ── Bottom action bar ────────────────────────────────────────────────────
     const footer = document.createElement('div');
-    footer.style.cssText = 'flex-shrink:0;padding:10px 14px;padding-bottom:max(20px,env(safe-area-inset-bottom,20px));border-top:1px solid #34495e;background:#1a252f;';
-    footer.innerHTML = `<button id="vc-hex-go" style="width:100%;padding:16px;background:#2ecc71;border:2px solid #27ae60;border-radius:8px;color:white;font-weight:bold;font-size:17px;cursor:pointer;letter-spacing:0.5px;">⚔️ Enter Battle</button>`;
+    footer.style.cssText = 'flex-shrink:0;padding:12px 14px;padding-bottom:max(40px,env(safe-area-inset-bottom,40px));border-top:2px solid #34495e;background:#1a252f;';
+    footer.innerHTML = `<button id="vc-hex-go" style="width:100%;padding:18px;background:#2ecc71;border:2px solid #27ae60;border-radius:10px;color:white;font-weight:bold;font-size:18px;cursor:pointer;letter-spacing:0.5px;box-shadow:0 4px 12px rgba(46,204,113,0.4);">⚔️ Enter Battle</button>`;
     overlay.appendChild(footer);
 
     footer.querySelector('#vc-hex-go').onclick = () => {
