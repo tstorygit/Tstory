@@ -16,7 +16,7 @@ export const TEMPLATES = [
         id: 'gauntlet',
         name: 'The Gauntlet',
         desc: 'One long winding road. Towers along the full length — no shortcuts.',
-        minTier: 1,
+        minTier: 2,
         type: 'skeleton',
         skeleton: [
             { fx: 0.0,  fy: 0.20 },
@@ -32,7 +32,7 @@ export const TEMPLATES = [
         id: 'uturn',
         name: 'U-Turn',
         desc: 'Enemies enter top-left, sweep down the left side, cross the bottom, then climb back up to exit top-right. Full perimeter exposure.',
-        minTier: 1,
+        minTier: 3,
         type: 'uturn',
         skeleton: []
     },
@@ -40,7 +40,7 @@ export const TEMPLATES = [
         id: 'scurve',
         name: 'S-Curve',
         desc: 'Two sweeping bends. Divide your defense between upper and lower halves.',
-        minTier: 1,
+        minTier: 2,
         type: 'skeleton',
         skeleton: [
             { fx: 0.0,  fy: 0.18 },
@@ -75,7 +75,7 @@ export const TEMPLATES = [
         id: 'figure8',
         name: 'Figure-8',
         desc: 'Two loops share a crossing at the center. One tower there covers the whole map.',
-        minTier: 2,
+        minTier: 3,
         type: 'figure8',
         skeleton: []
     },
@@ -102,7 +102,7 @@ export const TEMPLATES = [
         id: 'trident',
         name: 'Trident',
         desc: 'Three spawners in three arms converge on a base in the fourth. Asymmetric pressure — no side is safe.',
-        minTier: 3,
+        minTier: 4,
         type: 'trident',
         multiPath: true,
         skeleton: []
@@ -119,7 +119,7 @@ export const TEMPLATES = [
         id: 'doubleloop',
         name: 'Double Loop',
         desc: 'Two ovals joined by a bridge. Enemies run the full circuit twice — plan for both halves.',
-        minTier: 2,
+        minTier: 3,
         type: 'doubleloop',
         skeleton: []
     },
@@ -145,7 +145,7 @@ export const TEMPLATES = [
         id: 'siege',
         name: 'The Siege',
         desc: 'Three columns storm your gate. Enemies split across all lanes — no single tower covers everything.',
-        minTier: 3,
+        minTier: 4,
         type: 'siege',
         multiPath: true,
         skeleton: []
@@ -154,7 +154,7 @@ export const TEMPLATES = [
         id: 'delta',
         name: 'River Delta',
         desc: 'Two rivers from opposite corners converge at a bottleneck. Guard the confluence — or be overwhelmed.',
-        minTier: 2,
+        minTier: 3,
         type: 'delta',
         multiPath: true,
         skeleton: []
@@ -172,41 +172,40 @@ export const TEMPLATES = [
  */
 export function getHexWorldLayout() {
     // Flat-top hex grid. col%2===1 shifts down by half a row.
-    // Groups are arranged so same-tier hexes share edges.
-    // Tier 1 (6 maps): 2 columns of 3, cols 0-1
-    // Tier 2 (4 maps): 2 columns of 2, cols 2-3
-    // Tier 3 (2 maps): col 4, rows 0-1
-    // Tier 4 (1 map):  col 4, row 2 (or 5, 0)
-    // Tier 5 (1 map):  col 5, row 0
+    // Tier 1 (3): Zigzag, Labyrinth, Comb — stacked col 0
+    // Tier 2 (3): S-Curve, Gauntlet, Z-Slash — stacked col 1
+    // Tier 3 (4): U-Turn, Double Loop, Figure-8, Delta — cols 2-3
+    // Tier 4 (3): Siege, Trident, Spiral — col 4
+    // Tier 5 (1): Four Corners — col 5
     return [
-        // Tier 1 — Easy (green) — 6 maps in a 2×3 block
-        { id: 'gauntlet',    hexCol: 0, hexRow: 0, tier: 1 },
-        { id: 'zigzag',      hexCol: 0, hexRow: 1, tier: 1 },
-        { id: 'uturn',       hexCol: 0, hexRow: 2, tier: 1 },
-        { id: 'scurve',      hexCol: 1, hexRow: 0, tier: 1 },
-        { id: 'labyrinth',   hexCol: 1, hexRow: 1, tier: 1 },
-        { id: 'comb',        hexCol: 1, hexRow: 2, tier: 1 },
-        // Tier 2 — Medium (yellow) — 4 maps in a 2×2 block
-        { id: 'zslash',      hexCol: 2, hexRow: 0, tier: 2 },
-        { id: 'doubleloop',  hexCol: 2, hexRow: 1, tier: 2 },
-        { id: 'figure8',     hexCol: 3, hexRow: 0, tier: 2 },
-        { id: 'delta',       hexCol: 3, hexRow: 1, tier: 2 },
-        // Tier 3 — Hard (orange) — 2 maps stacked
-        { id: 'siege',       hexCol: 4, hexRow: 0, tier: 3 },
-        { id: 'trident',     hexCol: 4, hexRow: 1, tier: 3 },
-        // Tier 4 — Very Hard (red)
-        { id: 'spiral',      hexCol: 5, hexRow: 0, tier: 4 },
+        // Tier 1 — Easiest (green)
+        { id: 'zigzag',      hexCol: 0, hexRow: 0, tier: 1 },
+        { id: 'labyrinth',   hexCol: 0, hexRow: 1, tier: 1 },
+        { id: 'comb',        hexCol: 0, hexRow: 2, tier: 1 },
+        // Tier 2 — Easy (yellow-green)
+        { id: 'scurve',      hexCol: 1, hexRow: 0, tier: 2 },
+        { id: 'gauntlet',    hexCol: 1, hexRow: 1, tier: 2 },
+        { id: 'zslash',      hexCol: 1, hexRow: 2, tier: 2 },
+        // Tier 3 — Medium (yellow)
+        { id: 'uturn',       hexCol: 2, hexRow: 0, tier: 3 },
+        { id: 'doubleloop',  hexCol: 2, hexRow: 1, tier: 3 },
+        { id: 'figure8',     hexCol: 3, hexRow: 0, tier: 3 },
+        { id: 'delta',       hexCol: 3, hexRow: 1, tier: 3 },
+        // Tier 4 — Hard (orange)
+        { id: 'siege',       hexCol: 4, hexRow: 0, tier: 4 },
+        { id: 'trident',     hexCol: 4, hexRow: 1, tier: 4 },
+        { id: 'spiral',      hexCol: 4, hexRow: 2, tier: 4 },
         // Tier 5 — Extreme (purple)
         { id: 'fourcorners', hexCol: 5, hexRow: 1, tier: 5 },
     ];
 }
 
 export const HEX_TIER_COLORS = {
-    1: { bg: '#1a3d1a', border: '#2ecc71', label: 'Easy' },
-    2: { bg: '#3d3200', border: '#f1c40f', label: 'Medium' },
-    3: { bg: '#3d1a00', border: '#e67e22', label: 'Hard' },
-    4: { bg: '#3d0a0a', border: '#e74c3c', label: 'Very Hard' },
-    5: { bg: '#2a0a3d', border: '#9b59b6', label: 'Extreme' },
+    1: { bg: '#1a3d1a', border: '#2ecc71',  label: 'Beginner' },
+    2: { bg: '#1a3a1a', border: '#27ae60',  label: 'Easy' },
+    3: { bg: '#3d3200', border: '#f1c40f',  label: 'Medium' },
+    4: { bg: '#3d1a00', border: '#e67e22',  label: 'Hard' },
+    5: { bg: '#2a0a3d', border: '#9b59b6',  label: 'Extreme' },
 };
 
 export function getValidTemplates(tier) {
