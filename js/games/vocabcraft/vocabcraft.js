@@ -39,6 +39,7 @@ export function init(screens, onExit) {
                     <div style="display:flex;gap:8px;align-items:center;">
                         <button class="vc-btn" id="vc-btn-grimoire" style="background:#f39c12; border-color:#d35400;">📖 Grimoire</button>
                         <button class="vc-icon-btn" id="vc-btn-settings" title="Settings" style="background:#2c3e50;border-color:#4a5568;font-size:18px;padding:4px 8px;min-width:0;line-height:1;">⚙️</button>
+                        <button class="vc-icon-btn" id="vc-btn-howto-camp" title="How to Play" style="background:#2c3e50;border-color:#4a5568;font-size:18px;padding:4px 8px;min-width:0;line-height:1;">ℹ️</button>
                     </div>
                 </div>
                 <div class="vc-stage-list" id="vc-stage-list"></div>
@@ -47,13 +48,15 @@ export function init(screens, onExit) {
             <div id="vc-battle-layer" class="vc-root" style="display:none;">
                 <div class="vc-topbar vc-topbar-row1">
                     <div style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;">
-                        <div style="display:flex;align-items:center;gap:0;flex-wrap:nowrap;">
-                            <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">
-                                <span class="vc-mana">💧 <span id="vc-val-mana">300</span></span>
-                                <span style="font-size:10px;color:#bdc3c7;white-space:nowrap;">/ <span id="vc-val-pool-cap">300</span></span>
-                                <span style="font-size:11px;color:#f1c40f;font-weight:bold;white-space:nowrap;">P<span id="vc-val-pool-level">1</span></span>
+                        <div style="display:flex;align-items:center;gap:0;flex-wrap:nowrap;overflow:hidden;height:32px;">
+                            <!-- Mana block: fixed max-width so it never pushes combo off -->
+                            <div style="display:flex;align-items:center;gap:3px;flex:0 0 auto;max-width:130px;overflow:hidden;">
+                                <span class="vc-mana" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:62px;">💧 <span id="vc-val-mana">300</span></span>
+                                <span style="font-size:10px;color:#bdc3c7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:52px;">/<span id="vc-val-pool-cap">300</span></span>
+                                <span style="font-size:11px;color:#f1c40f;font-weight:bold;white-space:nowrap;flex-shrink:0;">P<span id="vc-val-pool-level">1</span></span>
                             </div>
-                            <div id="vc-combo-wrap" style="display:flex;flex-direction:column;gap:1px;min-width:0;max-width:90px;margin-left:8px;visibility:hidden;opacity:0;transition:opacity 0.2s;overflow:hidden;">
+                            <!-- Combo block: fixed width, hidden until combo > 0 -->
+                            <div id="vc-combo-wrap" style="display:flex;flex-direction:column;justify-content:center;gap:1px;flex:0 0 88px;width:88px;margin-left:6px;visibility:hidden;opacity:0;transition:opacity 0.2s;overflow:hidden;">
                                 <span style="font-size:10px;color:#7f8c8d;line-height:1;white-space:nowrap;">COMBO</span>
                                 <span style="font-size:11px;font-weight:bold;line-height:1;white-space:nowrap;" id="vc-combo-inner">⚡<span id="vc-val-combo">0</span> <span id="vc-val-combo-mult" style="font-size:10px;">(×1.00)</span></span>
                                 <div style="height:3px;background:rgba(255,255,255,0.15);border-radius:2px;overflow:hidden;">
@@ -66,10 +69,10 @@ export function init(screens, onExit) {
                         </div>
                     </div>
                     <button class="vc-icon-btn vc-grimoire-btn" id="vc-btn-grimoire-battle">📖</button>
-                    <button class="vc-icon-btn" id="vc-btn-howto" title="How to Play" style="background:#2c3e50;border-color:#4a5568;">ℹ️</button>
+                    <button class="vc-icon-btn" id="vc-btn-howto" title="How to Play" style="background:#2c3e50;border-color:#4a5568;padding:3px 6px;min-width:0;">ℹ️</button>
                     <button class="vc-icon-btn" id="vc-btn-speed">⚡1x</button>
                     <button class="vc-icon-btn" id="vc-btn-pause" style="background:#2980b9; border-color:#1a5276;">⏸</button>
-                    <button class="vc-icon-btn vc-flee-btn" id="vc-btn-surrender">🏃Flee</button>
+                    <button class="vc-icon-btn vc-flee-btn" id="vc-btn-surrender">🚪</button>
                 </div>
                 <div class="vc-topbar vc-topbar-row2">
                     <div class="vc-wave-tracker"></div>
@@ -99,6 +102,7 @@ export function init(screens, onExit) {
 
         // ⚙️ Settings button — opens the settings overlay
         _screens.game.querySelector('#vc-btn-settings').onclick = () => _showSettingsOverlay();
+        _screens.game.querySelector('#vc-btn-howto-camp').onclick = () => _showHowToOverlay();
 
         _screens.game.querySelector('#vc-btn-grimoire-battle').onclick = () => {
             if (_engine && _engine.state.status === 'playing') {
@@ -854,9 +858,9 @@ function _renderHexWorldMap(container) {
             if (isStageCleared(_meta, tpl.id, d)) { bestD = d; break; }
         }
         if (bestD > 0) {
-            const bx = cx + HEX_R * 0.55;
+            const bx = cx + HEX_R * 0.52;
             const by = cy - HEX_H * 0.33;
-            const pillW = 28, pillH = 16, pillR = 7;
+            const pillW = 36, pillH = 20, pillR = 9;
 
             // Pill background
             const pill = document.createElementNS(svgNS, 'rect');
@@ -875,12 +879,15 @@ function _renderHexWorldMap(container) {
             // Star + difficulty text inside pill
             const badge = document.createElementNS(svgNS, 'text');
             badge.setAttribute('x', bx.toFixed(1));
-            badge.setAttribute('y', (by + 4.5).toFixed(1));
+            badge.setAttribute('y', (by + 5.5).toFixed(1));
             badge.setAttribute('text-anchor', 'middle');
-            badge.setAttribute('font-size', '10');
+            badge.setAttribute('font-size', '12');
             badge.setAttribute('font-weight', 'bold');
             badge.setAttribute('font-family', 'Segoe UI, sans-serif');
             badge.setAttribute('fill', '#fff7aa');
+            badge.setAttribute('stroke', 'rgba(0,0,0,0.7)');
+            badge.setAttribute('stroke-width', '2');
+            badge.setAttribute('paint-order', 'stroke');
             badge.setAttribute('pointer-events', 'none');
             badge.textContent = `★D${bestD}`;
             svg.appendChild(badge);

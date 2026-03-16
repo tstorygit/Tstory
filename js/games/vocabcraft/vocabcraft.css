@@ -23,10 +23,10 @@
     background: #1a252f;
     border-bottom: 1px solid #34495e;
     z-index: 10;
-    gap: 6px;
+    gap: 4px;
     flex-shrink: 0;
     overflow: hidden;
-    padding: 4px 8px;
+    padding: 4px 6px;
 }
 
 /* Row 1: HP, Mana, spacer, Speed, Flee */
@@ -50,12 +50,13 @@
     color: white;
     border: 1px solid #2c3e50;
     border-radius: 5px;
-    padding: 3px 8px;
+    padding: 3px 6px;
     font-size: 12px;
     font-weight: bold;
     cursor: pointer;
     flex-shrink: 0;
     white-space: nowrap;
+    min-width: 0;
 }
 .vc-icon-btn:active { transform: scale(0.93); }
 #vc-btn-speed      { background: #8e44ad; border-color: #6c3483; }
