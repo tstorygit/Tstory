@@ -141,7 +141,9 @@ export class VcEngine {
             comboDecayTimer: 0,  // seconds since last kill — combo decays after 5s
             xpEarned: 0,
             _waveLeaked: false,
-            _manaAtWaveStart: startMana
+            _manaAtWaveStart: startMana,
+            _waveStartTime: 0,       // performance.now() when wave was spawned
+            _earlyCallBonus: 0       // mana bonus earned by calling next wave early
         };
 
         this.enemies = [];
@@ -280,9 +282,34 @@ export class VcEngine {
     }
 
     spawnWave(isEnraged = false, enrageLevel = 1) {
+        // Early-call bonus: reward calling the next wave before the current one
+        // fully clears. Bonus = floor(remaining enemies / totalSpawned) * waveIncome * 0.6,
+        // capped at 60% of that wave's income. Only awarded when enemies are still alive
+        // (i.e. the player genuinely called early). The perfect-wave flag (_waveLeaked)
+        // belongs to the wave being CLEARED, not the one being started — preserve it until
+        // the wave-clear check fires naturally in _loopTick.
+        if (this.state.wave > 0 && this.enemies.length > 0) {
+            const elapsed = (performance.now() - (this.state._waveStartTime || 0)) / 1000;
+            const enemiesAlive = this.enemies.length;
+            // Fraction of enemies still alive relative to the wave size (rough)
+            const waveSize = Math.max(1, (this.state._waveEnemyCount || enemiesAlive));
+            const aliveFrac = Math.min(1, enemiesAlive / waveSize);
+            // Bigger bonus the earlier the call; also scale with difficulty
+            const baseIncome = Math.floor((30 + 5 * this.state.wave + 8 * this.difficulty) * (this.buffs.poolMult || 1));
+            const earlyBonus = Math.floor(baseIncome * aliveFrac * 0.6);
+            if (earlyBonus > 0) {
+                this.state.mana += earlyBonus;
+                this.state._earlyCallBonus = earlyBonus;
+                this.onUpdate(this, { type: 'earlyCall', bonus: earlyBonus });
+            }
+        } else {
+            this.state._earlyCallBonus = 0;
+        }
+
         this.state.wave++;
         this.state._waveLeaked = false;
         this.state._manaAtWaveStart = this.state.mana;
+        this.state._waveStartTime = performance.now();
 
         // Passive wave mana income
         const waveIncome = Math.floor((30 + 5 * this.state.wave + 8 * this.difficulty) * (this.buffs.poolMult || 1));
@@ -304,7 +331,8 @@ export class VcEngine {
         });
 
         this._nextSpawnDelay = maxDelay + 1.5;
-    }
+        // Track total enemies spawned this wave for early-call bonus calculation
+        this.state._waveEnemyCount = entries.length;
 
     updateSpawns(dt) {
         if (this.spawnQueue.length === 0) {

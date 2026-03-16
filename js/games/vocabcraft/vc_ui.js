@@ -420,6 +420,9 @@ export class VcUI {
             return null;
         };
 
+        // Prevent scroll/zoom interference on the grid during drag
+        this.gridEl.style.touchAction = 'none';
+
         const clearHighlight = () => this.tiles.forEach(t => t.classList.remove('vc-drag-over'));
 
         this.gridEl.addEventListener('pointerdown', (e) => {
@@ -430,6 +433,7 @@ export class VcUI {
             const st = this.engine.structures.find(s => s.x === x && s.y === y);
             if (!st?.gem) return;
             e.preventDefault();
+            e.stopPropagation();   // prevent tile onclick from also firing
             this._dragSource = { structRef: st };
             this._dragGhost.style.background = GEMS[st.gem.color]?.color || '#888';
             this._dragGhost.textContent = st.gem.level;
@@ -669,19 +673,22 @@ export class VcUI {
         const cost = gemUpgradeCost(gem.color, lvl, this.engine.meta.skills);
         const mana = this.engine.state.mana;
 
-        const dmg = gemDamage(gem, gemDef, this.engine.meta.skills);
+        const poolMult  = this.engine.buffs?.poolMult || 1;
+        const comboMult = this.engine.buffs?.dmgMult  || 1;
+        const dmg = gemDamage(gem, gemDef, this.engine.meta.skills) * poolMult * comboMult;
         const speed = gemFireSpeed(gem, gemDef, this.engine.meta.skills);
         const range = gemRange(gem, isTrap, this.tileSize);
-        
+
         // Accurate trap multipliers for the UI display
         const trapDmgMult = isTrap ? 0.20 + ((this.engine.meta.skills.trapSpecialty || 0) * 0.01) : 1;
         const trapSpecMult = isTrap ? 2.5 + ((this.engine.meta.skills.trapSpecialty || 0) * 0.1) : 1;
         const trapFireMult = isTrap ? 3.0 + ((this.engine.meta.skills.trapSpecialty || 0) * 0.02) : 1;
 
+        const poolLevelDisp = this.engine.state.poolLevel > 1 ? ` ×${poolMult.toFixed(2)}🌊` : '';
         const stats =[
             { icon: '🏹', label: 'Range',  val: range + 'px' },
             { icon: '⚡', label: 'Fire',   val: (speed * trapFireMult).toFixed(2) + '/s' },
-            { icon: '⚔️', label: 'Damage', val: Math.max(1, Math.floor(dmg * trapDmgMult)) + (isTrap ? ' (Trap)' : '') },
+            { icon: '⚔️', label: 'Damage', val: Math.max(1, Math.floor(dmg * trapDmgMult)) + poolLevelDisp + (isTrap ? ' (Trap)' : '') },
         ];
 
         switch (gemDef.type) {
@@ -720,7 +727,7 @@ export class VcUI {
         }
 
         const nextGem = { color: gem.color, level: lvl + 1 };
-        const nextDmg = gemDamage(nextGem, gemDef, this.engine.meta.skills);
+        const nextDmg = gemDamage(nextGem, gemDef, this.engine.meta.skills) * poolMult;
         const nextSpeed = gemFireSpeed(nextGem, gemDef, this.engine.meta.skills);
         const nextRange = gemRange(nextGem, isTrap, this.tileSize);
 
@@ -1125,6 +1132,13 @@ export class VcUI {
             fl.textContent = `✨ Perfect Wave +${eventMsg.bonus} XP`;
             this.gridEl.appendChild(fl);
             setTimeout(() => fl.remove(), 1200);
+        } else if (eventMsg?.type === 'earlyCall') {
+            const fl = document.createElement('div');
+            fl.className = 'vc-float';
+            fl.style.cssText = 'left:50%;top:48px;transform:translateX(-50%);font-size:14px;color:#2ecc71;text-shadow:0 0 8px #27ae60,1px 1px 0 #000;white-space:nowrap;';
+            fl.textContent = `⚡ Early Call +${eventMsg.bonus} 💧`;
+            this.gridEl.appendChild(fl);
+            setTimeout(() => fl.remove(), 1400);
         }
     }
 
