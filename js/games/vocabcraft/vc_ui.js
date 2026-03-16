@@ -96,12 +96,24 @@ export class VcUI {
     initGrid() {
         const { cols, rows, grid } = this.engine.map;
 
-        const TOPBAR_H  = 70;
         const SIDEBAR_W = 240;
         const TILE_MAX  = 52;
 
         const vw = window.innerWidth;
         const vh = window.innerHeight;
+
+        // Measure the actual topbar height from both rows rather than
+        // hardcoding 70px. On wide screens (2440px+) the topbar rows can
+        // wrap, making the real height significantly larger. If we use a
+        // fixed constant the available height is over-estimated, which
+        // causes the grid and all enemy positions to fall off-screen.
+        const row1 = this.container.querySelector('.vc-topbar-row1');
+        const row2 = this.container.querySelector('.vc-topbar-row2');
+        const TOPBAR_H = Math.max(
+            70,
+            (row1 ? row1.getBoundingClientRect().height : 0) +
+            (row2 ? row2.getBoundingClientRect().height : 0)
+        );
 
         // Skip if nothing changed
         if (this._lastVw === vw && this._lastVh === vh && this.tileSize > 0) return;

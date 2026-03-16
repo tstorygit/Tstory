@@ -6,7 +6,7 @@ export const GEMS = {
     blue:   { label: 'Sapphire', color: '#3498db', type: 'slow',  baseDmg: 4,  speed: 1.0, baseSlow: 0.18 },
     green:  { label: 'Emerald',  color: '#2ecc71', type: 'poison',baseDmg: 4,  speed: 1.0, basePoison: 1.5 },
     orange: { label: 'Topaz',    color: '#f39c12', type: 'mana',  baseDmg: 6,  speed: 1.2, baseMana: 0.4 }, // Compensating for lack of Amplifiers
-    yellow: { label: 'Citrine',  color: '#f1c40f', type: 'crit',  baseDmg: 8,  speed: 1.0, baseCrit: 0.10, baseMult: 3 },
+    yellow: { label: 'Citrine',  color: '#f1c40f', type: 'crit',  baseDmg: 11, speed: 1.0, baseCrit: 0.12, baseMult: 3 },
     purple: { label: 'Amethyst', color: '#9b59b6', type: 'armor', baseDmg: 5,  speed: 1.0, baseTear: 0.2 }
 };
 
@@ -112,7 +112,7 @@ export function enemyXpValue(enemy) {
     const armorFactor  = 1 + (enemy.armor || 0) * 0.15;
     const regenFactor  = 1 + (enemy.regen || 0) * 8;
     const effectiveHp  = enemy.maxHp * armorFactor * regenFactor;
-    const speedFactor  = 0.8 + (enemy.speed || 1.5) * 5;  // tiles/s: normal≈1.5 → factor≈8.3
+    const speedFactor  = 0.8 + (enemy.speed || 1.5) * 2.5;  // tiles/s: normal≈1.5 → factor≈4.55 (was ×5 — caused late-wave XP explosion)
     const immuneFactor = 1 + (enemy.immune?.length || 0) * 0.25;
     return Math.max(1, effectiveHp * speedFactor * immuneFactor / XP_NORMALISER);
 }
