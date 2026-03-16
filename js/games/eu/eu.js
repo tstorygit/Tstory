@@ -160,7 +160,29 @@ function _generateMap() {
     const rows = Math.ceil(totalProv / cols);
 
     let vocabIndex = 0;
-    let names = [...PROVINCE_NAMES].sort(() => 0.5 - Math.random());
+
+    // Proper Fisher-Yates shuffle — fixes the biased .sort() shuffle
+    const _shuffle = arr => {
+        for (let i = arr.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [arr[i], arr[j]] = [arr[j], arr[i]];
+        }
+        return arr;
+    };
+    const names = _shuffle([...PROVINCE_NAMES]);
+
+    // Compound-name generator — used only if the primary pool runs dry (very large vocab sets)
+    const _NAME_PREFIXES = ['Kita','Minami','Higashi','Nishi','Kami','Shimo','Oku','Soto'];
+    const _NAME_BASES    = ['shima','yama','kawa','mori','hara','sato','machi','gawa','ura','zaki'];
+    let _nameGenIdx = 0;
+    const _generateName = () => {
+        const p = _NAME_PREFIXES[_nameGenIdx % _NAME_PREFIXES.length];
+        const b = _NAME_BASES[Math.floor(_nameGenIdx / _NAME_PREFIXES.length) % _NAME_BASES.length];
+        _nameGenIdx++;
+        return p + '-' + b;
+    };
+    const _nextName = () => names.length > 0 ? names.pop() : _generateName();
+
     const capX = Math.floor(cols / 2);
     const capY = Math.floor(rows / 2);
 
@@ -181,7 +203,7 @@ function _generateMap() {
 
             _g.provinces.push({
                 id: pId,
-                name: names.pop() || `Region ${x}-${y}`,
+                name: _nextName(),
                 x, y,
                 owner: isCapital ? 'player' : 'neutral',
                 words: provWords,
@@ -820,6 +842,13 @@ function _updateSRSQueue() {
 
     if (!quizScrn || !sleepScrn) return;
 
+    // ── Welcome-back toast for capped offline sessions ──
+    if (_g._offlineWelcomeBack) {
+        const mins = _g._offlineWelcomeBack;
+        _toast(`👋 Welcome back! You were away ${mins}m — unrest was capped at 2 min of game time.`, '#c47a1e');
+        delete _g._offlineWelcomeBack;
+    }
+
     if (_pendingReviews.length > 0) {
         sleepScrn.style.display = 'none';
         quizScrn.style.display  = 'flex';
@@ -829,23 +858,36 @@ function _updateSRSQueue() {
         sleepScrn.style.display = 'flex';
         _g.currentCardId = null;
 
-        // Check if any province is still actively rebelling (recovering)
+        const noSrsAtAll    = _g.srs.length === 0;
         const stillRebelling = _g.provinces.some(p => p.rebelling);
-        const titleEl  = sleepScrn.querySelector('.eu-sleep-title');
-        const iconEl   = sleepScrn.querySelector('.eu-sleep-icon');
-        if (titleEl) titleEl.textContent = stillRebelling
-            ? 'Suppressing Rebellions…'
-            : 'The Empire is at Peace';
-        if (iconEl)  iconEl.textContent  = stillRebelling ? '⚔️' : '🕊️';
+        const onboardingEl  = sleepScrn.querySelector('#eu-dojo-onboarding');
+        const msgEl         = sleepScrn.querySelector('#eu-dojo-sleep-msg');
+        const titleEl       = sleepScrn.querySelector('.eu-sleep-title');
+        const iconEl        = sleepScrn.querySelector('.eu-sleep-icon');
 
-        if (timerEl && _g.srs.length > 0) {
-            const next    = Math.min(..._g.srs.map(s => s.nextReview));
-            const diffSec = (next - now) / 1000;
-            timerEl.textContent = diffSec <= 2
-                ? 'Incident imminent...'
-                : `Next incident in: ${_formatTime(diffSec)}`;
-        } else if (timerEl) {
-            timerEl.textContent = _g.srs.length === 0 ? 'Conquer a province to begin!' : '';
+        if (noSrsAtAll) {
+            // ── Onboarding state: player hasn't conquered anything yet ──
+            if (iconEl)        iconEl.textContent  = '🗺️';
+            if (titleEl)       titleEl.textContent = 'Your Empire Awaits';
+            if (msgEl)         msgEl.textContent   = 'Conquer a province on the World Map to unlock vocabulary flashcards.';
+            if (onboardingEl)  onboardingEl.style.display = 'block';
+            if (timerEl)       timerEl.textContent = '';
+        } else {
+            // ── Normal peace or rebelling state ──
+            if (onboardingEl)  onboardingEl.style.display = 'none';
+            if (iconEl)        iconEl.textContent  = stillRebelling ? '⚔️' : '🕊️';
+            if (titleEl)       titleEl.textContent = stillRebelling ? 'Suppressing Rebellions…' : 'The Empire is at Peace';
+            if (msgEl)         msgEl.textContent   = 'No vocabulary reviews are currently due.';
+
+            if (timerEl && _g.srs.length > 0) {
+                const next    = Math.min(..._g.srs.map(s => s.nextReview));
+                const diffSec = (next - now) / 1000;
+                timerEl.textContent = diffSec <= 2
+                    ? 'Incident imminent...'
+                    : `Next incident in: ${_formatTime(diffSec)}`;
+            } else if (timerEl) {
+                timerEl.textContent = '';
+            }
         }
     }
 }
@@ -1097,7 +1139,20 @@ function _initGameDOM() {
             <div id="eu-dojo-sleep" class="eu-battle-screen">
                 <div class="eu-sleep-icon" style="font-size:40px;">🕊️</div>
                 <h3 class="eu-sleep-title">The Empire is at Peace</h3>
-                <p style="color:#888; font-size:13px;">No vocabulary reviews are currently due.</p>
+                <p id="eu-dojo-sleep-msg" style="color:#888; font-size:13px;">No vocabulary reviews are currently due.</p>
+                <div id="eu-dojo-onboarding" style="display:none; margin-top:16px; max-width:340px; text-align:left; background:#fef9e7; border:1px solid #c9a96e; border-radius:8px; padding:16px;">
+                    <div style="font-weight:bold; font-size:14px; color:#3d2010; margin-bottom:10px;">⚔️ How to begin</div>
+                    <div style="font-size:13px; color:#5a3820; line-height:1.7;">
+                        <div style="margin-bottom:6px;">1️⃣ Switch to the <strong>🗺️ World Map</strong> tab</div>
+                        <div style="margin-bottom:6px;">2️⃣ Click any <strong>adjacent province</strong> (glowing border)</div>
+                        <div style="margin-bottom:6px;">3️⃣ <strong>Declare War</strong> and win the battle quiz</div>
+                        <div>4️⃣ Come back here — your vocabulary flashcards will appear as <strong>rebellions to suppress!</strong></div>
+                    </div>
+                    <button class="eu-action-btn" style="margin-top:14px; width:100%; background:#27ae60; color:white; border-color:#1e8449;"
+                        onclick="document.querySelector('.eu-tab-btn[data-target=map]').click()">
+                        🗺️ Go to World Map →
+                    </button>
+                </div>
                 <div id="eu-next-review-timer" style="margin-top:12px; font-weight:bold; color:#c0392b; font-size:14px;"></div>
             </div>
 
@@ -1634,6 +1689,10 @@ function _saveGame() {
     localStorage.setItem(SAVE_KEY, JSON.stringify(_g));
 }
 
+// Max seconds of offline time simulated for unrest/resources on load.
+// Prevents returning players from logging in to a fully-rebelled empire.
+const OFFLINE_SIM_CAP_SEC = 120;
+
 function _loadGame() {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) { _g = _freshGame(); return; }
@@ -1642,22 +1701,64 @@ function _loadGame() {
         _g = _freshGame();
         Object.assign(_g.resources, p.resources || {});
         Object.assign(_g.stats, p.stats || {});
-        _g.provinces      = p.provinces      || [];
-	_g.srs = p.srs || [];
-	_g.ideas = p.ideas || {};
-	_g.missionsCompleted = p.missionsCompleted || {};
-	_g.advisors = p.advisors|| {};
-	_g.ae = p.ae || 0;
-	_g.nextEventTimer = p.nextEventTimer || (Date.now() + 90000);
-	_g.stability = p.stability ?? STABILITY_MAX;
-	_g.nationalFocus = p.nationalFocus || 'adm';
-	_g.combo = p.combo || 0;
-	_g.victoryAchieved = p.victoryAchieved || false;
-	_g.capitalId = p.capitalId || null;
-	_g.lastTick = Date.now();
-	} catch (e) {
-	_g = _freshGame();
-	}
+        _g.provinces         = p.provinces       || [];
+        _g.srs               = p.srs             || [];
+        _g.ideas             = p.ideas            || {};
+        _g.missionsCompleted = p.missionsCompleted || {};
+        _g.advisors          = p.advisors         || {};
+        _g.ae                = p.ae               || 0;
+        _g.nextEventTimer    = p.nextEventTimer   || (Date.now() + 90000);
+        _g.stability         = p.stability        ?? STABILITY_MAX;
+        _g.nationalFocus     = p.nationalFocus    || 'adm';
+        _g.combo             = p.combo            || 0;
+        _g.victoryAchieved   = p.victoryAchieved  || false;
+        _g.capitalId         = p.capitalId        || null;
+
+        // ── Offline catch-up: simulate at most OFFLINE_SIM_CAP_SEC of game time ──
+        // Without this cap, any absence longer than ~50s causes every province to
+        // be rebelling the moment the player returns.
+        const savedTick      = p.lastTick || Date.now();
+        const realOfflineSec = (Date.now() - savedTick) / 1000;
+        const simSec         = Math.min(realOfflineSec, OFFLINE_SIM_CAP_SEC);
+
+        if (simSec > 0 && _g.provinces.length > 0) {
+            const now       = Date.now();
+            const unrestMod = _g.ideas.humanist ? IDEAS.humanist.effect : 1;
+
+            _g.provinces.forEach(prov => {
+                if (prov.owner === 'player' && !prov.cored) {
+                    const dueWords = _g.srs.filter(s => s.provinceId === prov.id && s.nextReview <= now);
+                    if (dueWords.length > 0) {
+                        prov.unrest = Math.min(100, prov.unrest + dueWords.length * 0.5 * unrestMod * simSec);
+                        if (prov.unrest >= 100) {
+                            prov.unrest    = 100;
+                            prov.rebelling = true;
+                            // rebelTimer stays at 0 — player gets a fresh window to respond
+                        }
+                    }
+                } else if (prov.owner === 'vassal') {
+                    prov.libertyDesire = Math.min(100, prov.libertyDesire + 0.5 * simSec);
+                }
+            });
+
+            // Passive resource catch-up (same cap)
+            const stats = _getEmpireStats();
+            _g.resources.ducats   = Math.max(0, _g.resources.ducats + stats.ducatsPerSec * simSec);
+            _g.resources.manpower = _g.resources.manpower + stats.manpowerPerSec * simSec;
+            _g.resources.adm = Math.min(MONARCH_POINT_CAP, _g.resources.adm + stats.admGen * simSec);
+            _g.resources.dip = Math.min(MONARCH_POINT_CAP, _g.resources.dip + stats.dipGen * simSec);
+            _g.resources.mil = Math.min(MONARCH_POINT_CAP, _g.resources.mil + stats.milGen * simSec);
+
+            // Store for welcome-back toast if offline time was truncated
+            if (realOfflineSec > OFFLINE_SIM_CAP_SEC) {
+                _g._offlineWelcomeBack = Math.round(realOfflineSec / 60);
+            }
+        }
+
+        _g.lastTick = Date.now();
+    } catch (e) {
+        _g = _freshGame();
+    }
 }
 
 
