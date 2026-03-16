@@ -47,6 +47,13 @@ export class VcUI {
             this.entitiesEl.className = 'vc-entities';
             this.gridEl.appendChild(this.entitiesEl);
 
+            // Stable layer for structures — rendered once per change, never
+            // wiped every frame. This makes pointer/drag events work reliably.
+            this.structuresEl = document.createElement('div');
+            this.structuresEl.className = 'vc-entities';
+            this.structuresEl.style.zIndex = '4'; // below enemies (z-index 6)
+            this.gridEl.appendChild(this.structuresEl);
+
             // Stable overlay for spawn/base markers — lives above tiles,
             // never touched by the per-frame entitiesEl.innerHTML rewrite
             this.markersEl = document.createElement('div');
@@ -1039,13 +1046,11 @@ export class VcUI {
             html += `<div class="vc-range-indicator" style="left:${st.x-radius}px;top:${st.y-radius}px;width:${radius*2}px;height:${radius*2}px;"></div>`;
         }
 
-        engineState.structures.forEach(st => {
-            const isTower = st.type === 'tower';
-            let inner = st.gem
-                ? `<div class="vc-gem" style="background:${GEMS[st.gem.color].color}">${st.gem.level}</div>`
-                : `<div style="font-size:${Math.max(10,this.tileSize*0.38)}px;opacity:0.45;line-height:1;">${isTower ? '🏰' : '⚙️'}</div>`;
-            html += `<div class="vc-structure ${isTower?'vc-tower':'vc-trap'}" style="left:${st.x-this.tileSize/2}px;top:${st.y-this.tileSize/2}px;width:${this.tileSize}px;height:${this.tileSize}px;">${inner}</div>`;
-        });
+        // --- Structures: render into stable DOM layer (not innerHTML-wiped every frame)
+        // so that pointerdown/drag events survive across frames.
+        if (this.structuresEl) {
+            this._renderStructures(engineState.structures);
+        }
 
         engineState.enemies.forEach(e => {
             const pct = (e.hp / e.maxHp) * 100;
@@ -1140,6 +1145,60 @@ export class VcUI {
             fl.textContent = `⚡ Early Call +${eventMsg.bonus} 💧`;
             this.gridEl.appendChild(fl);
             setTimeout(() => fl.remove(), 1400);
+        }
+    }
+
+    // Render structures into a stable DOM layer — elements are reused across frames
+    // so pointer capture and drag events survive. Only updates what visually changed.
+    _renderStructures(structures) {
+        const el = this.structuresEl;
+        const ts = this.tileSize;
+
+        // Build a key→existing-element map from current DOM children
+        const existing = new Map();
+        for (const child of el.children) {
+            existing.set(child.dataset.skey, child);
+        }
+
+        const seen = new Set();
+
+        for (const st of structures) {
+            const isTower = st.type === 'tower';
+            const key = `${st.x},${st.y}`;
+            seen.add(key);
+
+            const gemKey = st.gem ? `${st.gem.color}:${st.gem.level}` : 'empty';
+            const fullKey = `${key}|${st.type}|${gemKey}`;
+
+            let div = existing.get(key);
+            if (!div) {
+                div = document.createElement('div');
+                div.dataset.skey = key;
+                div.style.position = 'absolute';
+                div.style.left  = `${st.x - ts/2}px`;
+                div.style.top   = `${st.y - ts/2}px`;
+                div.style.width  = `${ts}px`;
+                div.style.height = `${ts}px`;
+                el.appendChild(div);
+            }
+
+            // Only update innerHTML when something actually changed
+            if (div.dataset.fullKey !== fullKey) {
+                div.dataset.fullKey = fullKey;
+                div.className = `vc-structure ${isTower ? 'vc-tower' : 'vc-trap'}`;
+                div.style.left   = `${st.x - ts/2}px`;
+                div.style.top    = `${st.y - ts/2}px`;
+                div.style.width  = `${ts}px`;
+                div.style.height = `${ts}px`;
+                div.innerHTML = st.gem
+                    ? `<div class="vc-gem" style="background:${GEMS[st.gem.color].color}">${st.gem.level}</div>`
+                    : `<div style="opacity:0.45;line-height:1;">${isTower ? '🏰' : '⚙️'}</div>`;
+            }
+        }
+
+        // Remove stale elements (structure was sold/destroyed)
+        for (const [key, child] of existing) {
+            if (!seen.has(key)) child.remove();
         }
     }
 
