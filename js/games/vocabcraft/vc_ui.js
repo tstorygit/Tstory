@@ -398,7 +398,6 @@ export class VcUI {
     }
 
     initDragSwap() {
-        console.log('[DRAG] initDragSwap called');
         this._dragGhost = document.createElement('div');
         this._dragGhost.id = 'vc-drag-ghost';
         this._dragGhost.style.cssText = [
@@ -412,7 +411,6 @@ export class VcUI {
         ].join(';');
         document.body.appendChild(this._dragGhost);
         this._dragSource = null;
-        console.log('[DRAG] ghost element created and appended to body');
 
         document.addEventListener('pointermove', (e) => {
             if (!this._dragSource) return;
@@ -430,7 +428,6 @@ export class VcUI {
 
         document.addEventListener('pointerup', (e) => {
             if (!this._dragSource) return;
-            console.log('[DRAG] pointerup — releasing drag', e.clientX, e.clientY);
             this._dragGhost.style.display = 'none';
             this.tiles.forEach(t => t.classList.remove('vc-drag-over'));
             const rect = this.gridEl.getBoundingClientRect();
@@ -442,7 +439,6 @@ export class VcUI {
                 const ty = tr * this.tileSize + this.tileSize / 2;
                 const src = this._dragSource.structRef;
                 const target = this.engine.structures.find(s => s.x === tx && s.y === ty);
-                console.log('[DRAG] drop target:', target ? `${target.type} at ${tx},${ty}` : 'none');
                 if (target && target !== src) {
                     const tmp = target.gem;
                     target.gem = src.gem;
@@ -456,7 +452,6 @@ export class VcUI {
 
         document.addEventListener('pointercancel', () => {
             if (!this._dragSource) return;
-            console.log('[DRAG] pointercancel — aborting drag');
             this._dragSource = null;
             this._dragGhost.style.display = 'none';
             this.tiles.forEach(t => t.classList.remove('vc-drag-over'));
@@ -475,7 +470,6 @@ export class VcUI {
                 this._dragGhost.style.left = e.clientX + 'px';
                 this._dragGhost.style.top  = e.clientY + 'px';
                 this._dragGhost.style.display = 'flex';
-                console.log('[DRAG] pointerdown on structure — THIS SHOULD NOT FIRE (old path)');
             });
         };
     }
@@ -526,12 +520,20 @@ export class VcUI {
             if (st.type === TILE_GRASS) {
                 const tCost = this.engine.getBuildCost('tower');
                 this.createBtn(`🏰 Tower (${tCost})`, mana >= tCost, tCost, () => {
-                    if (this.engine.addStructure(st.x, st.y, 'tower')) this.selectTile(st.r, st.c, st.type);
+                    if (this.engine.addStructure(st.x, st.y, 'tower')) {
+                        const s = this.engine.structures.find(s => s.x === st.x && s.y === st.y);
+                        if (s) { s.r = st.r; s.c = st.c; }
+                        this.selectTile(st.r, st.c, st.type);
+                    }
                 });
             } else if (st.type === TILE_PATH) {
                 const pCost = this.engine.getBuildCost('trap');
                 this.createBtn(`⚙️ Trap (${pCost})`, mana >= pCost, pCost, () => {
-                    if (this.engine.addStructure(st.x, st.y, 'trap')) this.selectTile(st.r, st.c, st.type);
+                    if (this.engine.addStructure(st.x, st.y, 'trap')) {
+                        const s = this.engine.structures.find(s => s.x === st.x && s.y === st.y);
+                        if (s) { s.r = st.r; s.c = st.c; }
+                        this.selectTile(st.r, st.c, st.type);
+                    }
                 });
             } else {
                 this.bottomBar.innerHTML = `<div style="color:#7f8c8d;">Cannot build on Rock.</div>`;
@@ -1145,9 +1147,8 @@ export class VcUI {
     _renderStructures(structures) {
         const el = this.structuresEl;
         const ts = this.tileSize;
-        if (!el) { console.warn('[DRAG] _renderStructures: structuresEl is null!'); return; }
+        if (!el) return;
         if (el.children.length !== structures.length) {
-            console.log('[DRAG] _renderStructures: count changed →', structures.length, 'DOM children was:', el.children.length);
         }
 
         // Build a key→existing-element map from current DOM children
@@ -1178,14 +1179,10 @@ export class VcUI {
                 div.style.pointerEvents = 'auto'; // override parent's pointer-events:none
                 div.style.cursor = 'grab';
                 el.appendChild(div);
-                console.log('[DRAG] new structure element created at key:', key, 'type:', st.type);
                 // Attach drag listener once — looks up live struct at event time
                 div.addEventListener('pointerdown', (e) => {
-                    console.log('[DRAG] pointerdown fired on structure div, skey:', div.dataset.skey, 'e.target.tagName:', e.target.tagName);
                     const live = this.engine.structures.find(s => `${s.x},${s.y}` === div.dataset.skey);
-                    console.log('[DRAG] live struct found:', live ? `${live.type} gem:${live.gem?.color}` : 'NOT FOUND');
                     if (!live?.gem) {
-                        console.log('[DRAG] no gem — aborting');
                         return;
                     }
                     // Don't preventDefault yet — let a short tap still reach tile onclick.
@@ -1197,7 +1194,6 @@ export class VcUI {
                         if (!dragging) {
                             const dist = Math.hypot(me.clientX - startX, me.clientY - startY);
                             if (dist < 4) return;
-                            // Crossed threshold — commit to drag
                             dragging = true;
                             this._dragSource = { structRef: live };
                             this._dragGhost.style.background = GEMS[live.gem.color]?.color || '#888';
@@ -1205,13 +1201,19 @@ export class VcUI {
                             this._dragGhost.style.left = me.clientX + 'px';
                             this._dragGhost.style.top  = me.clientY + 'px';
                             this._dragGhost.style.display = 'flex';
-                            console.log('[DRAG] drag committed! gem:', live.gem.color, 'lv', live.gem.level);
                         }
                     };
                     const onUp = () => {
                         document.removeEventListener('pointermove', onMove);
                         document.removeEventListener('pointerup', onUp);
-                        if (!dragging) console.log('[DRAG] tap — no drag started (moved <4px)');
+                        if (!dragging) {
+                            // Tap — manually trigger tile selection since the
+                            // structure div consumed the event before tile onclick fired
+                            const r = live.r ?? Math.floor((live.y - ts / 2) / ts);
+                            const c = live.c ?? Math.floor((live.x - ts / 2) / ts);
+                            const tileType = this.engine.map.grid[r]?.[c];
+                            if (tileType !== undefined) this.selectTile(r, c, tileType);
+                        }
                     };
                     document.addEventListener('pointermove', onMove);
                     document.addEventListener('pointerup', onUp);
