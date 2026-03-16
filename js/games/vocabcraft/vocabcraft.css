@@ -3,18 +3,127 @@
     flex-direction: column;
     position: absolute;
     inset: 0;
-    /* Do NOT use dvh/svh — we want to fill the container exactly.
-       The container (#vc-battle-layer) is position:absolute inset:0,
-       so this always equals the real available pixel height regardless
-       of browser zoom. Browser zoom shrinks the container, but the
-       topbar + bottombar remain their fixed pixel heights and the map
-       fills whatever is left. */
-    background: #2c3e50;
+    background: #1a252f;
     color: #ecf0f1;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     overflow: hidden;
     user-select: none;
 }
+
+/* ── Portrait layout (default) ─────────────────────────────────────────────
+   topbar → map → sidebar-panel (bottombar)  stacked vertically            */
+.vc-layout-portrait {
+    flex-direction: column;
+}
+.vc-layout-portrait .vc-map-container {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #111a22;
+}
+.vc-layout-portrait .vc-sidebar-panel {
+    /* Overlay at bottom — does not affect map layout at all */
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(26, 37, 47, 0.96);
+    border-top: 2px solid #34495e;
+    max-height: 50vh;
+    overflow-y: auto;
+    z-index: 50;
+    /* Hidden when empty */
+}
+.vc-layout-portrait .vc-sidebar-panel:empty {
+    display: none;
+}
+/* Hide sidebar-panel when bottombar has no real content */
+.vc-layout-portrait .vc-sidebar-panel .vc-bottombar:empty {
+    display: none;
+}
+
+/* ── Landscape layout ───────────────────────────────────────────────────────
+   topbar full-width → below: sidebar (left, fixed w) | map (flex:1 right)  */
+.vc-layout-landscape {
+    flex-direction: column;
+}
+.vc-layout-landscape .vc-topbar {
+    flex-shrink: 0;
+}
+/* Content row sits below topbar */
+.vc-layout-landscape::after {
+    content: none; /* no pseudo-element tricks needed */
+}
+/* We use a wrapper div for the content row */
+.vc-layout-landscape .vc-map-container {
+    flex: 1 1 0;
+    min-height: 0;
+    min-width: 0;
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #111a22;
+    order: 2;
+}
+.vc-layout-landscape .vc-sidebar-panel {
+    width: 240px;
+    min-width: 240px;
+    max-width: 240px;
+    flex-shrink: 0;
+    background: #1a252f;
+    border-right: 2px solid #34495e;
+    overflow-y: auto;
+    order: 1;
+}
+/* Rearrange the vc-root children into a row for the content area */
+.vc-layout-landscape {
+    flex-direction: column;
+}
+/* The topbar rows stay column-stacked at top.
+   Map + sidebar need to be in a flex-row. We achieve this by making
+   the root a grid: topbars span full width, content row below. */
+.vc-layout-landscape {
+    display: grid;
+    grid-template-rows: auto auto 1fr;
+    grid-template-columns: 240px 1fr;
+}
+.vc-layout-landscape .vc-topbar-row1 {
+    grid-column: 1 / -1;
+    grid-row: 1;
+}
+.vc-layout-landscape .vc-topbar-row2 {
+    grid-column: 1 / -1;
+    grid-row: 2;
+}
+.vc-layout-landscape .vc-sidebar-panel {
+    grid-column: 1;
+    grid-row: 3;
+    order: unset;
+    width: auto;
+    max-width: none;
+    min-width: 0;
+    border-right: 2px solid #34495e;
+    border-top: none;
+    overflow-y: auto;
+    background: #1a252f;
+}
+.vc-layout-landscape .vc-map-container {
+    grid-column: 2;
+    grid-row: 3;
+    order: unset;
+}
+.vc-layout-landscape .vc-bottombar {
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    border-top: none;
+    background: transparent;
+}
+
 
 /* --- Top Bar --- */
 .vc-topbar {
@@ -124,11 +233,10 @@
 /* --- Map Area --- */
 .vc-map-container {
     position: relative;
-    background: #1a252f;
+    background: #111a22;
     overflow: auto;
     -webkit-overflow-scrolling: touch;
     touch-action: pan-x pan-y pinch-zoom;
-    /* maxHeight and flex set by JS in initGrid() */
 }
 .vc-grid {
     position: relative;
@@ -260,25 +368,17 @@
 
 /* --- Bottom Context Bar --- */
 .vc-bottombar {
-    /* Fixed height so the tile-size calculation in JS knows exactly how
-       much space is reserved. Must match BOTTOM_H=200 in initGrid(). */
-    height: 200px;
-    min-height: 200px;
-    max-height: 200px;
-    background: #1a252f;
-    border-top: 2px solid #34495e;
-    padding: 6px 8px;
-    padding-bottom: max(6px, env(safe-area-inset-bottom, 6px));
+    width: 100%;
+    background: transparent;
+    padding: 8px 10px;
+    padding-bottom: max(8px, env(safe-area-inset-bottom, 8px));
+    box-sizing: border-box;
     display: flex;
     flex-wrap: wrap;
     gap: 5px;
     align-items: flex-start;
     align-content: flex-start;
     justify-content: center;
-    z-index: 10;
-    overflow-y: auto;
-    flex-shrink: 0;
-    -webkit-overflow-scrolling: touch;
     box-sizing: border-box;
 }
 .vc-btn {
@@ -468,6 +568,9 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    /* In landscape grid layout, span all cells */
+    grid-column: 1 / -1;
+    grid-row: 1 / -1;
 }
 .vc-grimoire-header {
     display: flex;

@@ -43,6 +43,23 @@ export class VcUI {
             this.initZoom();
             this.initDragSwap();
 
+            // Re-layout on resize or orientation change (debounced 150ms)
+            let _resizeTimer = null;
+            this._onResize = () => {
+                clearTimeout(_resizeTimer);
+                _resizeTimer = setTimeout(() => {
+                    this._lastVw = 0; this._lastVh = 0; // force recalc
+                    this._bottomBarH = 0; // re-measure for new screen size
+                    this.initGrid();
+                    this._baseMakerKeys = null;
+                    this._placeMapMarkers?.();
+                    this.engine.map.waypointSets = getWaypointsForPaths(this.engine.map.paths, this.tileSize);
+                    this.engine.tileSize = this.tileSize;
+                }, 150);
+            };
+            window.addEventListener('resize', this._onResize);
+            window.addEventListener('orientationchange', this._onResize);
+
             this.entitiesEl = document.createElement('div');
             this.entitiesEl.className = 'vc-entities';
             this.gridEl.appendChild(this.entitiesEl);
@@ -79,28 +96,57 @@ export class VcUI {
     initGrid() {
         const { cols, rows, grid } = this.engine.map;
 
-        // Layout: topbar (fixed) | map (flex:1, fills gap) | bottombar (fixed).
-        // Tile size is calculated from FIXED known heights so browser zoom cannot
-        // affect whether the bottom bar is visible — only how much map is shown.
-        // Topbar row1+row2 = ~70px, bottombar = 150px (set in CSS as fixed height).
-        const TOPBAR_H = 70;
-        const BOTTOM_H = 200;
-        const availH = Math.max(60, window.innerHeight - TOPBAR_H - BOTTOM_H);
-        const availW = this.mapEl.clientWidth || window.innerWidth;
+        const TOPBAR_H  = 70;
+        const SIDEBAR_W = 240;
+        const TILE_MAX  = 52;
 
-        // Tile size: fit entire grid into available space at zoom=1
-        const tileByCols = Math.floor(availW / cols);
-        const tileByRows = Math.floor(availH / rows);
-        this.tileSize = Math.max(16, Math.min(tileByCols, tileByRows));
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
 
-        // Map fills the flex gap — overflows/scrolls if grid > container
-        this.mapEl.style.flex      = '1 1 0';
-        this.mapEl.style.minHeight = '0';
-        this.mapEl.style.maxHeight = '';
-        this.mapEl.style.overflowX = 'auto';
-        this.mapEl.style.overflowY = 'auto';
+        // Skip if nothing changed
+        if (this._lastVw === vw && this._lastVh === vh && this.tileSize > 0) return;
+        this._lastVw = vw;
+        this._lastVh = vh;
 
-        // Grid natural size (zoom=1): exactly cols×rows tiles
+        const isLandscape = vw > vh && vw >= 600;
+        this.isLandscape = isLandscape;
+
+        const root = this.container.closest('.vc-root') || this.container;
+        root.classList.toggle('vc-layout-landscape', isLandscape);
+        root.classList.toggle('vc-layout-portrait',  !isLandscape);
+
+        // Tile size ignores the bottom UI entirely.
+        // The bottom UI overlays on top of the map — never pushes it.
+        // Add tile padding so the grid has breathing room and the bottom
+        // 3 tiles stay visible even when the UI panel is open.
+        const PAD_SIDES = 0.5; // padding tiles: top / left / right
+        const PAD_BOT   = 4.5;   // padding tiles: bottom (keeps exit visible under UI)
+
+        let availW, availH;
+        if (isLandscape) {
+            availW = vw - SIDEBAR_W;
+            availH = vh - TOPBAR_H;
+        } else {
+            availW = vw;
+            availH = vh - TOPBAR_H; // full height — bottom UI overlays, never shifts map
+        }
+
+        const tileByCols = Math.floor(availW / (cols + PAD_SIDES * 2));
+        const tileByRows = Math.floor(availH / (rows + PAD_SIDES + PAD_BOT));
+        this.tileSize = Math.max(16, Math.min(TILE_MAX, tileByCols, tileByRows));
+
+        // Map container — centered, no scroll, bottom padding keeps exit clear
+        this.mapEl.style.flex           = '1 1 0';
+        this.mapEl.style.minHeight      = '0';
+        this.mapEl.style.minWidth       = '0';
+        this.mapEl.style.overflow       = 'hidden';
+        this.mapEl.style.display        = 'flex';
+        this.mapEl.style.alignItems     = 'flex-start';
+        this.mapEl.style.justifyContent = 'center';
+        this.mapEl.style.paddingTop     = `${this.tileSize * PAD_SIDES}px`;
+        this.mapEl.style.paddingBottom  = `${this.tileSize * PAD_BOT}px`;
+
+        // Grid
         this.gridEl.style.width  = `${cols * this.tileSize}px`;
         this.gridEl.style.height = `${rows * this.tileSize}px`;
         this.gridEl.style.gridTemplateColumns = `repeat(${cols}, ${this.tileSize}px)`;
@@ -395,6 +441,18 @@ export class VcUI {
             this.waveIconsContainer.appendChild(icon);
         }
         this.activateNextWaveIcon(0);
+    }
+
+    destroy() {
+        if (this._onResize) {
+            window.removeEventListener('resize', this._onResize);
+            window.removeEventListener('orientationchange', this._onResize);
+            this._onResize = null;
+        }
+        if (this._dragGhost) {
+            this._dragGhost.remove();
+            this._dragGhost = null;
+        }
     }
 
     initDragSwap() {
@@ -1142,7 +1200,42 @@ export class VcUI {
         }
     }
 
-    // Render structures into a stable DOM layer — elements are reused across frames
+    // Measure the tallest possible bottombar content by rendering it off-screen,
+    // then lock that height so the map never jumps when content changes.
+    _measureBottomBarHeight() {
+        const probe = document.createElement('div');
+        probe.className = 'vc-bottombar';
+        probe.style.cssText = [
+            'position:fixed', 'left:-9999px', 'top:0',
+            'width:' + (this.bottomBar.offsetWidth || 320) + 'px',
+            'height:auto', 'max-height:none', 'visibility:hidden',
+            'display:flex', 'flex-wrap:wrap'
+        ].join(';');
+
+        // Inject the tallest known content: stat panel (5 rows) + 2 buttons
+        probe.innerHTML = `
+            <div class="vc-tower-stat-panel">
+                <div class="vc-stat-panel-title" style="color:#e74c3c">Ruby Tower — Lv.1</div>
+                <div class="vc-stat-panel-rows">
+                    <div class="vc-stat-panel-row"><span>🏹 Range</span><span>100px</span></div>
+                    <div class="vc-stat-panel-row"><span>⚡ Fire</span><span>1.50/s</span></div>
+                    <div class="vc-stat-panel-row"><span>⚔️ Damage</span><span>18</span></div>
+                    <div class="vc-stat-panel-row"><span>🎯 Total Dmg</span><span>0</span></div>
+                    <div class="vc-stat-panel-row"><span>💥 Critical hits</span><span>0</span></div>
+                </div>
+                <div class="vc-stat-panel-next">Lv.2: ⚔️27 ⚡1.8/s 🏹108px</div>
+            </div>
+            <div class="vc-stat-panel-btns">
+                <button class="vc-btn">▲ Lv.2 (300 💧)</button>
+                <button class="vc-btn">✕ Remove</button>
+            </div>
+        `;
+        document.body.appendChild(probe);
+        const h = probe.scrollHeight;
+        document.body.removeChild(probe);
+        // Add padding (top+bottom = 12px) and a small buffer (8px)
+        return h + 20;
+    }
     // so pointer capture and drag events survive. Only updates what visually changed.
     _renderStructures(structures) {
         const el = this.structuresEl;
@@ -1182,11 +1275,18 @@ export class VcUI {
                 // Attach drag listener once — looks up live struct at event time
                 div.addEventListener('pointerdown', (e) => {
                     const live = this.engine.structures.find(s => `${s.x},${s.y}` === div.dataset.skey);
-                    if (!live?.gem) {
+                    if (!live) return;
+
+                    // No gem — just select the tile immediately, no drag possible
+                    if (!live.gem) {
+                        const r = live.r ?? Math.floor((live.y - ts / 2) / ts);
+                        const c = live.c ?? Math.floor((live.x - ts / 2) / ts);
+                        const tileType = this.engine.map.grid[r]?.[c];
+                        if (tileType !== undefined) this.selectTile(r, c, tileType);
                         return;
                     }
-                    // Don't preventDefault yet — let a short tap still reach tile onclick.
-                    // Only commit to drag once the pointer actually moves (>4px).
+
+                    // Has gem — tap selects, drag moves
                     const startX = e.clientX, startY = e.clientY;
                     let dragging = false;
 
@@ -1228,6 +1328,7 @@ export class VcUI {
                 div.style.top    = `${st.y - ts/2}px`;
                 div.style.width  = `${ts}px`;
                 div.style.height = `${ts}px`;
+                div.style.cursor = st.gem ? 'grab' : 'pointer';
                 div.innerHTML = st.gem
                     ? `<div class="vc-gem" style="background:${GEMS[st.gem.color].color}">${st.gem.level}</div>`
                     : `<div style="opacity:0.45;line-height:1;">${isTower ? '🏰' : '⚙️'}</div>`;

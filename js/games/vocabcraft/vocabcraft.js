@@ -78,7 +78,9 @@ export function init(screens, onExit) {
                     <div class="vc-wave-tracker"></div>
                 </div>
                 <div class="vc-map-container"><div class="vc-grid"></div></div>
-                <div class="vc-bottombar"></div>
+                <div class="vc-sidebar-panel">
+                    <div class="vc-bottombar"></div>
+                </div>
             </div>
 
             <div class="vc-grimoire-overlay" id="vc-grimoire-overlay" style="display:none;">
@@ -163,7 +165,7 @@ export function init(screens, onExit) {
 
         // Surrender button — pause BEFORE confirmation dialog
         _screens.game.querySelector('#vc-btn-surrender').onclick = () => {
-            if (_engine) _engine.pause(); 
+            if (_engine) _engine.pause();
             if (confirm("Flee the battle? You will lose any XP gained in this map.")) {
                 if (_engine) _engine.stop();
                 _showCamp();
@@ -1493,6 +1495,7 @@ function _startBattle(templateId, difficulty, gameMode = 'hard') {
         if (ui) ui.draw(eng, msg);
     }, (isWin, xp) => {
         addXP(_meta, xp);
+        if (ui) { ui.destroy(); ui = null; }
         if (isWin) {
             clearStage(_meta, templateId, difficulty);
             alert(`${TEMPLATES.find(t=>t.id===templateId)?.name} D${difficulty} Cleared! +${Math.floor(xp)} XP`);
