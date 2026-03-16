@@ -1,7 +1,7 @@
 // vc_enemies.js — Enemy type definitions and wave composition
 
 // Global difficulty scale — tune this one value to make the game easier/harder.
-const GLOBAL_SCALE = 0.60;  // 1.0 = full difficulty, 0.8 = 80% HP/speed/armor
+const GLOBAL_SCALE = 0.75;  // 1.0 = full difficulty, 0.8 = 80% HP/speed/armor
 
 export const ENEMY_TYPES = {
     normal: {
