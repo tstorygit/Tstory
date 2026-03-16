@@ -1,7 +1,8 @@
 import { mountVocabSelector, getBannedWords } from '../../vocab_selector.js';
 import * as srsDb from '../../srs_db.js';
 import { loadMeta, saveMeta, addXP, resetSkills, SKILL_DEFS, getDefaultSave,
-         clearStage, highestDifficultyCleared, isStageCleared, isStageUnlocked } from './vc_meta.js';
+         clearStage, highestDifficultyCleared, isStageCleared, isStageUnlocked,
+         getEffectiveSkills } from './vc_meta.js';
 import { generateMap, getValidTemplates, getTemplateMinimap, TEMPLATES, getHexWorldLayout, HEX_TIER_COLORS } from './vc_mapgen.js';
 import { setVocabQueue, showCard } from './vc_vocab.js';
 import { VcEngine } from './vc_engine.js';
@@ -82,14 +83,16 @@ export function init(screens, onExit) {
 
             <div class="vc-grimoire-overlay" id="vc-grimoire-overlay" style="display:none;">
                 <div class="vc-grimoire-header">
-                    <div class="vc-camp-title">The Grimoire</div>
-                    <div style="display:flex; gap:15px; align-items:center;">
-                        <div class="vc-grimoire-sp" id="vc-grimoire-sp">SP: 0</div>
-                        <button class="vc-btn" id="vc-btn-reset-skills" style="background:#e74c3c; border-color:#c0392b; padding:4px 8px; font-size:12px;">Reset</button>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <span style="font-size:18px; font-weight:bold; color:#f1c40f;">📖 Grimoire</span>
+                        <span class="vc-grimoire-sp" id="vc-grimoire-sp">0 SP</span>
+                    </div>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <button class="vc-grimoire-hdr-btn" id="vc-btn-reset-skills" style="background:#c0392b;">↺ Reset</button>
+                        <button class="vc-grimoire-hdr-btn" id="vc-btn-close-grimoire">✕ Close</button>
                     </div>
                 </div>
                 <div class="vc-skill-list" id="vc-skill-list"></div>
-                <button class="vc-btn" id="vc-btn-close-grimoire" style="margin-top:15px; padding:15px; background:#34495e; border-color:#2c3e50;">Close Grimoire</button>
             </div>
         `;
 
@@ -986,7 +989,7 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
     body.appendChild(waveSection);
 
     function renderWavePreview() {
-        const waves   = 10 + 7 * selectedD + (_meta.skills.bonusWaves || 0) * 3;
+        const waves   = 10 + 7 * selectedD + (getEffectiveSkills(_meta).bonusWaves || 0) * 3;
         const baseArmor = Math.floor((selectedD - 1) / 2);
         const cleared = isStageCleared(_meta, tpl.id, selectedD);
         const statusLine = cleared ? '✅ Cleared' : '⚔️ Not cleared';
@@ -1108,7 +1111,7 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
 function _confirmAndStartBattle(templateId, difficulty) {
     const tpl = TEMPLATES.find(t => t.id === templateId);
     const minimapSvg = getTemplateMinimap(templateId, 90, 115);
-    const waves = 10 + 7 * difficulty + (_meta.skills.bonusWaves || 0) * 3;
+    const waves = 10 + 7 * difficulty + (getEffectiveSkills(_meta).bonusWaves || 0) * 3;
     const baseArmor = Math.floor((difficulty - 1) / 2);
 
     const existing = _screens.game.querySelector('#vc-map-confirm');
@@ -1322,68 +1325,131 @@ function _confirmAndStartBattle(templateId, difficulty) {
     });
 }
 
+// Skills that support a per-run "active level" — player can dial down from max
+const ACTIVE_LEVEL_SKILLS = new Set([
+    'bonusWaves', 'startMana', 'resonance', 'haste',
+    'scholarGrace', 'comboKeep', 'trapSpecialty'
+]);
+
 function _renderGrimoire() {
-    _screens.game.querySelector('#vc-grimoire-sp').textContent = `SP: ${_meta.sp}`;
-    
+    _screens.game.querySelector('#vc-grimoire-sp').textContent = `${_meta.sp} SP`;
+
     const list = _screens.game.querySelector('#vc-skill-list');
     list.innerHTML = '';
 
     const GROUP_LABELS = {
         economy: '💰 Economy',
         gems:    '💎 Gem Forging',
-        mastery: '⚔️ Gem Mastery',
+        mastery: '⚔️ Mastery',
         utility: '⚙️ Utility'
     };
 
     const grouped = {};
     Object.entries(SKILL_DEFS).forEach(([key, def]) => {
         const g = def.group || 'utility';
-        if (!grouped[g]) grouped[g] =[];
+        if (!grouped[g]) grouped[g] = [];
         grouped[g].push([key, def]);
     });
+
+    if (!_meta.activeSkills) _meta.activeSkills = {};
 
     Object.entries(GROUP_LABELS).forEach(([groupKey, groupLabel]) => {
         const skills = grouped[groupKey];
         if (!skills) return;
 
         const header = document.createElement('div');
-        header.style.cssText = 'font-size:12px; font-weight:bold; color:#f1c40f; text-transform:uppercase; letter-spacing:1px; padding:8px 0 4px; border-bottom:1px solid #34495e; margin-bottom:2px;';
+        header.className = 'vc-skill-group-header';
         header.textContent = groupLabel;
         list.appendChild(header);
 
         skills.forEach(([key, def]) => {
-            const currentLvl = _meta.skills[key] || 0;
-            const cost = currentLvl + 1; // Triangular pricing: Lvl N -> N+1 costs N+1 SP
-            const isMax = currentLvl >= def.max;
+            const purchased = _meta.skills[key] || 0;
+            const cost = purchased + 1;
+            const isMax = def.max !== Infinity && purchased >= def.max;
             const canAfford = _meta.sp >= cost && !isMax;
-            
             const maxLabel = def.max === Infinity ? '∞' : def.max;
+            const hasActiveSlider = ACTIVE_LEVEL_SKILLS.has(key) && purchased > 0;
+            // active level defaults to purchased level if not set
+            if (hasActiveSlider && _meta.activeSkills[key] === undefined) {
+                _meta.activeSkills[key] = purchased;
+            }
+            const activeVal = hasActiveSlider ? (_meta.activeSkills[key] ?? purchased) : purchased;
 
-            const row = document.createElement('div');
-            row.className = 'vc-skill-row';
-            row.innerHTML = `
-                <div class="vc-skill-info">
-                    <h4>${def.name}</h4>
-                    <p>${def.desc}</p>
-                </div>
-                <div style="display:flex; align-items:center;">
-                    <span class="vc-skill-lvl">${currentLvl}/${maxLabel}</span>
-                    <button class="vc-skill-buy" ${!canAfford ? 'disabled' : ''} style="width:auto; padding:0 8px; font-size:14px;">
-                        ${isMax ? 'MAX' : `+ (Cost: ${cost})`}
-                    </button>
-                </div>
-            `;
+            const card = document.createElement('div');
+            card.className = 'vc-skill-card';
 
-            row.querySelector('.vc-skill-buy').onclick = () => {
-                if (_meta.sp >= cost && currentLvl < def.max) {
+            // Top row: name + buy button
+            const topRow = document.createElement('div');
+            topRow.className = 'vc-skill-top';
+
+            const nameEl = document.createElement('div');
+            nameEl.className = 'vc-skill-name';
+            nameEl.textContent = def.name;
+
+            const rightEl = document.createElement('div');
+            rightEl.className = 'vc-skill-right';
+
+            const lvlEl = document.createElement('span');
+            lvlEl.className = 'vc-skill-lvl';
+            lvlEl.textContent = `${purchased}/${maxLabel}`;
+
+            const buyBtn = document.createElement('button');
+            buyBtn.className = 'vc-skill-buy' + (canAfford ? '' : ' disabled');
+            buyBtn.disabled = !canAfford;
+            buyBtn.textContent = isMax ? 'MAX' : `+1 (${cost}SP)`;
+            buyBtn.onclick = () => {
+                if (_meta.sp >= cost && purchased < def.max) {
                     _meta.sp -= cost;
-                    _meta.skills[key] = currentLvl + 1;
+                    _meta.skills[key] = purchased + 1;
+                    // bump active level along with purchase if it was at max
+                    if (hasActiveSlider && _meta.activeSkills[key] === purchased) {
+                        _meta.activeSkills[key] = purchased + 1;
+                    }
                     saveMeta(_meta);
                     _renderGrimoire();
                 }
             };
 
-            list.appendChild(row);
+            rightEl.appendChild(lvlEl);
+            rightEl.appendChild(buyBtn);
+            topRow.appendChild(nameEl);
+            topRow.appendChild(rightEl);
+            card.appendChild(topRow);
+
+            // Desc
+            const descEl = document.createElement('div');
+            descEl.className = 'vc-skill-desc';
+            descEl.textContent = def.desc;
+            card.appendChild(descEl);
+
+            // Active-level slider for tunable skills
+            if (hasActiveSlider) {
+                const sliderRow = document.createElement('div');
+                sliderRow.className = 'vc-skill-slider-row';
+
+                const sliderLabel = document.createElement('span');
+                sliderLabel.className = 'vc-skill-slider-label';
+                sliderLabel.textContent = `Active: ${activeVal}`;
+
+                const slider = document.createElement('input');
+                slider.type = 'range';
+                slider.min = 0;
+                slider.max = purchased;
+                slider.value = activeVal;
+                slider.className = 'vc-skill-slider';
+                slider.oninput = () => {
+                    const v = parseInt(slider.value);
+                    _meta.activeSkills[key] = v;
+                    sliderLabel.textContent = `Active: ${v}`;
+                    saveMeta(_meta);
+                };
+
+                sliderRow.appendChild(sliderLabel);
+                sliderRow.appendChild(slider);
+                card.appendChild(sliderRow);
+            }
+
+            list.appendChild(card);
         });
     });
 }
@@ -1421,7 +1487,9 @@ function _startBattle(templateId, difficulty, gameMode = 'hard') {
     };
 
     let ui;
-    _engine = new VcEngine(mapData, _meta, difficulty, (eng, msg) => {
+    // Build a meta snapshot with active skill levels applied for this run
+    const effectiveMeta = { ..._meta, skills: getEffectiveSkills(_meta) };
+    _engine = new VcEngine(mapData, effectiveMeta, difficulty, (eng, msg) => {
         if (ui) ui.draw(eng, msg);
     }, (isWin, xp) => {
         addXP(_meta, xp);

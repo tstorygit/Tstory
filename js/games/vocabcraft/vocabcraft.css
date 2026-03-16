@@ -463,55 +463,141 @@
 .vc-grimoire-overlay {
     position: absolute;
     inset: 0;
-    background: rgba(26, 37, 47, 0.98);
+    background: rgba(15, 20, 30, 0.98);
     z-index: 200;
     display: flex;
     flex-direction: column;
-    padding: 20px;
+    overflow: hidden;
 }
 .vc-grimoire-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 20px;
-    padding-bottom: 10px;
+    padding: 10px 14px;
     border-bottom: 2px solid #f1c40f;
+    flex-shrink: 0;
+    gap: 8px;
 }
 .vc-grimoire-sp {
-    font-size: 20px;
+    font-size: 16px;
     font-weight: bold;
     color: #2ecc71;
+    background: rgba(46,204,113,0.12);
+    border: 1px solid #27ae60;
+    border-radius: 6px;
+    padding: 2px 8px;
 }
+.vc-grimoire-hdr-btn {
+    background: #2c3e50;
+    border: 1px solid #7f8c8d;
+    color: #ecf0f1;
+    font-size: 12px;
+    font-weight: bold;
+    padding: 5px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.vc-grimoire-hdr-btn:active { opacity: 0.7; }
 .vc-skill-list {
     flex: 1;
     overflow-y: auto;
+    padding: 8px 10px 12px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 6px;
 }
-.vc-skill-row {
-    background: #34495e;
-    padding: 12px;
+.vc-skill-group-header {
+    font-size: 11px;
+    font-weight: bold;
+    color: #f1c40f;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 8px 2px 3px;
+    border-bottom: 1px solid #2c3e50;
+    margin-top: 4px;
+}
+.vc-skill-card {
+    background: #1e2d3d;
+    border: 1px solid #2c3e50;
     border-radius: 8px;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.vc-skill-top {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 8px;
+    min-width: 0;
 }
-.vc-skill-info h4 { margin: 0 0 4px 0; font-size: 15px; color: #f39c12; }
-.vc-skill-info p { margin: 0; font-size: 11px; color: #bdc3c7; }
-.vc-skill-lvl { font-weight: bold; color: #ecf0f1; margin-right: 10px; font-size: 14px;}
+.vc-skill-name {
+    font-size: 13px;
+    font-weight: bold;
+    color: #f39c12;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.vc-skill-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+.vc-skill-lvl {
+    font-size: 12px;
+    font-weight: bold;
+    color: #bdc3c7;
+    white-space: nowrap;
+}
 .vc-skill-buy {
     background: #27ae60;
     border: none;
     color: white;
     font-weight: bold;
-    font-size: 18px;
-    width: 36px;
-    height: 36px;
-    border-radius: 6px;
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 5px;
+    cursor: pointer;
+    white-space: nowrap;
+    min-width: 60px;
+    text-align: center;
+}
+.vc-skill-buy.disabled, .vc-skill-buy:disabled {
+    background: #4a5568;
+    color: #718096;
+    cursor: default;
+}
+.vc-skill-desc {
+    font-size: 10px;
+    color: #7f8c8d;
+    line-height: 1.4;
+}
+.vc-skill-slider-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 2px;
+    padding-top: 4px;
+    border-top: 1px solid #2c3e50;
+}
+.vc-skill-slider-label {
+    font-size: 11px;
+    color: #3498db;
+    font-weight: bold;
+    white-space: nowrap;
+    min-width: 64px;
+}
+.vc-skill-slider {
+    flex: 1;
+    accent-color: #3498db;
     cursor: pointer;
 }
-.vc-skill-buy:disabled { background: #7f8c8d; opacity: 0.5; }
 /* --- Tower / Trap Stat Panel (bottom bar) --- */
 .vc-tower-stat-panel {
     width: 100%;

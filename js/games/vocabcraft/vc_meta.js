@@ -45,7 +45,13 @@ export function getDefaultSave() {
             orangeMastery: 0, yellowMastery: 0, purpleMastery: 0,
             trapSpecialty: 0, resonance: 0, haste: 0, scholarGrace: 0, comboKeep: 0, bonusWaves: 0
         },
-        clearedStages: {}   // keys: "templateId:difficulty" → true
+        // Per-run active level — can be set to any value 0..skills[key].
+        // Skills not listed here always use their full purchased level.
+        activeSkills: {
+            bonusWaves: 0, startMana: 0, resonance: 0, haste: 0,
+            scholarGrace: 0, comboKeep: 0, trapSpecialty: 0
+        },
+        clearedStages: {}
     };
 }
 
@@ -75,6 +81,7 @@ export function loadMeta() {
             ...def,
             ...parsed,
             skills: { ...def.skills, ...parsed.skills },
+            activeSkills: { ...def.activeSkills, ...(parsed.activeSkills || {}) },
             clearedStages: { ...(parsed.clearedStages || {}) }
         };
     } catch {
@@ -113,7 +120,17 @@ export function resetSkills(meta) {
     saveMeta(meta);
 }
 
-/** Mark a stage cleared and save. */
+/** Returns a skills object where tunable skills use their activeSkills level (capped to purchased). */
+export function getEffectiveSkills(meta) {
+    const result = { ...meta.skills };
+    const active = meta.activeSkills || {};
+    for (const key of Object.keys(active)) {
+        if (key in result) {
+            result[key] = Math.min(result[key], Math.max(0, active[key] ?? result[key]));
+        }
+    }
+    return result;
+}
 export function clearStage(meta, templateId, difficulty) {
     meta.clearedStages[`${templateId}:${difficulty}`] = true;
     saveMeta(meta);
