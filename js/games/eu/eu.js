@@ -43,8 +43,9 @@ function _freshGame() {
         missionsCompleted: {},
         advisors: {},
         ae: 0,                      // Aggressive Expansion
-        nextEventTimer: Date.now() + 90000, // Timer for Historical Events (safe default: 90s from now)
-        coalitionTimer: 10,         // Ticks down when AE > 50
+        nextEventTimer: Date.now() + 90000,
+        coalitionTimer: 300,        // 5 min before first coalition fires
+        claimedProvinces: {},       // provinceId → true: fabricated claim, halves AE on conquest
         lastTick: Date.now(),
         combo: 0,
         stability: STABILITY_MAX,
@@ -289,6 +290,32 @@ function _diplomaticAnnex(provId) {
     _updateUI();
 }
 
+// ─── Diplomacy Panel ──────────────────────────────────────────────────────────
+
+// DIP costs for AE relief actions
+const DIPLO_GIFT_COST        = 50;   // Send Gifts: -10 AE
+const DIPLO_TREATY_COST      = 100;  // Sign Non-Aggression Treaty: -25 AE
+const DIPLO_APPEASE_COST     = 200;  // Grand Appeasement: -60 AE, costs stability
+
+function _fabricateClaims(provId) {
+    const prov = _g.provinces.find(p => p.id === provId);
+    if (!prov || prov.owner !== 'neutral') return;
+    if (_g.claimedProvinces?.[provId]) {
+        _toast(`📜 Claims already fabricated on ${prov.name}.`, '#8e44ad'); return;
+    }
+    const cost = 50 + (prov.tier || 1) * 25;
+    if (_g.resources.dip < cost) {
+        _toast(`Need ${cost} 🕊️ DIP to fabricate claims on ${prov.name}.`, '#e74c3c'); return;
+    }
+    _g.resources.dip -= cost;
+    if (!_g.claimedProvinces) _g.claimedProvinces = {};
+    _g.claimedProvinces[provId] = true;
+    _toast(`📜 Claims fabricated on ${prov.name}! War AE will be halved.`, '#8e44ad');
+    const p = _g.provinces.find(x => x.id === provId);
+    if (p) _renderProvincePanel(p);
+    _updateUI();
+}
+
 function _getEmpireStats() {
     const owned = _g.provinces.filter(p => p.owner === 'player');
     const vassals = _g.provinces.filter(p => p.owner === 'vassal');
@@ -407,7 +434,7 @@ function _startGameLoop() {
             _g.coalitionTimer -= delta;
             if (_g.coalitionTimer <= 0) {
                 _triggerCoalitionWar();
-                _g.coalitionTimer = 20; 
+                _g.coalitionTimer = 600; // 10 min cooldown after each coalition
             }
         }
 
@@ -637,7 +664,8 @@ function _declareWar(provId) {
 
     const stats = _getEmpireStats();
     const tierMod = prov.tier || 1;
-    const baseCost = (60 + (stats.ownedCount * 20)) * tierMod;
+    const scaledOwned = Math.min(stats.ownedCount, 15); // cap late-game cost
+    const baseCost = (60 + (scaledOwned * 20)) * tierMod;
     const fullCost = _g.ideas.drill ? Math.round(baseCost * IDEAS.drill.effect) : baseCost;
 
     if (_g.resources.manpower < fullCost * 0.3) {
@@ -647,11 +675,12 @@ function _declareWar(provId) {
 
     const totalRounds = _g.ideas.quality ? 7 : 5;
     const winsNeeded  = _g.ideas.drill   ? totalRounds - 1 : Math.ceil(totalRounds * 0.6);
+    const hasClaim    = !!_g.claimedProvinces?.[provId];
     const warWords = prov.words.map(wid => _vocabQueue.find(v => v.id === wid)).filter(Boolean);
     const extras   = _vocabQueue.filter(v => !prov.words.includes(v.id)).sort(() => 0.5 - Math.random()).slice(0, Math.max(0, totalRounds - warWords.length));
     const cards    =[...warWords, ...extras].slice(0, totalRounds).sort(() => 0.5 - Math.random());
 
-    _warState = { provId, fullCost, rounds: totalRounds, winsNeeded, wins: 0, currentRound: 0, cards, done: false, ignoresLeft: _g.advisors.captain ? 1 : 0 };
+    _warState = { provId, fullCost, rounds: totalRounds, winsNeeded, wins: 0, currentRound: 0, cards, done: false, ignoresLeft: _g.advisors.captain ? 1 : 0, hasClaim };
     _renderWarModal();
 }
 
@@ -698,12 +727,17 @@ function _renderWarModal() {
                     _g.resources.manpower -= finalCost;
                     prov.owner = 'player'; prov.cored = false; prov.unrest = 40; prov.rebelTimer = 0;
                     _g.stats.warsWon++;
-                    _g.ae += 20 * (prov.tier || 1);
+                    const aeGain = _warState.hasClaim
+                        ? Math.round(10 * (prov.tier || 1))   // claim halves AE
+                        : Math.round(20 * (prov.tier || 1));
+                    _g.ae += aeGain;
+                    if (_warState.hasClaim) delete _g.claimedProvinces[provId];
                     prov.words.forEach(wid => {
                         if (!_g.srs.find(s => s.id === wid))
                             _g.srs.push({ id: wid, nextReview: Date.now(), interval: 8, ease: 1.5, provinceId: provId });
                     });
-                    _toast(`⚔️ Victory! Conquered ${prov.name} for ${finalCost} ⚔️. AE increased!`, '#27ae60');
+                    const claimNote = _warState.hasClaim ? ' (claim: AE halved)' : '';
+                    _toast(`⚔️ Victory! Conquered ${prov.name} for ${finalCost} ⚔️. +${aeGain} AE${claimNote}`, '#27ae60');
                     _selectedProvinceId = provId;
                 } else {
                     _toast(`⚠️ Victory, but not enough Manpower (need ${finalCost}).`, '#f39c12');
@@ -737,6 +771,7 @@ function _renderWarModal() {
     const titleColor = isCoalition ? '#c0392b' : '#333';
     const bgStyle = isCoalition ? "border-color:#c0392b; box-shadow: 0 0 40px rgba(192,57,43,0.5);" : "";
 
+    const canWhitePeace = !isCoalition && currentRound > 0;
     modal.style.display = 'flex';
     modal.classList.add('eu-active-overlay');
     modal.innerHTML = `
@@ -748,6 +783,7 @@ function _renderWarModal() {
             <div class="eu-war-grid">
                 ${options.map(opt => `<button class="eu-war-opt-btn" data-id="${opt.id}">${opt.eng}</button>`).join('')}
             </div>
+            ${canWhitePeace ? `<button id="eu-white-peace-btn" style="margin-top:14px;padding:8px 20px;background:transparent;border:1px solid #b09060;border-radius:6px;cursor:pointer;font-size:12px;color:#7f8c8d;font-family:Georgia,serif;">🏳️ White Peace — end with no gains, −1 Stability</button>` : ''}
         </div>`;
 
     modal.querySelectorAll('.eu-war-opt-btn').forEach(btn => {
@@ -771,6 +807,18 @@ function _renderWarModal() {
             _warState.currentRound++;
             setTimeout(_renderWarModal, 600);
         });
+    });
+
+    modal.querySelector('#eu-white-peace-btn')?.addEventListener('click', () => {
+        _warState.done = true;
+        const cost = Math.round(_warState.fullCost * 0.1);
+        _g.resources.manpower = Math.max(0, _g.resources.manpower - cost);
+        _g.stability = Math.max(0, (_g.stability ?? STABILITY_MAX) - 1);
+        modal.style.display = 'none';
+        modal.classList.remove('eu-active-overlay');
+        _toast(`🏳️ White Peace with ${_g.provinces.find(p => p.id === _warState.provId)?.name || '?'}. −${cost} ⚔️, −1 Stability.`, '#7f8c8d');
+        _warState = null;
+        _renderMap(); _updateSRSQueue(); _updateUI();
     });
 }
 
@@ -1071,7 +1119,7 @@ function _initGameDOM() {
         <div class="eu-res-box eu-point-dip" title="Diplomatic Power">🕊️ <span id="eu-val-dip">0</span></div>
         <div class="eu-res-box eu-point-mil" title="Military Power">🗡️ <span id="eu-val-mil">0</span></div>
         <div class="eu-res-box" title="Stability">⚖️ <span id="eu-val-stability">10</span></div>
-        <div class="eu-res-box" id="eu-ae-box" title="Aggressive Expansion — Coalition declared at 50!" style="color:#c0392b">🔥 AE: <span id="eu-val-ae">0</span></div>
+        <div class="eu-res-box" id="eu-ae-box" title="Aggressive Expansion — Coalition declared at 50!" style="color:#c0392b">🔥 AE: <span id="eu-val-ae">0</span> <span id="eu-val-coalition" style="font-size:10px;opacity:0.7;"></span></div>
     </div>
 
     <div class="eu-stats-bar">
@@ -1125,6 +1173,9 @@ function _initGameDOM() {
                     <div class="eu-ideas-grid" id="eu-ideas-container"></div>
                 </div>
             </div>
+
+            <h2 class="eu-title" style="margin-top:20px;">Diplomacy &amp; Reputation</h2>
+            <div id="eu-diplomacy-panel"></div>
 
             <h2 class="eu-title" style="margin-top:20px;">Empire Statistics</h2>
             <div class="eu-stats-list" id="eu-stats-list"></div>
@@ -1395,19 +1446,27 @@ function _renderProvincePanel(prov) {
             </div>`;
         }
     } else if (isAdj) {
-        const stats    = _getEmpireStats();
-        const tierMod  = prov.tier || 1;
-        const tierLabel = ['', '⭐ Poor', '⭐⭐ Average', '⭐⭐⭐ Rich'][tierMod];
-        const baseCost = (60 + (stats.ownedCount * 20)) * tierMod;
-        const warCost  = _g.ideas.drill ? Math.round(baseCost * IDEAS.drill.effect) : baseCost;
-        const annexCost = prov.words.length * DIPLO_ANNEX_DIP_COST_PER_WORD * tierMod;
+        const stats      = _getEmpireStats();
+        const tierMod    = prov.tier || 1;
+        const tierLabel  = ['', '⭐ Poor', '⭐⭐ Average', '⭐⭐⭐ Rich'][tierMod];
+        const scaledOwned = Math.min(stats.ownedCount, 15);
+        const baseCost   = (60 + (scaledOwned * 20)) * tierMod;
+        const warCost    = _g.ideas.drill ? Math.round(baseCost * IDEAS.drill.effect) : baseCost;
+        const annexCost  = prov.words.length * DIPLO_ANNEX_DIP_COST_PER_WORD * tierMod;
+        const hasClaim   = !!_g.claimedProvinces?.[prov.id];
+        const claimCost  = 50 + (prov.tier || 1) * 25;
+        const canAffordClaim = _g.resources.dip >= claimCost;
         html += `
             <div style="font-size:13px;color:#555;margin-bottom:15px; background:#fff; padding:10px; border:1px solid #ddd; border-radius:6px;">
                 ${tierLabel} region.<br/>Contains ${prov.words.length} foreign words.
+                ${hasClaim ? `<div style="margin-top:6px;color:#8e44ad;font-weight:bold;font-size:12px;">📜 Claim fabricated — war AE halved</div>` : ''}
             </div>
             <div style="display:flex;flex-direction:column;gap:10px;">
-                <button class="eu-action-btn eu-war-btn" id="eu-btn-war">⚔️ Declare War (~${warCost} ⚔️)</button>
+                <button class="eu-action-btn eu-war-btn" id="eu-btn-war">⚔️ Declare War (~${warCost} ⚔️)${hasClaim ? ' 📜' : ''}</button>
                 <button class="eu-action-btn eu-annex-btn" id="eu-btn-annex">🕊️ Subjugate (${annexCost} 🕊️ DIP)</button>
+                ${!hasClaim ? `<button class="eu-action-btn" id="eu-btn-claim" ${canAffordClaim ? '' : 'disabled'} style="background:#7a3b8e;color:#f0d8ff;border-color:#5a2b6e;">
+                    📜 Fabricate Claims (${claimCost} 🕊️) — halve AE on conquest
+                </button>` : ''}
             </div>
         `;
     } else {
@@ -1427,8 +1486,11 @@ function _renderProvincePanel(prov) {
     } else if (isAdj && !isVassal) {
         panel.querySelector('#eu-btn-war')?.addEventListener('click', () => _declareWar(prov.id));
         panel.querySelector('#eu-btn-annex')?.addEventListener('click', () => _diplomaticAnnex(prov.id));
+        panel.querySelector('#eu-btn-claim')?.addEventListener('click', () => _fabricateClaims(prov.id));
     }
 }
+
+// ─── Diplomacy Panel ─────────────────────────────────────────────────────────
 
 function _buyIdea(key) {
     const idea = IDEAS[key];
@@ -1462,6 +1524,10 @@ function _fireAdvisor(key) {
     _updateUI();
 }
 
+// ─── Diplomacy Panel ──────────────────────────────────────────────────────────
+
+// ─── Diplomacy Panel ─────────────────────────────────────────────────────────
+
 function _checkMissions() {
     const ctx = { g: _g, getEmpireStats: _getEmpireStats, toast: _toast };
     let changed = false;
@@ -1486,6 +1552,12 @@ function _silentInitMissions() {
         }
     });
 }
+
+// AE management costs
+const AE_GIFT_COST      = 50;   // DIP → -10 AE
+const AE_TREATY_COST    = 100;  // DIP → -25 AE
+const AE_GIFT_REDUCTION = 10;
+const AE_TREATY_REDUCTION = 25;
 
 function _renderCourt() {
     const ideasBox = _screens.game?.querySelector('#eu-ideas-container');
@@ -1610,6 +1682,9 @@ function _renderCourt() {
     advBox.querySelectorAll('[data-hire]').forEach(b => b.addEventListener('click', (e) => _hireAdvisor(e.target.dataset.hire)));
     advBox.querySelectorAll('[data-fire]').forEach(b => b.addEventListener('click', (e) => _fireAdvisor(e.target.dataset.fire)));
 
+    // DIPLOMACY PANEL
+    _renderDiplomacyPanel();
+
     // STATS
     const stats = _getEmpireStats();
     const accuracy = (_g.stats.totalCorrect + _g.stats.totalWrong) > 0
@@ -1623,8 +1698,97 @@ function _renderCourt() {
         <div class="eu-stat-row"><span>📖 Words in SRS</span><span>${stats.activeSrsCount}</span></div>
         <div class="eu-stat-row"><span>🎯 Answer Accuracy</span><span>${accuracy}% (${_g.stats.totalCorrect}✓ ${_g.stats.totalWrong}✗)</span></div>
         <div class="eu-stat-row"><span>💰 Net Ducats Income</span><span>${stats.ducatsPerSec >= 0 ? '+' : ''}${stats.ducatsPerSec.toFixed(1)}/s</span></div>
-        <div class="eu-stat-row"><span>📊 Overextension Penalty</span><span style="color:${stats.overextension > 50 ? '#c0392b' : '#27ae60'}">-${Math.floor(stats.overextension)}%</span></div>
-    `;
+        <div class="eu-stat-row"><span>📊 Overextension Penalty</span><span style="color:\${stats.overextension > 50 ? '#c0392b' : '#27ae60'}">-\${Math.floor(stats.overextension)}%</span></div>
+        <div class="eu-stat-row"><span>📜 Fabricated Claims</span><span>\${Object.keys(_g.claimedProvinces || {}).length}</span></div>
+    \`;
+}
+
+function _renderDiplomacyPanel() {
+    const panel = _screens.game?.querySelector('#eu-diplomacy-panel');
+    if (!panel) return;
+
+    const ae        = Math.floor(_g.ae);
+    const dip       = Math.floor(_g.resources.dip);
+    const stability = (_g.stability ?? STABILITY_MAX);
+
+    // Costs
+    const GIFT_COST        = 30;   // DIP → −10 AE
+    const TREATY_COST      = 80;   // DIP → −25 AE
+    const CONGRESS_COST    = 200;  // DIP → −60 AE, requires AE > 40
+    const STABILISE_COST   = 50;   // ADM → +1 Stability
+
+    const aeColor   = ae > 50 ? '#c0392b' : ae > 35 ? '#e67e22' : '#27ae60';
+    const coalSecs  = ae > 50 ? Math.max(0, Math.round(_g.coalitionTimer)) : null;
+
+    panel.innerHTML = `
+        <div style="background:#fdf6e8;border:1px solid #c9a96e;border-radius:8px;padding:14px;margin-bottom:4px;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+                <span style="font-size:18px;">🔥</span>
+                <div style="flex:1;">
+                    <div style="font-size:13px;font-weight:bold;color:#3d2010;">Aggressive Expansion: <span style="color:${aeColor}">${ae} / 100</span></div>
+                    <div style="background:#e0d5c0;border-radius:4px;height:6px;margin-top:4px;overflow:hidden;">
+                        <div style="height:100%;width:${Math.min(100,ae)}%;background:${aeColor};transition:width 0.5s;border-radius:4px;"></div>
+                    </div>
+                    ${coalSecs !== null ? `<div style="font-size:11px;color:#c0392b;margin-top:3px;">⚠️ Coalition war in ${coalSecs}s — use diplomacy now!</div>` : ''}
+                </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
+                <button class="eu-action-btn" id="eu-dip-gift" ${dip >= GIFT_COST && ae > 0 ? '' : 'disabled'}
+                    style="font-size:12px;padding:8px;background:#e8f4fb;border-color:#2980b9;color:#1a5276;text-align:left;">
+                    🎁 Send Gifts<br>
+                    <span style="font-size:10px;color:#555;">${GIFT_COST} 🕊️ → −10 AE</span>
+                </button>
+                <button class="eu-action-btn" id="eu-dip-treaty" ${dip >= TREATY_COST && ae > 0 ? '' : 'disabled'}
+                    style="font-size:12px;padding:8px;background:#f5eef8;border-color:#8e44ad;color:#512e5f;text-align:left;">
+                    📄 Sign Non-Aggression<br>
+                    <span style="font-size:10px;color:#555;">${TREATY_COST} 🕊️ → −25 AE</span>
+                </button>
+                <button class="eu-action-btn" id="eu-dip-congress" ${dip >= CONGRESS_COST && ae > 40 ? '' : 'disabled'}
+                    style="font-size:12px;padding:8px;background:#fef9e7;border-color:#b7950b;color:#7d6608;text-align:left;">
+                    🏛️ Peace Congress<br>
+                    <span style="font-size:10px;color:#555;">${CONGRESS_COST} 🕊️ → −60 AE (needs AE>40)</span>
+                </button>
+                <button class="eu-action-btn" id="eu-dip-stabilise" ${_g.resources.adm >= STABILISE_COST && stability < STABILITY_MAX ? '' : 'disabled'}
+                    style="font-size:12px;padding:8px;background:#eafaf1;border-color:#27ae60;color:#1e8449;text-align:left;">
+                    ⚖️ Stabilise Realm<br>
+                    <span style="font-size:10px;color:#555;">${STABILISE_COST} 📜 → +1 Stability</span>
+                </button>
+            </div>
+
+            <div style="font-size:11px;color:#888;border-top:1px solid #e0d5c0;padding-top:8px;">
+                💡 Fabricate Claims on provinces via the map — halves AE on conquest.
+                Claimed provinces: <strong>${Object.keys(_g.claimedProvinces || {}).length}</strong>
+            </div>
+        </div>`;
+
+    panel.querySelector('#eu-dip-gift')?.addEventListener('click', () => {
+        _g.resources.dip -= GIFT_COST;
+        _g.ae = Math.max(0, _g.ae - 10);
+        _toast('🎁 Gifts dispatched. −10 🔥 AE.', '#2980b9');
+        _renderDiplomacyPanel(); _updateUI();
+    });
+    panel.querySelector('#eu-dip-treaty')?.addEventListener('click', () => {
+        _g.resources.dip -= TREATY_COST;
+        _g.ae = Math.max(0, _g.ae - 25);
+        _toast('📄 Non-Aggression Pact signed. −25 🔥 AE.', '#8e44ad');
+        _renderDiplomacyPanel(); _updateUI();
+    });
+    panel.querySelector('#eu-dip-congress')?.addEventListener('click', () => {
+        if (_g.ae <= 40) { _toast('AE must exceed 40 to call a Peace Congress.', '#e74c3c'); return; }
+        _g.resources.dip -= CONGRESS_COST;
+        _g.ae = Math.max(0, _g.ae - 60);
+        _g.coalitionTimer = Math.max(_g.coalitionTimer, 300); // reset coalition clock
+        _toast('🏛️ Peace Congress convened! −60 🔥 AE. Coalition clock reset.', '#b7950b');
+        _renderDiplomacyPanel(); _updateUI();
+    });
+    panel.querySelector('#eu-dip-stabilise')?.addEventListener('click', () => {
+        if (stability >= STABILITY_MAX) { _toast('Stability already at maximum.', '#27ae60'); return; }
+        _g.resources.adm -= STABILISE_COST;
+        _g.stability = Math.min(STABILITY_MAX, _g.stability + 1);
+        _toast(`⚖️ Realm stabilised. Stability → ${Math.round(_g.stability)}.`, '#27ae60');
+        _renderDiplomacyPanel(); _updateUI();
+    });
 }
 
 function _updateUI() {
@@ -1643,7 +1807,15 @@ function _updateUI() {
     g.querySelector('#eu-val-dip').textContent       = Math.floor(_g.resources.dip);
     g.querySelector('#eu-val-mil').textContent       = Math.floor(_g.resources.mil);
     g.querySelector('#eu-val-stability').textContent = (_g.stability ?? STABILITY_MAX).toFixed(1);
-    g.querySelector('#eu-val-ae').textContent        = Math.floor(_g.ae);
+    g.querySelector('#eu-val-ae').textContent = Math.floor(_g.ae);
+    const coalEl = g.querySelector('#eu-val-coalition');
+    if (coalEl) {
+        if (_g.ae > 50) {
+            coalEl.textContent = `(${_formatTime(Math.ceil(_g.coalitionTimer))})`;
+        } else {
+            coalEl.textContent = '';
+        }
+    }
 
     // AE visual warning
     const aeBox = g.querySelector('#eu-ae-box');
@@ -1667,6 +1839,7 @@ function _updateUI() {
 
     if (g.querySelector('#eu-tab-court').classList.contains('active')) {
         if (Math.random() < 0.05) _renderCourt();
+        else _renderDiplomacyPanel(); // always keep AE bar + coalition timer fresh
     }
 }
 
@@ -1713,6 +1886,8 @@ function _loadGame() {
         _g.combo             = p.combo            || 0;
         _g.victoryAchieved   = p.victoryAchieved  || false;
         _g.capitalId         = p.capitalId        || null;
+        _g.claimedProvinces  = p.claimedProvinces  || {};
+        _g.coalitionTimer    = p.coalitionTimer    ?? 300;
 
         // ── Offline catch-up: simulate at most OFFLINE_SIM_CAP_SEC of game time ──
         // Without this cap, any absence longer than ~50s causes every province to

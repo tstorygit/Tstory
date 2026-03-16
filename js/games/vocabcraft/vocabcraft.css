@@ -3,6 +3,10 @@
     flex-direction: column;
     position: absolute;
     inset: 0;
+    /* Respect iOS/Android home bar and notch */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-left:   env(safe-area-inset-left,   0px);
+    padding-right:  env(safe-area-inset-right,  0px);
     background: #1a252f;
     color: #ecf0f1;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -35,7 +39,10 @@
     max-height: 50vh;
     overflow-y: auto;
     z-index: 50;
-    /* Hidden when empty */
+    /* Safe area inset for iPhone home bar / Android gesture nav.
+       viewport-fit=cover must be set (injected by _injectStyles).
+       48px fallback covers tall gesture bars on devices without support. */
+    padding-bottom: max(48px, env(safe-area-inset-bottom, 48px));
 }
 .vc-layout-portrait .vc-sidebar-panel:empty {
     display: none;
@@ -110,6 +117,7 @@
     border-top: none;
     overflow-y: auto;
     background: #1a252f;
+    padding-bottom: max(16px, env(safe-area-inset-bottom, 16px));
 }
 .vc-layout-landscape .vc-map-container {
     grid-column: 2;
@@ -371,7 +379,7 @@
     width: 100%;
     background: transparent;
     padding: 8px 10px;
-    padding-bottom: max(8px, env(safe-area-inset-bottom, 8px));
+    padding-bottom: max(16px, env(safe-area-inset-bottom, 16px));
     box-sizing: border-box;
     display: flex;
     flex-wrap: wrap;
@@ -379,7 +387,6 @@
     align-items: flex-start;
     align-content: flex-start;
     justify-content: center;
-    box-sizing: border-box;
 }
 .vc-btn {
     background: #34495e;
