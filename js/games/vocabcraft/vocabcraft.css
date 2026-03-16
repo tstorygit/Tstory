@@ -206,11 +206,13 @@
     top: calc(var(--ts, 40px) * -0.18);
     left: -20%;
     width: 140%;
-    height: calc(max(2px, var(--ts, 40px) * 0.08));
-    background: red;
-    border: 1px solid black;
+    height: max(2px, calc(var(--ts, 40px) * 0.08));
+    background: #333;
+    border: 1px solid #000;
+    border-radius: 1px;
+    overflow: hidden;
 }
-.vc-enemy-hp-fill { height: 100%; background: #2ecc71; }
+.vc-enemy-hp-fill { height: 100%; background: #2ecc71; transition: width 0.1s linear; }
 .vc-enemy-armor {
     position: absolute;
     bottom: calc(var(--ts, 40px) * -0.22);

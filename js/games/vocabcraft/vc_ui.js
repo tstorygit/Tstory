@@ -397,6 +397,7 @@ export class VcUI {
     }
 
     initDragSwap() {
+        console.log('[DRAG] initDragSwap called');
         this._dragGhost = document.createElement('div');
         this._dragGhost.id = 'vc-drag-ghost';
         this._dragGhost.style.cssText = [
@@ -410,65 +411,37 @@ export class VcUI {
         ].join(';');
         document.body.appendChild(this._dragGhost);
         this._dragSource = null;
+        console.log('[DRAG] ghost element created and appended to body');
 
-        const moveGhost = (cx, cy) => {
-            this._dragGhost.style.left = cx + 'px';
-            this._dragGhost.style.top  = cy + 'px';
-        };
-
-        const getTileAt = (cx, cy) => {
+        document.addEventListener('pointermove', (e) => {
+            if (!this._dragSource) return;
+            e.preventDefault();
+            this._dragGhost.style.left = e.clientX + 'px';
+            this._dragGhost.style.top  = e.clientY + 'px';
+            this.tiles.forEach(t => t.classList.remove('vc-drag-over'));
             const rect = this.gridEl.getBoundingClientRect();
             const zoom = this._zoom || 1;
-            const lx = (cx - rect.left) / zoom;
-            const ly = (cy - rect.top)  / zoom;
-            const c = Math.floor(lx / this.tileSize);
-            const r = Math.floor(ly / this.tileSize);
-            if (r >= 0 && c >= 0 && r < this.engine.map.rows && c < this.engine.map.cols)
-                return { r, c, idx: r * this.engine.map.cols + c };
-            return null;
-        };
+            const tc = Math.floor((e.clientX - rect.left) / zoom / this.tileSize);
+            const tr = Math.floor((e.clientY - rect.top)  / zoom / this.tileSize);
+            const idx = tr * this.engine.map.cols + tc;
+            if (this.tiles[idx]) this.tiles[idx].classList.add('vc-drag-over');
+        }, { passive: false });
 
-        // Prevent scroll/zoom interference on the grid during drag
-        this.gridEl.style.touchAction = 'none';
-
-        const clearHighlight = () => this.tiles.forEach(t => t.classList.remove('vc-drag-over'));
-
-        this.gridEl.addEventListener('pointerdown', (e) => {
-            const structEl = e.target.closest('.vc-structure');
-            if (!structEl) return;
-            const x = parseFloat(structEl.style.left) + this.tileSize / 2;
-            const y = parseFloat(structEl.style.top)  + this.tileSize / 2;
-            const st = this.engine.structures.find(s => s.x === x && s.y === y);
-            if (!st?.gem) return;
-            e.preventDefault();
-            e.stopPropagation();   // prevent tile onclick from also firing
-            this._dragSource = { structRef: st };
-            this._dragGhost.style.background = GEMS[st.gem.color]?.color || '#888';
-            this._dragGhost.textContent = st.gem.level;
-            this._dragGhost.style.display = 'flex';
-            moveGhost(e.clientX, e.clientY);
-            this.gridEl.setPointerCapture(e.pointerId);
-        });
-
-        this.gridEl.addEventListener('pointermove', (e) => {
+        document.addEventListener('pointerup', (e) => {
             if (!this._dragSource) return;
-            e.preventDefault();
-            moveGhost(e.clientX, e.clientY);
-            clearHighlight();
-            const tile = getTileAt(e.clientX, e.clientY);
-            if (tile && this.tiles[tile.idx]) this.tiles[tile.idx].classList.add('vc-drag-over');
-        });
-
-        this.gridEl.addEventListener('pointerup', (e) => {
-            if (!this._dragSource) return;
-            clearHighlight();
+            console.log('[DRAG] pointerup — releasing drag', e.clientX, e.clientY);
             this._dragGhost.style.display = 'none';
-            const tile = getTileAt(e.clientX, e.clientY);
-            if (tile) {
-                const tx = tile.c * this.tileSize + this.tileSize / 2;
-                const ty = tile.r * this.tileSize + this.tileSize / 2;
-                const target = this.engine.structures.find(s => s.x === tx && s.y === ty);
+            this.tiles.forEach(t => t.classList.remove('vc-drag-over'));
+            const rect = this.gridEl.getBoundingClientRect();
+            const zoom = this._zoom || 1;
+            const tc = Math.floor((e.clientX - rect.left) / zoom / this.tileSize);
+            const tr = Math.floor((e.clientY - rect.top)  / zoom / this.tileSize);
+            if (tr >= 0 && tc >= 0 && tr < this.engine.map.rows && tc < this.engine.map.cols) {
+                const tx = tc * this.tileSize + this.tileSize / 2;
+                const ty = tr * this.tileSize + this.tileSize / 2;
                 const src = this._dragSource.structRef;
+                const target = this.engine.structures.find(s => s.x === tx && s.y === ty);
+                console.log('[DRAG] drop target:', target ? `${target.type} at ${tx},${ty}` : 'none');
                 if (target && target !== src) {
                     const tmp = target.gem;
                     target.gem = src.gem;
@@ -478,14 +451,32 @@ export class VcUI {
                 }
             }
             this._dragSource = null;
-            this.gridEl.releasePointerCapture(e.pointerId);
         });
 
-        this.gridEl.addEventListener('pointercancel', () => {
+        document.addEventListener('pointercancel', () => {
+            if (!this._dragSource) return;
+            console.log('[DRAG] pointercancel — aborting drag');
             this._dragSource = null;
             this._dragGhost.style.display = 'none';
-            clearHighlight();
+            this.tiles.forEach(t => t.classList.remove('vc-drag-over'));
         });
+
+        this._attachDragToStructure = (div, stRef) => {
+            div.style.cursor = 'grab';
+            div.addEventListener('pointerdown', (e) => {
+                const live = this.engine.structures.find(s => `${s.x},${s.y}` === div.dataset.skey);
+                if (!live?.gem) return;
+                e.preventDefault();
+                e.stopPropagation();
+                this._dragSource = { structRef: live };
+                this._dragGhost.style.background = GEMS[live.gem.color]?.color || '#888';
+                this._dragGhost.textContent = live.gem.level;
+                this._dragGhost.style.left = e.clientX + 'px';
+                this._dragGhost.style.top  = e.clientY + 'px';
+                this._dragGhost.style.display = 'flex';
+                console.log('[DRAG] pointerdown on structure — THIS SHOULD NOT FIRE (old path)');
+            });
+        };
     }
 
     activateNextWaveIcon(idx) {
@@ -1153,6 +1144,10 @@ export class VcUI {
     _renderStructures(structures) {
         const el = this.structuresEl;
         const ts = this.tileSize;
+        if (!el) { console.warn('[DRAG] _renderStructures: structuresEl is null!'); return; }
+        if (el.children.length !== structures.length) {
+            console.log('[DRAG] _renderStructures: count changed →', structures.length, 'DOM children was:', el.children.length);
+        }
 
         // Build a key→existing-element map from current DOM children
         const existing = new Map();
@@ -1180,6 +1175,26 @@ export class VcUI {
                 div.style.width  = `${ts}px`;
                 div.style.height = `${ts}px`;
                 el.appendChild(div);
+                console.log('[DRAG] new structure element created at key:', key, 'type:', st.type);
+                // Attach drag listener once — looks up live struct at event time
+                div.addEventListener('pointerdown', (e) => {
+                    console.log('[DRAG] pointerdown fired on structure div, skey:', div.dataset.skey, 'e.target:', e.target.className, 'e.target.tagName:', e.target.tagName);
+                    const live = this.engine.structures.find(s => `${s.x},${s.y}` === div.dataset.skey);
+                    console.log('[DRAG] live struct found:', live ? `${live.type} gem:${live.gem?.color}` : 'NOT FOUND');
+                    if (!live?.gem) {
+                        console.log('[DRAG] no gem on struct — aborting drag');
+                        return;
+                    }
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this._dragSource = { structRef: live };
+                    this._dragGhost.style.background = GEMS[live.gem.color]?.color || '#888';
+                    this._dragGhost.textContent = live.gem.level;
+                    this._dragGhost.style.left = e.clientX + 'px';
+                    this._dragGhost.style.top  = e.clientY + 'px';
+                    this._dragGhost.style.display = 'flex';
+                    console.log('[DRAG] drag started! gem:', live.gem.color, 'lv', live.gem.level, 'ghost display:', this._dragGhost.style.display);
+                });
             }
 
             // Only update innerHTML when something actually changed
