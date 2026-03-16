@@ -50,6 +50,7 @@ function _freshGame() {
         stability: STABILITY_MAX,
         nationalFocus: 'adm',
         victoryAchieved: false,
+        capitalId: null,
     };
 }
 
@@ -134,6 +135,7 @@ async function _startGame() {
 
     _show('game');
     _loadGame();
+    _silentInitMissions(); // Suppress reward flood from unseen/old saves
 
     if (_g.provinces.length === 0) {
         _generateMap();
@@ -166,6 +168,7 @@ function _generateMap() {
         for (let x = 0; x < cols; x++) {
             const isCapital = (x === capX && y === capY);
             const pId = `prov_${x}_${y}`;
+            if (isCapital) _g.capitalId = pId;
             const tier = 1 + Math.floor(Math.random() * 3);
 
             const provWords = [];
@@ -1036,6 +1039,7 @@ function _initGameDOM() {
         <div>Focus: <strong id="eu-val-focus" style="color:#f1c40f">📜 ADM</strong></div>
         <div style="margin-left:auto;">
             <button class="eu-icon-btn" id="eu-save-btn" title="Save Game">💾</button>
+            <button class="eu-icon-btn" id="eu-reset-btn" title="Reset Options">⚙️</button>
             <button class="eu-icon-btn" id="eu-quit-btn" title="Quit">🚪</button>
         </div>
     </div>
@@ -1127,6 +1131,7 @@ function _initGameDOM() {
     });
 
     el.querySelector('#eu-save-btn').addEventListener('click', () => { _saveGame(); _toast('Game Saved!', '#27ae60'); });
+    el.querySelector('#eu-reset-btn').addEventListener('click', _showResetMenu);
     el.querySelector('#eu-quit-btn').addEventListener('click', () => {
         if (confirm('Abandon your empire?')) { _saveGame(); _stopGameLoop(); _onExit(); }
     });
@@ -1416,6 +1421,17 @@ function _checkMissions() {
     if (changed) _renderCourt();
 }
 
+// Called once on game start — marks already-satisfied missions as done WITHOUT rewarding.
+// Prevents reward flood when loading an old save that lacked missionsCompleted tracking.
+function _silentInitMissions() {
+    const ctx = { g: _g, getEmpireStats: _getEmpireStats, toast: () => {} };
+    MISSION_DEFS.forEach(m => {
+        if (!_g.missionsCompleted[m.key] && m.req(ctx)) {
+            _g.missionsCompleted[m.key] = true;
+        }
+    });
+}
+
 function _renderCourt() {
     const ideasBox = _screens.game?.querySelector('#eu-ideas-container');
     const statsList = _screens.game?.querySelector('#eu-stats-list');
@@ -1637,6 +1653,7 @@ function _loadGame() {
 	_g.nationalFocus = p.nationalFocus || 'adm';
 	_g.combo = p.combo || 0;
 	_g.victoryAchieved = p.victoryAchieved || false;
+	_g.capitalId = p.capitalId || null;
 	_g.lastTick = Date.now();
 	} catch (e) {
 	_g = _freshGame();
@@ -1704,6 +1721,121 @@ function _checkVictory() {
 function _stopGameLoop() {
     if (_rafId) cancelAnimationFrame(_rafId);
     if (_saveInterval) clearInterval(_saveInterval);
+}
+
+// ─── Reset Feature ────────────────────────────────────────────────────────────
+
+function _showResetMenu() {
+    // Remove any existing reset modal
+    _screens.game.querySelector('#eu-reset-modal')?.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'eu-reset-modal';
+    modal.className = 'eu-war-modal';
+    modal.style.display = 'flex';
+    modal.innerHTML = `
+        <div class="eu-war-modal-inner" style="border-color:#7a3b1e; max-width:400px;">
+            <div class="eu-war-header" style="font-size:18px; margin-bottom:8px;">⚙️ Reset Options</div>
+            <p style="font-size:13px; color:#666; margin-bottom:18px; line-height:1.5;">
+                Choose what to reset. Your SRS intervals are the fruit of your study — resetting progress lets you keep them.
+            </p>
+            <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:18px;">
+
+                <div style="background:#fef9e7; border:1px solid #c9a96e; border-radius:8px; padding:12px;">
+                    <div style="font-weight:bold; font-size:14px; margin-bottom:4px;">♻️ Reset Progress — Keep SRS</div>
+                    <div style="font-size:12px; color:#666; margin-bottom:10px;">
+                        Wipes your empire (provinces, resources, ideas, missions, buildings) and starts a fresh game, 
+                        but keeps every word's SRS interval and ease score.
+                    </div>
+                    <button id="eu-reset-progress-btn" class="eu-action-btn" style="width:100%; background:#c47a1e; color:white; border-color:#a05a10;">
+                        ♻️ Reset Progress, Keep SRS Intervals
+                    </button>
+                </div>
+
+                <div style="background:#fef4f4; border:1px solid #c99696; border-radius:8px; padding:12px;">
+                    <div style="font-weight:bold; font-size:14px; margin-bottom:4px;">🗑️ Reset Everything</div>
+                    <div style="font-size:12px; color:#666; margin-bottom:10px;">
+                        Full wipe — empire and all SRS data. Like starting the game for the first time.
+                    </div>
+                    <button id="eu-reset-all-btn" class="eu-action-btn eu-war-btn" style="width:100%;">
+                        🗑️ Reset Everything
+                    </button>
+                </div>
+
+            </div>
+            <button id="eu-reset-cancel-btn" class="eu-action-btn" style="width:100%;">✕ Cancel</button>
+        </div>`;
+
+    _screens.game.appendChild(modal);
+
+    modal.querySelector('#eu-reset-progress-btn').addEventListener('click', () => {
+        if (confirm('Reset the empire but keep your SRS progress?\n\nAll provinces, resources, ideas, and missions will be wiped. Your word intervals are preserved.')) {
+            modal.remove();
+            _doResetProgress();
+        }
+    });
+    modal.querySelector('#eu-reset-all-btn').addEventListener('click', () => {
+        if (confirm('Reset EVERYTHING including SRS data?\n\nThis cannot be undone.')) {
+            modal.remove();
+            _doResetAll();
+        }
+    });
+    modal.querySelector('#eu-reset-cancel-btn').addEventListener('click', () => modal.remove());
+
+    // Click outside to close
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+}
+
+function _doResetProgress() {
+    // Save the SRS intervals/ease before wiping
+    const savedSrs = (_g.srs || []).map(s => ({
+        id:       s.id,
+        interval: s.interval,
+        ease:     s.ease,
+        // nextReview will be recalculated from a fresh province assignment
+    }));
+
+    _stopGameLoop();
+    localStorage.removeItem(SAVE_KEY);
+
+    // Fresh game state
+    _g = _freshGame();
+
+    // Rebuild the map fresh (same vocab queue)
+    _generateMap();
+    _g.nextEventTimer = Date.now() + 60000;
+
+    // Re-apply the preserved intervals/ease to the new SRS entries
+    _g.srs.forEach(newEntry => {
+        const saved = savedSrs.find(s => s.id === newEntry.id);
+        if (saved) {
+            newEntry.interval = saved.interval;
+            newEntry.ease     = saved.ease;
+            // Push nextReview forward proportionally so words aren't all due immediately
+            newEntry.nextReview = Date.now() + newEntry.interval * 1000;
+        }
+    });
+
+    // Also apply to any SRS entries added for non-capital provinces that might not be in savedSrs
+    // (they won't be — capital-only at gen time — so this is just defensive)
+
+    _silentInitMissions();
+    _initGameDOM();
+    _updateSRSQueue();
+    _updateUI();
+    _startGameLoop();
+    _switchTab('map');
+    _saveGame();
+
+    _toast('♻️ Empire reset! SRS intervals preserved.', '#c47a1e');
+}
+
+function _doResetAll() {
+    _stopGameLoop();
+    localStorage.removeItem(SAVE_KEY);
+    _g = null;
+    _show('setup');
+    _renderSetup();
 }
 
 function _toast(msg, color = '#333') {

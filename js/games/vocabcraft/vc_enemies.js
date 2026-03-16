@@ -273,7 +273,7 @@ export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, way
             emoji: '👹',
             hp, maxHp: hp,
             armor: armor + (isEnraged ? 1 : 0),
-            speed: (26 + difficulty * 2) * GLOBAL_SCALE * modeSpeedMult * loopMult * (isEnraged ? (1 + enrageLevel * 0.05) : 1),
+            speed: (26 + difficulty * 2) * GLOBAL_SCALE * modeSpeedMult * loopMult * (isEnraged ? (1 + enrageLevel * 0.05) : 1) / 40,
             regen: 0.01,
             immune: [],
             pathIdx: 0,
@@ -311,8 +311,8 @@ export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, way
                 label: typeDef.label,
                 hp, maxHp: hp,
                 armor,
-                speed: (38 + difficulty * 2) * GLOBAL_SCALE * typeDef.speedMult * modeSpeedMult * loopMult * (isEnraged ? (1 + enrageLevel * 0.05) : 1),
-                baseSpeed: (38 + difficulty * 2) * GLOBAL_SCALE * typeDef.speedMult * modeSpeedMult * loopMult * (isEnraged ? (1 + enrageLevel * 0.05) : 1),
+                speed: (38 + difficulty * 2) * GLOBAL_SCALE * typeDef.speedMult * modeSpeedMult * loopMult * (isEnraged ? (1 + enrageLevel * 0.05) : 1) / 40,
+                baseSpeed: (38 + difficulty * 2) * GLOBAL_SCALE * typeDef.speedMult * modeSpeedMult * loopMult * (isEnraged ? (1 + enrageLevel * 0.05) : 1) / 40,
                 regen: typeDef.regen,
                 immune: [...typeDef.immune],
                 onDeath: typeDef.onDeath || null,
@@ -358,7 +358,7 @@ export function getWavePreview(totalWaves, difficulty) {
                 types: [{
                     typeId: 'boss', emoji: '👹', label: 'BOSS',
                     count: 1, hp, armor,
-                    speed: Math.floor((26 + difficulty * 2) * GLOBAL_SCALE),
+                    speed:  Math.floor((26 + difficulty * 2) * GLOBAL_SCALE / 40 * 100) / 100,
                     immune: [], regen: 0.01,
                     desc: 'Massive HP, armor, and regeneration. Needs sustained burst damage.'
                 }]
@@ -375,7 +375,7 @@ export function getWavePreview(totalWaves, difficulty) {
                     count:  def.spawnCount,
                     hp:     Math.floor(hpBase * def.hpMult),
                     armor:  Math.max(0, baseArmor + def.armorBonus),
-                    speed:  Math.floor((38 + difficulty * 2) * GLOBAL_SCALE * def.speedMult),
+                    speed:  Math.floor((38 + difficulty * 2) * GLOBAL_SCALE * def.speedMult / 40 * 100) / 100,
                     immune: def.immune,
                     regen:  def.regen,
                     desc:   def.desc

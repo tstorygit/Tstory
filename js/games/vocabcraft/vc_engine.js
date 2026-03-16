@@ -112,7 +112,7 @@ export function enemyXpValue(enemy) {
     const armorFactor  = 1 + (enemy.armor || 0) * 0.15;
     const regenFactor  = 1 + (enemy.regen || 0) * 8;
     const effectiveHp  = enemy.maxHp * armorFactor * regenFactor;
-    const speedFactor  = 0.8 + (enemy.speed || 60) / 200;
+    const speedFactor  = 0.8 + (enemy.speed || 1.5) * 5;  // tiles/s: normal≈1.5 → factor≈8.3
     const immuneFactor = 1 + (enemy.immune?.length || 0) * 0.25;
     return Math.max(1, effectiveHp * speedFactor * immuneFactor / XP_NORMALISER);
 }
@@ -466,7 +466,8 @@ export class VcEngine {
             const dx = target.x - e.x;
             const dy = target.y - e.y;
             const dist = Math.hypot(dx, dy);
-            const step = currentSpeed * dt;
+            const tileSize = this.tileSize || 40;
+            const step = currentSpeed * tileSize * dt;
             if (step >= dist) {
                 e.x = target.x; e.y = target.y; e.wpIdx++;
                 const overflow = step - dist;
@@ -523,7 +524,7 @@ export class VcEngine {
             gem: source.gem,
             gemData,
             sourceRef: source,
-            speed: 200
+            speed: 5
         });
     }
 
@@ -536,7 +537,8 @@ export class VcEngine {
             const dx = target.x - p.x;
             const dy = target.y - p.y;
             const dist = Math.hypot(dx, dy);
-            const step = p.speed * dt;
+            const tileSize = this.tileSize || 40;
+            const step = p.speed * tileSize * dt;
 
             // Hit if the projectile would reach or pass the target this frame.
             // Using step >= dist prevents overshoot at high game speed.

@@ -97,6 +97,7 @@ export class VcUI {
         this.gridEl.style.height = `${rows * this.tileSize}px`;
         this.gridEl.style.gridTemplateColumns = `repeat(${cols}, ${this.tileSize}px)`;
         this.gridEl.style.gridTemplateRows    = `repeat(${rows}, ${this.tileSize}px)`;
+        this.gridEl.style.setProperty('--ts', `${this.tileSize}px`);
 
         this.tiles =[];
         for (let r = 0; r < rows; r++) {
