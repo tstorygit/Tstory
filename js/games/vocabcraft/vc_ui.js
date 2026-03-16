@@ -51,7 +51,8 @@ export class VcUI {
             // wiped every frame. This makes pointer/drag events work reliably.
             this.structuresEl = document.createElement('div');
             this.structuresEl.className = 'vc-entities';
-            this.structuresEl.style.zIndex = '4'; // below enemies (z-index 6)
+            this.structuresEl.style.zIndex = '4';
+            this.structuresEl.style.pointerEvents = 'none'; // layer itself transparent
             this.gridEl.appendChild(this.structuresEl);
 
             // Stable overlay for spawn/base markers — lives above tiles,
@@ -1174,26 +1175,46 @@ export class VcUI {
                 div.style.top   = `${st.y - ts/2}px`;
                 div.style.width  = `${ts}px`;
                 div.style.height = `${ts}px`;
+                div.style.pointerEvents = 'auto'; // override parent's pointer-events:none
+                div.style.cursor = 'grab';
                 el.appendChild(div);
                 console.log('[DRAG] new structure element created at key:', key, 'type:', st.type);
                 // Attach drag listener once — looks up live struct at event time
                 div.addEventListener('pointerdown', (e) => {
-                    console.log('[DRAG] pointerdown fired on structure div, skey:', div.dataset.skey, 'e.target:', e.target.className, 'e.target.tagName:', e.target.tagName);
+                    console.log('[DRAG] pointerdown fired on structure div, skey:', div.dataset.skey, 'e.target.tagName:', e.target.tagName);
                     const live = this.engine.structures.find(s => `${s.x},${s.y}` === div.dataset.skey);
                     console.log('[DRAG] live struct found:', live ? `${live.type} gem:${live.gem?.color}` : 'NOT FOUND');
                     if (!live?.gem) {
-                        console.log('[DRAG] no gem on struct — aborting drag');
+                        console.log('[DRAG] no gem — aborting');
                         return;
                     }
-                    e.preventDefault();
-                    e.stopPropagation();
-                    this._dragSource = { structRef: live };
-                    this._dragGhost.style.background = GEMS[live.gem.color]?.color || '#888';
-                    this._dragGhost.textContent = live.gem.level;
-                    this._dragGhost.style.left = e.clientX + 'px';
-                    this._dragGhost.style.top  = e.clientY + 'px';
-                    this._dragGhost.style.display = 'flex';
-                    console.log('[DRAG] drag started! gem:', live.gem.color, 'lv', live.gem.level, 'ghost display:', this._dragGhost.style.display);
+                    // Don't preventDefault yet — let a short tap still reach tile onclick.
+                    // Only commit to drag once the pointer actually moves (>4px).
+                    const startX = e.clientX, startY = e.clientY;
+                    let dragging = false;
+
+                    const onMove = (me) => {
+                        if (!dragging) {
+                            const dist = Math.hypot(me.clientX - startX, me.clientY - startY);
+                            if (dist < 4) return;
+                            // Crossed threshold — commit to drag
+                            dragging = true;
+                            this._dragSource = { structRef: live };
+                            this._dragGhost.style.background = GEMS[live.gem.color]?.color || '#888';
+                            this._dragGhost.textContent = live.gem.level;
+                            this._dragGhost.style.left = me.clientX + 'px';
+                            this._dragGhost.style.top  = me.clientY + 'px';
+                            this._dragGhost.style.display = 'flex';
+                            console.log('[DRAG] drag committed! gem:', live.gem.color, 'lv', live.gem.level);
+                        }
+                    };
+                    const onUp = () => {
+                        document.removeEventListener('pointermove', onMove);
+                        document.removeEventListener('pointerup', onUp);
+                        if (!dragging) console.log('[DRAG] tap — no drag started (moved <4px)');
+                    };
+                    document.addEventListener('pointermove', onMove);
+                    document.addEventListener('pointerup', onUp);
                 });
             }
 
