@@ -1371,7 +1371,7 @@ function _renderGrimoire() {
             const canAfford = _meta.sp >= cost && !isMax;
             const maxLabel = def.max === Infinity ? '∞' : def.max;
             const hasActiveSlider = ACTIVE_LEVEL_SKILLS.has(key) && purchased > 0;
-            // active level defaults to purchased level if not set
+            // Default active level to purchased (max) when first seen.
             if (hasActiveSlider && _meta.activeSkills[key] === undefined) {
                 _meta.activeSkills[key] = purchased;
             }
@@ -1402,11 +1402,12 @@ function _renderGrimoire() {
             buyBtn.onclick = () => {
                 if (_meta.sp >= cost && purchased < def.max) {
                     _meta.sp -= cost;
-                    _meta.skills[key] = purchased + 1;
-                    // bump active level along with purchase if it was at max
-                    if (hasActiveSlider && _meta.activeSkills[key] === purchased) {
+                    // Bump active level only if it was already at the current max
+                    // (player is running full power). If they dialled it down, leave it.
+                    if (hasActiveSlider && (_meta.activeSkills[key] ?? purchased) >= purchased) {
                         _meta.activeSkills[key] = purchased + 1;
                     }
+                    _meta.skills[key] = purchased + 1;
                     saveMeta(_meta);
                     _renderGrimoire();
                 }

@@ -612,7 +612,8 @@
 .vc-skill-list {
     flex: 1;
     overflow-y: auto;
-    padding: 8px 10px 12px;
+    padding: 8px 10px;
+    padding-bottom: max(80px, env(safe-area-inset-bottom, 80px));
     display: flex;
     flex-direction: column;
     gap: 6px;

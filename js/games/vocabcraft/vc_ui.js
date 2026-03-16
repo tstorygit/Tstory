@@ -96,12 +96,22 @@ export class VcUI {
     initGrid() {
         const { cols, rows, grid } = this.engine.map;
 
-        const TOPBAR_H  = 70;
         const SIDEBAR_W = 240;
         const TILE_MAX  = 52;
 
         const vw = window.innerWidth;
         const vh = window.innerHeight;
+
+        // Measure actual topbar height — both rows — instead of hardcoding 70px.
+        // On wide screens (2440px+) the topbar rows can wrap, making the real
+        // height larger and causing the grid/enemies to render off-screen.
+        const row1 = this.container.querySelector('.vc-topbar-row1');
+        const row2 = this.container.querySelector('.vc-topbar-row2');
+        const TOPBAR_H = Math.max(
+            70,
+            (row1 ? row1.getBoundingClientRect().height : 0) +
+            (row2 ? row2.getBoundingClientRect().height : 0)
+        );
 
         // Skip if nothing changed
         if (this._lastVw === vw && this._lastVh === vh && this.tileSize > 0) return;
@@ -774,30 +784,34 @@ export class VcUI {
         const trapSpecMult = isTrap ? 2.5 + ((this.engine.meta.skills.trapSpecialty || 0) * 0.1) : 1;
         const trapFireMult = isTrap ? 3.0 + ((this.engine.meta.skills.trapSpecialty || 0) * 0.02) : 1;
 
-        // Show the clean final damage number. When pool or combo are active,
-        // append a small ℹ️ whose title attribute explains the breakdown —
-        // no raw "×1.05" math visible in the main stat row.
+        // Always show the clean final damage number. The ℹ️ icon is always
+        // rendered so it's tappable even at pool P1 with no combo active.
+        // When boosters are active the number turns green; the popover explains why.
         const baseDmgVal  = Math.max(1, Math.floor(gemDamage(gem, gemDef, this.engine.meta.skills) * trapDmgMult));
         const finalDmgVal = Math.max(1, Math.floor(dmg * trapDmgMult));
         const isBoosted   = poolMult > 1.001 || comboMult > 1.001;
-        let dmgTooltip = '';
-        if (isBoosted) {
-            const parts = [`${baseDmgVal} base`];
-            if (poolMult  > 1.001) parts.push(`×${poolMult.toFixed(2)} pool (P${this.engine.state.poolLevel})`);
-            if (comboMult > 1.001) parts.push(`×${comboMult.toFixed(2)} combo`);
-            dmgTooltip = parts.join(' ');
-        }
-        const trapSuffix = isTrap ? ' <span style="opacity:0.6;font-size:10px;">(Trap)</span>' : '';
-        const dmgDisplay = isBoosted
-            ? `<span style="color:#2ecc71;font-weight:bold;">${finalDmgVal}</span>` +
-              `<span title="${dmgTooltip}" style="cursor:help;margin-left:3px;font-size:10px;opacity:0.65;">ℹ️</span>` +
-              trapSuffix
-            : finalDmgVal + trapSuffix;
+        const tooltipParts = [`${baseDmgVal} base`];
+        if (poolMult  > 1.001) tooltipParts.push(`×${poolMult.toFixed(2)} pool (P${this.engine.state.poolLevel})`);
+        if (comboMult > 1.001) tooltipParts.push(`×${comboMult.toFixed(2)} combo`);
+        const dmgTooltip  = tooltipParts.join(' ');
+        const trapSuffix  = isTrap ? ' <span style="opacity:0.6;font-size:10px;">(Trap)</span>' : '';
+        const dmgNumHtml  = isBoosted
+            ? `<span style="color:#2ecc71;font-weight:bold;">${finalDmgVal}</span>`
+            : `${finalDmgVal}`;
+        const dmgDisplay  = dmgNumHtml +
+            `<span data-dmg-tooltip="${dmgTooltip}" style="cursor:pointer;margin-left:4px;font-size:11px;opacity:0.7;">ℹ️</span>` +
+            trapSuffix;
+
+        // Max hit: crit ceiling for Citrine, normal hit for all others.
+        const maxHitVal = Math.max(1, Math.floor(
+            gemDef.type === 'crit' ? finalDmgVal * gemCritMult(gem) : finalDmgVal
+        ));
 
         const stats = [
-            { icon: '🏹', label: 'Range',  val: range + 'px' },
-            { icon: '⚡', label: 'Fire',   val: (speed * trapFireMult).toFixed(2) + '/s' },
-            { icon: '⚔️', label: 'Damage', val: dmgDisplay, isHtml: true },
+            { icon: '🏹', label: 'Range',   val: range + 'px' },
+            { icon: '⚡', label: 'Fire',    val: (speed * trapFireMult).toFixed(2) + '/s' },
+            { icon: '⚔️', label: 'Damage',  val: dmgDisplay },
+            { icon: '🔝', label: 'Max hit', val: maxHitVal },
         ];
 
         switch (gemDef.type) {
@@ -855,6 +869,32 @@ export class VcUI {
             </div>
         `;
         this.bottomBar.appendChild(panel);
+
+        // Delegate ℹ️ clicks on the bottomBar so the handler survives re-renders.
+        // Only attach once — guard with a flag on the element.
+        if (!this.bottomBar._dmgInfoDelegated) {
+            this.bottomBar._dmgInfoDelegated = true;
+            // Use capture phase — the bottomBar has a bubble-phase listener that calls
+            // stopPropagation() on every click, which would kill this handler if we
+            // also used the bubble phase. Capture fires before that listener.
+            this.bottomBar.addEventListener('click', e => {
+                const icon = e.target.closest('[data-dmg-tooltip]');
+                if (!icon) return;
+                e.stopPropagation();
+                const existing = this.bottomBar.querySelector('.vc-dmg-popover');
+                if (existing) { existing.remove(); if (existing._src === icon) return; }
+                const pop = document.createElement('div');
+                pop.className = 'vc-dmg-popover';
+                pop._src = icon;
+                pop.style.cssText = [
+                    'background:#1a2d3d', 'border:1px solid #3498db', 'border-radius:6px',
+                    'padding:6px 10px', 'font-size:11px', 'color:#bdc3c7',
+                    'margin-top:4px', 'line-height:1.6'
+                ].join(';');
+                pop.textContent = icon.dataset.dmgTooltip;
+                icon.closest('.vc-stat-panel-row').insertAdjacentElement('afterend', pop);
+            }, true); // true = capture phase
+        }
 
         const btnRow = document.createElement('div');
         btnRow.className = 'vc-stat-panel-btns';
