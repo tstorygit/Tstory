@@ -328,11 +328,14 @@ function _getEmpireStats() {
 
     owned.forEach(p => {
         const tierBonus = (p.tier || 1) * 0.3;
+        const isCapital = p.id === _g.capitalId;
         if (p.rebelling) {
             rebellingCount++;
         } else {
             baseDucats   += tierBonus * stabilityMod;
+            if (isCapital) baseDucats += 3 * stabilityMod; // capital seat bonus
             baseManpower += (p.tier || 1) * 0.1 * stabilityMod;
+            if (isCapital) baseManpower += 2 * stabilityMod; // capital levy bonus
             if (p.buildings.market)   baseDucats   += marketVal * stabilityMod;
             if (p.buildings.barracks) baseManpower += stabilityMod;
         }
@@ -721,38 +724,32 @@ function _renderWarModal() {
         } else {
             const prov = _g.provinces.find(p => p.id === provId);
             if (wins >= winsNeeded) {
-                const discount = wins / rounds;
-                const finalCost = Math.round(_warState.fullCost * (1 - discount * 0.5));
-                if (_g.resources.manpower >= finalCost) {
-                    _g.resources.manpower -= finalCost;
-                    prov.owner = 'player'; prov.cored = false; prov.unrest = 40; prov.rebelTimer = 0;
-                    _g.stats.warsWon++;
-                    const aeGain = _warState.hasClaim
-                        ? Math.round(10 * (prov.tier || 1))   // claim halves AE
-                        : Math.round(20 * (prov.tier || 1));
-                    _g.ae += aeGain;
-                    if (_warState.hasClaim) delete _g.claimedProvinces[provId];
-                    prov.words.forEach(wid => {
-                        if (!_g.srs.find(s => s.id === wid))
-                            _g.srs.push({ id: wid, nextReview: Date.now(), interval: 8, ease: 1.5, provinceId: provId });
-                    });
-                    const claimNote = _warState.hasClaim ? ' (claim: AE halved)' : '';
-                    _toast(`⚔️ Victory! Conquered ${prov.name} for ${finalCost} ⚔️. +${aeGain} AE${claimNote}`, '#27ae60');
-                    _selectedProvinceId = provId;
-                } else {
-                    _toast(`⚠️ Victory, but not enough Manpower (need ${finalCost}).`, '#f39c12');
-                }
+                // Full conquest — show choice modal: take province OR demand tribute
+                _showPeaceDealModal(prov, wins, rounds);
+                return; // modal handles cleanup
+            } else if (wins >= 2) {
+                // Partial victory — can only demand tribute, cannot conquer
+                const tributeGold = Math.round(_warState.fullCost * 0.4 * (wins / rounds));
+                const tributeMP   = Math.round(_warState.fullCost * 0.15);
+                _g.resources.ducats   += tributeGold;
+                _g.resources.manpower -= tributeMP;
+                _g.ae += 5; // small AE still
+                modal.style.display = 'none';
+                modal.classList.remove('eu-active-overlay');
+                _toast(`⚔️ Partial victory! Demanded tribute: +${tributeGold} 💰. −${tributeMP} ⚔️.`, '#f39c12');
+                _warState = null;
+                _renderMap(); _updateSRSQueue(); _updateUI();
             } else {
                 const lossCost = Math.round(_warState.fullCost * 0.2);
                 _g.resources.manpower = Math.max(0, _g.resources.manpower - lossCost);
                 _g.stability = Math.max(0, (_g.stability ?? STABILITY_MAX) - 1);
+                modal.style.display = 'none';
+                modal.classList.remove('eu-active-overlay');
                 _toast(`💀 Defeated! ${wins}/${rounds} won. −${lossCost} ⚔️, −1 Stability.`, '#c0392b');
+                _warState = null;
+                _renderMap(); _updateSRSQueue(); _updateUI();
             }
         }
-        modal.style.display = 'none';
-        modal.classList.remove('eu-active-overlay');
-        _renderMap(); _updateSRSQueue(); _updateUI();
-        _warState = null;
         return;
     }
 
@@ -822,11 +819,94 @@ function _renderWarModal() {
     });
 }
 
+// ─── Peace Deal Modal ────────────────────────────────────────────────────────
+
+function _showPeaceDealModal(prov, wins, rounds) {
+    const ws = _warState;
+    if (!ws) return;
+
+    const discount    = wins / rounds;
+    const conquestMP  = Math.round(ws.fullCost * (1 - discount * 0.5));
+    const tributeGold = Math.round(ws.fullCost * 0.6 * discount);
+    const tributeMP   = Math.round(ws.fullCost * 0.1);
+    const hasClaim    = ws.hasClaim;
+    const aeConquest  = hasClaim ? Math.round(10 * (prov.tier || 1)) : Math.round(20 * (prov.tier || 1));
+    const aeTribute   = Math.round(5  * (prov.tier || 1));
+    const canConquer  = _g.resources.manpower >= conquestMP;
+
+    let modal = _screens.game.querySelector('#eu-peace-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'eu-peace-modal';
+        modal.className = 'eu-war-modal eu-active-overlay';
+        _screens.game.appendChild(modal);
+    }
+    modal.style.display = 'flex';
+    modal.classList.add('eu-active-overlay');
+
+    modal.innerHTML = `
+        <div class="eu-war-modal-inner" style="max-width:460px;">
+            <div class="eu-war-header" style="color:#27ae60;font-size:18px;">⚔️ Victory! — Peace Terms</div>
+            <p style="font-size:13px;color:#555;margin:8px 0 16px;">You have defeated <strong>${prov.name}</strong>. Choose your terms:</p>
+            <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px;">
+                <div style="background:#f0fdf4;border:2px solid #27ae60;border-radius:8px;padding:14px;">
+                    <div style="font-weight:bold;font-size:14px;color:#1e8449;margin-bottom:6px;">🗺️ Conquer Province</div>
+                    <div style="font-size:12px;color:#555;margin-bottom:10px;">Annex ${prov.name} into your empire. Province starts at 40% unrest.<br>
+                        <span style="color:#c0392b;">Costs: ${conquestMP} ⚔️ · +${aeConquest} AE${hasClaim ? ' (claim: halved)' : ''}</span></div>
+                    <button id="eu-peace-conquer" class="eu-action-btn" style="width:100%;background:#1e8449;color:white;border-color:#196f3d;" ${canConquer ? '' : 'disabled'}>
+                        🗺️ Annex ${prov.name} (${conquestMP} ⚔️)${!canConquer ? ' — not enough Manpower' : ''}
+                    </button>
+                </div>
+                <div style="background:#fef9e7;border:1px solid #c9a96e;border-radius:8px;padding:14px;">
+                    <div style="font-weight:bold;font-size:14px;color:#7a5a00;margin-bottom:6px;">💰 Demand Tribute</div>
+                    <div style="font-size:12px;color:#555;margin-bottom:10px;">Accept gold. No territory changes, minimal AE cost.<br>
+                        <span style="color:#27ae60;">Gain: +${tributeGold} 💰 · −${tributeMP} ⚔️ (supply cost) · +${aeTribute} AE</span></div>
+                    <button id="eu-peace-tribute" class="eu-action-btn" style="width:100%;background:#c47a1e;color:white;border-color:#a05a10;">
+                        💰 Demand ${tributeGold} Ducats as Tribute
+                    </button>
+                </div>
+            </div>
+        </div>`;
+
+    modal.querySelector('#eu-peace-conquer')?.addEventListener('click', () => {
+        _g.resources.manpower -= conquestMP;
+        prov.owner = 'player'; prov.cored = false; prov.unrest = 40; prov.rebelTimer = 0;
+        _g.stats.warsWon++;
+        _g.ae += aeConquest;
+        if (hasClaim) delete _g.claimedProvinces[prov.id];
+        prov.words.forEach(wid => {
+            if (!_g.srs.find(s => s.id === wid))
+                _g.srs.push({ id: wid, nextReview: Date.now(), interval: 8, ease: 1.5, provinceId: prov.id });
+        });
+        _toast(`⚔️ ${prov.name} annexed! +${aeConquest} AE${hasClaim ? ' (claim applied)' : ''}`, '#27ae60');
+        _selectedProvinceId = prov.id;
+        _closePeaceModal(modal); _warState = null;
+        _renderMap(); _updateSRSQueue(); _updateUI();
+    });
+
+    modal.querySelector('#eu-peace-tribute')?.addEventListener('click', () => {
+        _g.resources.ducats   += tributeGold;
+        _g.resources.manpower  = Math.max(0, _g.resources.manpower - tributeMP);
+        _g.ae += aeTribute;
+        _g.stats.warsWon++;
+        _toast(`💰 ${prov.name} paid tribute: +${tributeGold} 💰. +${aeTribute} AE.`, '#f39c12');
+        _closePeaceModal(modal); _warState = null;
+        _renderMap(); _updateSRSQueue(); _updateUI();
+    });
+}
+
+function _closePeaceModal(modal) {
+    modal.style.display = 'none';
+    modal.classList.remove('eu-active-overlay');
+}
+
 // ─── SRS / Combat Logic ───────────────────────────────────────────────────────
 
 function _loseProvince(provId) {
     const prov = _g.provinces.find(p => p.id === provId);
     if (!prov || prov.owner !== 'player') return;
+
+    const isCapital = provId === _g.capitalId;
 
     prov.owner   = 'neutral';
     prov.unrest  = 0;
@@ -834,11 +914,28 @@ function _loseProvince(provId) {
     prov.rebelTimer = 0;
     prov.cored   = false;
     _g.stats.provincesLost++;
-    _g.stability = Math.max(0, (_g.stability ?? STABILITY_MAX) - 2);
+    _g.stability = Math.max(0, (_g.stability ?? STABILITY_MAX) - (isCapital ? 5 : 2));
 
     _g.srs = _g.srs.filter(s => s.provinceId !== provId);
 
-    _toast(`💀 ${prov.name} has been retaken by rebels! Province lost.`, '#c0392b');
+    if (isCapital) {
+        // Losing the capital: relocate to the largest cored province, or first owned
+        const fallback = _g.provinces
+            .filter(p => p.owner === 'player' && p.id !== provId)
+            .sort((a,b) => (b.cored ? 1 : 0) - (a.cored ? 1 : 0))[0];
+        if (fallback) {
+            _g.capitalId = fallback.id;
+            _g.resources.ducats   = Math.max(0, _g.resources.ducats   - 200);
+            _g.resources.manpower = Math.max(0, _g.resources.manpower - 300);
+            _toast(`🏚️ CAPITAL FALLEN! ${prov.name} lost. Capital relocated to ${fallback.name}. −200💰 −300⚔️ −5 Stability!`, '#8b0000');
+        } else {
+            _g.resources.ducats   = 0;
+            _g.resources.manpower = 0;
+            _toast(`🏚️ CAPITAL FALLEN! ${prov.name} lost. Empire in chaos — all resources wiped! −5 Stability!`, '#8b0000');
+        }
+    } else {
+        _toast(`💀 ${prov.name} has been retaken by rebels! Province lost.`, '#c0392b');
+    }
     _renderMap();
     if (_selectedProvinceId === provId) {
         _selectedProvinceId = null;
@@ -1174,6 +1271,9 @@ function _initGameDOM() {
                 </div>
             </div>
 
+            <h2 class="eu-title" style="margin-top:20px;">Subject Nations</h2>
+            <div id="eu-vassals-panel"></div>
+
             <h2 class="eu-title" style="margin-top:20px;">Diplomacy &amp; Reputation</h2>
             <div id="eu-diplomacy-panel"></div>
 
@@ -1315,7 +1415,10 @@ function _renderMap() {
             ? Math.min(100, Math.round((prov.rebelTimer / (prov.buildings.fort ? REBEL_TAKEBACK_TIME * 2 : REBEL_TAKEBACK_TIME)) * 100)) : 0;
 
         let iconStr = '';
-        if (prov.cored && prov.hasTradeFleet) iconStr = '🚢';
+        const isCap = prov.id === _g.capitalId && prov.owner === 'player';
+        if (isCap && prov.cored && prov.hasTradeFleet) iconStr = '👑🚢';
+        else if (isCap)                         iconStr = '👑';
+        else if (prov.cored && prov.hasTradeFleet) iconStr = '🚢';
         else if (prov.buildings?.fort)         iconStr = '🏰';
         else if (prov.cored)                   iconStr = '🏛️';
         else if (prov.rebelling)               iconStr = '🔥';
@@ -1371,14 +1474,18 @@ function _renderProvincePanel(prov) {
     const isVassal = prov.owner === 'vassal';
     const isAdj = _isAdjacentToOwned(prov);
     
-    let ownershipText = isOwned ? 'Your Core' : (isVassal ? 'Vassal' : 'Independent');
-    let ownershipColor = isOwned ? '#27ae60' : (isVassal ? '#2980b9' : '#7f8c8d');
+    const isCapital = prov.id === _g.capitalId;
+    let ownershipText = isCapital ? '👑 Capital' : (isOwned ? 'Your Province' : (isVassal ? 'Vassal' : 'Independent'));
+    let ownershipColor = isCapital ? '#c0a000' : (isOwned ? '#27ae60' : (isVassal ? '#2980b9' : '#7f8c8d'));
 
     let html = `
-        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #bdc3c7; padding-bottom:10px; margin-bottom:10px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid ${isCapital ? '#c0a000' : '#bdc3c7'}; padding-bottom:10px; margin-bottom:10px;">
             <h3 style="margin:0; font-size:20px;">${prov.name}</h3>
             <span style="font-size:12px; font-weight:bold; color:${ownershipColor}; text-transform:uppercase;">${ownershipText}</span>
         </div>
+        ${isCapital ? `<div style="background:#fef9e7;border:1px solid #c0a000;border-radius:6px;padding:8px 12px;font-size:12px;color:#7a5a00;margin-bottom:10px;">
+            👑 Seat of the Empire — +3 💰/s, +2 ⚔️/s bonus income. Losing this province causes −5 Stability and a capital relocation crisis.
+        </div>` : ''}
     `;
 
     if (isOwned || isVassal) {
@@ -1682,6 +1789,9 @@ function _renderCourt() {
     advBox.querySelectorAll('[data-hire]').forEach(b => b.addEventListener('click', (e) => _hireAdvisor(e.target.dataset.hire)));
     advBox.querySelectorAll('[data-fire]').forEach(b => b.addEventListener('click', (e) => _fireAdvisor(e.target.dataset.fire)));
 
+    // SUBJECT NATIONS PANEL
+    _renderVassalPanel();
+
     // DIPLOMACY PANEL
     _renderDiplomacyPanel();
 
@@ -1698,9 +1808,64 @@ function _renderCourt() {
         <div class="eu-stat-row"><span>📖 Words in SRS</span><span>${stats.activeSrsCount}</span></div>
         <div class="eu-stat-row"><span>🎯 Answer Accuracy</span><span>${accuracy}% (${_g.stats.totalCorrect}✓ ${_g.stats.totalWrong}✗)</span></div>
         <div class="eu-stat-row"><span>💰 Net Ducats Income</span><span>${stats.ducatsPerSec >= 0 ? '+' : ''}${stats.ducatsPerSec.toFixed(1)}/s</span></div>
-        <div class="eu-stat-row"><span>📊 Overextension Penalty</span><span style="color:\${stats.overextension > 50 ? '#c0392b' : '#27ae60'}">-\${Math.floor(stats.overextension)}%</span></div>
-        <div class="eu-stat-row"><span>📜 Fabricated Claims</span><span>\${Object.keys(_g.claimedProvinces || {}).length}</span></div>
-    \`;
+        <div class="eu-stat-row"><span>📊 Overextension Penalty</span><span style="color:${stats.overextension > 50 ? '#c0392b' : '#27ae60'}">-${Math.floor(stats.overextension)}%</span></div>
+        <div class="eu-stat-row"><span>📜 Fabricated Claims</span><span>${Object.keys(_g.claimedProvinces || {}).length}</span></div>
+    `;
+}
+
+function _renderVassalPanel() {
+    const box = _screens.game?.querySelector('#eu-vassals-panel');
+    if (!box) return;
+
+    const vassals = _g.provinces.filter(p => p.owner === 'vassal');
+
+    if (vassals.length === 0) {
+        box.innerHTML = `<div style="font-size:13px;color:#888;padding:8px 0;">No vassal states. Subjugate adjacent provinces via 🕊️ Diplomatic Annex on the map.</div>`;
+        return;
+    }
+
+    const INTEGRATE_DIP = 50;
+
+    let html = `<div style="display:flex;flex-direction:column;gap:8px;">`;
+    vassals.forEach(v => {
+        const ld = Math.floor(v.libertyDesire);
+        const ldColor = ld >= 75 ? '#c0392b' : ld >= 40 ? '#e67e22' : '#27ae60';
+        const ldBar = `<div style="background:#e0d9cc;border-radius:3px;height:6px;overflow:hidden;margin:4px 0;"><div style="height:100%;background:${ldColor};width:${ld}%;transition:width 0.5s;"></div></div>`;
+        const srsEntries = _g.srs.filter(s => s.provinceId === v.id);
+        const dueCount = srsEntries.filter(s => s.nextReview <= Date.now()).length;
+        const canIntegrate = ld === 0 && _g.resources.dip >= INTEGRATE_DIP;
+        const integBtn = ld > 0
+            ? `<div style="font-size:11px;color:#888;margin-top:4px;">Answer SRS cards to reduce Liberty Desire</div>`
+            : `<button class="eu-action-btn eu-annex-btn" data-integrate="${v.id}" style="padding:5px 10px;font-size:11px;margin-top:4px;" ${canIntegrate ? '' : 'disabled'}>🏳️ Integrate (${INTEGRATE_DIP} 🕊️)</button>`;
+
+        html += `<div style="background:#fdf6e8;border:1px solid #c9a96e;border-radius:8px;padding:10px;display:flex;gap:12px;align-items:flex-start;">
+            <div style="font-size:22px;flex-shrink:0;">🤝</div>
+            <div style="flex:1;min-width:0;">
+                <div style="font-weight:bold;font-size:14px;color:#2c1a0e;">${v.name} <span style="font-size:11px;font-weight:normal;color:#888;">Tier ${v.tier||1} · ${v.words.length} words</span></div>
+                <div style="font-size:12px;color:${ldColor};font-weight:bold;margin-top:3px;">Liberty Desire: ${ld}% ${dueCount > 0 ? `<span style="color:#c0392b;">· ${dueCount} card${dueCount>1?'s':''} due</span>` : ''}</div>
+                ${ldBar}
+                ${integBtn}
+            </div>
+        </div>`;
+    });
+    html += `</div>`;
+    box.innerHTML = html;
+
+    box.querySelectorAll('[data-integrate]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const provId = btn.dataset.integrate;
+            const prov = _g.provinces.find(p => p.id === provId);
+            if (!prov || prov.libertyDesire > 0) return;
+            if (_g.resources.dip < INTEGRATE_DIP) { _toast(`Need ${INTEGRATE_DIP} 🕊️ DIP to integrate ${prov.name}.`, '#e74c3c'); return; }
+            _g.resources.dip -= INTEGRATE_DIP;
+            prov.owner = 'player';
+            prov.unrest = 0;
+            prov.libertyDesire = 0;
+            _g.stats.annexCount = (_g.stats.annexCount || 0) + 1;
+            _toast(`🏳️ ${prov.name} integrated into the Empire!`, '#2980b9');
+            _renderMap(); _renderVassalPanel(); _updateUI();
+        });
+    });
 }
 
 function _renderDiplomacyPanel() {

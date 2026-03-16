@@ -468,9 +468,22 @@ export class VcUI {
             'transform:translate(-50%,-50%)'
         ].join(';');
         document.body.appendChild(this._dragGhost);
-        this._dragSource = null;
+        this._dragSource = null;   // set once threshold crossed — ghost is live
+        this._dragPending = null;  // set on pointerdown — waiting for threshold
 
+        // Single global pointermove: upgrades pending→active on threshold, moves ghost
         document.addEventListener('pointermove', (e) => {
+            if (this._dragPending && !this._dragSource) {
+                const dist = Math.hypot(e.clientX - this._dragPending.startX, e.clientY - this._dragPending.startY);
+                if (dist >= 4) {
+                    // Crossed threshold — commit to drag
+                    const live = this._dragPending.live;
+                    this._dragSource = { structRef: live };
+                    this._dragGhost.style.background = GEMS[live.gem.color]?.color || '#888';
+                    this._dragGhost.textContent = live.gem.level;
+                    this._dragGhost.style.display = 'flex';
+                }
+            }
             if (!this._dragSource) return;
             e.preventDefault();
             this._dragGhost.style.left = e.clientX + 'px';
@@ -484,33 +497,47 @@ export class VcUI {
             if (this.tiles[idx]) this.tiles[idx].classList.add('vc-drag-over');
         }, { passive: false });
 
+        // Single global pointerup: performs swap if drag was active, else tap-selects
         document.addEventListener('pointerup', (e) => {
-            if (!this._dragSource) return;
-            this._dragGhost.style.display = 'none';
             this.tiles.forEach(t => t.classList.remove('vc-drag-over'));
-            const rect = this.gridEl.getBoundingClientRect();
-            const zoom = this._zoom || 1;
-            const tc = Math.floor((e.clientX - rect.left) / zoom / this.tileSize);
-            const tr = Math.floor((e.clientY - rect.top)  / zoom / this.tileSize);
-            if (tr >= 0 && tc >= 0 && tr < this.engine.map.rows && tc < this.engine.map.cols) {
-                const tx = tc * this.tileSize + this.tileSize / 2;
-                const ty = tr * this.tileSize + this.tileSize / 2;
-                const src = this._dragSource.structRef;
-                const target = this.engine.structures.find(s => s.x === tx && s.y === ty);
-                if (target && target !== src) {
-                    const tmp = target.gem;
-                    target.gem = src.gem;
-                    src.gem = tmp;
-                    if (this.selectedTile?.structRef === src || this.selectedTile?.structRef === target)
-                        this.renderBottomBar();
+            if (this._dragSource) {
+                // Drag was active — perform gem swap
+                this._dragGhost.style.display = 'none';
+                const rect = this.gridEl.getBoundingClientRect();
+                const zoom = this._zoom || 1;
+                const tc = Math.floor((e.clientX - rect.left) / zoom / this.tileSize);
+                const tr = Math.floor((e.clientY - rect.top)  / zoom / this.tileSize);
+                if (tr >= 0 && tc >= 0 && tr < this.engine.map.rows && tc < this.engine.map.cols) {
+                    const tx = tc * this.tileSize + this.tileSize / 2;
+                    const ty = tr * this.tileSize + this.tileSize / 2;
+                    const src = this._dragSource.structRef;
+                    const target = this.engine.structures.find(s => s.x === tx && s.y === ty);
+                    if (target && target !== src) {
+                        const tmp = target.gem;
+                        target.gem = src.gem;
+                        src.gem = tmp;
+                        if (this.selectedTile?.structRef === src || this.selectedTile?.structRef === target)
+                            this.renderBottomBar();
+                    }
+                }
+                this._dragSource = null;
+            } else if (this._dragPending) {
+                // No drag — it was a tap, select the tile
+                const live = this._dragPending.live;
+                if (live) {
+                    const ts = this.tileSize;
+                    const r = live.r ?? Math.floor((live.y - ts / 2) / ts);
+                    const cc = live.c ?? Math.floor((live.x - ts / 2) / ts);
+                    const tileType = this.engine.map.grid[r]?.[cc];
+                    if (tileType !== undefined) this.selectTile(r, cc, tileType);
                 }
             }
-            this._dragSource = null;
+            this._dragPending = null;
         });
 
         document.addEventListener('pointercancel', () => {
-            if (!this._dragSource) return;
             this._dragSource = null;
+            this._dragPending = null;
             this._dragGhost.style.display = 'none';
             this.tiles.forEach(t => t.classList.remove('vc-drag-over'));
         });
@@ -1272,51 +1299,26 @@ export class VcUI {
                 div.style.pointerEvents = 'auto'; // override parent's pointer-events:none
                 div.style.cursor = 'grab';
                 el.appendChild(div);
-                // Attach drag listener once — looks up live struct at event time
+                // Attach drag listener once.
+                // Sets _dragPending; the global handlers in initDragSwap take it from there.
                 div.addEventListener('pointerdown', (e) => {
                     const live = this.engine.structures.find(s => `${s.x},${s.y}` === div.dataset.skey);
                     if (!live) return;
 
-                    // No gem — just select the tile immediately, no drag possible
+                    // No gem — select tile immediately
                     if (!live.gem) {
                         const r = live.r ?? Math.floor((live.y - ts / 2) / ts);
-                        const c = live.c ?? Math.floor((live.x - ts / 2) / ts);
-                        const tileType = this.engine.map.grid[r]?.[c];
-                        if (tileType !== undefined) this.selectTile(r, c, tileType);
+                        const cc = live.c ?? Math.floor((live.x - ts / 2) / ts);
+                        const tileType = this.engine.map.grid[r]?.[cc];
+                        if (tileType !== undefined) this.selectTile(r, cc, tileType);
                         return;
                     }
 
-                    // Has gem — tap selects, drag moves
-                    const startX = e.clientX, startY = e.clientY;
-                    let dragging = false;
-
-                    const onMove = (me) => {
-                        if (!dragging) {
-                            const dist = Math.hypot(me.clientX - startX, me.clientY - startY);
-                            if (dist < 4) return;
-                            dragging = true;
-                            this._dragSource = { structRef: live };
-                            this._dragGhost.style.background = GEMS[live.gem.color]?.color || '#888';
-                            this._dragGhost.textContent = live.gem.level;
-                            this._dragGhost.style.left = me.clientX + 'px';
-                            this._dragGhost.style.top  = me.clientY + 'px';
-                            this._dragGhost.style.display = 'flex';
-                        }
-                    };
-                    const onUp = () => {
-                        document.removeEventListener('pointermove', onMove);
-                        document.removeEventListener('pointerup', onUp);
-                        if (!dragging) {
-                            // Tap — manually trigger tile selection since the
-                            // structure div consumed the event before tile onclick fired
-                            const r = live.r ?? Math.floor((live.y - ts / 2) / ts);
-                            const c = live.c ?? Math.floor((live.x - ts / 2) / ts);
-                            const tileType = this.engine.map.grid[r]?.[c];
-                            if (tileType !== undefined) this.selectTile(r, c, tileType);
-                        }
-                    };
-                    document.addEventListener('pointermove', onMove);
-                    document.addEventListener('pointerup', onUp);
+                    // Has gem — arm pending drag; global pointermove/up handles threshold + swap
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this._dragPending = { live, startX: e.clientX, startY: e.clientY };
+                    this._dragSource = null; // not active yet
                 });
             }
 
