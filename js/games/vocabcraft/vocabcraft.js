@@ -47,13 +47,15 @@ export function init(screens, onExit) {
             <div id="vc-battle-layer" class="vc-root" style="display:none;">
                 <div class="vc-topbar vc-topbar-row1">
                     <div style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;">
-                        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-                            <span class="vc-mana">💧 <span id="vc-val-mana">300</span></span>
-                            <span style="font-size:10px;color:#bdc3c7;">/ <span id="vc-val-pool-cap">300</span></span>
-                            <span style="font-size:11px;color:#f1c40f;font-weight:bold;">P<span id="vc-val-pool-level">1</span></span>
-                            <div id="vc-combo-wrap" style="display:flex;flex-direction:column;gap:1px;min-width:44px;visibility:hidden;opacity:0;transition:opacity 0.2s;">
-                                <span style="font-size:10px;color:#7f8c8d;line-height:1;">COMBO</span>
-                                <span style="font-size:11px;font-weight:bold;line-height:1;" id="vc-combo-inner">⚡<span id="vc-val-combo">0</span> <span id="vc-val-combo-mult" style="font-size:10px;">(×1.00)</span></span>
+                        <div style="display:flex;align-items:center;gap:0;flex-wrap:nowrap;">
+                            <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">
+                                <span class="vc-mana">💧 <span id="vc-val-mana">300</span></span>
+                                <span style="font-size:10px;color:#bdc3c7;white-space:nowrap;">/ <span id="vc-val-pool-cap">300</span></span>
+                                <span style="font-size:11px;color:#f1c40f;font-weight:bold;white-space:nowrap;">P<span id="vc-val-pool-level">1</span></span>
+                            </div>
+                            <div id="vc-combo-wrap" style="display:flex;flex-direction:column;gap:1px;min-width:0;max-width:90px;margin-left:8px;visibility:hidden;opacity:0;transition:opacity 0.2s;overflow:hidden;">
+                                <span style="font-size:10px;color:#7f8c8d;line-height:1;white-space:nowrap;">COMBO</span>
+                                <span style="font-size:11px;font-weight:bold;line-height:1;white-space:nowrap;" id="vc-combo-inner">⚡<span id="vc-val-combo">0</span> <span id="vc-val-combo-mult" style="font-size:10px;">(×1.00)</span></span>
                                 <div style="height:3px;background:rgba(255,255,255,0.15);border-radius:2px;overflow:hidden;">
                                     <div id="vc-combo-bar" style="height:100%;width:100%;background:#e67e22;border-radius:2px;transition:width 0.1s linear;"></div>
                                 </div>
@@ -64,6 +66,7 @@ export function init(screens, onExit) {
                         </div>
                     </div>
                     <button class="vc-icon-btn vc-grimoire-btn" id="vc-btn-grimoire-battle">📖</button>
+                    <button class="vc-icon-btn" id="vc-btn-howto" title="How to Play" style="background:#2c3e50;border-color:#4a5568;">ℹ️</button>
                     <button class="vc-icon-btn" id="vc-btn-speed">⚡1x</button>
                     <button class="vc-icon-btn" id="vc-btn-pause" style="background:#2980b9; border-color:#1a5276;">⏸</button>
                     <button class="vc-icon-btn vc-flee-btn" id="vc-btn-surrender">🏃Flee</button>
@@ -120,6 +123,12 @@ export function init(screens, onExit) {
             }
         };
         
+        // How to Play info button
+        _screens.game.querySelector('#vc-btn-howto').onclick = () => {
+            if (_engine && _engine.state.status === 'playing') _engine.pause();
+            _showHowToOverlay();
+        };
+
         // Speed: cycle 1x → 2x → 3x → 5x → back to 1x
         const SPEED_STEPS =[1, 2, 3, 5];
         _screens.game.querySelector('#vc-btn-speed').onclick = () => {
@@ -286,6 +295,122 @@ function _renderSetup() {
     });
 
     actions.append(startBtn, backBtn);
+}
+
+function _showHowToOverlay() {
+    const stale = document.getElementById('vc-howto-overlay');
+    if (stale) stale.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'vc-howto-overlay';
+    overlay.style.cssText = [
+        'position:fixed','inset:0','background:rgba(15,20,28,0.97)',
+        'z-index:400','display:flex','flex-direction:column',
+        'overflow-y:auto','-webkit-overflow-scrolling:touch',
+        'padding:16px','gap:0','font-family:inherit'
+    ].join(';');
+
+    const GEM_DATA = [
+        { color: '#e74c3c', label: 'Ruby',     type: 'Damage',      desc: 'Pure single-target damage. Your primary DPS gem. Scales well with Ruby Mastery.' },
+        { color: '#3498db', label: 'Sapphire', type: 'Slow',        desc: 'Slows enemy movement speed. Buys time for other gems. Immune: Specter & Phantom.' },
+        { color: '#2ecc71', label: 'Emerald',  type: 'Poison',      desc: 'Damage-over-time. Great vs. high-HP and regenerating enemies. Immune: Specter & Phantom.' },
+        { color: '#f39c12', label: 'Topaz',    type: 'Mana Leech',  desc: 'Steals mana from enemies on hit. Essential for sustaining your economy mid-wave.' },
+        { color: '#f1c40f', label: 'Citrine',  type: 'Crit',        desc: 'Critical hits deal multiplied damage. High ceiling with Citrine Mastery stacks.' },
+        { color: '#9b59b6', label: 'Amethyst', type: 'Armor Tear',  desc: 'Permanently strips enemy armor on hit. Mandatory vs. Ironclaids, Giants, Titans. Only answer for Cursed.' },
+    ];
+
+    const sections = [
+        {
+            title: '💎 Gem Colors',
+            html: GEM_DATA.map(g => `
+                <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid #1a252f;">
+                    <div style="width:18px;height:18px;border-radius:3px;background:${g.color};flex-shrink:0;margin-top:2px;box-shadow:0 0 6px ${g.color}44;"></div>
+                    <div>
+                        <span style="font-weight:bold;color:${g.color};">${g.label}</span>
+                        <span style="font-size:11px;color:#7f8c8d;margin-left:6px;">${g.type}</span>
+                        <div style="font-size:12px;color:#bdc3c7;margin-top:2px;">${g.desc}</div>
+                    </div>
+                </div>
+            `).join('')
+        },
+        {
+            title: '🏰 Towers vs ⚙️ Traps',
+            html: `
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;">
+                    <div style="background:#1a2a3a;border-radius:8px;padding:10px;">
+                        <div style="font-size:14px;font-weight:bold;margin-bottom:6px;">🏰 Tower</div>
+                        <div style="font-size:12px;color:#bdc3c7;line-height:1.6;">
+                            Built on <strong style="color:#2ecc71;">grass</strong> tiles.<br>
+                            Long range — wide area coverage.<br>
+                            Normal fire rate &amp; damage.
+                        </div>
+                    </div>
+                    <div style="background:#1a2a3a;border-radius:8px;padding:10px;">
+                        <div style="font-size:14px;font-weight:bold;margin-bottom:6px;">⚙️ Trap</div>
+                        <div style="font-size:12px;color:#bdc3c7;line-height:1.6;">
+                            Built on <strong style="color:#c0392b;">path</strong> tiles.<br>
+                            Short range, tight coverage.<br>
+                            3× faster fire rate.
+                        </div>
+                    </div>
+                </div>
+                <div style="font-size:12px;color:#7f8c8d;margin-top:8px;">Trap Specialization skill boosts trap fire rate, damage, and special effect multipliers.</div>
+            `
+        },
+        {
+            title: '⬆️ Upgrading & Forging Gems',
+            html: `<div style="font-size:12px;color:#bdc3c7;line-height:1.7;">
+                <p style="margin:4px 0;">Each action costs mana and requires answering a <strong style="color:#f1c40f;">vocab card</strong>.</p>
+                <p style="margin:4px 0;">✅ <strong style="color:#2ecc71;">Correct</strong> — mana spent, action completes. Your selection stays for the next build.</p>
+                <p style="margin:4px 0;">❌ <strong style="color:#e74c3c;">Wrong</strong> — mana penalty only. Gem color &amp; level selection is preserved.</p>
+                <p style="margin:4px 0;">The slider shows the <strong style="color:#f1c40f;">7 highest tiers</strong> you can currently afford and shifts up as you earn more mana.</p>
+            </div>`
+        },
+        {
+            title: '🔄 Swapping Gems',
+            html: `<div style="font-size:12px;color:#bdc3c7;line-height:1.7;">
+                <p style="margin:4px 0;"><strong style="color:#f1c40f;">Drag any gem</strong> from one tower or trap to another to swap them — no mana cost, no vocab card.</p>
+                <p style="margin:4px 0;">A colored ghost follows your finger. Drop on a target to swap. Works with empty slots too.</p>
+            </div>`
+        },
+        {
+            title: '⚡ Enraging Waves',
+            html: `<div style="font-size:12px;color:#bdc3c7;line-height:1.7;">
+                <p style="margin:4px 0;">Tap the <strong style="color:#e74c3c;">wave icon</strong> before a wave starts to open the Enrage screen.</p>
+                <p style="margin:4px 0;">Choose a level, pay mana, answer vocab cards. <strong style="color:#2ecc71;">More correct than wrong</strong> = enrage succeeds.</p>
+                <p style="margin:4px 0;">Enraged waves have boosted HP &amp; speed but grant more XP.</p>
+            </div>`
+        },
+        {
+            title: '💧 Mana Pool',
+            html: `<div style="font-size:12px;color:#bdc3c7;line-height:1.7;">
+                <p style="margin:4px 0;">Mana is earned by killing enemies. The pool levels up over time, raising the cap and giving all gems a passive damage bonus.</p>
+                <p style="margin:4px 0;">Enemies reaching your base <strong style="color:#e74c3c;">drain mana</strong>. Mana Thief drains 2.5×.</p>
+                <p style="margin:4px 0;">Topaz gems leech mana on hit — crucial for sustaining fast-wave builds.</p>
+            </div>`
+        },
+    ];
+
+    overlay.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-shrink:0;">
+            <div style="font-size:20px;font-weight:bold;color:#f1c40f;">ℹ️ How to Play</div>
+            <button id="vc-howto-close" style="background:#34495e;border:2px solid #7f8c8d;border-radius:8px;color:#fff;font-size:14px;font-weight:bold;padding:6px 14px;cursor:pointer;">✕ Close</button>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:16px;padding-bottom:max(24px,env(safe-area-inset-bottom,24px));">
+            ${sections.map(s => `
+                <div style="background:#1a252f;border-radius:10px;padding:12px 14px;">
+                    <div style="font-size:15px;font-weight:bold;color:#ecf0f1;margin-bottom:8px;">${s.title}</div>
+                    ${s.html}
+                </div>
+            `).join('')}
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+    overlay.querySelector('#vc-howto-close').onclick = () => {
+        overlay.remove();
+        if (_engine && _engine.state.status === 'paused') _engine.resume();
+    };
 }
 
 function _showSettingsOverlay() {
@@ -482,36 +607,36 @@ function _showCamp() {
 function _renderHexWorldMap(container) {
     const layout       = getHexWorldLayout();
     const unlockedTier = _highestUnlockedTier();
+    const nextTier     = unlockedTier + 1; // grey-preview; beyond = black
 
-    // Flat-top hexagons — wider than tall, better for horizontal text labels.
-    // R = outer radius. Flat-top: width = 2R, height = sqrt(3)*R.
-    // Adjacent hexes share an edge when centres are 2R apart horizontally
-    // or sqrt(3)*R apart vertically.
     const HEX_R    = 68;
-    const HEX_W    = 2 * HEX_R;                // 136px
-    const HEX_H    = Math.sqrt(3) * HEX_R;     // ~118px
-    const COL_STEP = HEX_W * 0.75;             // touching: 3/4 of width
-    const ROW_STEP = HEX_H;                    // touching: full height
-    const PAD      = HEX_R;
+    const HEX_W    = 2 * HEX_R;
+    const HEX_H    = Math.sqrt(3) * HEX_R;
+    const COL_STEP = HEX_W * 0.75;
+    const ROW_STEP = HEX_H;
+    const PAD      = HEX_R + 14; // extra pad so group outlines don\'t clip
 
-    // Flat-top hex: col offset every other column by half a row
     function hexCenter(col, row) {
-        const x = PAD + col * COL_STEP;
-        const y = PAD + row * ROW_STEP + (col % 2 === 1 ? HEX_H / 2 : 0);
-        return { x, y };
+        return {
+            x: PAD + col * COL_STEP,
+            y: PAD + row * ROW_STEP + (col % 2 === 1 ? HEX_H / 2 : 0)
+        };
     }
 
-    // Flat-top hex path (vertex at left/right)
-    function hexPath(cx, cy, r) {
+    function hexVerts(cx, cy, r) {
         const pts = [];
         for (let i = 0; i < 6; i++) {
-            const a = Math.PI / 180 * (60 * i);   // 0°=right vertex
-            pts.push(`${(cx + r * Math.cos(a)).toFixed(1)},${(cy + r * Math.sin(a)).toFixed(1)}`);
+            const a = (Math.PI / 3) * i;
+            pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
         }
-        return `M${pts.join('L')}Z`;
+        return pts;
     }
 
-    // Compute canvas bounds
+    function hexPath(cx, cy, r) {
+        return 'M' + hexVerts(cx, cy, r)
+            .map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('L') + 'Z';
+    }
+
     const centres = layout.map(n => hexCenter(n.hexCol, n.hexRow));
     const svgW = Math.ceil(Math.max(...centres.map(c => c.x)) + PAD + HEX_R);
     const svgH = Math.ceil(Math.max(...centres.map(c => c.y)) + PAD + HEX_H * 0.5);
@@ -522,38 +647,109 @@ function _renderHexWorldMap(container) {
     svg.setAttribute('height', svgH);
     svg.style.cssText = 'display:block;overflow:visible;touch-action:pan-x pan-y;';
 
-    // Single shared defs block
     const defs = document.createElementNS(svgNS, 'defs');
+
+    // ── blur filter for group glow outline ──────────────────────────────────
+    const filt = document.createElementNS(svgNS, 'filter');
+    filt.setAttribute('id', 'groupGlow');
+    filt.setAttribute('x', '-20%'); filt.setAttribute('y', '-20%');
+    filt.setAttribute('width', '140%'); filt.setAttribute('height', '140%');
+    const fe = document.createElementNS(svgNS, 'feGaussianBlur');
+    fe.setAttribute('stdDeviation', '5');
+    filt.appendChild(fe);
+    defs.appendChild(filt);
+
     svg.appendChild(defs);
 
+    // ── Layer 0: per-tier group outline (glow band behind all hexes) ────────
+    // Group all nodes by tier, build union of inflated hex paths, draw as one
+    // thick blurred stroke so adjacent same-tier hexes visually merge.
+    const maxTier = Math.max(...layout.map(n => n.tier));
+    for (let tier = 1; tier <= maxTier; tier++) {
+        const tierNodes = layout.filter(n => n.tier === tier);
+        const colors    = HEX_TIER_COLORS[tier];
+        const isLocked  = tier > unlockedTier && !_debugUnlockAll;
+        const isPreview = tier === nextTier && !_debugUnlockAll;
+
+        if (isLocked && !isPreview) continue; // fully black tiers need no outline
+
+        const outlineColor = isPreview ? 'rgba(120,120,120,0.35)' : colors.border;
+
+        // Draw one inflated hex per node in this tier as a group — SVG will
+        // visually merge overlapping strokes into a contiguous band.
+        const g = document.createElementNS(svgNS, 'g');
+        g.setAttribute('filter', 'url(#groupGlow)');
+        g.setAttribute('pointer-events', 'none');
+
+        tierNodes.forEach((node, i) => {
+            const { x: cx, y: cy } = centres[layout.indexOf(node)];
+            const outline = document.createElementNS(svgNS, 'path');
+            outline.setAttribute('d', hexPath(cx, cy, HEX_R + 7));
+            outline.setAttribute('fill', 'none');
+            outline.setAttribute('stroke', outlineColor);
+            outline.setAttribute('stroke-width', '10');
+            outline.setAttribute('stroke-linejoin', 'round');
+            g.appendChild(outline);
+        });
+        svg.appendChild(g);
+
+        // Crisp inner border ring (no blur) on top — drawn without filter
+        tierNodes.forEach(node => {
+            const { x: cx, y: cy } = centres[layout.indexOf(node)];
+            const ring = document.createElementNS(svgNS, 'path');
+            ring.setAttribute('d', hexPath(cx, cy, HEX_R + 5));
+            ring.setAttribute('fill', 'none');
+            ring.setAttribute('stroke', isPreview ? 'rgba(100,100,100,0.5)' : colors.border);
+            ring.setAttribute('stroke-width', isPreview ? '1.5' : '2');
+            ring.setAttribute('stroke-linejoin', 'round');
+            ring.setAttribute('pointer-events', 'none');
+            svg.appendChild(ring);
+        });
+    }
+
+    // ── Layers 1–N: individual hexes ────────────────────────────────────────
     layout.forEach((node, idx) => {
         const tpl = TEMPLATES.find(t => t.id === node.id);
         if (!tpl) return;
 
         const tplLockedActual = node.tier > unlockedTier;
         const tplLocked       = tplLockedActual && !_debugUnlockAll;
+        const isPreview       = node.tier === nextTier && !_debugUnlockAll; // grey silhouette
+        const isBlackout      = node.tier > nextTier  && !_debugUnlockAll; // completely hidden
         const colors          = HEX_TIER_COLORS[node.tier];
         const { x: cx, y: cy } = centres[idx];
 
         // ── Hex background ──────────────────────────────────────────────────
         const hexBg = document.createElementNS(svgNS, 'path');
         hexBg.setAttribute('d', hexPath(cx, cy, HEX_R - 1));
-        hexBg.setAttribute('fill',   tplLocked ? '#111' : colors.bg);
-        hexBg.setAttribute('stroke', tplLocked ? '#2a2a2a' : colors.border);
+        if (isBlackout) {
+            hexBg.setAttribute('fill',   '#0a0a0a');
+            hexBg.setAttribute('stroke', '#111');
+        } else if (isPreview) {
+            hexBg.setAttribute('fill',   '#1c1c1c');
+            hexBg.setAttribute('stroke', '#383838');
+        } else {
+            hexBg.setAttribute('fill',   colors.bg);
+            hexBg.setAttribute('stroke', colors.border);
+        }
         hexBg.setAttribute('stroke-width', '2.5');
         svg.appendChild(hexBg);
 
-        if (!tplLocked) {
-            // ── Minimap clipped to hex ──────────────────────────────────────
-            const clipId   = `hclip-${node.id}`;
-            const clip     = document.createElementNS(svgNS, 'clipPath');
+        if (isBlackout) {
+            // Completely dark — no label, no icon, no interaction
+            return;
+        }
+
+        if (isPreview) {
+            // Grey silhouette: dimmed minimap + dark overlay + muted name only
+            const clipId = `hclip-${node.id}`;
+            const clip   = document.createElementNS(svgNS, 'clipPath');
             clip.setAttribute('id', clipId);
             const cp = document.createElementNS(svgNS, 'path');
             cp.setAttribute('d', hexPath(cx, cy, HEX_R - 4));
             clip.appendChild(cp);
             defs.appendChild(clip);
 
-            // Minimap fills the inner hex
             const mmSize   = Math.floor(HEX_R * 1.55);
             const mmSvgStr = getTemplateMinimap(tpl.id, mmSize, mmSize);
             const fo = document.createElementNS(svgNS, 'foreignObject');
@@ -563,28 +759,80 @@ function _renderHexWorldMap(container) {
             fo.setAttribute('height', mmSize);
             fo.setAttribute('clip-path', `url(#${clipId})`);
             fo.setAttribute('pointer-events', 'none');
-            fo.innerHTML = mmSvgStr;
+            // Desaturate via CSS filter on the inner div
+            fo.innerHTML = `<div xmlns="http://www.w3.org/1999/xhtml" style="filter:grayscale(1) brightness(0.35);">${mmSvgStr}</div>`;
             svg.appendChild(fo);
 
-            // Semi-transparent overlay so label is readable
-            const ov = document.createElementNS(svgNS, 'path');
-            ov.setAttribute('d',    hexPath(cx, cy, HEX_R - 4));
-            ov.setAttribute('fill', 'rgba(0,0,0,0.30)');
-            ov.setAttribute('pointer-events', 'none');
-            svg.appendChild(ov);
-        } else {
-            // Lock icon centred
+            // Heavy dark veil
+            const veil = document.createElementNS(svgNS, 'path');
+            veil.setAttribute('d',    hexPath(cx, cy, HEX_R - 4));
+            veil.setAttribute('fill', 'rgba(0,0,0,0.55)');
+            veil.setAttribute('pointer-events', 'none');
+            svg.appendChild(veil);
+
+            // Muted name label
+            const lbl = document.createElementNS(svgNS, 'text');
+            lbl.setAttribute('x', cx);
+            lbl.setAttribute('y', (cy + HEX_H * 0.28).toFixed(1));
+            lbl.setAttribute('text-anchor', 'middle');
+            lbl.setAttribute('font-size', tpl.name.length > 10 ? '9' : '10');
+            lbl.setAttribute('font-weight', 'bold');
+            lbl.setAttribute('font-family', 'Segoe UI, sans-serif');
+            lbl.setAttribute('fill', '#555');
+            lbl.setAttribute('pointer-events', 'none');
+            lbl.textContent = tpl.name;
+            svg.appendChild(lbl);
+
+            // Lock icon
             const lock = document.createElementNS(svgNS, 'text');
             lock.setAttribute('x', cx);
-            lock.setAttribute('y', (cy + 10).toFixed(1));
+            lock.setAttribute('y', (cy - HEX_H * 0.05).toFixed(1));
             lock.setAttribute('text-anchor', 'middle');
-            lock.setAttribute('font-size', '30');
+            lock.setAttribute('font-size', '22');
             lock.setAttribute('pointer-events', 'none');
+            lock.setAttribute('opacity', '0.5');
             lock.textContent = '🔒';
             svg.appendChild(lock);
+
+            // Clickable — opens detail with locked message
+            const hitArea = document.createElementNS(svgNS, 'path');
+            hitArea.setAttribute('d', hexPath(cx, cy, HEX_R - 1));
+            hitArea.setAttribute('fill', 'transparent');
+            hitArea.setAttribute('stroke', 'none');
+            hitArea.style.cursor = 'pointer';
+            hitArea.addEventListener('click', () => _showHexDetail(tpl, node, colors, true));
+            svg.appendChild(hitArea);
+            return;
         }
 
-        // ── Name label — centred, inside lower third ────────────────────────
+        // ── Fully unlocked hex ──────────────────────────────────────────────
+        const clipId = `hclip-${node.id}`;
+        const clip   = document.createElementNS(svgNS, 'clipPath');
+        clip.setAttribute('id', clipId);
+        const cp = document.createElementNS(svgNS, 'path');
+        cp.setAttribute('d', hexPath(cx, cy, HEX_R - 4));
+        clip.appendChild(cp);
+        defs.appendChild(clip);
+
+        const mmSize   = Math.floor(HEX_R * 1.55);
+        const mmSvgStr = getTemplateMinimap(tpl.id, mmSize, mmSize);
+        const fo = document.createElementNS(svgNS, 'foreignObject');
+        fo.setAttribute('x', (cx - mmSize / 2).toFixed(1));
+        fo.setAttribute('y', (cy - mmSize / 2).toFixed(1));
+        fo.setAttribute('width',  mmSize);
+        fo.setAttribute('height', mmSize);
+        fo.setAttribute('clip-path', `url(#${clipId})`);
+        fo.setAttribute('pointer-events', 'none');
+        fo.innerHTML = mmSvgStr;
+        svg.appendChild(fo);
+
+        const ov = document.createElementNS(svgNS, 'path');
+        ov.setAttribute('d',    hexPath(cx, cy, HEX_R - 4));
+        ov.setAttribute('fill', 'rgba(0,0,0,0.30)');
+        ov.setAttribute('pointer-events', 'none');
+        svg.appendChild(ov);
+
+        // Name label
         const label = document.createElementNS(svgNS, 'text');
         label.setAttribute('x', cx);
         label.setAttribute('y', (cy + HEX_H * 0.28).toFixed(1));
@@ -592,52 +840,65 @@ function _renderHexWorldMap(container) {
         label.setAttribute('font-size', tpl.name.length > 10 ? '9' : '10');
         label.setAttribute('font-weight', 'bold');
         label.setAttribute('font-family', 'Segoe UI, sans-serif');
-        label.setAttribute('fill',   tplLocked ? '#444' : '#ecf0f1');
-        label.setAttribute('pointer-events', 'none');
-        // Drop shadow via paint-order so text is readable over the minimap
+        label.setAttribute('fill', '#ecf0f1');
         label.setAttribute('stroke', 'rgba(0,0,0,0.8)');
         label.setAttribute('stroke-width', '2.5');
         label.setAttribute('paint-order', 'stroke');
+        label.setAttribute('pointer-events', 'none');
         label.textContent = tpl.name;
         svg.appendChild(label);
 
-        // ── Best-cleared badge ──────────────────────────────────────────────
-        if (!tplLocked) {
-            let bestD = 0;
-            for (let d = 18; d >= 1; d--) {
-                if (isStageCleared(_meta, tpl.id, d)) { bestD = d; break; }
-            }
-            if (bestD > 0) {
-                const badge = document.createElementNS(svgNS, 'text');
-                badge.setAttribute('x', (cx + HEX_R * 0.62).toFixed(1));
-                badge.setAttribute('y', (cy - HEX_H * 0.3).toFixed(1));
-                badge.setAttribute('text-anchor', 'middle');
-                badge.setAttribute('font-size', '10');
-                badge.setAttribute('font-weight', 'bold');
-                badge.setAttribute('fill', '#f1c40f');
-                badge.setAttribute('stroke', 'rgba(0,0,0,0.8)');
-                badge.setAttribute('stroke-width', '2');
-                badge.setAttribute('paint-order', 'stroke');
-                badge.setAttribute('pointer-events', 'none');
-                badge.textContent = `★D${bestD}`;
-                svg.appendChild(badge);
-            }
+        // ── Best-cleared badge — pill shape so it\'s always readable ─────────
+        let bestD = 0;
+        for (let d = 18; d >= 1; d--) {
+            if (isStageCleared(_meta, tpl.id, d)) { bestD = d; break; }
+        }
+        if (bestD > 0) {
+            const bx = cx + HEX_R * 0.55;
+            const by = cy - HEX_H * 0.33;
+            const pillW = 28, pillH = 16, pillR = 7;
+
+            // Pill background
+            const pill = document.createElementNS(svgNS, 'rect');
+            pill.setAttribute('x', (bx - pillW / 2).toFixed(1));
+            pill.setAttribute('y', (by - pillH / 2).toFixed(1));
+            pill.setAttribute('width',  pillW);
+            pill.setAttribute('height', pillH);
+            pill.setAttribute('rx', pillR);
+            pill.setAttribute('ry', pillR);
+            pill.setAttribute('fill', '#b8860b');
+            pill.setAttribute('stroke', '#f1c40f');
+            pill.setAttribute('stroke-width', '1.5');
+            pill.setAttribute('pointer-events', 'none');
+            svg.appendChild(pill);
+
+            // Star + difficulty text inside pill
+            const badge = document.createElementNS(svgNS, 'text');
+            badge.setAttribute('x', bx.toFixed(1));
+            badge.setAttribute('y', (by + 4.5).toFixed(1));
+            badge.setAttribute('text-anchor', 'middle');
+            badge.setAttribute('font-size', '10');
+            badge.setAttribute('font-weight', 'bold');
+            badge.setAttribute('font-family', 'Segoe UI, sans-serif');
+            badge.setAttribute('fill', '#fff7aa');
+            badge.setAttribute('pointer-events', 'none');
+            badge.textContent = `★D${bestD}`;
+            svg.appendChild(badge);
         }
 
-        // ── Transparent click target on top (catches all events reliably) ───
+        // Hit area
         const hitArea = document.createElementNS(svgNS, 'path');
         hitArea.setAttribute('d',    hexPath(cx, cy, HEX_R - 1));
         hitArea.setAttribute('fill', 'transparent');
         hitArea.setAttribute('stroke', 'none');
-        hitArea.style.cursor = tplLocked ? 'default' : 'pointer';
-        if (!tplLocked) {
-            hitArea.addEventListener('click', () => _showHexDetail(tpl, node, colors, tplLockedActual));
-        }
+        hitArea.style.cursor = 'pointer';
+        hitArea.addEventListener('click', () => _showHexDetail(tpl, node, colors, false));
         svg.appendChild(hitArea);
     });
 
     container.appendChild(svg);
 }
+
 
 function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
     // Full-screen overlay replacing the camp layer content

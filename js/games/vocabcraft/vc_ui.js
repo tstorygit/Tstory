@@ -41,6 +41,7 @@ export class VcUI {
             this.initGrid();
             this.initWaves();
             this.initZoom();
+            this.initDragSwap();
 
             this.entitiesEl = document.createElement('div');
             this.entitiesEl.className = 'vc-entities';
@@ -387,10 +388,106 @@ export class VcUI {
         this.activateNextWaveIcon(0);
     }
 
-    activateNextWaveIcon(idx) {
-        if (idx < this.waveIconsContainer.children.length)
-            this.waveIconsContainer.children[idx].classList.add('active');
+    initDragSwap() {
+        this._dragGhost = document.createElement('div');
+        this._dragGhost.id = 'vc-drag-ghost';
+        this._dragGhost.style.cssText = [
+            'position:fixed','pointer-events:none','z-index:9999',
+            'display:none','align-items:center','justify-content:center',
+            'width:36px','height:36px','border-radius:50%',
+            'border:2px solid rgba(255,255,255,0.8)',
+            'box-shadow:0 0 12px rgba(0,0,0,0.6)',
+            'font-size:14px','font-weight:bold','color:#fff',
+            'transform:translate(-50%,-50%)'
+        ].join(';');
+        document.body.appendChild(this._dragGhost);
+        this._dragSource = null;
+
+        const moveGhost = (cx, cy) => {
+            this._dragGhost.style.left = cx + 'px';
+            this._dragGhost.style.top  = cy + 'px';
+        };
+
+        const getTileAt = (cx, cy) => {
+            const rect = this.gridEl.getBoundingClientRect();
+            const zoom = this._zoom || 1;
+            const lx = (cx - rect.left) / zoom;
+            const ly = (cy - rect.top)  / zoom;
+            const c = Math.floor(lx / this.tileSize);
+            const r = Math.floor(ly / this.tileSize);
+            if (r >= 0 && c >= 0 && r < this.engine.map.rows && c < this.engine.map.cols)
+                return { r, c, idx: r * this.engine.map.cols + c };
+            return null;
+        };
+
+        const clearHighlight = () => this.tiles.forEach(t => t.classList.remove('vc-drag-over'));
+
+        this.gridEl.addEventListener('pointerdown', (e) => {
+            const structEl = e.target.closest('.vc-structure');
+            if (!structEl) return;
+            const x = parseFloat(structEl.style.left) + this.tileSize / 2;
+            const y = parseFloat(structEl.style.top)  + this.tileSize / 2;
+            const st = this.engine.structures.find(s => s.x === x && s.y === y);
+            if (!st?.gem) return;
+            e.preventDefault();
+            this._dragSource = { structRef: st };
+            this._dragGhost.style.background = GEMS[st.gem.color]?.color || '#888';
+            this._dragGhost.textContent = st.gem.level;
+            this._dragGhost.style.display = 'flex';
+            moveGhost(e.clientX, e.clientY);
+            this.gridEl.setPointerCapture(e.pointerId);
+        });
+
+        this.gridEl.addEventListener('pointermove', (e) => {
+            if (!this._dragSource) return;
+            e.preventDefault();
+            moveGhost(e.clientX, e.clientY);
+            clearHighlight();
+            const tile = getTileAt(e.clientX, e.clientY);
+            if (tile && this.tiles[tile.idx]) this.tiles[tile.idx].classList.add('vc-drag-over');
+        });
+
+        this.gridEl.addEventListener('pointerup', (e) => {
+            if (!this._dragSource) return;
+            clearHighlight();
+            this._dragGhost.style.display = 'none';
+            const tile = getTileAt(e.clientX, e.clientY);
+            if (tile) {
+                const tx = tile.c * this.tileSize + this.tileSize / 2;
+                const ty = tile.r * this.tileSize + this.tileSize / 2;
+                const target = this.engine.structures.find(s => s.x === tx && s.y === ty);
+                const src = this._dragSource.structRef;
+                if (target && target !== src) {
+                    const tmp = target.gem;
+                    target.gem = src.gem;
+                    src.gem = tmp;
+                    if (this.selectedTile?.structRef === src || this.selectedTile?.structRef === target)
+                        this.renderBottomBar();
+                }
+            }
+            this._dragSource = null;
+            this.gridEl.releasePointerCapture(e.pointerId);
+        });
+
+        this.gridEl.addEventListener('pointercancel', () => {
+            this._dragSource = null;
+            this._dragGhost.style.display = 'none';
+            clearHighlight();
+        });
     }
+
+    activateNextWaveIcon(idx) {
+        if (idx < this.waveIconsContainer.children.length) {
+            const icon = this.waveIconsContainer.children[idx];
+            icon.classList.add('active');
+            // Scroll so the newly active icon is visible (handles row overflow)
+            icon.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        }
+    }
+
+    // Persist last gem picker selections across vocab failures and successful builds
+    _lastPickedColor = 'red';
+    _lastPickedLevel = 1;
 
     selectTile(r, c, type) {
         this.tiles.forEach(el => el.classList.remove('selected'));
@@ -409,7 +506,9 @@ export class VcUI {
         this.bottomBar.innerHTML = '';
         this._gemPickerRefresh = null;
         if (this.topBar?.mana) {
-            this.topBar.mana.textContent = Math.floor(this.engine.state.mana);
+            const m = Math.floor(this.engine.state.mana);
+            const abbr = m >= 1e9 ? (m/1e9).toFixed(1)+'B' : m >= 1e6 ? (m/1e6).toFixed(1)+'M' : m >= 1e4 ? (m/1e3).toFixed(0)+'K' : m >= 1e3 ? (m/1e3).toFixed(1)+'K' : String(m);
+            this.topBar.mana.textContent = abbr;
         }
         const st = this.selectedTile;
         if (!st) {
@@ -446,8 +545,9 @@ export class VcUI {
 
     _renderGemPicker(st) {
         const skills = this.engine.meta.skills;
-        let selectedColor = 'red';
-        let selectedLevel = 1;
+        // Restore last selection so vocab failures and successful builds keep state
+        let selectedColor = this._lastPickedColor || 'red';
+        let selectedLevel = this._lastPickedLevel || 1;
 
         const wrapper = document.createElement('div');
         wrapper.style.cssText = 'width:100%; display:flex; flex-direction:column; gap:6px; align-items:center;';
@@ -457,13 +557,33 @@ export class VcUI {
 
         const gemColors = Object.entries(GEMS);
 
+        // Compute sliding 7-level window anchored to highest affordable level
+        const _computeSliderWindow = () => {
+            const mana = this.engine.state.mana;
+            let maxAffordable = 1;
+            for (let lv = 1; lv <= 30; lv++) {
+                if (gemTotalCostColor(selectedColor, lv, skills) <= mana) maxAffordable = lv;
+                else break;
+            }
+            const winMax = Math.max(7, maxAffordable);
+            const winMin = Math.max(1, winMax - 6);
+            return { winMin, winMax: winMin + 6 };
+        };
+
         const updatePriceLabel = () => {
             const cost = gemTotalCostColor(selectedColor, selectedLevel, skills);
-            const canAfford = this.engine.state.mana >= cost; 
+            const canAfford = this.engine.state.mana >= cost;
             priceLabel.textContent = `${GEMS[selectedColor].label} Lv.${selectedLevel} — ${cost} 💧`;
             priceLabel.style.color = canAfford ? '#2ecc71' : '#e74c3c';
             confirmBtn.disabled = !canAfford;
             confirmBtn.dataset.manaCost = cost;
+            // Update slider window each time mana or color changes
+            const { winMin, winMax } = _computeSliderWindow();
+            slider.min = winMin;
+            slider.max = winMax;
+            if (selectedLevel < winMin) { selectedLevel = winMin; slider.value = winMin; }
+            if (selectedLevel > winMax) { selectedLevel = winMax; slider.value = winMax; }
+            sliderLabel.textContent = `Lv ${winMin}–${winMax}`;
         };
 
         this._gemPickerRefresh = updatePriceLabel;
@@ -477,6 +597,7 @@ export class VcUI {
                     : 'none';
                 d.style.opacity = isSelected ? '1' : '0.65';
             });
+            this._lastPickedColor = selectedColor;
             updatePriceLabel();
         };
 
@@ -504,13 +625,17 @@ export class VcUI {
         const sliderRow = document.createElement('div');
         sliderRow.style.cssText = 'display:flex; align-items:center; gap:8px; width:90%;';
         const sliderLabel = document.createElement('span');
-        sliderLabel.style.cssText = 'font-size:11px; color:#bdc3c7; white-space:nowrap;';
+        sliderLabel.style.cssText = 'font-size:11px; color:#bdc3c7; white-space:nowrap; min-width:56px;';
         sliderLabel.textContent = 'Lv';
         const slider = document.createElement('input');
         slider.type = 'range';
-        slider.min = 1; slider.max = 6; slider.value = 1;
+        slider.min = 1; slider.max = 7; slider.value = selectedLevel;
         slider.style.cssText = 'flex:1; accent-color:#f1c40f; cursor:pointer;';
-        slider.oninput = () => { selectedLevel = +slider.value; updatePriceLabel(); };
+        slider.oninput = () => {
+            selectedLevel = +slider.value;
+            this._lastPickedLevel = selectedLevel;
+            updatePriceLabel();
+        };
         sliderRow.append(sliderLabel, slider);
 
         const priceLabel = document.createElement('div');
@@ -523,6 +648,8 @@ export class VcUI {
         confirmBtn.onclick = (e) => {
             e.stopPropagation();
             const cost = gemTotalCostColor(selectedColor, selectedLevel, skills);
+            this._lastPickedColor = selectedColor;
+            this._lastPickedLevel = selectedLevel;
             this.handleVocabAction(cost, () => {
                 st.structRef.gem = { color: selectedColor, level: selectedLevel };
                 this.selectTile(st.r, st.c, st.type);
@@ -581,15 +708,15 @@ export class VcUI {
         specialStatHtml += `<div class="vc-stat-panel-row"><span>🎯 Total Dmg</span><span id="vc-live-totalDmg">${Math.floor(sts.totalDmg)}</span></div>`;
 
         if (gemDef.type === 'mana') {
-            specialStatHtml += `<div class="vc-stat-panel-row"><span>💧 Leeched</span><span id="vc-live-manaLeeched">${Math.floor(sts.manaLeeched)}</span></div>`;
+            specialStatHtml += `<div class="vc-stat-panel-row"><span>💧 Mana leeched</span><span id="vc-live-manaLeeched">${Math.floor(sts.manaLeeched)}</span></div>`;
         } else if (gemDef.type === 'slow') {
-            specialStatHtml += `<div class="vc-stat-panel-row"><span>❄️ Slows</span><span id="vc-live-slowApplied">${sts.slowApplied}</span></div>`;
+            specialStatHtml += `<div class="vc-stat-panel-row"><span>❄️ Enemies slowed</span><span id="vc-live-slowApplied">${sts.slowApplied}</span></div>`;
         } else if (gemDef.type === 'poison') {
-            specialStatHtml += `<div class="vc-stat-panel-row"><span>☠️ Poison</span><span id="vc-live-poisonDealt">${Math.floor(sts.poisonDealt)}</span></div>`;
+            specialStatHtml += `<div class="vc-stat-panel-row"><span>☠️ Poison dmg dealt</span><span id="vc-live-poisonDealt">${Math.floor(sts.poisonDealt)}</span></div>`;
         } else if (gemDef.type === 'armor') {
-            specialStatHtml += `<div class="vc-stat-panel-row"><span>🛡️ Torn</span><span id="vc-live-armorTorn">${sts.armorTorn.toFixed(1)}</span></div>`;
+            specialStatHtml += `<div class="vc-stat-panel-row"><span>🛡️ Armor torn off</span><span id="vc-live-armorTorn">${sts.armorTorn.toFixed(1)}</span></div>`;
         } else if (gemDef.type === 'crit') {
-            specialStatHtml += `<div class="vc-stat-panel-row"><span>💥 Crits</span><span id="vc-live-critHits">${sts.critHits}</span></div>`;
+            specialStatHtml += `<div class="vc-stat-panel-row"><span>💥 Critical hits</span><span id="vc-live-critHits">${sts.critHits}</span></div>`;
         }
 
         const nextGem = { color: gem.color, level: lvl + 1 };
@@ -805,12 +932,21 @@ export class VcUI {
     }
 
     draw(engineState, eventMsg) {
+        // Abbreviate large numbers so the topbar never wraps: 1234 → 1.2K, 1234567 → 1.2M
+        const _abbr = (n) => {
+            if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+            if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+            if (n >= 1e4) return (n / 1e3).toFixed(0) + 'K';   // 10K+ → no decimal
+            if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+            return String(n);
+        };
+
         const manaVal  = Math.max(0, Math.floor(engineState.state.mana));
         const poolCap  = engineState.state.poolCap  || manaVal || 1;
         const poolLevel= engineState.state.poolLevel || 1;
         // Bar shows mana vs poolCap — fills up to level-up, meaningful at all times
         const manaPct  = Math.max(0, Math.min(100, (manaVal / poolCap) * 100));
-        this.topBar.mana.textContent = manaVal;
+        this.topBar.mana.textContent = _abbr(manaVal);
         if (this.topBar.manaBar) {
             this.topBar.manaBar.style.width = manaPct + '%';
             // Colour: danger red when low absolute mana, otherwise gold→green as pool fills
@@ -824,7 +960,7 @@ export class VcUI {
             this.topBar.poolLevel.textContent = poolLevel;
         }
         if (this.topBar.poolCap) {
-            this.topBar.poolCap.textContent = poolCap.toLocaleString();
+            this.topBar.poolCap.textContent = _abbr(poolCap);
         }
         // Combo display: "COMBO / 1000 (×2.38)"
         const combo = engineState.state.combo || 0;

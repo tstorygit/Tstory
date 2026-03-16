@@ -79,10 +79,13 @@
     display: flex;
     gap: 4px;
     flex-wrap: wrap;
-    overflow: hidden;
-    max-height: 40px;
+    overflow-y: auto;
+    max-height: 52px;   /* fits exactly 2 rows of 14px icons + gaps */
     flex: 1;
+    scrollbar-width: none;    /* Firefox */
+    -ms-overflow-style: none; /* IE/Edge */
 }
+.vc-wave-icons-container::-webkit-scrollbar { display: none; }
 .vc-wave-icon {
     width: 14px;
     height: 14px;
@@ -591,4 +594,27 @@
 /* ─── Path Preview SVG line animation ─────────────────────────────────────── */
 @keyframes vcPathDraw {
     to { stroke-dashoffset: 0; }
+}
+/* ─── Gem drag-and-swap ───────────────────────────────────────────────────── */
+.vc-tile.vc-drag-over {
+    outline: 2px dashed rgba(241, 196, 15, 0.85);
+    outline-offset: -2px;
+    background-color: rgba(241, 196, 15, 0.12) !important;
+}
+#vc-drag-ghost {
+    touch-action: none;
+    user-select: none;
+    will-change: left, top;
+}
+
+/* ─── How-to overlay scrollbar ───────────────────────────────────────────── */
+#vc-howto-overlay::-webkit-scrollbar { width: 4px; }
+#vc-howto-overlay::-webkit-scrollbar-track { background: transparent; }
+#vc-howto-overlay::-webkit-scrollbar-thumb { background: #34495e; border-radius: 2px; }
+
+/* ─── Info button glow on hover ──────────────────────────────────────────── */
+#vc-btn-howto:hover, #vc-btn-howto:focus {
+    background: #34495e !important;
+    border-color: #f1c40f !important;
+    box-shadow: 0 0 8px rgba(241,196,15,0.4);
 }
