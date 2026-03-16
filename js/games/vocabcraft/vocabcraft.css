@@ -65,16 +65,17 @@
 
 /* Row 2: Wave button + wave dot icons */
 .vc-topbar-row2 {
-    padding: 3px 8px 4px;
+    padding: 0 8px;
     border-bottom: 2px solid #34495e;
     min-height: 0;
 }
 .vc-wave-tracker {
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 6px;
     width: 100%;
     min-width: 0;
+    padding: 4px 0;
 }
 .vc-wave-icons-container {
     display: flex;
@@ -101,14 +102,22 @@
 .vc-wave-icon.enraged { background: #e74c3c; border-color: #f1c40f; }
 .vc-wave-icon.done    { background: #27ae60; opacity: 0.5; }
 
-/* Wave start button — compact */
-#vc-btn-start-wave {
-    padding: 4px 10px !important;
-    font-size: 12px !important;
-    min-width: auto !important;
+/* Wave start button — tall play button, spans full row height */
+.vc-wave-start-btn {
+    width: 44px;
+    height: 52px;
+    padding: 0 !important;
+    font-size: 20px !important;
+    min-width: 0 !important;
     flex-shrink: 0;
-    background: #2ecc71 !important;
-    border-color: #27ae60 !important;
+    background: #27ae60 !important;
+    border-color: #1e8449 !important;
+    border-radius: 8px !important;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4);
 }
 
 

@@ -278,7 +278,7 @@ export class VcUI {
 
             if (zoomBtn) {
                 const pct = Math.round(this._zoom * 100);
-                zoomBtn.textContent = `🔍${pct}%`;
+                zoomBtn.title = `Zoom ${pct}%`;
             }
         };
 
@@ -355,7 +355,7 @@ export class VcUI {
 
     initWaves() {
         this.topBar.waves.innerHTML = `
-            <button id="vc-btn-start-wave" class="vc-btn">▶ Wave</button>
+            <button id="vc-btn-start-wave" class="vc-icon-btn vc-wave-start-btn" title="Start next wave">▶</button>
             <div id="vc-wave-icons" class="vc-wave-icons-container"></div>
         `;
 
@@ -507,7 +507,7 @@ export class VcUI {
         this._gemPickerRefresh = null;
         if (this.topBar?.mana) {
             const m = Math.floor(this.engine.state.mana);
-            const abbr = m >= 1e9 ? (m/1e9).toFixed(1)+'B' : m >= 1e6 ? (m/1e6).toFixed(1)+'M' : m >= 999500 ? '1.0M' : m >= 1e5 ? (m/1e3).toFixed(0)+'K' : m >= 1e3 ? (m/1e3).toFixed(1)+'K' : String(m);
+            const abbr = m >= 1e9 ? (m/1e9).toFixed(1)+'B' : m >= 1e6 ? (m/1e6).toFixed(1)+'M' : m >= 1e4 ? (m/1e3).toFixed(0)+'K' : m >= 1e3 ? (m/1e3).toFixed(1)+'K' : String(m);
             this.topBar.mana.textContent = abbr;
         }
         const st = this.selectedTile;
@@ -689,7 +689,7 @@ export class VcUI {
                 stats.push({ icon: '💥', label: 'Crit', val: `${(gemCritChance(gem)*100).toFixed(0)}% ×${gemCritMult(gem).toFixed(1)}` });
                 break;
             case 'slow':
-                stats.push({ icon: '❄️', label: 'Slow spd –', val: `${Math.min(70, gemSlowAmount(gem, gemDef) * trapSpecMult * 100).toFixed(0)}%` });
+                stats.push({ icon: '❄️', label: 'Slow', val: `${Math.min(70, gemSlowAmount(gem, gemDef) * trapSpecMult * 100).toFixed(0)}%` });
                 break;
             case 'poison':
                 stats.push({ icon: '☠️', label: 'Poison', val: `${(gemPoisonDps(gem, gemDef) * trapSpecMult).toFixed(1)}/s` });
@@ -710,7 +710,7 @@ export class VcUI {
         if (gemDef.type === 'mana') {
             specialStatHtml += `<div class="vc-stat-panel-row"><span>💧 Mana leeched</span><span id="vc-live-manaLeeched">${Math.floor(sts.manaLeeched)}</span></div>`;
         } else if (gemDef.type === 'slow') {
-            specialStatHtml += `<div class="vc-stat-panel-row"><span>❄️ Slow hits</span><span id="vc-live-slowApplied">${sts.slowApplied}</span></div>`;
+            specialStatHtml += `<div class="vc-stat-panel-row"><span>❄️ Enemies slowed</span><span id="vc-live-slowApplied">${sts.slowApplied}</span></div>`;
         } else if (gemDef.type === 'poison') {
             specialStatHtml += `<div class="vc-stat-panel-row"><span>☠️ Poison dmg dealt</span><span id="vc-live-poisonDealt">${Math.floor(sts.poisonDealt)}</span></div>`;
         } else if (gemDef.type === 'armor') {
@@ -934,11 +934,10 @@ export class VcUI {
     draw(engineState, eventMsg) {
         // Abbreviate large numbers so the topbar never wraps: 1234 → 1.2K, 1234567 → 1.2M
         const _abbr = (n) => {
-            if (n >= 1e9)  return (n / 1e9).toFixed(1) + 'B';
-            if (n >= 1e6)  return (n / 1e6).toFixed(1) + 'M';
-            if (n >= 999500) return '1.0M';                       // round-up edge case
-            if (n >= 1e5)  return (n / 1e3).toFixed(0) + 'K';   // 100K–999K → no decimal
-            if (n >= 1e3)  return (n / 1e3).toFixed(1) + 'K';   // 1K–99K → one decimal
+            if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+            if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+            if (n >= 1e4) return (n / 1e3).toFixed(0) + 'K';   // 10K+ → no decimal
+            if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
             return String(n);
         };
 
