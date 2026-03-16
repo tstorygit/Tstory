@@ -333,6 +333,7 @@ export class VcEngine {
         this._nextSpawnDelay = maxDelay + 1.5;
         // Track total enemies spawned this wave for early-call bonus calculation
         this.state._waveEnemyCount = entries.length;
+    }
 
     updateSpawns(dt) {
         if (this.spawnQueue.length === 0) {
