@@ -96,23 +96,12 @@ export class VcUI {
     initGrid() {
         const { cols, rows, grid } = this.engine.map;
 
+        const TOPBAR_H  = 70;
         const SIDEBAR_W = 240;
         const TILE_MAX  = 52;
 
         const vw = window.innerWidth;
         const vh = window.innerHeight;
-
-        // Measure actual topbar height from the DOM — both rows combined.
-        // Hardcoding 70px breaks on wide screens where the topbar wraps to
-        // extra lines, causing availH to be over-estimated and the map / enemies
-        // to render partially off-screen.
-        const row1 = this.container.querySelector('.vc-topbar-row1');
-        const row2 = this.container.querySelector('.vc-topbar-row2');
-        const TOPBAR_H = Math.max(
-            70,
-            (row1 ? row1.getBoundingClientRect().height : 0) +
-            (row2 ? row2.getBoundingClientRect().height : 0)
-        );
 
         // Skip if nothing changed
         if (this._lastVw === vw && this._lastVh === vh && this.tileSize > 0) return;
@@ -785,11 +774,30 @@ export class VcUI {
         const trapSpecMult = isTrap ? 2.5 + ((this.engine.meta.skills.trapSpecialty || 0) * 0.1) : 1;
         const trapFireMult = isTrap ? 3.0 + ((this.engine.meta.skills.trapSpecialty || 0) * 0.02) : 1;
 
-        const poolLevelDisp = this.engine.state.poolLevel > 1 ? ` ×${poolMult.toFixed(2)}🌊` : '';
-        const stats =[
+        // Show the clean final damage number. When pool or combo are active,
+        // append a small ℹ️ whose title attribute explains the breakdown —
+        // no raw "×1.05" math visible in the main stat row.
+        const baseDmgVal  = Math.max(1, Math.floor(gemDamage(gem, gemDef, this.engine.meta.skills) * trapDmgMult));
+        const finalDmgVal = Math.max(1, Math.floor(dmg * trapDmgMult));
+        const isBoosted   = poolMult > 1.001 || comboMult > 1.001;
+        let dmgTooltip = '';
+        if (isBoosted) {
+            const parts = [`${baseDmgVal} base`];
+            if (poolMult  > 1.001) parts.push(`×${poolMult.toFixed(2)} pool (P${this.engine.state.poolLevel})`);
+            if (comboMult > 1.001) parts.push(`×${comboMult.toFixed(2)} combo`);
+            dmgTooltip = parts.join(' ');
+        }
+        const trapSuffix = isTrap ? ' <span style="opacity:0.6;font-size:10px;">(Trap)</span>' : '';
+        const dmgDisplay = isBoosted
+            ? `<span style="color:#2ecc71;font-weight:bold;">${finalDmgVal}</span>` +
+              `<span title="${dmgTooltip}" style="cursor:help;margin-left:3px;font-size:10px;opacity:0.65;">ℹ️</span>` +
+              trapSuffix
+            : finalDmgVal + trapSuffix;
+
+        const stats = [
             { icon: '🏹', label: 'Range',  val: range + 'px' },
             { icon: '⚡', label: 'Fire',   val: (speed * trapFireMult).toFixed(2) + '/s' },
-            { icon: '⚔️', label: 'Damage', val: Math.max(1, Math.floor(dmg * trapDmgMult)) + poolLevelDisp + (isTrap ? ' (Trap)' : '') },
+            { icon: '⚔️', label: 'Damage', val: dmgDisplay, isHtml: true },
         ];
 
         switch (gemDef.type) {
