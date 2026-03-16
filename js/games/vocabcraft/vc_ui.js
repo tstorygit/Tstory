@@ -102,11 +102,10 @@ export class VcUI {
         const vw = window.innerWidth;
         const vh = window.innerHeight;
 
-        // Measure the actual topbar height from both rows rather than
-        // hardcoding 70px. On wide screens (2440px+) the topbar rows can
-        // wrap, making the real height significantly larger. If we use a
-        // fixed constant the available height is over-estimated, which
-        // causes the grid and all enemy positions to fall off-screen.
+        // Measure actual topbar height from the DOM — both rows combined.
+        // Hardcoding 70px breaks on wide screens where the topbar wraps to
+        // extra lines, causing availH to be over-estimated and the map / enemies
+        // to render partially off-screen.
         const row1 = this.container.querySelector('.vc-topbar-row1');
         const row2 = this.container.querySelector('.vc-topbar-row2');
         const TOPBAR_H = Math.max(
@@ -795,7 +794,7 @@ export class VcUI {
 
         switch (gemDef.type) {
             case 'crit':
-                stats.push({ icon: '💥', label: 'Crit', val: `${(gemCritChance(gem)*100).toFixed(0)}% ×${gemCritMult(gem).toFixed(1)}` });
+                stats.push({ icon: '💥', label: `Crit (×${gemCritMult(gem).toFixed(1)})`, val: `${(gemCritChance(gem)*100).toFixed(0)}%` });
                 break;
             case 'slow':
                 stats.push({ icon: '❄️', label: 'Slow', val: `${Math.min(70, gemSlowAmount(gem, gemDef) * trapSpecMult * 100).toFixed(0)}%` });
