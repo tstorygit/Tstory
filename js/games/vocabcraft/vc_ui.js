@@ -473,6 +473,10 @@ export class VcUI {
 
         // Single global pointermove: upgrades pending→active on threshold, moves ghost
         document.addEventListener('pointermove', (e) => {
+            // Prevent scroll as soon as a drag candidate exists — critical on mobile.
+            // Without this the browser fires pointercancel before threshold is reached.
+            if (this._dragPending || this._dragSource) e.preventDefault();
+
             if (this._dragPending && !this._dragSource) {
                 const dist = Math.hypot(e.clientX - this._dragPending.startX, e.clientY - this._dragPending.startY);
                 if (dist >= 4) {
@@ -485,7 +489,6 @@ export class VcUI {
                 }
             }
             if (!this._dragSource) return;
-            e.preventDefault();
             this._dragGhost.style.left = e.clientX + 'px';
             this._dragGhost.style.top  = e.clientY + 'px';
             this.tiles.forEach(t => t.classList.remove('vc-drag-over'));
@@ -1297,6 +1300,7 @@ export class VcUI {
                 div.style.width  = `${ts}px`;
                 div.style.height = `${ts}px`;
                 div.style.pointerEvents = 'auto'; // override parent's pointer-events:none
+                div.style.touchAction   = 'none'; // prevent browser scroll stealing pointer on mobile
                 div.style.cursor = 'grab';
                 el.appendChild(div);
                 // Attach drag listener once.
