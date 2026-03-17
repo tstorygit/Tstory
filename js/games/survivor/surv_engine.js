@@ -78,23 +78,50 @@ export function startRun(characterId, metaUpgrades) {
         level: 1, xp: 0, xpToNext: 10,
         hp: 100, maxHp: 100,
         stats: {
-            moveSpeed:     150,
-            moveSpeedMult: charDef.stats.moveSpeedMult || 0,
-            damageMult:    0,
-            cooldownMult:  0,
-            magnetRadius:  60,
-            magnetMult:    0,
-            armor:         charDef.stats.armor || 0,
-            hpMult:        0,
-            soulMult:      charDef.stats.soulMult || 0
+            moveSpeed:          150,
+            moveSpeedMult:      charDef.stats.moveSpeedMult || 0,
+            damageMult:         charDef.stats.damageMult    || 0,
+            cooldownMult:       charDef.stats.cooldownMult  || 0,
+            magnetRadius:       60,
+            magnetMult:         0,
+            armor:              charDef.stats.armor || 0,
+            hpMult:             charDef.stats.hpMult || 0,
+            soulMult:           charDef.stats.soulMult || 0,
+            // New shrine stats
+            regenRate:          0,   // % of maxHp restored per second
+            xpMult:             0,   // bonus XP multiplier
+            invincibilityBonus: 0,   // extra seconds of i-frames after hit
         },
+        secondWind:      false,  // once-per-run survive-at-1hp flag
+        secondWindUsed:  false,
         invincibility: 0
     };
 
-    player.stats.hpMult        += (metaUpgrades.vitality  || 0) * 0.05;
-    player.stats.moveSpeedMult += (metaUpgrades.swiftness  || 0) * 0.02;
-    player.stats.soulMult      += (metaUpgrades.greed      || 0) * 0.05;
-    player.stats.damageMult    += (metaUpgrades.power      || 0) * 0.05;
+    // Foundation upgrades
+    player.stats.hpMult             += (metaUpgrades.vitality    || 0) * 0.05;
+    player.stats.moveSpeedMult      += (metaUpgrades.swiftness   || 0) * 0.02;
+    player.stats.soulMult           += (metaUpgrades.greed       || 0) * 0.05;
+    player.stats.damageMult         += (metaUpgrades.power       || 0) * 0.05;
+    // Survival upgrades
+    player.stats.armor              += (metaUpgrades.ironWill    || 0) * 3;
+    player.stats.regenRate          += (metaUpgrades.regen       || 0) * 0.0008; // 0.08% maxHp/s per rank
+    // Combat upgrades
+    player.stats.cooldownMult       -= (metaUpgrades.haste       || 0) * 0.03;
+    player.stats.magnetMult         += (metaUpgrades.magnetism   || 0) * 0.20;
+    // Mastery upgrades
+    player.stats.xpMult             += (metaUpgrades.scholar     || 0) * 0.08;
+    player.stats.invincibilityBonus += (metaUpgrades.ghostStep   || 0) * 0.20;
+    // Prestige: Second Wind (survive fatal blow once per run)
+    player.secondWind     = (metaUpgrades.secondWind   || 0) >= 1;
+    player.secondWindUsed = false;
+    // Prestige: Ancestral Power — start at higher level (no quiz, just stats advance)
+    const startBonus = metaUpgrades.ancestralPower || 0;
+    if (startBonus > 0) {
+        player.level = 1 + startBonus;
+        for (let _i = 0; _i < startBonus; _i++) {
+            player.xpToNext = Math.floor(player.xpToNext * 1.2 + 10);
+        }
+    }
 
     recalcStats();
     player.hp = player.maxHp;
@@ -251,6 +278,10 @@ function updatePlayer(dt) {
     player.y += dir.y * speed * dt;
 
     if (player.invincibility > 0) player.invincibility -= dt;
+    // Passive HP regen from shrine upgrade
+    if (player.stats.regenRate > 0 && player.hp < player.maxHp) {
+        player.hp = Math.min(player.maxHp, player.hp + player.maxHp * player.stats.regenRate * dt);
+    }
 
     camera.x = player.x - canvas.width  / 2;
     camera.y = player.y - canvas.height / 2;
@@ -438,7 +469,7 @@ function updateGems(dt) {
         const dist = Math.hypot(dx, dy);
         if (dist < 30) {
             g.active = false;
-            player.xp += g.xp;
+            player.xp += g.xp * (1 + player.stats.xpMult);
         } else if (dist < magRad) {
             g.x += (dx / dist) * 300 * dt;
             g.y += (dy / dist) * 300 * dt;
@@ -499,8 +530,15 @@ function checkCollisions() {
             if (!e.active) continue;
             if (Math.hypot(player.x - e.x, player.y - e.y) < 30) {
                 const dmg = Math.max(1, e.def.damage - player.stats.armor);
-                player.hp -= dmg;
-                player.invincibility = 0.5;
+                // Second Wind: survive fatal blow at 1 HP once per run
+                if (player.secondWind && !player.secondWindUsed && player.hp - dmg <= 0) {
+                    player.hp = 1;
+                    player.secondWindUsed = true;
+                    spawnDmgText(player.x, player.y - 50, 'SECOND WIND!', '#f1c40f');
+                } else {
+                    player.hp -= dmg;
+                }
+                player.invincibility = 0.5 + player.stats.invincibilityBonus;
                 // ── Screenshake on player damage ──
                 shakeIntensity = Math.min(12, shakeIntensity + 7);
                 Audio.playHit();

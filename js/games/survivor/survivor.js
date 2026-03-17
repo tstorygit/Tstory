@@ -121,7 +121,18 @@ function loadMeta() {
     const def = {
         souls: 0,
         unlockedChars: ['ronin'],
-        upgrades: { vitality: 0, swiftness: 0, greed: 0, power: 0 },
+        upgrades: {
+            // Foundation
+            vitality: 0, swiftness: 0, greed: 0, power: 0,
+            // Survival
+            ironWill: 0, regen: 0,
+            // Combat
+            haste: 0, magnetism: 0,
+            // Mastery
+            scholar: 0, ghostStep: 0,
+            // Prestige
+            ancestralPower: 0, secondWind: 0,
+        },
         stats: {
             // Run history
             totalRuns:       0,
@@ -294,46 +305,108 @@ function _renderCharacters(el) {
 
 // ── Shrine tab ────────────────────────────────────────────────────────────────
 
-function _renderShrine(el) {
-    const shrineUpgrades = [
-        { id: 'vitality',  name: 'Vitality',  icon: '❤️', desc: '+5% Base HP per rank'      },
-        { id: 'swiftness', name: 'Swiftness', icon: '💨', desc: '+2% Move Speed per rank'    },
-        { id: 'power',     name: 'Power',     icon: '⚡', desc: '+5% Damage per rank'         },
-        { id: 'greed',     name: 'Greed',     icon: '👻', desc: '+5% Soul gain per rank'      }
-    ];
+// Shrine upgrade definitions — grouped by tier.
+// Each entry: id (matches _meta.upgrades key), name, icon, desc,
+//             max (cap), costPerRank (multiplier), group label.
+const SHRINE_UPGRADES = [
+    {
+        group: 'Foundation', groupIcon: '🏯',
+        groupDesc: 'Core stats that benefit every character equally.',
+        items: [
+            { id: 'vitality',  name: 'Vitality',   icon: '❤️',  max: 10, costMult: 200, desc: '+5% Base HP per rank.' },
+            { id: 'swiftness', name: 'Swiftness',  icon: '💨',  max: 10, costMult: 200, desc: '+2% Move Speed per rank.' },
+            { id: 'power',     name: 'Power',       icon: '⚡',  max: 10, costMult: 200, desc: '+5% Damage per rank.' },
+            { id: 'greed',     name: 'Greed',       icon: '👻',  max: 10, costMult: 200, desc: '+5% Soul gain per rank.' },
+        ]
+    },
+    {
+        group: 'Survival', groupIcon: '🛡️',
+        groupDesc: 'Reduce incoming damage and outlast longer waves.',
+        items: [
+            { id: 'ironWill',  name: 'Iron Will',    icon: '🛡️', max: 10, costMult: 250, desc: '+3 flat Armor per rank. Reduces enemy damage directly.' },
+            { id: 'regen',     name: 'Regeneration', icon: '💚',  max: 10, costMult: 300, desc: '+0.08% Max HP restored per second per rank.' },
+        ]
+    },
+    {
+        group: 'Combat', groupIcon: '⚔️',
+        groupDesc: 'Attack faster and collect loot more efficiently.',
+        items: [
+            { id: 'haste',     name: 'Haste',        icon: '⏱️',  max: 10, costMult: 250, desc: '-3% Weapon Cooldowns per rank. Stacks with in-run cooldown passives.' },
+            { id: 'magnetism', name: 'Magnetism',     icon: '🧲',  max: 10, costMult: 200, desc: '+20% Pickup Radius per rank. XP gems fly to you from further away.' },
+        ]
+    },
+    {
+        group: 'Mastery', groupIcon: '📖',
+        groupDesc: 'Accelerate your in-run growth and punish damage windows.',
+        items: [
+            { id: 'scholar',   name: 'Scholar',      icon: '📖',  max: 10, costMult: 300, desc: '+8% XP from kills per rank. Reach higher levels and more upgrades.' },
+            { id: 'ghostStep', name: 'Ghost Step',    icon: '👣',  max:  5, costMult: 600, desc: '+0.2s Invincibility after being hit per rank (base: 0.5s).' },
+        ]
+    },
+    {
+        group: 'Prestige', groupIcon: '✨',
+        groupDesc: 'Powerful one-time boons. Very expensive — plan carefully.',
+        items: [
+            { id: 'ancestralPower', name: 'Ancestral Power', icon: '🌟', max: 5, costMult: 1500,
+              desc: 'Start each run at level (1 + rank). Rank 5 = begin at level 6 with 5 free upgrades already chosen.' },
+            { id: 'secondWind',     name: 'Second Wind',      icon: '🔱', max: 1, costMult: 5000,
+              desc: 'Once per run, a fatal blow leaves you at 1 HP instead of killing you. "SECOND WIND!" flashes on screen.' },
+        ]
+    },
+];
 
+function _renderShrine(el) {
     const shrineList = el.querySelector('#surv-shrine-list');
-    shrineList.innerHTML = shrineUpgrades.map(u => {
-        const lvl       = _meta.upgrades[u.id] || 0;
-        const max       = 10;
-        const cost      = (lvl + 1) * 200;
-        const canAfford = _meta.souls >= cost && lvl < max;
-        const pips      = Array.from({ length: max }, (_, i) =>
-            `<span class="surv-pip${i < lvl ? ' filled' : ''}"></span>`
-        ).join('');
-        return `
-            <div class="surv-shrine-item">
-                <div class="surv-shrine-info">
-                    <div class="surv-shrine-name">${u.icon} ${u.name}
-                        <span class="surv-shrine-rank">Lv.${lvl}/${max}</span>
+    shrineList.innerHTML = SHRINE_UPGRADES.map(group => {
+        const itemsHtml = group.items.map(u => {
+            const lvl       = _meta.upgrades[u.id] || 0;
+            const cost      = (lvl + 1) * u.costMult;
+            const canAfford = _meta.souls >= cost && lvl < u.max;
+            const pips      = Array.from({ length: u.max }, (_, i) =>
+                `<span class="surv-pip${i < lvl ? ' filled' : ''}"></span>`
+            ).join('');
+            const maxLabel  = u.max === 1 ? 'ONCE' : `${u.max}`;
+            return `
+                <div class="surv-shrine-item">
+                    <div class="surv-shrine-info">
+                        <div class="surv-shrine-name">${u.icon} ${u.name}
+                            <span class="surv-shrine-rank">Lv.${lvl}/${maxLabel}</span>
+                        </div>
+                        <div class="surv-shrine-desc">${u.desc}</div>
+                        <div class="surv-shrine-pips">${pips}</div>
                     </div>
-                    <div class="surv-shrine-desc">${u.desc}</div>
-                    <div class="surv-shrine-pips">${pips}</div>
+                    <button class="surv-shrine-buy${u.costMult >= 1500 ? ' prestige' : ''}"
+                            data-id="${u.id}" data-cost="${cost}" data-max="${u.max}"
+                            ${!canAfford ? 'disabled' : ''}>
+                        ${lvl >= u.max ? 'MAX' : `${cost.toLocaleString()} 👻`}
+                    </button>
                 </div>
-                <button class="surv-shrine-buy" data-id="${u.id}" ${!canAfford ? 'disabled' : ''}>
-                    ${lvl >= max ? 'MAX' : `${cost} 👻`}
-                </button>
+            `;
+        }).join('');
+
+        return `
+            <div class="surv-shrine-group">
+                <div class="surv-shrine-group-header">
+                    <span class="surv-shrine-group-icon">${group.groupIcon}</span>
+                    <div>
+                        <div class="surv-shrine-group-name">${group.group}</div>
+                        <div class="surv-shrine-group-desc">${group.groupDesc}</div>
+                    </div>
+                </div>
+                ${itemsHtml}
             </div>
         `;
     }).join('');
 
     shrineList.querySelectorAll('.surv-shrine-buy').forEach(b => b.onclick = () => {
         const id   = b.dataset.id;
+        const max  = parseInt(b.dataset.max);
         const lvl  = _meta.upgrades[id] || 0;
-        const cost = (lvl + 1) * 200;
-        if (_meta.souls >= cost && lvl < 10) {
-            _meta.souls         -= cost;
-            _meta.upgrades[id]   = lvl + 1;
+        const def  = SHRINE_UPGRADES.flatMap(g => g.items).find(u => u.id === id);
+        const cost = (lvl + 1) * (def?.costMult || 200);
+        if (_meta.souls >= cost && lvl < max) {
+            _meta.souls        -= cost;
+            _meta.upgrades[id]  = lvl + 1;
             saveMeta();
             el.querySelector('#surv-soul-count').textContent = _meta.souls.toLocaleString();
             _renderShrine(el);
@@ -341,6 +414,7 @@ function _renderShrine(el) {
     });
 }
 
+// ── Statistics tab ────────────────────────────────────────────────────────────
 // ── Statistics tab ────────────────────────────────────────────────────────────
 
 function _renderStatistics(el) {
