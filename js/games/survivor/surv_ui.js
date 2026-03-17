@@ -73,12 +73,6 @@ export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
             <div id="surv-joystick-base"><div id="surv-joystick-knob"></div></div>
         </div>
 
-        <!-- Landscape hint -->
-        <div id="surv-landscape-hint" class="surv-landscape-hint" style="display:none;">
-            <div class="surv-landscape-icon">📱</div>
-            <div class="surv-landscape-msg">Rotate for a better experience</div>
-        </div>
-
         <!-- Boss Warning -->
         <div id="surv-boss-warning" class="surv-boss-warning-overlay" style="display:none; pointer-events:none;">
             <div class="surv-boss-warning-inner">
@@ -210,7 +204,6 @@ export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
         pauseScr:_container.querySelector('#surv-pause-screen'),
         btnResumePause: _container.querySelector('#surv-btn-resume-pause'),
 
-        landscapeHint: _container.querySelector('#surv-landscape-hint'),
         bossWarning:   _container.querySelector('#surv-boss-warning'),
 
         srs:      _container.querySelector('#surv-srs-overlay'),
@@ -268,13 +261,7 @@ export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
     dom.btnResumePause.onclick = _resumeFromManualPause;
     dom.btnCont.onclick = () => { dom.pen.style.display = 'none'; _engine.resume(); };
 
-    const checkOrientation = () => {
-        const isPortrait = window.innerHeight > window.innerWidth;
-        const isTouch    = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
-        dom.landscapeHint.style.display = (isPortrait && isTouch) ? 'flex' : 'none';
-    };
-    window.addEventListener('resize', checkOrientation);
-    checkOrientation();
+    // Portrait and landscape both supported — no orientation hint needed
 }
 
 function _resumeFromManualPause() {

@@ -80,7 +80,16 @@ export function init(screens, onExit) {
     `;
 
     _screens.setup.innerHTML = setupHTML;
-    _screens.game.innerHTML  = `<div class="surv-canvas-wrap"><canvas id="surv-canvas"></canvas></div><div id="surv-ui-layer"></div>`;
+    // The game screen must be a flex-column so HUD + canvas stack vertically.
+    // These styles are applied here directly so the screen is self-contained
+    // regardless of how games_ui.js configures the container.
+    _screens.game.style.cssText += ';display:flex;flex-direction:column;padding:0;overflow:hidden;position:relative;';
+    _screens.game.innerHTML = `
+        <div class="surv-canvas-wrap">
+            <canvas id="surv-canvas"></canvas>
+        </div>
+        <div id="surv-ui-layer" style="position:absolute;inset:0;pointer-events:none;z-index:10;"></div>
+    `;
 
     initCanvas(_screens.game.querySelector('#surv-canvas'), {
         onLevelUp:     () => showSrsQuiz(),
@@ -91,7 +100,9 @@ export function init(screens, onExit) {
         onBossWarning: () => showBossWarning()
     });
 
-    initInput(_screens.game.querySelector('.surv-canvas-wrap'));
+    initInput(_screens.game); // ✅ FIX: joystick zone is in #surv-ui-layer (sibling of .surv-canvas-wrap)
+                              // passing .surv-canvas-wrap caused querySelector('#surv-joystick-zone')
+                              // to return null → if(!touchZone) return → zero touch listeners
 
     initUI(
         _screens.game.querySelector('#surv-ui-layer'),
