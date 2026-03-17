@@ -392,6 +392,14 @@ function updateWeapons(dt) {
 function spawnProjectile(opts) {
     const p = poolProjectiles.find(x => !x.active);
     if (!p) return;
+    // Clear fields from previous occupant that aren't set by current opts,
+    // so stale emoji/radiusX/radiusY/angle don't bleed into new projectile types.
+    p.emoji   = null;
+    p.radiusX = null;
+    p.radiusY = null;
+    p.angle   = null;
+    p.vx      = null;
+    p.vy      = null;
     Object.assign(p, { active: true, hitList: new Set() }, opts);
 }
 

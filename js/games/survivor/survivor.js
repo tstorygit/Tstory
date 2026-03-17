@@ -148,7 +148,7 @@ export function launch() {
 function loadMeta() {
     const def = {
         souls: 0,
-        unlockedChars: ['ronin'],
+        unlockedChars: ['gamewizard'],
         upgrades: {
             // Foundation
             vitality: 0, swiftness: 0, greed: 0, power: 0,
@@ -234,7 +234,7 @@ function showVocabSelector() {
 
 // ── Camp ──────────────────────────────────────────────────────────────────────
 
-let selectedChar = 'ronin';
+let selectedChar = 'gamewizard';
 let _activeTab   = 'chars';
 
 function showCamp() {
