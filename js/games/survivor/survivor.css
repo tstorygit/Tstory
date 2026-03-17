@@ -9,12 +9,12 @@
 .surv-camp-wrap-outer,       /* outer scrollable div if present */
 #surv-camp-wrap,
 #surv-deck-selector-wrap {
-    padding-bottom: max(30px, env(safe-area-inset-bottom, 30px));
+    padding-bottom: max(80px, calc(env(safe-area-inset-bottom, 0px) + 60px));
 }
 
 /* Camp actions row gets extra clearance so buttons aren't behind the home bar */
 .surv-camp-actions {
-    padding-bottom: max(8px, env(safe-area-inset-bottom, 8px));
+    padding-bottom: max(24px, calc(env(safe-area-inset-bottom, 0px) + 16px));
 }
 
 .surv-camp-header {
@@ -449,7 +449,7 @@
 .surv-modal {
     background: var(--surface-color);
     border-radius: 16px; width: 100%; max-width: 400px;
-    padding: 22px 20px max(20px, env(safe-area-inset-bottom, 20px));
+    padding: 22px 20px max(36px, calc(env(safe-area-inset-bottom, 0px) + 24px));
     box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06);
     display: flex; flex-direction: column; gap: 14px;
     /* Modal sits above home bar — the overlay itself needs side/bottom insets */
@@ -639,7 +639,7 @@
 .surv-tab-panel  { animation: surv-tab-in 0.15s ease; }
 .surv-tab-panel:last-of-type {
     /* Last tab panel gets extra bottom breathing room for iPhone home bar */
-    padding-bottom: max(8px, env(safe-area-inset-bottom, 8px));
+    padding-bottom: max(80px, calc(env(safe-area-inset-bottom, 0px) + 60px));
 }
 @keyframes surv-tab-in { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
 
@@ -681,7 +681,7 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
-    padding-bottom: max(12px, env(safe-area-inset-bottom, 12px));
+    padding-bottom: max(80px, calc(env(safe-area-inset-bottom, 0px) + 60px));
 }
 @media (min-width: 520px) {
     .surv-stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -799,7 +799,7 @@
     max-width: 620px;
     width: 100%;
     margin: 0 auto;
-    padding: 16px 16px max(40px, calc(env(safe-area-inset-bottom, 0px) + 24px));
+    padding: 16px 16px max(80px, calc(env(safe-area-inset-bottom, 0px) + 60px));
     display: flex;
     flex-direction: column;
     gap: 8px;
