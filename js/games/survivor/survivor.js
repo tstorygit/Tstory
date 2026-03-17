@@ -2,34 +2,46 @@
 import { mountVocabSelector } from '../../vocab_selector.js';
 import * as srsDb from '../../srs_db.js';
 import { initInput, cleanupInput } from './surv_input.js';
-import { initCanvas, startRun, pause, resume, stop, applyUpgrade, applyPenalty, getActiveWeapons, getActivePassives, getElapsedTime } from './surv_engine.js';
-import { initUI, resetGameUI, drawHUD, incrementKill, showSrsQuiz, showGameOver, showChestQuiz } from './surv_ui.js';
+import { initCanvas, startRun, pause, stop } from './surv_engine.js';
+import { initUI, resetGameUI, drawHUD, incrementKill, showSrsQuiz, showGameOver } from './surv_ui.js';
 import { CHARACTERS } from './surv_entities.js';
 
 let _screens = null;
 let _onExitGlobal = null;
 let _selector = null;
 let _meta = null;
+let _vocabQueue = [];
+let _customDeckActive = false;
 
 export function init(screens, onExit) {
     _screens = screens;
     _onExitGlobal = onExit;
 
     const setupHTML = `
-        <div class="surv-setup-layout">
-            <div class="surv-setup-col">
-                <div id="surv-vocab-mount"></div>
+        <div id="surv-deck-selector-wrap" style="display:none;"></div>
+        <div id="surv-camp-wrap" style="display:none; max-width: 600px; margin: 0 auto; padding-bottom: 30px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h2 style="margin:0; color:var(--primary-color);">Yōkai Survivor Camp</h2>
+                <button id="surv-btn-change-deck" class="caro-back-btn" style="width:auto; margin:0; padding:6px 12px; border:1px solid var(--border-color); border-radius:8px;">⚙️ Deck</button>
             </div>
-            <div class="surv-setup-col" style="display:flex; flex-direction:column; gap:20px;">
-                <div class="surv-panel">
-                    <h3>Character Select</h3>
-                    <div id="surv-char-list"></div>
+            <div class="surv-setup-layout">
+                <div class="surv-setup-col">
+                    <div class="surv-panel">
+                        <h3>Character Select</h3>
+                        <div id="surv-char-list"></div>
+                    </div>
                 </div>
-                <div class="surv-panel">
-                    <h3 style="color:#9b59b6;">The Shrine (Upgrades)</h3>
-                    <div style="font-size:14px; font-weight:bold; color:#f1c40f; margin-bottom:10px;">👻 Souls: <span id="surv-soul-count">0</span></div>
-                    <div id="surv-shrine-list"></div>
+                <div class="surv-setup-col">
+                    <div class="surv-panel">
+                        <h3 style="color:#9b59b6;">The Shrine (Upgrades)</h3>
+                        <div style="font-size:14px; font-weight:bold; color:#f1c40f; margin-bottom:10px;">👻 Souls: <span id="surv-soul-count">0</span></div>
+                        <div id="surv-shrine-list"></div>
+                    </div>
                 </div>
+            </div>
+            <div style="display:flex; gap:10px; margin-top:20px;">
+                <button id="surv-btn-start-run" class="primary-btn" style="flex:2;">⚔️ Enter the Forest</button>
+                <button id="surv-btn-exit-camp" class="caro-back-btn" style="flex:1; background:var(--surface-color); border:1px solid var(--border-color);">Exit</button>
             </div>
         </div>
     `;
@@ -41,29 +53,35 @@ export function init(screens, onExit) {
 
     initCanvas(_screens.game.querySelector('#surv-canvas'), {
         onLevelUp: () => showSrsQuiz(),
-        onChest: () => showChestQuiz(),
+        onChest: () => import('./surv_ui.js').then(m => m.showChestQuiz()),
         onKill: () => incrementKill(),
         onDraw: (hp, max, xp, xpN, lvl, time) => drawHUD(hp, max, xp, xpN, lvl, time),
         onGameOver: (isWin) => showGameOver(isWin, () => returnToCamp())
     });
 
     initInput(_screens.game.querySelector('.surv-canvas-wrap'));
-    
-    // Pass direct function references to UI instead of promises
-    initUI(_screens.game.querySelector('#surv-ui-layer'), {
-        applyUpgrade,
-        applyPenalty,
-        resume,
-        getActiveWeapons,
-        getActivePassives,
-        getElapsedTime
+    initUI(_screens.game.querySelector('#surv-ui-layer'), { 
+        applyUpgrade: (u)=>import('./surv_engine.js').then(m=>m.applyUpgrade(u)), 
+        applyPenalty: ()=>import('./surv_engine.js').then(m=>m.applyPenalty()), 
+        resume: ()=>import('./surv_engine.js').then(m=>m.resume()), 
+        getActiveWeapons: ()=>import('./surv_engine.js').then(m=>m.getActiveWeapons()), 
+        getActivePassives: ()=>import('./surv_engine.js').then(m=>m.getActivePassives()), 
+        getElapsedTime: ()=>import('./surv_engine.js').then(m=>m.getElapsedTime()) 
     }, srsDb);
 }
 
 export function launch() {
     loadMeta();
-    _show('setup');
-    renderSetup();
+    
+    const srsWords = Object.values(srsDb.getAllWords());
+    if (srsWords.length > 0 && !_customDeckActive) {
+        _vocabQueue = srsWords.map(w => ({ word: w.word, furi: w.furi, trans: w.translation }));
+        _show('setup');
+        showCamp();
+    } else {
+        _show('setup');
+        showVocabSelector();
+    }
 }
 
 function loadMeta() {
@@ -82,13 +100,15 @@ function _show(name) {
     if (_screens.game) _screens.game.style.display = name === 'game' ? 'flex' : 'none';
 }
 
-let selectedChar = 'ronin';
-
-function renderSetup() {
-    const el = _screens.setup;
+function showVocabSelector() {
+    const selectorWrap = _screens.setup.querySelector('#surv-deck-selector-wrap');
+    const campWrap = _screens.setup.querySelector('#surv-camp-wrap');
+    
+    selectorWrap.style.display = 'block';
+    campWrap.style.display = 'none';
     
     if (!_selector) {
-        _selector = mountVocabSelector(el.querySelector('#surv-vocab-mount'), {
+        _selector = mountVocabSelector(selectorWrap, {
             bannedKey: 'surv_banned',
             defaultCount: 'All',
             title: 'Vocabulary Queue'
@@ -96,18 +116,45 @@ function renderSetup() {
         const actions = _selector.getActionsEl();
         const startBtn = document.createElement('button');
         startBtn.className = 'primary-btn';
-        startBtn.textContent = '⚔️ Enter the Forest';
+        startBtn.textContent = '⛺ Go to Camp';
         startBtn.onclick = async () => {
             const queue = await _selector.getQueue();
             if (!queue.length) return;
-            startActualRun(queue);
+            _customDeckActive = true;
+            _vocabQueue = queue.map(w => ({ word: w.word, furi: w.furi || w.word, trans: w.trans || '—' }));
+            showCamp();
         };
         const backBtn = document.createElement('button');
         backBtn.className = 'caro-back-btn';
         backBtn.textContent = '← Back to Games';
-        backBtn.onclick = _onExitGlobal;
+        backBtn.onclick = () => {
+            const srsWords = Object.values(srsDb.getAllWords());
+            if (srsWords.length > 0) {
+                _customDeckActive = false;
+                _vocabQueue = srsWords.map(w => ({ word: w.word, furi: w.furi, trans: w.translation }));
+                showCamp();
+            } else {
+                _onExitGlobal();
+            }
+        };
         actions.append(startBtn, backBtn);
     }
+}
+
+let selectedChar = 'ronin';
+
+function showCamp() {
+    const selectorWrap = _screens.setup.querySelector('#surv-deck-selector-wrap');
+    const campWrap = _screens.setup.querySelector('#surv-camp-wrap');
+    
+    selectorWrap.style.display = 'none';
+    campWrap.style.display = 'block';
+
+    const el = _screens.setup;
+
+    el.querySelector('#surv-btn-change-deck').onclick = () => showVocabSelector();
+    el.querySelector('#surv-btn-start-run').onclick = () => startActualRun(_vocabQueue);
+    el.querySelector('#surv-btn-exit-camp').onclick = _onExitGlobal;
 
     el.querySelector('#surv-soul-count').textContent = _meta.souls;
 
@@ -132,7 +179,7 @@ function renderSetup() {
         const id = c.dataset.id;
         if (_meta.unlockedChars.includes(id)) {
             selectedChar = id;
-            renderSetup();
+            showCamp();
         } else {
             const cost = CHARACTERS[id].cost;
             if (_meta.souls >= cost) {
@@ -141,7 +188,7 @@ function renderSetup() {
                     _meta.unlockedChars.push(id);
                     selectedChar = id;
                     saveMeta();
-                    renderSetup();
+                    showCamp();
                 }
             } else {
                 alert("Not enough Souls!");
@@ -183,20 +230,19 @@ function renderSetup() {
             _meta.souls -= cost;
             _meta.upgrades[id] = lvl + 1;
             saveMeta();
-            renderSetup();
+            showCamp();
         }
     });
 }
 
 function startActualRun(queue) {
-    _vocabQueue = queue.map(w => ({ word: w.word, furi: w.furi || w.word, trans: w.trans || '—' }));
     _show('game');
-    resetGameUI(_vocabQueue, _meta);
+    resetGameUI(queue, _meta);
     startRun(selectedChar, _meta.upgrades);
 }
 
 function returnToCamp() {
     stop();
     _show('setup');
-    renderSetup();
+    showCamp();
 }
