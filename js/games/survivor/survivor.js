@@ -2,7 +2,7 @@ import { mountVocabSelector } from '../../vocab_selector.js';
 import * as srsDb from '../../srs_db.js';
 import { initInput } from './surv_input.js';
 import { initCanvas, startRun, stop, applyUpgrade, applyHeal, applyPenalty,
-         resume, getActiveWeapons, getActivePassives, getElapsedTime, resize as resizeCanvas } from './surv_engine.js';
+         pause, resume, getActiveWeapons, getActivePassives, getElapsedTime, resize as resizeCanvas } from './surv_engine.js';
 import { initUI, resetGameUI, drawHUD, incrementKill, showSrsQuiz,
          showChestQuiz, showBossWarning, showGameOver } from './surv_ui.js';
 import { CHARACTERS } from './surv_entities.js';
