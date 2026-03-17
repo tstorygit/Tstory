@@ -100,10 +100,9 @@ export function init(screens, onExit) {
         onBossWarning: () => showBossWarning()
     });
 
-    initInput(_screens.game); // ✅ FIX: joystick zone is in #surv-ui-layer (sibling of .surv-canvas-wrap)
-                              // passing .surv-canvas-wrap caused querySelector('#surv-joystick-zone')
-                              // to return null → if(!touchZone) return → zero touch listeners
-
+    // ✅ initUI MUST come before initInput — initUI writes the joystick HTML
+    // into #surv-ui-layer. If initInput runs first, querySelector('#surv-joystick-zone')
+    // returns null (element doesn't exist yet) → if(!touchZone) return → no listeners.
     initUI(
         _screens.game.querySelector('#surv-ui-layer'),
         { applyUpgrade, applyHeal, applyPenalty, resume,
@@ -111,6 +110,9 @@ export function init(screens, onExit) {
         srsDb,
         { saveMeta }
     );
+
+    // initInput runs AFTER initUI so #surv-joystick-zone is guaranteed to be in the DOM
+    initInput(_screens.game);
 }
 
 export function launch() {
