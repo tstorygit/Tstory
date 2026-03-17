@@ -48,3 +48,4 @@ export function playChestOpen()   { tone(880, 0.07, 'sine',     0.12); tone(1100
 export function playUpgradePick() { tone(520, 0.05, 'sine',     0.14); tone(780,  0.10, 'sine',     0.10, 0.05); }
 export function playGameOver()    { tone(220, 0.4,  'sawtooth', 0.15); tone(180,  0.5,  'sawtooth', 0.12, 0.35); tone(140, 0.7, 'sawtooth', 0.10, 0.70); }
 export function playVictory()     { [440, 554, 659, 880].forEach((f, i) => tone(f, 0.18, 'sine', 0.16, i * 0.13)); }
+export function playStormGust()   { tone(180, 0.08, 'sawtooth', 0.06); tone(220, 0.25, 'sawtooth', 0.08, 0.05); tone(160, 0.40, 'sine', 0.05, 0.18); }

@@ -1,14 +1,22 @@
 export const CHARACTERS = {
     // ── Starter ────────────────────────────────────────────────────────────
+    gamewizard: {
+        id: 'gamewizard', name: 'The GameWizard', icon: '🧙', cost: 0,
+        startWeapon: 'stormgust',
+        desc: 'Starts with Storm Gust. +15% Damage, +25% Pickup Radius.',
+        flavour: 'A wandering mage who bends the winds of fate to swallow whole battlefields.',
+        stats: { damageMult: 0.15, magnetMult: 0.25 }
+    },
+
+    // ── 500 souls ──────────────────────────────────────────────────────────
     ronin: {
-        id: 'ronin', name: 'The Ronin', icon: '🥷', cost: 0,
+        id: 'ronin', name: 'The Ronin', icon: '🥷', cost: 500,
         startWeapon: 'katana',
         desc: 'Starts with Katana. +10% Move Speed.',
         flavour: 'A masterless swordsman, drifting between battles.',
         stats: { moveSpeedMult: 0.1 }
     },
 
-    // ── 500 souls ──────────────────────────────────────────────────────────
     miko: {
         id: 'miko', name: 'The Miko', icon: '⛩️', cost: 500,
         startWeapon: 'ofuda',
@@ -106,6 +114,17 @@ export const WEAPONS = {
             { damage: 15, cooldown: 0.7, area: 1.5, desc: "+3 Damage, +30% Area." },
             { damage: 20, cooldown: 0.6, area: 1.5, desc: "+5 Damage, Cooldown reduced." },
             { damage: 35, cooldown: 0.5, area: 2.0, desc: "Massive damage and area." },
+        ]
+    },
+    stormgust: {
+        id: 'stormgust', name: 'Storm Gust', icon: '🌀', type: 'storm_gust',
+        levels: [
+            { damage: 18, cooldown: 2.2, radiusX: 130, radiusY: 90,  offsetForward: 60, desc: "Calls a storm in front. Wide AOE; you are inside it." },
+            { damage: 25, cooldown: 2.0, radiusX: 145, radiusY: 100, offsetForward: 60, desc: "+7 Damage, slightly larger storm." },
+            { damage: 25, cooldown: 2.0, radiusX: 165, radiusY: 115, offsetForward: 65, desc: "Storm grows significantly." },
+            { damage: 38, cooldown: 1.8, radiusX: 165, radiusY: 115, offsetForward: 65, desc: "+13 Damage, Cooldown reduced." },
+            { damage: 38, cooldown: 1.8, radiusX: 190, radiusY: 135, offsetForward: 70, desc: "Massive storm expansion." },
+            { damage: 60, cooldown: 1.4, radiusX: 220, radiusY: 160, offsetForward: 70, desc: "Legendary storm. Fills the screen." },
         ]
     },
     fireball: {

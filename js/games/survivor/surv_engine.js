@@ -363,6 +363,27 @@ function updateWeapons(dt) {
                         duration: 0.4, pierce: 999, emoji: def.icon
                     });
                 }
+            } else if (def.type === 'storm_gust') {
+                // Elliptical AOE centered offsetForward px ahead of the player.
+                // The ellipse is large enough that the player is always well inside it.
+                const dX  = player.lastDirX;
+                const dY  = player.lastDirY;
+                const cx  = player.x + dX * lvlDef.offsetForward;
+                const cy  = player.y + dY * lvlDef.offsetForward;
+                const ang = Math.atan2(dY, dX); // rotation to align long axis with facing
+                Audio.playStormGust();
+                spawnProjectile({
+                    type: 'storm_gust',
+                    x: cx, y: cy,
+                    angle: ang,
+                    radiusX: lvlDef.radiusX,
+                    radiusY: lvlDef.radiusY,
+                    // Collision radius: use the larger axis for broad hit detection;
+                    // fine ellipse check is done per-enemy in checkCollisions.
+                    radius: lvlDef.radiusX,
+                    damage: lvlDef.damage * dmgMult,
+                    duration: 0.55, pierce: 999
+                });
             }
         }
     });
@@ -559,6 +580,15 @@ function checkCollisions() {
         for (let k = 0; k < targets.length; k++) {
             const e = targets[k];
             if (p.hitList && p.hitList.has(e)) continue;
+
+            // Fine ellipse check for storm_gust (broad circle pass already done above)
+            if (p.type === 'storm_gust') {
+                const cosA =  Math.cos(-p.angle);
+                const sinA =  Math.sin(-p.angle);
+                const ldx  =  (e.x - p.x) * cosA - (e.y - p.y) * sinA;
+                const ldy  =  (e.x - p.x) * sinA + (e.y - p.y) * cosA;
+                if ((ldx / p.radiusX) * (ldx / p.radiusX) + (ldy / p.radiusY) * (ldy / p.radiusY) > 1) continue;
+            }
 
             e.hp -= p.damage;
             if (p.hitList) p.hitList.add(e);
@@ -804,6 +834,65 @@ function drawEverything() {
             ctx.fill();
             ctx.stroke();
             ctx.shadowBlur = 0;
+        } else if (p.type === 'storm_gust') {
+            // Ellipse aligned to the player's facing direction
+            const lifeRatio = Math.max(0, p.duration / 0.55); // 1→0 as it expires
+            const pulse     = 0.7 + 0.3 * Math.sin(elapsedTime * 18);
+            ctx.save();
+            ctx.translate(ppx, ppy);
+            ctx.rotate(p.angle);
+
+            // Outer glow fill
+            const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, p.radiusX);
+            grad.addColorStop(0,   `rgba(120,200,255,${0.22 * lifeRatio * pulse})`);
+            grad.addColorStop(0.5, `rgba(60,140,255,${0.18 * lifeRatio})`);
+            grad.addColorStop(1,   `rgba(20,80,220,0.05)`);
+            ctx.shadowColor = `rgba(80,170,255,${0.8 * lifeRatio})`;
+            ctx.shadowBlur  = 28;
+            ctx.fillStyle   = grad;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, p.radiusX, p.radiusY, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Inner bright core stroke
+            ctx.strokeStyle = `rgba(180,230,255,${0.85 * lifeRatio * pulse})`;
+            ctx.lineWidth   = 2.5;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, p.radiusX * 0.55, p.radiusY * 0.55, 0, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // Outer border
+            ctx.strokeStyle = `rgba(100,180,255,${0.65 * lifeRatio})`;
+            ctx.lineWidth   = 2;
+            ctx.setLineDash([8, 5]);
+            ctx.beginPath();
+            ctx.ellipse(0, 0, p.radiusX, p.radiusY, 0, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Swirl emojis scattered inside the ellipse
+            ctx.rotate(-p.angle); // draw emojis upright
+            const t0 = (elapsedTime * 2.5) % (Math.PI * 2);
+            const spiralPts = [
+                { r: 0.35, a: t0 },
+                { r: 0.65, a: t0 + 2.1 },
+                { r: 0.50, a: t0 + 4.2 },
+                { r: 0.75, a: t0 + 1.0 },
+            ];
+            ctx.globalAlpha = 0.55 * lifeRatio * pulse;
+            ctx.font = '16px Arial';
+            for (const sp of spiralPts) {
+                // Map from circular to elliptical coords
+                const ex = Math.cos(sp.a) * p.radiusX * sp.r;
+                const ey = Math.sin(sp.a) * p.radiusY * sp.r;
+                // Rotate back to world
+                const wx = ex * Math.cos(p.angle) - ey * Math.sin(p.angle);
+                const wy = ex * Math.sin(p.angle) + ey * Math.cos(p.angle);
+                ctx.fillText('🌀', wx, wy);
+            }
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur  = 0;
+            ctx.restore();
         } else if (p.type === 'aura') {
             ctx.strokeStyle = 'rgba(241,196,15,0.25)';
             ctx.lineWidth   = 6;
