@@ -132,6 +132,35 @@ export function initSettings() {
         });
     }
 
+    // Fullscreen Toggle Logic
+    const fullscreenToggle = document.getElementById('setting-fullscreen');
+    if (fullscreenToggle) {
+        fullscreenToggle.checked = !!document.fullscreenElement;
+
+        fullscreenToggle.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                if (document.documentElement.requestFullscreen) {
+                    document.documentElement.requestFullscreen().catch(err => {
+                        console.warn("Fullscreen failed:", err);
+                        e.target.checked = false; // revert if failed
+                    });
+                } else {
+                    alert("Fullscreen is not supported on this browser (e.g. iOS Safari). Please use the 'Add to Home Screen' option instead.");
+                    e.target.checked = false;
+                }
+            } else {
+                if (document.exitFullscreen && document.fullscreenElement) {
+                    document.exitFullscreen().catch(err => console.warn(err));
+                }
+            }
+        });
+
+        // Keep toggle in sync if user exits fullscreen via ESC key
+        document.addEventListener('fullscreenchange', () => {
+            fullscreenToggle.checked = !!document.fullscreenElement;
+        });
+    }
+
     const saveBtn = document.getElementById('btn-save-settings');
     if (saveBtn) {
         saveBtn.addEventListener('click', () => {

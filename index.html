@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="styles.css?v=2">
     
     <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#4A90E2">
     <link rel="manifest" href="manifest.json">
@@ -193,6 +194,11 @@
                         </select>
                     </div>
                     <div class="settings-divider"></div>
+                    <label class="settings-toggle">
+                        <input type="checkbox" id="setting-fullscreen">
+                        <span class="settings-toggle-track"></span>
+                        <span class="settings-toggle-text">Fullscreen Mode <em>(Hides browser UI, works on Android/PC)</em></span>
+                    </label>
                     <label class="settings-toggle">
                         <input type="checkbox" id="setting-srs-auto-status" checked>
                         <span class="settings-toggle-track"></span>
