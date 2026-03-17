@@ -82,6 +82,18 @@ const GAME_REGISTRY = [
             game:  { classes: 'content-scroll', style: 'padding:0;' },
         },
     },
+    {
+        id:     'survivor',
+        icon:   '👺',
+        title:  'Yōkai Survivor',
+        desc:   'Bullet-hell auto-shooter. Survive infinite waves, collect XP, and unleash devastating upgrades by executing rapid-fire SRS reviews.',
+        loader: () => import('./games/survivor/survivor.js'),
+        headerTitle: 'Yōkai Survivor',
+        screens: {
+            setup:   { classes: 'content-scroll' },
+            game:    { classes: '', style: 'padding:0; overflow:hidden; position:relative; display:flex; flex-direction:column;' },
+        },
+    },
 ];
 
 // ─── Module cache ─────────────────────────────────────────────────────────────
