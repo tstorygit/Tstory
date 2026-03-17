@@ -865,7 +865,7 @@ function _startGameLoop() {
 
             if (_g.srs.length > 0) {
                 const activeIds = new Set(_vocabQueue.map(v => v.id));
-                const activeSrs = _g.srs.filter(s => activeIds.has(s.id));
+                const activeSrs = _g.srs.filter(s => activeIds.has(s.id) && !_isLeech(s));
                 const next = activeSrs.length > 0 ? Math.min(...activeSrs.map(s => s.nextReview)) : Infinity;
                 const diffSec = (next - _gameNow()) / 1000;
 
