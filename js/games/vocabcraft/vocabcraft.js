@@ -855,7 +855,16 @@ function _renderHexWorldMap(container) {
         label.textContent = tpl.name;
         svg.appendChild(label);
 
-        // ── Best-cleared badge — pill shape so it\'s always readable ─────────
+        // Hit area — appended BEFORE the badge so badge renders on top in SVG paint order
+        const hitArea = document.createElementNS(svgNS, 'path');
+        hitArea.setAttribute('d',    hexPath(cx, cy, HEX_R - 1));
+        hitArea.setAttribute('fill', 'transparent');
+        hitArea.setAttribute('stroke', 'none');
+        hitArea.style.cursor = 'pointer';
+        hitArea.addEventListener('click', () => _showHexDetail(tpl, node, colors, false));
+        svg.appendChild(hitArea);
+
+        // ── Best-cleared badge — pill shape so it's always readable ─────────
         let bestD = 0;
         for (let d = 18; d >= 1; d--) {
             if (isStageCleared(_meta, tpl.id, d)) { bestD = d; break; }
@@ -892,15 +901,6 @@ function _renderHexWorldMap(container) {
             badge.textContent = `★D${bestD}`;
             svg.appendChild(badge);
         }
-
-        // Hit area
-        const hitArea = document.createElementNS(svgNS, 'path');
-        hitArea.setAttribute('d',    hexPath(cx, cy, HEX_R - 1));
-        hitArea.setAttribute('fill', 'transparent');
-        hitArea.setAttribute('stroke', 'none');
-        hitArea.style.cursor = 'pointer';
-        hitArea.addEventListener('click', () => _showHexDetail(tpl, node, colors, false));
-        svg.appendChild(hitArea);
     });
 
     container.appendChild(svg);

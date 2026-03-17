@@ -89,6 +89,20 @@ export class VcUI {
             this.enemyStatEl.style.display = 'none';
             this.mapEl.appendChild(this.enemyStatEl);
 
+            // FPS counter — fixed top-left, always above everything
+            this._fpsEl = document.createElement('div');
+            this._fpsEl.style.cssText = [
+                'position:fixed', 'top:4px', 'left:4px',
+                'z-index:99999', 'pointer-events:none',
+                'font:bold 11px/1 monospace', 'color:#0f0',
+                'text-shadow:0 0 4px #000, 1px 1px 0 #000',
+                'opacity:0.85'
+            ].join(';');
+            this._fpsEl.textContent = 'FPS: --';
+            document.body.appendChild(this._fpsEl);
+            this._fpsFrames = 0;
+            this._fpsLastTime = performance.now();
+
             if (onReady) onReady();
         }, 10);
     }
@@ -164,7 +178,12 @@ export class VcUI {
         this.gridEl.style.setProperty('--ts', `${this.tileSize}px`);
 
         this.tiles =[];
-        for (let r = 0; r < rows; r++) {
+        // Fix #1 & #3: Clear per-frame keyed maps and drag state on grid reinit —
+        // old DOM elements were removed when the grid was rebuilt above.
+        this._enemyElMap     = new Map();
+        this._projElMap      = new Map();
+        this._rangeIndicatorEl = null;
+        this._dragOverTile   = null;
             for (let c = 0; c < cols; c++) {
                 const cell = document.createElement('div');
                 cell.className = `vc-tile ${grid[r][c] === TILE_PATH ? 'dirt' : grid[r][c] === TILE_GRASS ? 'grass' : 'rock'}`;
@@ -463,6 +482,10 @@ export class VcUI {
             this._dragGhost.remove();
             this._dragGhost = null;
         }
+        if (this._fpsEl) {
+            this._fpsEl.remove();
+            this._fpsEl = null;
+        }
     }
 
     initDragSwap() {
@@ -501,18 +524,24 @@ export class VcUI {
             if (!this._dragSource) return;
             this._dragGhost.style.left = e.clientX + 'px';
             this._dragGhost.style.top  = e.clientY + 'px';
-            this.tiles.forEach(t => t.classList.remove('vc-drag-over'));
+            // Fix #3: track single hovered tile instead of iterating all tiles
             const rect = this.gridEl.getBoundingClientRect();
             const zoom = this._zoom || 1;
             const tc = Math.floor((e.clientX - rect.left) / zoom / this.tileSize);
             const tr = Math.floor((e.clientY - rect.top)  / zoom / this.tileSize);
             const idx = tr * this.engine.map.cols + tc;
-            if (this.tiles[idx]) this.tiles[idx].classList.add('vc-drag-over');
+            const newHover = this.tiles[idx] || null;
+            if (newHover !== this._dragOverTile) {
+                if (this._dragOverTile) this._dragOverTile.classList.remove('vc-drag-over');
+                this._dragOverTile = newHover;
+                if (this._dragOverTile) this._dragOverTile.classList.add('vc-drag-over');
+            }
         }, { passive: false });
 
         // Single global pointerup: performs swap if drag was active, else tap-selects
         document.addEventListener('pointerup', (e) => {
-            this.tiles.forEach(t => t.classList.remove('vc-drag-over'));
+            // Fix #3: clear only the single tracked hover tile
+            if (this._dragOverTile) { this._dragOverTile.classList.remove('vc-drag-over'); this._dragOverTile = null; }
             if (this._dragSource) {
                 // Drag was active — perform gem swap
                 this._dragGhost.style.display = 'none';
@@ -552,7 +581,8 @@ export class VcUI {
             this._dragSource = null;
             this._dragPending = null;
             this._dragGhost.style.display = 'none';
-            this.tiles.forEach(t => t.classList.remove('vc-drag-over'));
+            // Fix #3: clear only the single tracked hover tile
+            if (this._dragOverTile) { this._dragOverTile.classList.remove('vc-drag-over'); this._dragOverTile = null; }
         });
 
         this._attachDragToStructure = (div, stRef) => {
@@ -601,6 +631,7 @@ export class VcUI {
     renderBottomBar() {
         this.bottomBar.innerHTML = '';
         this._gemPickerRefresh = null;
+        this._costButtons = []; // Perf fix 8: reset cached button list — rebuilt below
         if (this.topBar?.mana) {
             const m = Math.floor(this.engine.state.mana);
             const abbr = m >= 1e9 ? (m/1e9).toFixed(1)+'B' : m >= 1e6 ? (m/1e6).toFixed(1)+'M' : m >= 1e4 ? (m/1e3).toFixed(0)+'K' : m >= 1e3 ? (m/1e3).toFixed(1)+'K' : String(m);
@@ -904,6 +935,9 @@ export class VcUI {
         upBtn.textContent = `▲ Lv.${lvl+1} (${cost} 💧)`;
         upBtn.disabled = mana < cost;
         upBtn.dataset.manaCost = cost;
+        // Perf fix 8: register in cache so _refreshBottomBarButtons needs no DOM query
+        if (!this._costButtons) this._costButtons = [];
+        this._costButtons.push({ btn: upBtn, cost });
         upBtn.onclick = () => this.handleVocabAction(cost, () => {
             structRef.gem.level++;
             this.selectTile(this.selectedTile.r, this.selectedTile.c, this.selectedTile.type);
@@ -929,7 +963,12 @@ export class VcUI {
         btn.className = 'vc-btn';
         btn.textContent = text;
         btn.disabled = !enabled;
-        if (cost != null) btn.dataset.manaCost = cost;
+        if (cost != null) {
+            btn.dataset.manaCost = cost;
+            // Perf fix 8: push into cached list so _refreshBottomBarButtons needs no DOM query
+            if (!this._costButtons) this._costButtons = [];
+            this._costButtons.push({ btn, cost });
+        }
         btn.onclick = onClick;
         this.bottomBar.appendChild(btn);
     }
@@ -1080,14 +1119,28 @@ export class VcUI {
     }
 
     _refreshBottomBarButtons(mana) {
-        this.bottomBar.querySelectorAll('button[data-mana-cost]').forEach(btn => {
-            const cost = +btn.dataset.manaCost;
-            btn.disabled = mana < cost;
-        });
+        // Perf fix 8: iterate pre-cached button list — zero DOM queries at runtime
+        if (this._costButtons) {
+            for (const { btn, cost } of this._costButtons) {
+                btn.disabled = mana < cost;
+            }
+        }
         if (this._gemPickerRefresh) this._gemPickerRefresh();
     }
 
     draw(engineState, eventMsg) {
+        // FPS counter — averaged over 30 frames to stay readable
+        if (this._fpsEl) {
+            this._fpsFrames++;
+            if (this._fpsFrames >= 30) {
+                const now = performance.now();
+                const fps = Math.round(this._fpsFrames / ((now - this._fpsLastTime) / 1000));
+                this._fpsEl.textContent = `FPS: ${fps}`;
+                this._fpsFrames = 0;
+                this._fpsLastTime = now;
+            }
+        }
+
         // Abbreviate large numbers so the topbar never wraps: 1234 → 1.2K, 1234567 → 1.2M
         const _abbr = (n) => {
             if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
@@ -1175,8 +1228,19 @@ export class VcUI {
         }
 
         if (!this.entitiesEl) return;
-        let html = '';
 
+        // Fix #1: Keyed DOM diffing — reuse existing elements instead of
+        // destroying and recreating the entire entity layer every frame.
+        // This eliminates constant DOM churn, GC pressure, and listener re-attachment.
+
+        // ── Range indicator ──────────────────────────────────────────────────
+        // Manage a single reusable range-indicator element.
+        if (!this._rangeIndicatorEl) {
+            this._rangeIndicatorEl = document.createElement('div');
+            this._rangeIndicatorEl.className = 'vc-range-indicator';
+            this.entitiesEl.appendChild(this._rangeIndicatorEl);
+        }
+        const rangeEl = this._rangeIndicatorEl;
         if (this.selectedTile?.structRef) {
             const st = this.selectedTile.structRef;
             const radius = st.gem
@@ -1184,59 +1248,163 @@ export class VcUI {
                 : (st.type === 'tower'
                     ? Math.floor(CONSTANTS.towerBaseRange * this.tileSize)
                     : Math.floor(CONSTANTS.trapBaseRange * this.tileSize));
-            html += `<div class="vc-range-indicator" style="left:${st.x-radius}px;top:${st.y-radius}px;width:${radius*2}px;height:${radius*2}px;"></div>`;
+            rangeEl.style.cssText = `position:absolute;left:${st.x-radius}px;top:${st.y-radius}px;width:${radius*2}px;height:${radius*2}px;display:block;`;
+        } else {
+            rangeEl.style.display = 'none';
         }
 
-        // --- Structures: render into stable DOM layer (not innerHTML-wiped every frame)
-        // so that pointerdown/drag events survive across frames.
+        // ── Structures layer (stable DOM, handled by _renderStructures) ──────
         if (this.structuresEl) {
             this._renderStructures(engineState.structures);
         }
 
-        engineState.enemies.forEach(e => {
+        // ── Enemies: keyed diff ──────────────────────────────────────────────
+        // Build a map of currently rendered enemy elements.
+        if (!this._enemyElMap) this._enemyElMap = new Map();
+        const enemyElMap = this._enemyElMap;
+
+        // Mark all existing elements for potential removal.
+        const toRemove = new Set(enemyElMap.keys());
+
+        for (const e of engineState.enemies) {
+            toRemove.delete(e.id); // still alive — keep it
+
             const pct = (e.hp / e.maxHp) * 100;
             const isSelected = e.id === this.selectedEnemyId;
-            const ring = isSelected ? `<div class="vc-enemy-selected-ring"></div>` : '';
-            const hpColor = e.isBoss ? '#e74c3c' : e.typeId === 'armored' ? '#95a5a6' : e.typeId === 'fast' ? '#3498db' : e.typeId === 'healer' ? '#2ecc71' : e.typeId === 'ghost' ? '#9b59b6' : e.typeId === 'swarm' ? '#f39c12' : '#2ecc71';
-
-            // Status icons — shown under HP bar. No CSS filter tinting (unreliable on emoji).
-            // Flash: drop-shadow only (no hue shift) for crit=yellow, armor=purple.
             const fx = e.effects || {};
+
+            let el = enemyElMap.get(e.id);
+            if (!el) {
+                // New enemy — create element once and attach click listener once.
+                el = document.createElement('div');
+                el.className = 'vc-enemy';
+                el.dataset.eid = e.id;
+                el.style.position = 'absolute';
+                el.addEventListener('click', ev => {
+                    ev.stopPropagation();
+                    const eid = el.dataset.eid;
+                    this.selectedEnemyId = (this.selectedEnemyId === eid) ? null : eid;
+                    this.engine.selectedEnemyId = this.selectedEnemyId;
+                    this.tiles.forEach(t => t.classList.remove('selected'));
+                    this.selectedTile = null;
+                    this.renderBottomBar();
+                });
+
+                // Build interior once (emoji + hp bar + status icons + armor).
+                // Only the parts that change are patched per frame below.
+                el._hpFill   = document.createElement('div');
+                el._hpFill.className = 'vc-enemy-hp-fill';
+                const hpBar  = document.createElement('div');
+                hpBar.className = 'vc-enemy-hp-bar';
+                hpBar.appendChild(el._hpFill);
+
+                el._emojiNode = document.createTextNode(e.emoji || '👾');
+                el._fxEl      = document.createElement('div');
+                el._fxEl.className = 'vc-fx-icons';
+                el._armorEl   = document.createElement('div');
+                el._armorEl.className = 'vc-enemy-armor';
+                el._ringEl    = document.createElement('div');
+                el._ringEl.className = 'vc-enemy-selected-ring';
+
+                el.appendChild(el._ringEl);
+                el.appendChild(el._emojiNode);
+                el.appendChild(hpBar);
+                el.appendChild(el._fxEl);
+                el.appendChild(el._armorEl);
+
+                this.entitiesEl.appendChild(el);
+                enemyElMap.set(e.id, el);
+            }
+
+            // ── Per-frame patches (only write to DOM when value changed) ──────
+            el.style.left = e.x + 'px';
+            el.style.top  = e.y + 'px';
+
+            // Flash / focus class
+            const wantFocused = isSelected;
+            const hasFocused  = el.classList.contains('vc-enemy-focused');
+            if (wantFocused !== hasFocused) el.classList.toggle('vc-enemy-focused', wantFocused);
+
+            // Flash drop-shadow
             let flashStyle = '';
             if (fx.flashTimer > 0 && fx.flashColor) {
                 flashStyle = fx.flashColor === 'crit'
                     ? 'filter:drop-shadow(0 0 6px #f1c40f);'
                     : 'filter:drop-shadow(0 0 6px #9b59b6);';
             }
-            const statusIcons = (fx.slow > 0 ? '<span class="vc-fx-icon">❄️</span>' : '')
-                              + (fx.poison > 0 ? '<span class="vc-fx-icon">☠️</span>' : '');
+            if (el._lastFlashStyle !== flashStyle) {
+                el._lastFlashStyle = flashStyle;
+                el.style.filter = flashStyle
+                    ? (fx.flashColor === 'crit' ? 'drop-shadow(0 0 6px #f1c40f)' : 'drop-shadow(0 0 6px #9b59b6)')
+                    : '';
+            }
 
-            html += `<div class="vc-enemy${isSelected?' vc-enemy-focused':''}" data-eid="${e.id}" style="left:${e.x}px;top:${e.y}px;pointer-events:auto;cursor:pointer;${flashStyle}">
-                ${ring}${e.emoji||'👾'}
-                <div class="vc-enemy-hp-bar"><div class="vc-enemy-hp-fill" style="width:${pct}%;background:${hpColor}"></div></div>
-                ${statusIcons ? `<div class="vc-fx-icons">${statusIcons}</div>` : ''}
-                ${e.armor>0?`<div class="vc-enemy-armor">🛡️${Math.round(e.armor)}</div>`:''}
-            </div>`;
-        });
+            // HP bar fill
+            const hpColor = e.isBoss ? '#e74c3c' : e.typeId === 'armored' ? '#95a5a6' : e.typeId === 'fast' ? '#3498db' : e.typeId === 'healer' ? '#2ecc71' : e.typeId === 'ghost' ? '#9b59b6' : e.typeId === 'swarm' ? '#f39c12' : '#2ecc71';
+            const hpPctStr = pct.toFixed(1) + '%';
+            if (el._hpFill._lastPct !== hpPctStr) {
+                el._hpFill._lastPct = hpPctStr;
+                el._hpFill.style.width = hpPctStr;
+                el._hpFill.style.background = hpColor;
+            }
 
-        engineState.projectiles.forEach(p => {
-            html += `<div class="vc-projectile" style="left:${p.x}px;top:${p.y}px;background:${p.gemData.color};"></div>`;
-        });
+            // Status icons (slow / poison)
+            const statusKey = (fx.slow > 0 ? '1' : '0') + (fx.poison > 0 ? '1' : '0');
+            if (el._fxEl._lastKey !== statusKey) {
+                el._fxEl._lastKey = statusKey;
+                el._fxEl.innerHTML = (fx.slow > 0 ? '<span class="vc-fx-icon">❄️</span>' : '')
+                                   + (fx.poison > 0 ? '<span class="vc-fx-icon">☠️</span>' : '');
+                el._fxEl.style.display = statusKey !== '00' ? '' : 'none';
+            }
 
-        this.entitiesEl.innerHTML = html;
+            // Armor badge
+            const armorVal = e.armor > 0 ? Math.round(e.armor) : 0;
+            if (el._armorEl._lastVal !== armorVal) {
+                el._armorEl._lastVal = armorVal;
+                if (armorVal > 0) {
+                    el._armorEl.textContent = '🛡️' + armorVal;
+                    el._armorEl.style.display = '';
+                } else {
+                    el._armorEl.style.display = 'none';
+                }
+            }
 
-        this.entitiesEl.querySelectorAll('.vc-enemy[data-eid]').forEach(el => {
-            el.addEventListener('click', ev => {
-                ev.stopPropagation();
-                const eid = el.dataset.eid;
-                this.selectedEnemyId = (this.selectedEnemyId === eid) ? null : eid;
-                this.engine.selectedEnemyId = this.selectedEnemyId;
-                // Clear tile selection so bottom bar doesn't show stale gem stats
-                this.tiles.forEach(t => t.classList.remove('selected'));
-                this.selectedTile = null;
-                this.renderBottomBar();
-            });
-        });
+            // Selection ring visibility
+            el._ringEl.style.display = isSelected ? '' : 'none';
+        }
+
+        // Remove stale enemy elements (enemies that died or leaked this frame)
+        for (const deadId of toRemove) {
+            const el = enemyElMap.get(deadId);
+            if (el) { el.remove(); }
+            enemyElMap.delete(deadId);
+        }
+
+        // ── Projectiles: keyed diff ──────────────────────────────────────────
+        if (!this._projElMap) this._projElMap = new Map();
+        const projElMap = this._projElMap;
+        // Perf fix 7: use stable numeric p.id — no string concat, no Set allocation per frame
+        const activeProjIds = new Set();
+
+        for (let i = 0; i < engineState.projectiles.length; i++) {
+            const p = engineState.projectiles[i];
+            activeProjIds.add(p.id);
+
+            let pel = projElMap.get(p.id);
+            if (!pel) {
+                pel = document.createElement('div');
+                pel.className = 'vc-projectile';
+                this.entitiesEl.appendChild(pel);
+                projElMap.set(p.id, pel);
+            }
+            pel.style.left       = p.x + 'px';
+            pel.style.top        = p.y + 'px';
+            pel.style.background = p.gemData.color;
+        }
+        // Remove stale projectile elements
+        for (const [id, el] of projElMap) {
+            if (!activeProjIds.has(id)) { el.remove(); projElMap.delete(id); }
+        }
 
         this._updateEnemyStatWindow(engineState);
 
@@ -1410,7 +1578,8 @@ export class VcUI {
         if (!this.enemyStatEl) return;
         if (!this.selectedEnemyId) { this.enemyStatEl.style.display = 'none'; return; }
 
-        const e = engineState.enemies.find(en => en.id === this.selectedEnemyId);
+        // Fix #2: O(1) map lookup instead of O(n) .find() scan
+        const e = engineState.enemyById?.get(this.selectedEnemyId);
         if (!e) {
             this.selectedEnemyId = null; this.engine.selectedEnemyId = null;
             this.enemyStatEl.style.display = 'none'; return;

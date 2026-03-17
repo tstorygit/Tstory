@@ -472,6 +472,7 @@ function _freshGame() {
         rebirthUpgrades: _defaultRebirthUpgrades(),
         srs:[],
         currentCardId: null,
+        leechDojo: false,  // true when player is in leech dojo mode
     };
 }
 
@@ -736,6 +737,7 @@ function _loadGame() {
         _g.transcendence = p.transcendence || 0;
         _g.combo = p.combo || 0;
         _g.srs   = p.srs   ||[];
+        _g.leechDojo = p.leechDojo || false;
         _g.pauseTime  = p.pauseTime  || 0;
         // Restore pause state: if was paused when closed, stay paused on reload.
         // We accumulate the time spent closed into pauseTime so the game clock
@@ -1090,7 +1092,92 @@ function _banWord(word) {
     _toast(`Banned "${word}"`, '#ff4b4b');
 }
 
-// ─── SRS ──────────────────────────────────────────────────────────────────────
+// ─── Leech Mechanic ──────────────────────────────────────────────────────────
+
+function _getLeechThreshold() { return _getCfg('leechThreshold', 20); }
+
+/** Return true if the SRS item has hit the leech threshold */
+function _isLeech(srsItem) {
+    return (srsItem.wrongCount || 0) >= _getLeechThreshold();
+}
+
+/** Mark a word as a leech manually (from dojo "Leech" button) */
+function _markLeech(wordId) {
+    const srsItem = _g.srs.find(s => s.id === wordId);
+    if (!srsItem) return;
+    const threshold = _getLeechThreshold();
+    if ((srsItem.wrongCount || 0) < threshold) {
+        srsItem.wrongCount = threshold; // force to threshold so it shows as leech
+    }
+    _g.currentCardId = null;
+    _updateSRSQueue();
+    _updateUI();
+    const wordData = _vocabQueue.find(v => v.id === wordId);
+    _toast(`🩸 "${wordData?.kanji || wordId}" marked as Leech`, '#e17055');
+}
+
+/** Remove leech flag and restart with start interval */
+function _unleechWord(wordId) {
+    const srsItem = _g.srs.find(s => s.id === wordId);
+    if (!srsItem) return;
+    srsItem.wrongCount = 0;
+    srsItem.interval   = _getCfg('interval', 8);
+    srsItem.ease       = _getCfg('ease', 1.5);
+    srsItem.nextReview = _gameNow();
+    _updateSRSQueue();
+    _updateUI();
+    const wordData = _vocabQueue.find(v => v.id === wordId);
+    _toast(`✅ "${wordData?.kanji || wordId}" unleached — back in normal Dojo!`, 'var(--nk-success)');
+}
+
+/** Get all leeched SRS items */
+function _getLeechedItems() {
+    return _g.srs.filter(s => _isLeech(s));
+}
+
+/** Switch to/from leech dojo mode */
+function _setLeechMode(on) {
+    _g.leechDojo = on;
+    _g.currentCardId = null;
+    _updateSRSQueue();
+    _updateUI();
+}
+
+/** Update the leech bar visibility and button states in the dojo tab */
+function _updateLeechDojoBtn() {
+    const g = _screens.game;
+    if (!g) return;
+    const leechBar      = g.querySelector('#nk-leech-bar');
+    const leechBtn      = g.querySelector('#nk-leech-dojo-btn');
+    const normalBtn     = g.querySelector('#nk-normal-dojo-btn');
+    const modeLabel     = g.querySelector('#nk-leech-mode-label');
+    const leechBadge    = g.querySelector('#nk-leech-count-badge');
+
+    const leechCount = _getLeechedItems().length;
+
+    if (!leechBar) return;
+
+    // Show bar whenever there are leeches or we're in leech mode
+    if (leechCount > 0 || _g.leechDojo) {
+        leechBar.style.display = 'block';
+    } else {
+        leechBar.style.display = 'none';
+    }
+
+    if (leechBadge) leechBadge.textContent = leechCount;
+
+    if (_g.leechDojo) {
+        if (leechBtn)  { leechBtn.style.display = 'none'; }
+        if (normalBtn) { normalBtn.style.display = 'inline-flex'; }
+        if (modeLabel) { modeLabel.style.display = 'block'; }
+    } else {
+        if (leechBtn)  { leechBtn.style.display = 'inline-flex'; }
+        if (normalBtn) { normalBtn.style.display = 'none'; }
+        if (modeLabel) { modeLabel.style.display = 'none'; }
+    }
+}
+
+
 
 function _learnNewWord() {
     const cost = _getLearnCost();
@@ -1114,7 +1201,14 @@ function _learnNewWord() {
 function _updateSRSQueue() {
     const now    = _gameNow();
     const _activeIds = new Set(_vocabQueue.map(v => v.id));
-    _pendingReviews = _g.srs.filter(s => _activeIds.has(s.id) && s.nextReview <= now);
+
+    if (_g.leechDojo) {
+        // Leech dojo: only leech items, always available (no time gate)
+        _pendingReviews = _g.srs.filter(s => _activeIds.has(s.id) && _isLeech(s));
+    } else {
+        // Normal dojo: exclude leeches, only due items
+        _pendingReviews = _g.srs.filter(s => _activeIds.has(s.id) && !_isLeech(s) && s.nextReview <= now);
+    }
 
     const pendingEl  = _screens.game?.querySelector('.nk-pending-count');
     
@@ -1137,6 +1231,9 @@ function _updateSRSQueue() {
         sleepScrn.style.display = 'flex';
         _g.currentCardId = null;
     }
+
+    // Update leech dojo button visibility in sleep screen
+    _updateLeechDojoBtn();
 }
 
 function _loadFlashcard() {
@@ -1150,13 +1247,22 @@ function _loadFlashcard() {
     const kanjiEl = _screens.game?.querySelector('.nk-fc-kanji');
     const furiEl  = _screens.game?.querySelector('.nk-fc-furi');
     const gridEl  = _screens.game?.querySelector('.nk-quiz-grid');
+    const leechActionsEl = _screens.game?.querySelector('#nk-quiz-leech-actions');
     if (!kanjiEl || !gridEl) return;
 
     kanjiEl.textContent = correct.kanji; 
     if (furiEl) furiEl.textContent = correct.kana;
 
-    // 3 distractors
-    const pool        = _vocabQueue.filter(v => v.id !== correct.id);
+    // In leech dojo: distractors come from the leech pool only for relevant confusions
+    // In normal dojo: distractors come from full vocab pool
+    const leechIds = new Set(_getLeechedItems().map(s => s.id));
+    let pool;
+    if (_g.leechDojo && leechIds.size >= 4) {
+        // Prefer other leeches as distractors — they're the confusing ones
+        pool = _vocabQueue.filter(v => v.id !== correct.id && leechIds.has(v.id));
+    } else {
+        pool = _vocabQueue.filter(v => v.id !== correct.id);
+    }
     const distractors = pool.sort(() => 0.5 - Math.random()).slice(0, 3);
     const options     = [...distractors, correct].sort(() => 0.5 - Math.random());
 
@@ -1168,6 +1274,27 @@ function _loadFlashcard() {
         btn.addEventListener('click', (e) => _checkAnswer(opt.id, btn, correct.id, e));
         gridEl.appendChild(btn);
     });
+
+    // Show/hide leech action buttons
+    if (leechActionsEl) {
+        if (_g.leechDojo) {
+            // In leech dojo: show unleech button
+            leechActionsEl.innerHTML = `
+                <button class="nk-leech-action-btn nk-unleech-btn" id="nk-unleech-word-btn">
+                    ✅ Unleech — back to Dojo
+                </button>`;
+            leechActionsEl.querySelector('#nk-unleech-word-btn')
+                .addEventListener('click', () => _unleechWord(_g.currentCardId));
+        } else {
+            // In normal dojo: show "mark as leech" button
+            leechActionsEl.innerHTML = `
+                <button class="nk-leech-action-btn nk-mark-leech-btn" id="nk-mark-leech-word-btn">
+                    🩸 Mark as Leech
+                </button>`;
+            leechActionsEl.querySelector('#nk-mark-leech-word-btn')
+                .addEventListener('click', () => _markLeech(_g.currentCardId));
+        }
+    }
 }
 
 function _checkAnswer(selectedId, btnEl, correctId, event) {
@@ -1187,6 +1314,9 @@ function _checkAnswer(selectedId, btnEl, correctId, event) {
         if (_g.bellUpgrades.focus.count > 0) yarn += _g.bellUpgrades.focus.count;
         if (_g.bellUpgrades.loom?.count > 0) yarn += _g.bellUpgrades.loom.effect * Math.pow(3, _g.bellUpgrades.loom.count - 1);
         yarn = Math.ceil(yarn * _getTranscendenceMult());
+
+        // Leech dojo: yarn reward is /10 (minimum 1)
+        if (_g.leechDojo) yarn = Math.max(1, Math.floor(yarn / 10));
         
         _g.yarn += yarn;
         _g.combo += 1;
@@ -1195,11 +1325,20 @@ function _checkAnswer(selectedId, btnEl, correctId, event) {
         _g.stats.yarnEarned += yarn;
 
         // Interval math in seconds — use game clock so pause doesn't cause drift
-        srsItem.interval   = Math.round(srsItem.interval * srsItem.ease);
-        srsItem.nextReview = _gameNow() + srsItem.interval * 1000;
+        // In leech dojo: correct answer reduces wrongCount but doesn't unleech automatically
+        if (_g.leechDojo) {
+            srsItem.wrongCount = Math.max(0, (srsItem.wrongCount || 0) - 1);
+            // Give it a short review interval so it comes back quickly
+            srsItem.interval   = Math.max(srsItem.interval, _getCfg('interval', 8));
+            srsItem.nextReview = _gameNow() + srsItem.interval * 1000;
+        } else {
+            srsItem.interval   = Math.round(srsItem.interval * srsItem.ease);
+            srsItem.nextReview = _gameNow() + srsItem.interval * 1000;
+        }
 
         if (event) {
-            _spawnFloatingText(event.clientX, event.clientY, `+${yarn} 🧶`, 'var(--nk-success)', 22);
+            const label = _g.leechDojo ? `+${yarn} 🧶 (leech)` : `+${yarn} 🧶`;
+            _spawnFloatingText(event.clientX, event.clientY, label, _g.leechDojo ? '#e17055' : 'var(--nk-success)', 22);
         }
 
         // Brief visual pause so player sees the green highlight, then move on
@@ -1216,10 +1355,18 @@ function _checkAnswer(selectedId, btnEl, correctId, event) {
         srsItem.interval   = 15; // Reset to 15 seconds
         srsItem.ease       = Math.max(1.3, srsItem.ease - 0.2);
         srsItem.nextReview = _gameNow() + 15000;
-        
+        srsItem.wrongCount = (srsItem.wrongCount || 0) + 1;
+
         const comboDiv = _g.bellUpgrades.combo_saver.count > 0 ? 1.5 : 2;
         _g.combo = Math.floor(_g.combo / comboDiv);
         _g.stats.wrong++;
+
+        // Auto-leech if threshold hit
+        const threshold = _getLeechThreshold();
+        if (srsItem.wrongCount === threshold) {
+            const wordData = _vocabQueue.find(v => v.id === srsItem.id);
+            _toast(`🩸 "${wordData?.kanji || srsItem.id}" became a Leech! (${threshold} fails)`, '#e17055');
+        }
 
         if (event) _spawnFloatingText(event.clientX, event.clientY, `❌`, '#ff4b4b', 28);
 
@@ -1318,6 +1465,21 @@ function _initGameDOM() {
                 <span class="nk-pending-count">0</span> Hungry Cats waiting!
             </div>
 
+            <!-- Leech dojo header bar (shown when leeches exist or in leech mode) -->
+            <div id="nk-leech-bar" style="display:none; margin-bottom:10px;">
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <button id="nk-leech-dojo-btn" class="nk-leech-toggle-btn">
+                        🩸 Leech Dojo <span id="nk-leech-count-badge" class="nk-leech-badge">0</span>
+                    </button>
+                    <button id="nk-normal-dojo-btn" class="nk-leech-toggle-btn nk-leech-toggle-inactive" style="display:none;">
+                        ← Normal Dojo
+                    </button>
+                </div>
+                <div id="nk-leech-mode-label" style="display:none; font-size:11px; color:#e17055; font-weight:bold; margin-top:4px;">
+                    🩸 Leech Dojo active — reduced yarn rewards · always available
+                </div>
+            </div>
+
             <!-- 1. Sleep State -->
             <div id="nk-dojo-sleep" style="display:none;" class="nk-dojo-screen">
                 <div style="font-size:50px;">💤</div>
@@ -1346,6 +1508,7 @@ function _initGameDOM() {
                     </div>
                 </div>
                 <div class="nk-quiz-grid"></div>
+                <div id="nk-quiz-leech-actions" style="margin-top:10px; width:100%; max-width:400px;"></div>
             </div>
         </div>
 
@@ -1397,6 +1560,15 @@ function _initGameDOM() {
                 </div>
                 <div class="nk-shop-title">⚙️ Game Settings</div>
                 <div class="nk-stats-list" style="padding:14px; display:flex; flex-direction:column; gap:14px;">
+                    <div>
+                        <label style="font-size:13px; font-weight:bold; display:block; margin-bottom:4px;">🩸 Leech Threshold</label>
+                        <div style="font-size:11px; color:#888; margin-bottom:6px;">A word becomes a Leech after this many wrong answers (default: 20). Leeches leave the normal Dojo and must be trained separately.</div>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <input type="number" id="nk-cfg-leech" min="5" max="100" step="1" value="20"
+                                style="width:70px; padding:5px 8px; border:2px solid #eee; border-radius:8px; font-size:14px; font-weight:bold;">
+                            <button class="nk-learn-btn" style="padding:5px 14px; font-size:12px;" id="nk-cfg-leech-save">Save</button>
+                        </div>
+                    </div>
                     <div>
                         <label style="font-size:13px; font-weight:bold; display:block; margin-bottom:4px;">🌱 Starter Words</label>
                         <div style="font-size:11px; color:#888; margin-bottom:6px;">Words given for free when starting a fresh save (default: 3)</div>
@@ -1482,6 +1654,12 @@ function _initGameDOM() {
     el.querySelector('#nk-learn-btn').addEventListener('click', _learnNewWord);
     el.querySelector('#nk-cat').addEventListener('click', (e) => _petCat(e));
 
+    // Leech dojo buttons (wired via event delegation since bar may be hidden)
+    el.addEventListener('click', (e) => {
+        if (e.target.id === 'nk-leech-dojo-btn') { _setLeechMode(true); }
+        if (e.target.id === 'nk-normal-dojo-btn') { _setLeechMode(false); }
+    });
+
     el.querySelector('#nk-mult-btn').addEventListener('click', (e) => {
         e.stopPropagation();
         const popup = el.querySelector('#nk-mult-popup');
@@ -1561,9 +1739,11 @@ function _initGameDOM() {
     const starterIn  = el.querySelector('#nk-cfg-starter');
     const easeIn     = el.querySelector('#nk-cfg-ease');
     const intervalIn = el.querySelector('#nk-cfg-interval');
+    const leechIn    = el.querySelector('#nk-cfg-leech');
     if (starterIn)  starterIn.value  = _getCfg('starter',  3);
     if (easeIn)     easeIn.value     = _getCfg('ease',     1.5);
     if (intervalIn) intervalIn.value = _getCfg('interval', 8);
+    if (leechIn)    leechIn.value    = _getCfg('leechThreshold', 20);
 
     el.querySelector('#nk-cfg-starter-save')?.addEventListener('click', () => {
         const v = parseInt(el.querySelector('#nk-cfg-starter').value);
@@ -1571,6 +1751,12 @@ function _initGameDOM() {
         const cfg = _loadCfg(); cfg.starter = v; _saveCfg(cfg);
         _STARTER_COUNT = v;
         cfgStatus(`✓ Starter words set to ${v} (takes effect on next wipe/fresh start)`);
+    });
+    el.querySelector('#nk-cfg-leech-save')?.addEventListener('click', () => {
+        const v = parseInt(el.querySelector('#nk-cfg-leech').value);
+        if (isNaN(v) || v < 5 || v > 100) { cfgStatus('Must be 5–100', false); return; }
+        const cfg = _loadCfg(); cfg.leechThreshold = v; _saveCfg(cfg);
+        cfgStatus(`✓ Leech threshold set to ${v} wrong answers`);
     });
     el.querySelector('#nk-cfg-ease-save')?.addEventListener('click', () => {
         const v = parseFloat(el.querySelector('#nk-cfg-ease').value);
@@ -1878,12 +2064,24 @@ function _initShops() {
     _renderShop('rebirthUpgrades','nk-upg-rebirth', 'r', false, true);
 }
 
+// Bell upgrade groups — defines display order and section headers
+const _BELL_GROUPS = [
+    { label: '👆 Click Power',   keys: ['paw', 'laser_ptr'] },
+    { label: '📦 Idle / Passive', keys: ['tuna', 'warp', 'nap', 'bank', 'sunspot'] },
+    { label: '🧶 Yarn',          keys: ['weaver', 'thread', 'loom', 'focus'] },
+    { label: '🐟 Click Specials', keys: ['luck', 'charm', 'echo', 'purr', 'surge', 'auto'] },
+    { label: '🎓 Dojo',          keys: ['scholar', 'combo_saver', 'sensei'] },
+    { label: '🛒 Economy',       keys: ['discount'] },
+];
+
 function _renderShop(shopKey, containerId, prefix, isBell, isRebirth) {
     const container = _screens.game?.querySelector(`#${containerId}`);
     if (!container) return;
     container.innerHTML = '';
-    for (const key in _g[shopKey]) {
+
+    const _appendUpg = (key) => {
         const upg = _g[shopKey][key];
+        if (!upg) return;
         const vocabReq = upg.vocabReq || 0;
         const vocabNote = ((shopKey === 'upgrades' || shopKey === 'clickUpgrades') && vocabReq > 0)
             ? `<span class="nk-upg-vocab" id="nk-vocab-${prefix}-${key}">📚 ${vocabReq} words</span>`
@@ -1900,6 +2098,39 @@ function _renderShop(shopKey, containerId, prefix, isBell, isRebirth) {
             <button class="nk-upg-btn" id="nk-btn-${prefix}-${key}">Buy</button>`;
         div.querySelector('.nk-upg-btn').addEventListener('click', () => _buyUpgrade(shopKey, key));
         container.appendChild(div);
+    };
+
+    if (isBell) {
+        // Grouped + sorted by cost within each group
+        const rendered = new Set();
+        _BELL_GROUPS.forEach(group => {
+            // Only include keys that actually exist in the current shop object
+            const existing = group.keys.filter(k => _g[shopKey][k]);
+            if (!existing.length) return;
+            // Sort within group by base cost ascending
+            existing.sort((a, b) => _g[shopKey][a].cost - _g[shopKey][b].cost);
+
+            const header = document.createElement('div');
+            header.className = 'nk-shop-title nk-bell-group-title';
+            header.textContent = group.label;
+            container.appendChild(header);
+
+            existing.forEach(k => { _appendUpg(k); rendered.add(k); });
+        });
+        // Catch-all: any bell upgrades not in any group, sorted by cost
+        const ungrouped = Object.keys(_g[shopKey])
+            .filter(k => !rendered.has(k))
+            .sort((a, b) => _g[shopKey][a].cost - _g[shopKey][b].cost);
+        if (ungrouped.length) {
+            const header = document.createElement('div');
+            header.className = 'nk-shop-title nk-bell-group-title';
+            header.textContent = '⚙️ Other';
+            container.appendChild(header);
+            ungrouped.forEach(k => _appendUpg(k));
+        }
+    } else {
+        // Non-bell shops: keep existing order (already sorted by vocabReq / cost in definition)
+        for (const key in _g[shopKey]) _appendUpg(key);
     }
 }
 
@@ -2031,11 +2262,13 @@ function _renderVocabList() {
 
     const summaryEl = g.querySelector('#nk-vocab-summary');
     if (summaryEl) {
+        const leechCount = _getLeechedItems().length;
         summaryEl.innerHTML = `
             <div class="nk-stat-row"><span>📚 Total Vocabulary</span><span>${total}</span></div>
             <div class="nk-stat-row"><span>✅ Learned</span><span>${learned}</span></div>
             <div class="nk-stat-row"><span>🔓 Unleaned</span><span>${total - learned}</span></div>
             <div class="nk-stat-row"><span>⏳ Due for Review</span><span>${due > 0 ? '<span style="color:#e17055;font-weight:bold;">' + due + '</span>' : '0'}</span></div>
+            ${leechCount > 0 ? `<div class="nk-stat-row"><span>🩸 Leeches</span><span style="color:#e17055;font-weight:bold;">${leechCount}</span></div>` : ''}
         `;
     }
 
@@ -2054,17 +2287,30 @@ function _renderVocabList() {
         const isDue      = item.nextReview <= now;
         const waitText   = isDue ? 'Due now!' : _formatTime((item.nextReview - now) / 1000);
         const intervalText = _formatTime(item.interval);
+        const isLeech    = _isLeech(item);
+        const wrongCount = item.wrongCount || 0;
+        const threshold  = _getLeechThreshold();
+        const leechLabel = isLeech
+            ? `<span style="color:#e17055;font-size:10px;font-weight:bold;">🩸 LEECH (${wrongCount}✗)</span>`
+            : wrongCount > 0
+                ? `<span style="color:#aaa;font-size:10px;">${wrongCount}/${threshold} fails</span>`
+                : '';
         const row = document.createElement('div');
         row.className = 'nk-vocab-row';
+        if (isLeech) row.style.borderLeft = '3px solid #e17055';
         row.innerHTML = `
             <div style="flex:1;">
                 <div style="font-weight:bold; font-size:16px;">${wordData.kanji}</div>
                 <div style="font-size:12px; color:var(--text-muted);">${wordData.kana} · ${wordData.eng}</div>
+                ${leechLabel}
             </div>
             <div style="text-align:right; margin-right: 12px; min-width:80px;">
-                <div style="font-size:10px; color:#888;">Next review</div>
-                <div style="font-size:12px; font-weight:bold; color:${isDue ? '#e17055' : 'var(--nk-btn)'};">${waitText}</div>
-                <div style="font-size:10px; color:#aaa;">interval: ${intervalText}</div>
+                ${isLeech
+                    ? `<div style="font-size:11px;color:#e17055;font-weight:bold;">🩸 Leech Dojo</div>`
+                    : `<div style="font-size:10px; color:#888;">Next review</div>
+                       <div style="font-size:12px; font-weight:bold; color:${isDue ? '#e17055' : 'var(--nk-btn)'};">${waitText}</div>
+                       <div style="font-size:10px; color:#aaa;">interval: ${intervalText}</div>`
+                }
             </div>
             <button class="nk-ban-btn" title="Ban from Dojo">🚫</button>
         `;
@@ -2211,6 +2457,9 @@ function _updateUI() {
             dojoBadge.style.display = 'none';
         }
     }
+
+    // Keep leech bar in sync
+    _updateLeechDojoBtn();
 
     if (_g.karma > 0 || _g.bells > 50) {
         const karmaPill = g.querySelector('#nk-karma-pill');
@@ -2895,6 +3144,51 @@ function _toast(msg, color = '#333') {
     cursor: pointer; padding: 4px; text-align: center;
 }
 .nk-wipe-cancel:hover { color: #555; }
+
+/* Bell upgrade group headers */
+.nk-bell-group-title {
+    margin-top: 14px;
+    margin-bottom: 6px;
+    font-size: 11px;
+    color: var(--nk-btn);
+    border-bottom: 1px solid rgba(255,179,71,0.25);
+    padding-bottom: 3px;
+}
+.nk-bell-group-title:first-child { margin-top: 0; }
+
+/* Leech mechanic */
+.nk-leech-badge {
+    display: inline-block; background: #e17055; color: white;
+    border-radius: 10px; font-size: 10px; font-weight: bold;
+    padding: 1px 6px; margin-left: 5px; vertical-align: middle;
+}
+.nk-leech-toggle-btn {
+    display: inline-flex; align-items: center;
+    background: #e17055; color: white; border: none;
+    padding: 6px 14px; border-radius: 16px; font-size: 12px;
+    font-weight: bold; cursor: pointer;
+    box-shadow: 0 2px 0 #c0392b;
+    transition: opacity 0.15s;
+}
+.nk-leech-toggle-btn:active { transform: translateY(2px); box-shadow: none; }
+.nk-leech-toggle-inactive {
+    background: var(--nk-btn); box-shadow: 0 2px 0 #cc8800;
+}
+.nk-leech-action-btn {
+    width: 100%; padding: 9px 16px; border: none; border-radius: 10px;
+    font-size: 13px; font-weight: bold; cursor: pointer;
+    transition: opacity 0.15s;
+}
+.nk-leech-action-btn:active { opacity: 0.7; }
+.nk-mark-leech-btn {
+    background: #fff0ee; color: #e17055;
+    border: 2px solid #e17055;
+}
+.nk-unleech-btn {
+    background: var(--nk-success); color: white;
+    box-shadow: 0 3px 0 #27ae60;
+}
+.nk-unleech-btn:active { transform: translateY(3px); box-shadow: none; }
 
 /* Dark Mode */
 [data-theme="dark"] .nk-root   { --nk-bg: #2a1f14; --nk-text: #f0d9c0; --nk-panel: #3d2b1a; }[data-theme="dark"] .nk-stats-header,
