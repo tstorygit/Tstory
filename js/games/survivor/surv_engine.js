@@ -1,9 +1,10 @@
 import { getInputDir } from './surv_input.js';
 import { WEAPONS, ENEMIES, CHARACTERS, PASSIVES } from './surv_entities.js';
+import * as Audio from './surv_audio.js';
 
 let ctx, canvas;
 let player, gameState, lastTime;
-let activeWeapons = [];
+let activeWeapons  = [];
 let activePassives = [];
 
 const MAX_ENEMIES     = 500;
@@ -23,29 +24,33 @@ let spawnTimer  = 0;
 let elapsedTime = 0;
 let rafId = null;
 
-let uiCallbacks = null;
-let metaStats   = null;
-
-// ✅ FIX: Store characterId separately — metaStats is the upgrades object, not character data
+let uiCallbacks  = null;
+let metaStats    = null;
 let currentCharId = 'ronin';
 
-let elitesSpawned = { 3: false, 6: false, 9: false, 12: false };
+// ── Elite / boss state ──
+let elitesSpawned = new Set(); // stores minute numbers already spawned
+let bossWarned    = false;     // only warn once per run
+
+// ── Screen shake ──
+let shakeIntensity = 0;        // decays each frame; applied as canvas translate
+
+// ── Enemy-hit sound throttle ──
+let lastEnemyHitSound = 0;
 
 const CELL_SIZE = 100;
 let spatialHash = new Map();
 
-// ── Tile palette for forest ground ──
 const TILE_COLORS = [
     'rgba(20,40,20,1)',
     'rgba(18,36,18,1)',
     'rgba(22,44,22,1)',
     'rgba(19,38,19,1)',
 ];
-let tileCache = new Map();
 
 export function initCanvas(canvasEl, callbacks) {
-    canvas = canvasEl;
-    ctx = canvas.getContext('2d', { alpha: false });
+    canvas      = canvasEl;
+    ctx         = canvas.getContext('2d', { alpha: false });
     uiCallbacks = callbacks;
     resize();
     window.addEventListener('resize', resize);
@@ -56,13 +61,11 @@ function resize() {
     const parent = canvas.parentElement;
     canvas.width  = parent.clientWidth;
     canvas.height = parent.clientHeight;
-    tileCache.clear();
 }
 
 export function startRun(characterId, metaUpgrades) {
-    // ✅ FIX: Store characterId in its own variable
     currentCharId = characterId;
-    metaStats = metaUpgrades;
+    metaStats     = metaUpgrades;
 
     const charDef = CHARACTERS[characterId];
 
@@ -72,7 +75,7 @@ export function startRun(characterId, metaUpgrades) {
         level: 1, xp: 0, xpToNext: 10,
         hp: 100, maxHp: 100,
         stats: {
-            moveSpeed: 150,
+            moveSpeed:     150,
             moveSpeedMult: charDef.stats.moveSpeedMult || 0,
             damageMult:    0,
             cooldownMult:  0,
@@ -97,17 +100,19 @@ export function startRun(characterId, metaUpgrades) {
     activePassives = [];
     applyUpgrade({ type: 'weapon', id: charDef.startWeapon });
 
-    poolEnemies.forEach(e => e.active = false);
-    poolGems.forEach(g => g.active = false);
+    poolEnemies.forEach(e => e.active     = false);
+    poolGems.forEach(g    => g.active     = false);
     poolProjectiles.forEach(p => p.active = false);
-    poolDmgTexts.forEach(t => t.active = false);
-    poolChests.forEach(c => c.active = false);
+    poolDmgTexts.forEach(t  => t.active   = false);
+    poolChests.forEach(c    => c.active   = false);
 
-    elitesSpawned = { 3: false, 6: false, 9: false, 12: false };
-    elapsedTime = 0;
-    spawnTimer  = 0;
-    gameState   = 'PLAYING';
-    lastTime    = performance.now();
+    elitesSpawned  = new Set();
+    bossWarned     = false;
+    shakeIntensity = 0;
+    elapsedTime    = 0;
+    spawnTimer     = 0;
+    gameState      = 'PLAYING';
+    lastTime       = performance.now();
 
     cancelAnimationFrame(rafId);
     rafId = requestAnimationFrame(gameLoop);
@@ -118,7 +123,7 @@ export function resume() {
     if (gameState === 'PAUSED') {
         lastTime  = performance.now();
         gameState = 'PLAYING';
-        rafId = requestAnimationFrame(gameLoop);
+        rafId     = requestAnimationFrame(gameLoop);
     }
 }
 export function stop() {
@@ -127,23 +132,26 @@ export function stop() {
     window.removeEventListener('resize', resize);
 }
 
+// ── Upgrades & stats ────────────────────────────────────────────────────────
+
 export function applyUpgrade(upg) {
     if (upg.type === 'weapon') {
         let w = activeWeapons.find(aw => aw.id === upg.id);
         if (w) w.level++;
-        else {
-            w = { id: upg.id, level: 1, timer: 0, angle: 0 };
-            activeWeapons.push(w);
-        }
+        else activeWeapons.push({ id: upg.id, level: 1, timer: 0, angle: 0 });
     } else {
         let p = activePassives.find(ap => ap.id === upg.id);
         if (p) p.level++;
         else activePassives.push({ id: upg.id, level: 1 });
-
         const pDef = PASSIVES[upg.id];
         player.stats[pDef.stat] += pDef.value;
         recalcStats();
     }
+}
+
+/** ✅ FIX: Proper heal — no longer abuses applyPenalty which also raised maxHp */
+export function applyHeal(pct) {
+    player.hp = Math.min(player.maxHp, player.hp + player.maxHp * pct);
 }
 
 export function applyPenalty() {
@@ -162,7 +170,19 @@ function recalcStats() {
     if (player.maxHp > oldMax) player.hp += (player.maxHp - oldMax);
 }
 
-// ─── GAME LOOP ─────────────────────────────────────────────────────────────
+// ── Difficulty scaling ──────────────────────────────────────────────────────
+// Returns multipliers for enemy HP, speed, damage that ramp smoothly over 15 min.
+
+function getDifficulty() {
+    const t = elapsedTime;
+    return {
+        hp:     Math.min(4.0, 1 + t / 300),        // ×2 at 5 min, ×4 at 15 min
+        speed:  Math.min(1.6, 1 + t / 750 * 0.6),  // +40% by 12 min
+        damage: Math.min(3.0, 1 + t / 300 * 0.8)   // ×2.6 at 15 min
+    };
+}
+
+// ─── GAME LOOP ──────────────────────────────────────────────────────────────
 
 function gameLoop(time) {
     if (gameState !== 'PLAYING') return;
@@ -171,8 +191,15 @@ function gameLoop(time) {
     lastTime = time;
     if (dt > 0.1) dt = 0.1;
 
-    elapsedTime += dt;
+    elapsedTime    += dt;
+    shakeIntensity  = Math.max(0, shakeIntensity - dt * 30);
 
+    // ── Boss: warn at 14:30, spawn at 15:00 ──
+    if (elapsedTime >= 870 && !bossWarned) {
+        bossWarned = true;
+        uiCallbacks.onBossWarning?.();
+        Audio.playBossWarning();
+    }
     if (elapsedTime >= 900 && !poolEnemies.some(e => e.active && e.def.isBoss)) {
         spawnBoss();
     }
@@ -188,24 +215,27 @@ function gameLoop(time) {
 
     buildSpatialHash();
     checkCollisions();
-
     drawEverything();
 
     if (player.xp >= player.xpToNext) {
-        player.xp -= player.xpToNext;
+        player.xp      -= player.xpToNext;
         player.level++;
         player.xpToNext = Math.floor(player.xpToNext * 1.2 + 10);
-        gameState = 'PAUSED';
+        gameState       = 'PAUSED';
+        Audio.playLevelUp();
         uiCallbacks.onLevelUp();
     }
 
     if (player.hp <= 0) {
         gameState = 'GAME_OVER';
+        Audio.playGameOver();
         uiCallbacks.onGameOver(false);
     }
 
     rafId = requestAnimationFrame(gameLoop);
 }
+
+// ─── UPDATE ─────────────────────────────────────────────────────────────────
 
 function updatePlayer(dt) {
     const dir = getInputDir();
@@ -219,7 +249,7 @@ function updatePlayer(dt) {
 
     if (player.invincibility > 0) player.invincibility -= dt;
 
-    camera.x = player.x - canvas.width / 2;
+    camera.x = player.x - canvas.width  / 2;
     camera.y = player.y - canvas.height / 2;
 }
 
@@ -257,22 +287,22 @@ function updateWeapons(dt) {
 
             if (def.type === 'directional') {
                 for (let i = 0; i < lvlDef.count; i++) {
-                    let dirX = player.lastDirX, dirY = player.lastDirY;
-                    if (i === 1 && lvlDef.count >= 2) { dirX *= -1; dirY *= -1; }
-                    if (i === 2) { const t = dirX; dirX = -dirY; dirY = t; }
+                    let dX = player.lastDirX, dY = player.lastDirY;
+                    if (i === 1 && lvlDef.count >= 2) { dX *= -1; dY *= -1; }
+                    if (i === 2) { const t = dX; dX = -dY; dY = t; }
                     spawnProjectile({
-                        type: 'melee', x: player.x + dirX * 30, y: player.y + dirY * 30,
-                        vx: dirX * 400, vy: dirY * 400,
+                        type: 'melee',
+                        x: player.x + dX * 30, y: player.y + dY * 30,
+                        vx: dX * 400, vy: dY * 400,
                         radius: 30 * (lvlDef.area || 1),
-                        damage: lvlDef.damage * dmgMult, duration: 0.25,
-                        pierce: 3, emoji: def.icon
+                        damage: lvlDef.damage * dmgMult, duration: 0.25, pierce: 3, emoji: def.icon
                     });
                 }
             } else if (def.type === 'projectile') {
-                // Find nearest enemies
                 const nearest = poolEnemies
                     .filter(e => e.active)
-                    .sort((a, b) => Math.hypot(a.x - player.x, a.y - player.y) - Math.hypot(b.x - player.x, b.y - player.y))
+                    .sort((a, b) => Math.hypot(a.x - player.x, a.y - player.y) -
+                                    Math.hypot(b.x - player.x, b.y - player.y))
                     .slice(0, lvlDef.count);
                 nearest.forEach(target => {
                     const dx = target.x - player.x;
@@ -281,8 +311,7 @@ function updateWeapons(dt) {
                     spawnProjectile({
                         type: 'projectile',
                         x: player.x, y: player.y,
-                        vx: (dx / d) * lvlDef.speed,
-                        vy: (dy / d) * lvlDef.speed,
+                        vx: (dx / d) * lvlDef.speed, vy: (dy / d) * lvlDef.speed,
                         radius: 10, damage: lvlDef.damage * dmgMult,
                         duration: 2.0, pierce: 1, emoji: def.icon
                     });
@@ -320,40 +349,57 @@ function spawnBoss() {
         x: player.x + Math.cos(angle) * dist,
         y: player.y + Math.sin(angle) * dist,
         def: { ...ENEMIES.boss },
-        hp: ENEMIES.boss.hp
+        hp:  ENEMIES.boss.hp
     });
+    shakeIntensity = 20; // dramatic entrance shake
 }
 
 function spawnEnemies(dt) {
     spawnTimer -= dt;
     if (spawnTimer > 0) return;
 
-    const wave    = Math.floor(elapsedTime / 60);
-    const count   = 3 + wave * 2;
-    spawnTimer    = Math.max(0.5, 2.5 - wave * 0.15);
+    const wave     = Math.floor(elapsedTime / 60);
+    const count    = 3 + wave * 2;
+    spawnTimer     = Math.max(0.5, 2.5 - wave * 0.15);
 
-    // Elite spawns at fixed minutes
-    const minuteKey = Math.floor(elapsedTime / 60) * 3;
-    if ([3, 6, 9, 12].includes(minuteKey) && !elitesSpawned[minuteKey]) {
-        elitesSpawned[minuteKey] = true;
-        _spawnOne({ ...ENEMIES.tank, isElite: true, hp: ENEMIES.tank.hp * 5, emoji: '👹' });
+    // ✅ FIX: was `Math.floor(elapsed/60) * 3` which hit minutes 1,2,3,4 not 3,6,9,12
+    const currentMinute = Math.floor(elapsedTime / 60);
+    if ([3, 6, 9, 12].includes(currentMinute) && !elitesSpawned.has(currentMinute)) {
+        elitesSpawned.add(currentMinute);
+        _spawnOne({ ...ENEMIES.tank, isElite: true, hp: ENEMIES.tank.hp * 5, emoji: '👹' }, true);
     }
 
     const types = wave < 1 ? ['grunt'] :
                   wave < 2 ? ['grunt', 'grunt', 'dasher'] :
                              ['grunt', 'dasher', 'tank'];
     for (let i = 0; i < count; i++) {
-        const t = types[Math.floor(Math.random() * types.length)];
-        _spawnOne(ENEMIES[t]);
+        _spawnOne(ENEMIES[types[Math.floor(Math.random() * types.length)]]);
     }
 }
 
-function _spawnOne(def) {
+/** ✅ Difficulty scaling applied at spawn time — no shared-object mutation */
+function _spawnOne(def, isElite = false) {
     const e = poolEnemies.find(x => !x.active);
     if (!e) return;
     const angle = Math.random() * Math.PI * 2;
     const dist  = Math.max(canvas.width, canvas.height) * 0.6 + Math.random() * 100;
-    Object.assign(e, { active: true, def, hp: def.hp, x: player.x + Math.cos(angle) * dist, y: player.y + Math.sin(angle) * dist });
+    const diff  = getDifficulty();
+
+    // Create a scaled copy of the def, never mutate the shared ENEMIES constant
+    const scaledDef = {
+        ...def,
+        speed:  def.speed  * diff.speed,
+        damage: Math.ceil(def.damage * diff.damage)
+    };
+    const scaledHp = def.hp * diff.hp * (isElite ? 5 : 1);
+
+    Object.assign(e, {
+        active: true,
+        def: scaledDef,
+        hp:  scaledHp,
+        x: player.x + Math.cos(angle) * dist,
+        y: player.y + Math.sin(angle) * dist
+    });
 }
 
 function updateEnemies(dt) {
@@ -402,8 +448,9 @@ function updateChests() {
         const c = poolChests[i];
         if (!c.active) continue;
         if (Math.hypot(player.x - c.x, player.y - c.y) < 40) {
-            c.active = false;
+            c.active  = false;
             gameState = 'PAUSED';
+            Audio.playChestOpen();
             uiCallbacks.onChest();
         }
     }
@@ -432,8 +479,8 @@ function getEnemiesNear(x, y, radius) {
             const bucket = spatialHash.get(`${i},${j}`);
             if (bucket) {
                 for (let k = 0; k < bucket.length; k++) {
-                    const e = bucket[k];
-                    if (Math.hypot(e.x - x, e.y - y) <= radius) result.push(e);
+                    if (Math.hypot(bucket[k].x - x, bucket[k].y - y) <= radius)
+                        result.push(bucket[k]);
                 }
             }
         }
@@ -442,6 +489,7 @@ function getEnemiesNear(x, y, radius) {
 }
 
 function checkCollisions() {
+    // Player vs enemies
     if (player.invincibility <= 0) {
         for (let i = 0; i < poolEnemies.length; i++) {
             const e = poolEnemies[i];
@@ -450,19 +498,22 @@ function checkCollisions() {
                 const dmg = Math.max(1, e.def.damage - player.stats.armor);
                 player.hp -= dmg;
                 player.invincibility = 0.5;
+                // ── Screenshake on player damage ──
+                shakeIntensity = Math.min(12, shakeIntensity + 7);
+                Audio.playHit();
                 spawnDmgText(player.x, player.y - 30, dmg, '#ff4757');
                 break;
             }
         }
     }
 
+    // Projectiles vs enemies
+    const now = performance.now();
     for (let j = 0; j < poolProjectiles.length; j++) {
         const p = poolProjectiles[j];
         if (!p.active) continue;
 
-        const checkRadius = p.radius + 15;
-        const targets     = getEnemiesNear(p.x, p.y, checkRadius);
-
+        const targets = getEnemiesNear(p.x, p.y, p.radius + 15);
         for (let k = 0; k < targets.length; k++) {
             const e = targets[k];
             if (p.hitList && p.hitList.has(e)) continue;
@@ -472,12 +523,19 @@ function checkCollisions() {
             p.pierce--;
             spawnDmgText(e.x, e.y - 20, Math.floor(p.damage), '#fff');
 
+            // Throttled enemy-hit sound (max once every 80ms)
+            if (now - lastEnemyHitSound > 80) {
+                lastEnemyHitSound = now;
+                Audio.playEnemyHit();
+            }
+
             if (e.hp <= 0) {
                 e.active = false;
                 uiCallbacks.onKill();
 
                 if (e.def.isBoss) {
                     gameState = 'GAME_OVER';
+                    Audio.playVictory();
                     uiCallbacks.onGameOver(true);
                 } else if (e.def.isElite) {
                     const c = poolChests.find(x => !x.active);
@@ -487,11 +545,11 @@ function checkCollisions() {
                     if (g) {
                         g.active = true; g.x = e.x; g.y = e.y; g.xp = e.def.xp;
                         g.color  = g.xp >= 20 ? '#e74c3c' : g.xp >= 5 ? '#2ecc71' : '#3498db';
-                        g.glow   = g.xp >= 20 ? 'rgba(231,76,60,0.6)' : g.xp >= 5 ? 'rgba(46,204,113,0.6)' : 'rgba(52,152,219,0.6)';
+                        g.glow   = g.xp >= 20 ? 'rgba(231,76,60,0.6)' :
+                                   g.xp >= 5  ? 'rgba(46,204,113,0.6)' : 'rgba(52,152,219,0.6)';
                     }
                 }
             }
-
             if (p.pierce <= 0) { p.active = false; break; }
         }
     }
@@ -500,9 +558,10 @@ function checkCollisions() {
 function spawnDmgText(x, y, text, color) {
     const t = poolDmgTexts.find(x => !x.active);
     if (!t) return;
-    t.active = true;
-    t.x = x; t.y = y; t.text = text; t.color = color; t.life = 0.7;
-    t.vx = (Math.random() - 0.5) * 40;
+    Object.assign(t, {
+        active: true, x, y, text, color, life: 0.7,
+        vx: (Math.random() - 0.5) * 40
+    });
 }
 
 function updateDmgTexts(dt) {
@@ -516,40 +575,95 @@ function updateDmgTexts(dt) {
     }
 }
 
-// ─── DRAW ──────────────────────────────────────────────────────────────────
+// ─── DRAW ────────────────────────────────────────────────────────────────────
+
+/** Draw an arrow at the screen edge pointing towards an off-screen world position */
+function drawOffScreenArrow(worldX, worldY, icon, color) {
+    const cw = canvas.width, ch = canvas.height;
+    const scrX = worldX - camera.x;
+    const scrY = worldY - camera.y;
+    const margin = 38;
+
+    // Already on-screen — nothing to do
+    if (scrX > margin && scrX < cw - margin && scrY > margin && scrY < ch - margin) return;
+
+    const angle = Math.atan2(worldY - player.y, worldX - player.x);
+    const cosA  = Math.cos(angle), sinA = Math.sin(angle);
+
+    // Intersect ray from screen-centre with screen rectangle
+    const cx = cw / 2, cy = ch / 2;
+    const tR = cosA > 0  ? (cw - margin - cx) / cosA  : Infinity;
+    const tL = cosA < 0  ? (margin - cx)      / cosA  : Infinity;
+    const tB = sinA > 0  ? (ch - margin - cy) / sinA  : Infinity;
+    const tT = sinA < 0  ? (margin - cy)      / sinA  : Infinity;
+    const t  = Math.min(tR, tL, tB, tT);
+
+    const ax = cx + cosA * t;
+    const ay = cy + sinA * t;
+
+    ctx.save();
+    ctx.translate(ax, ay);
+    ctx.rotate(angle);
+    ctx.shadowColor = color;
+    ctx.shadowBlur  = 14;
+
+    // Arrow head
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.85 + 0.15 * Math.sin(elapsedTime * 6); // gentle pulse
+    ctx.beginPath();
+    ctx.moveTo(16, 0);
+    ctx.lineTo(-4, -7);
+    ctx.lineTo(-4, 7);
+    ctx.closePath();
+    ctx.fill();
+
+    // Icon label
+    ctx.rotate(-angle);
+    ctx.globalAlpha = 1;
+    ctx.font = '14px Arial';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(icon, -12, 0);
+
+    ctx.restore();
+    ctx.shadowBlur  = 0;
+    ctx.globalAlpha = 1;
+}
 
 function drawEverything() {
     const cw = canvas.width;
     const ch = canvas.height;
 
-    // ── Forest floor: tiled dark-green cells ──
-    ctx.fillStyle = '#0d1f0d';
-    ctx.fillRect(0, 0, cw, ch);
+    // ── Screenshake transform ──
+    const doShake = shakeIntensity > 0;
+    let sx = 0, sy = 0;
+    if (doShake) {
+        sx = (Math.random() - 0.5) * shakeIntensity;
+        sy = (Math.random() - 0.5) * shakeIntensity;
+        ctx.save();
+        ctx.translate(sx, sy);
+    }
 
-    const tileSize = 80;
-    const offX = ((-camera.x % tileSize) + tileSize) % tileSize;
-    const offY = ((-camera.y % tileSize) + tileSize) % tileSize;
-    const startTileX = Math.floor(camera.x / tileSize);
-    const startTileY = Math.floor(camera.y / tileSize);
+    // ── Forest floor ──
+    ctx.fillStyle = '#0d1f0d';
+    ctx.fillRect(-20, -20, cw + 40, ch + 40);
+
+    const tileSize  = 80;
+    const offX      = ((-camera.x % tileSize) + tileSize) % tileSize;
+    const offY      = ((-camera.y % tileSize) + tileSize) % tileSize;
+    const startTX   = Math.floor(camera.x / tileSize);
+    const startTY   = Math.floor(camera.y / tileSize);
 
     for (let tx = -1; tx <= Math.ceil(cw / tileSize) + 1; tx++) {
         for (let ty = -1; ty <= Math.ceil(ch / tileSize) + 1; ty++) {
-            const worldTX = startTileX + tx;
-            const worldTY = startTileY + ty;
-            const hash = ((worldTX * 73856093) ^ (worldTY * 19349663)) & 3;
+            const hash = (((startTX + tx) * 73856093) ^ ((startTY + ty) * 19349663)) & 3;
             ctx.fillStyle = TILE_COLORS[hash];
-            ctx.fillRect(
-                offX + tx * tileSize,
-                offY + ty * tileSize,
-                tileSize - 1,
-                tileSize - 1
-            );
+            ctx.fillRect(offX + tx * tileSize, offY + ty * tileSize, tileSize - 1, tileSize - 1);
         }
     }
 
-    // Subtle grid overlay
     ctx.strokeStyle = 'rgba(255,255,255,0.03)';
-    ctx.lineWidth = 1;
+    ctx.lineWidth   = 1;
     ctx.beginPath();
     for (let x = offX; x < cw; x += tileSize) { ctx.moveTo(x, 0); ctx.lineTo(x, ch); }
     for (let y = offY; y < ch; y += tileSize) { ctx.moveTo(0, y); ctx.lineTo(cw, y); }
@@ -558,14 +672,13 @@ function drawEverything() {
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
 
-    // ── Chests ──
+    // ── Chests (on-screen) ──
     for (let i = 0; i < poolChests.length; i++) {
         const c = poolChests[i];
         if (!c.active) continue;
         const cx = c.x - camera.x, cy = c.y - camera.y;
-        // Glow
-        ctx.shadowColor = 'rgba(241,196,15,0.8)';
-        ctx.shadowBlur  = 20;
+        ctx.shadowColor = 'rgba(241,196,15,0.9)';
+        ctx.shadowBlur  = 22;
         ctx.font = '30px Arial';
         ctx.fillText('🧰', cx, cy);
         ctx.shadowBlur = 0;
@@ -577,7 +690,6 @@ function drawEverything() {
         if (!g.active) continue;
         const gx = g.x - camera.x, gy = g.y - camera.y;
         const r  = g.xp >= 20 ? 7 : g.xp >= 5 ? 6 : 4;
-
         ctx.shadowColor = g.glow || g.color;
         ctx.shadowBlur  = 10;
         ctx.fillStyle   = g.color;
@@ -588,22 +700,20 @@ function drawEverything() {
     }
 
     // ── Player ──
-    const px = player.x - camera.x;
-    const py = player.y - camera.y;
+    const px         = player.x - camera.x;
+    const py         = player.y - camera.y;
     const isBlinking = player.invincibility > 0 && Math.floor(elapsedTime * 10) % 2 === 0;
 
     if (!isBlinking) {
-        // Shadow ring
-        ctx.fillStyle = 'rgba(0,0,0,0.4)';
+        ctx.fillStyle = 'rgba(0,0,0,0.35)';
         ctx.beginPath();
         ctx.ellipse(px, py + 14, 16, 6, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // Player glow
         ctx.shadowColor = 'rgba(100,200,255,0.5)';
         ctx.shadowBlur  = 18;
         ctx.font = '28px Arial';
-        ctx.fillText(CHARACTERS[currentCharId].icon, px, py); // ✅ uses correct char
+        ctx.fillText(CHARACTERS[currentCharId].icon, px, py);
         ctx.shadowBlur = 0;
     }
 
@@ -623,7 +733,7 @@ function drawEverything() {
 
     // ── Projectiles ──
     for (let i = 0; i < poolProjectiles.length; i++) {
-        const p = poolProjectiles[i];
+        const p   = poolProjectiles[i];
         if (!p.active) continue;
         const ppx = p.x - camera.x, ppy = p.y - camera.y;
 
@@ -657,40 +767,25 @@ function drawEverything() {
     for (let i = 0; i < poolEnemies.length; i++) {
         const e = poolEnemies[i];
         if (!e.active) continue;
-        const ex = e.x - camera.x;
-        const ey = e.y - camera.y;
-
+        const ex = e.x - camera.x, ey = e.y - camera.y;
         const fontSize = e.def.isBoss ? 80 : e.def.isElite ? 40 : 24;
 
-        if (e.def.isBoss) {
-            ctx.shadowColor = 'rgba(231,76,60,0.7)';
-            ctx.shadowBlur  = 30;
-        } else if (e.def.isElite) {
-            ctx.shadowColor = 'rgba(155,89,182,0.6)';
-            ctx.shadowBlur  = 15;
-        }
+        if (e.def.isBoss)   { ctx.shadowColor = 'rgba(231,76,60,0.7)';  ctx.shadowBlur = 30; }
+        else if (e.def.isElite) { ctx.shadowColor = 'rgba(155,89,182,0.6)'; ctx.shadowBlur = 15; }
 
         ctx.font = `${fontSize}px Arial`;
         ctx.fillText(e.def.emoji, ex, ey);
         ctx.shadowBlur = 0;
 
-        // Health bar for boss / elite
         if (e.def.isBoss || e.def.isElite) {
-            const bw = e.def.isBoss ? 100 : 50;
-            const by = e.def.isBoss ? 52 : 26;
-            const hpPct = Math.max(0, e.hp / e.def.hp);
-            const barColor = hpPct > 0.5 ? '#2ecc71' : hpPct > 0.25 ? '#f39c12' : '#e74c3c';
-
-            // bg
+            const bw     = e.def.isBoss ? 100 : 50;
+            const by     = e.def.isBoss ? 52  : 26;
+            const hpPct  = Math.max(0, e.hp / e.def.hp);
+            const barClr = hpPct > 0.5 ? '#2ecc71' : hpPct > 0.25 ? '#f39c12' : '#e74c3c';
             ctx.fillStyle = 'rgba(0,0,0,0.7)';
-            ctx.beginPath();
-            ctx.roundRect(ex - bw / 2, ey + by, bw, 8, 4);
-            ctx.fill();
-            // fill
-            ctx.fillStyle = barColor;
-            ctx.beginPath();
-            ctx.roundRect(ex - bw / 2, ey + by, bw * hpPct, 8, 4);
-            ctx.fill();
+            ctx.beginPath(); ctx.roundRect(ex - bw / 2, ey + by, bw, 8, 4); ctx.fill();
+            ctx.fillStyle = barClr;
+            ctx.beginPath(); ctx.roundRect(ex - bw / 2, ey + by, bw * hpPct, 8, 4); ctx.fill();
         }
     }
 
@@ -702,12 +797,9 @@ function drawEverything() {
         const scale = 1 + (1 - t.life / 0.7) * 0.3;
         ctx.globalAlpha = alpha;
         ctx.font        = `bold ${Math.round(14 * scale)}px monospace`;
-
-        // outline
         ctx.strokeStyle = 'rgba(0,0,0,0.9)';
         ctx.lineWidth   = 3;
         ctx.strokeText(t.text, t.x - camera.x, t.y - camera.y);
-
         ctx.fillStyle = t.color;
         ctx.fillText(t.text, t.x - camera.x, t.y - camera.y);
     }
@@ -719,6 +811,15 @@ function drawEverything() {
     grad.addColorStop(1, 'rgba(0,0,0,0.45)');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, cw, ch);
+
+    // ── Off-screen chest arrows (drawn after vignette so they're always visible) ──
+    for (let i = 0; i < poolChests.length; i++) {
+        const c = poolChests[i];
+        if (!c.active) continue;
+        drawOffScreenArrow(c.x, c.y, '🧰', '#f1c40f');
+    }
+
+    if (doShake) ctx.restore();
 
     uiCallbacks.onDraw(player.hp, player.maxHp, player.xp, player.xpToNext, player.level, elapsedTime);
 }

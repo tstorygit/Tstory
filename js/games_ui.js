@@ -158,12 +158,12 @@ function _screensFor(gameId) {
 export function initGames() {
     _ensureScreens();
 
-    // Pre-load all games in the background
+    // Pre-load all game modules in the background (warm the cache only).
+    // Do NOT call mod.init() here — init() is called exactly once per launch
+    // in the click handler below. Calling it here too causes double event
+    // listeners, duplicate DOM IDs, and broken HUD state in every game.
     for (const game of GAME_REGISTRY) {
-        _loadGame(game.id).then(mod => {
-            if (!mod) return;
-            mod.init?.(_screensFor(game.id), showList);
-        });
+        _loadGame(game.id).catch(() => {}); // fire-and-forget; errors logged in _loadGame
     }
 
     document.querySelector('button[data-target="view-games"]')

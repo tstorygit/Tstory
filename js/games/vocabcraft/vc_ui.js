@@ -184,6 +184,12 @@ export class VcUI {
         this._projElMap      = new Map();
         this._rangeIndicatorEl = null;
         this._dragOverTile   = null;
+        // ✅ FIX: outer for(r) loop was accidentally deleted, leaving for(c) referencing
+        // undefined `r` and an orphaned `}` that closed initGrid() prematurely.
+        // The orphaned `}` put this.engine.map.waypointSets and this._renderWallEdges()
+        // into class-body scope, where `this._renderWallEdges()` caused exactly:
+        //   SyntaxError: Unexpected token '.'
+        for (let r = 0; r < rows; r++) {
             for (let c = 0; c < cols; c++) {
                 const cell = document.createElement('div');
                 cell.className = `vc-tile ${grid[r][c] === TILE_PATH ? 'dirt' : grid[r][c] === TILE_GRASS ? 'grass' : 'rock'}`;
