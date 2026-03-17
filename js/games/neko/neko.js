@@ -380,7 +380,8 @@ const _defaultBellUpgrades = () => ({
     combo_saver: { name: 'Combo Collar',    desc: 'Wrong answer: combo ÷1.5 not ÷2',      cost: 18,  count: 0, effect: 1.5   },
     warp:        { name: 'Time Warp',       desc: '+20% Global Multiplier (additive)',    cost: 40,  count: 0, effect: 0.2   },
     nap:         { name: 'Cat Nap',         desc: '+50% Passive Prod (additive)',         cost: 55,  count: 0, effect: 0.5   },
-    thread:      { name: 'Golden Thread',   desc: '+50% Yarn Gain',                       cost: 90,  count: 0, effect: 1.5   },
+    thread:      { name: 'Golden Thread',   desc: '+50% Yarn Gain per level',             cost: 90,  count: 0, effect: 1.5   },
+    loom:        { name: 'Yarn Loom',       desc: '+1/+3/+9/+27 flat Yarn per answer (×3 per level)', cost: 80,  count: 0, effect: 1     },
     auto:        { name: 'Auto-Petter',     desc: 'Auto Clicks 10x/sec',                  cost: 50,  count: 0, effect: 10    },
     echo:        { name: 'Echo Paw',        desc: 'Lucky Catch also bursts 3s of idle',   cost: 60,  count: 0, effect: 3     },
     charm:       { name: 'Lucky Charm',     desc: 'Lucky Catch deals ×10 not ×5',         cost: 75,  count: 0, effect: 1     },
@@ -625,6 +626,15 @@ function _getLearnCost() {
     const scholar = Math.pow(_g.bellUpgrades.scholar.effect, _g.bellUpgrades.scholar.count);
     const wisdom  = Math.pow(_g.rebirthUpgrades.wisdom.effect, _g.rebirthUpgrades.wisdom.count);
     return Math.max(50, Math.floor(base * scholar * wisdom));
+}
+
+// Bell upgrade cost — most upgrades use a gentle +1/level linear bump (cost+count).
+// 'thread' and 'loom' use steep exponential scaling to make later levels meaningful.
+const _BELL_EXP_UPGRADES = { thread: 1.65, loom: 1.7 };
+function _bellCost(key, upg) {
+    const exp = _BELL_EXP_UPGRADES[key];
+    if (exp) return Math.round(upg.cost * Math.pow(exp, upg.count));
+    return upg.cost + upg.count;
 }
 
 function _calcBells()   { return _g.fish < 50000   ? 0 : Math.floor(Math.pow(_g.fish  / 50000, 0.5)); }
@@ -976,7 +986,7 @@ function _buyUpgrade(shopType, key) {
             _toast('Yarn Weaver is maxed! (100% chance)', 'var(--nk-success)');
             return;
         }
-        const cost = upg.cost + upg.count;
+        const cost = _bellCost(key, upg);
         if (_g.bells >= cost) { _g.bells -= cost; upg.count++; _updateUI(); }
     } else if (shopType === 'rebirthUpgrades') {
         const cost = upg.cost * Math.pow(2, upg.count);
@@ -1175,6 +1185,7 @@ function _checkAnswer(selectedId, btnEl, correctId, event) {
         if (_g.bellUpgrades.thread.count > 0) yarn = Math.ceil(yarn * Math.pow(_g.bellUpgrades.thread.effect, _g.bellUpgrades.thread.count));
         if (_g.rebirthUpgrades.weaver_soul.count > 0) yarn *= (1 + _g.rebirthUpgrades.weaver_soul.count); // ×2, ×3, ×4... (additive +1 per lvl)
         if (_g.bellUpgrades.focus.count > 0) yarn += _g.bellUpgrades.focus.count;
+        if (_g.bellUpgrades.loom?.count > 0) yarn += _g.bellUpgrades.loom.effect * Math.pow(3, _g.bellUpgrades.loom.count - 1);
         yarn = Math.ceil(yarn * _getTranscendenceMult());
         
         _g.yarn += yarn;
@@ -2217,7 +2228,7 @@ function _updateUI() {
         if (activeTab.id === 'nk-tab-bells') {
             for (const key in _g.bellUpgrades) {
                 const upg  = _g.bellUpgrades[key];
-                const cost = upg.cost + upg.count;
+                const cost = _bellCost(key, upg);
                 const btn  = g.querySelector(`#nk-btn-b-${key}`);
                 const lvl  = g.querySelector(`#nk-lvl-b-${key}`);
                 const isWeaver = key === 'weaver';
