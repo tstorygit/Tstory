@@ -33,7 +33,6 @@ let elitesSpawned = new Set(); // stores minute numbers already spawned
 let bossWarned    = false;     // only warn once per run
 
 // ── Screen shake ──
-let shakeIntensity = 0;        // decays each frame; applied as canvas translate
 
 // ── Enemy-hit sound throttle ──
 let lastEnemyHitSound = 0;
@@ -138,7 +137,6 @@ export function startRun(characterId, metaUpgrades) {
 
     elitesSpawned  = new Set();
     bossWarned     = false;
-    shakeIntensity = 0;
     elapsedTime    = 0;
     spawnTimer     = 0;
     gameState      = 'PLAYING';
@@ -221,8 +219,7 @@ function gameLoop(time) {
     lastTime = time;
     if (dt > 0.1) dt = 0.1;
 
-    elapsedTime    += dt;
-    shakeIntensity  = Math.max(0, shakeIntensity - dt * 30);
+    elapsedTime += dt;
 
     // ── Boss: warn at 14:30, spawn at 15:00 ──
     if (elapsedTime >= 870 && !bossWarned) {
@@ -303,9 +300,13 @@ function updateWeapons(dt) {
                 const a  = aw.angle + (Math.PI * 2 / lvlDef.count) * i;
                 const px = player.x + Math.cos(a) * radius;
                 const py = player.y + Math.sin(a) * radius;
+                // Collision-only hitbox — no emoji so it is never drawn by drawEverything.
+                // The visual is drawn directly from activeWeapons in drawEverything,
+                // which reads the authoritative aw.angle each frame — zero jitter.
                 spawnProjectile({
                     type: 'hitbox', x: px, y: py, radius: 20,
-                    damage: lvlDef.damage * dmgMult, duration: 0.05, pierce: 999, emoji: def.icon
+                    damage: lvlDef.damage * dmgMult, duration: 0.05, pierce: 999
+                    // emoji intentionally omitted — drawn separately
                 });
             }
         } else if (def.type === 'aura') {
@@ -385,7 +386,7 @@ function spawnBoss() {
         def: { ...ENEMIES.boss },
         hp:  ENEMIES.boss.hp
     });
-    shakeIntensity = 20; // dramatic entrance shake
+    // boss entrance shake removed
 }
 
 function spawnEnemies(dt) {
@@ -540,7 +541,7 @@ function checkCollisions() {
                 }
                 player.invincibility = 0.5 + player.stats.invincibilityBonus;
                 // ── Screenshake on player damage ──
-                shakeIntensity = Math.min(12, shakeIntensity + 7);
+                // screenshake removed — player blink is the damage feedback
                 Audio.playHit();
                 spawnDmgText(player.x, player.y - 30, dmg, '#ff4757');
                 break;
@@ -675,16 +676,6 @@ function drawEverything() {
     const cw = canvas.width;
     const ch = canvas.height;
 
-    // ── Screenshake transform ──
-    const doShake = shakeIntensity > 0;
-    let sx = 0, sy = 0;
-    if (doShake) {
-        sx = (Math.random() - 0.5) * shakeIntensity;
-        sy = (Math.random() - 0.5) * shakeIntensity;
-        ctx.save();
-        ctx.translate(sx, sy);
-    }
-
     // ── Forest floor ──
     ctx.fillStyle = '#0d1f0d';
     ctx.fillRect(-20, -20, cw + 40, ch + 40);
@@ -771,6 +762,24 @@ function drawEverything() {
         ctx.stroke();
         ctx.shadowBlur = 0;
     }
+
+    // ── Orbital weapons — drawn directly from weapon state, no pool jitter ──
+    activeWeapons.forEach(aw => {
+        const def = WEAPONS[aw.id];
+        if (def.type !== 'orbital') return;
+        const lvlDef = def.levels[aw.level - 1];
+        const radius = 80;
+        for (let i = 0; i < lvlDef.count; i++) {
+            const a   = aw.angle + (Math.PI * 2 / lvlDef.count) * i;
+            const ox  = player.x + Math.cos(a) * radius - camera.x;
+            const oy  = player.y + Math.sin(a) * radius - camera.y;
+            ctx.shadowColor = 'rgba(255,220,100,0.7)';
+            ctx.shadowBlur  = 12;
+            ctx.font = '22px Arial';
+            ctx.fillText(def.icon, ox, oy);
+            ctx.shadowBlur = 0;
+        }
+    });
 
     // ── Projectiles ──
     for (let i = 0; i < poolProjectiles.length; i++) {
@@ -859,8 +868,6 @@ function drawEverything() {
         if (!c.active) continue;
         drawOffScreenArrow(c.x, c.y, '🧰', '#f1c40f');
     }
-
-    if (doShake) ctx.restore();
 
     uiCallbacks.onDraw(player.hp, player.maxHp, player.xp, player.xpToNext, player.level, elapsedTime);
 }
