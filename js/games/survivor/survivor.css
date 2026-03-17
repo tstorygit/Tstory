@@ -349,6 +349,7 @@
     width: 50%; height: 50%;
     z-index: 20;
     touch-action: none;
+    pointer-events: auto; /* opt back in — parent #surv-ui-layer has pointer-events:none */
 }
 
 /* Portrait: full width, bottom 45% — thumbs reach it comfortably */
@@ -426,6 +427,7 @@
     z-index: 100; display: flex;
     align-items: center; justify-content: center;
     padding: 20px; backdrop-filter: blur(6px);
+    pointer-events: auto; /* opt back in — parent #surv-ui-layer has pointer-events:none */
 }
 
 /* ── Modals ──────────────────────────────────────────────────── */
