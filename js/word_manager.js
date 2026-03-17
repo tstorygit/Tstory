@@ -57,6 +57,28 @@ export function renderVocabList() {
         if (sortVal === 'az')          return a.word.localeCompare(b.word);
         if (sortVal === 'status_asc')  return a.status - b.status;
         if (sortVal === 'status_desc') return b.status - a.status;
+        
+        if (sortVal === 'due_asc') {
+            const timeA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+            const timeB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+            return timeA - timeB;
+        }
+        if (sortVal === 'due_desc') {
+            const timeA = a.dueDate ? new Date(a.dueDate).getTime() : -Infinity;
+            const timeB = b.dueDate ? new Date(b.dueDate).getTime() : -Infinity;
+            return timeB - timeA;
+        }
+        if (sortVal === 'interval_asc') {
+            const intA = a.interval ?? Infinity;
+            const intB = b.interval ?? Infinity;
+            return intA - intB;
+        }
+        if (sortVal === 'interval_desc') {
+            const intA = a.interval ?? -1;
+            const intB = b.interval ?? -1;
+            return intB - intA;
+        }
+        
         return 0;
     });
 
