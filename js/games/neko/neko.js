@@ -866,31 +866,38 @@ function _startGameLoop() {
             if (_g.srs.length > 0) {
                 const activeIds = new Set(_vocabQueue.map(v => v.id));
                 const activeSrs = _g.srs.filter(s => activeIds.has(s.id) && !_isLeech(s));
-                const next = activeSrs.length > 0 ? Math.min(...activeSrs.map(s => s.nextReview)) : Infinity;
-                const diffSec = (next - _gameNow()) / 1000;
 
-                if (nextTimer) {
-                    nextTimer.textContent = diffSec <= 0 ? "Cat is waking up..." : `Next cat in: ${_formatTime(diffSec)}`;
-                    nextTimer.style.minWidth = '180px'; // prevent width jump
-                }
+                if (activeSrs.length === 0) {
+                    // All learned words are leeches — nothing normal will ever come due
+                    if (nextTimer) nextTimer.textContent = 'All words in Leech Dojo 🩸';
+                    if (wakeupPill) wakeupPill.style.display = 'none';
+                } else {
+                    const next = Math.min(...activeSrs.map(s => s.nextReview));
+                    const diffSec = (next - _gameNow()) / 1000;
 
-                // Wakeup countdown pill: show in last 10 seconds
-                if (wakeupPill && wakeupLabel && wakeupBar) {
-                    if (diffSec > 0 && diffSec <= 20) {
-                        wakeupPill.style.display = 'flex';
-                        wakeupLabel.textContent = `🐱 ${Math.ceil(diffSec)}s`;
-                        const pct = (diffSec / 20) * 100; // full at 20s, empty at 0s
-                        wakeupBar.style.width = pct + '%';
-                        // Color shifts: green at 10s → red at 0s
-                        const hue = Math.round(diffSec * 6); // 0s=0 (red) → 20s=120 (green)
-                        wakeupBar.style.background = `hsl(${hue}, 80%, 48%)`;
-                    } else {
-                        wakeupPill.style.display = 'none';
+                    if (nextTimer) {
+                        // diffSec <= 0 here means a non-leech item is due but not yet picked up
+                        // by _updateSRSQueue (runs every 2s) — just show "waking up"
+                        nextTimer.textContent = diffSec <= 0 ? "Cat is waking up..." : `Next cat in: ${_formatTime(diffSec)}`;
+                        nextTimer.style.minWidth = '180px';
+                    }
+
+                    // Wakeup countdown pill: show in last 20 seconds
+                    if (wakeupPill && wakeupLabel && wakeupBar) {
+                        if (diffSec > 0 && diffSec <= 20) {
+                            wakeupPill.style.display = 'flex';
+                            wakeupLabel.textContent = `🐱 ${Math.ceil(diffSec)}s`;
+                            const pct = (diffSec / 20) * 100;
+                            wakeupBar.style.width = pct + '%';
+                            const hue = Math.round(diffSec * 6);
+                            wakeupBar.style.background = `hsl(${hue}, 80%, 48%)`;
+                        } else {
+                            wakeupPill.style.display = 'none';
+                        }
                     }
                 }
             } else {
                 if (nextTimer) nextTimer.textContent = "Learn a word to start!";
-                const wakeupPill = _screens.game?.querySelector('#nk-wakeup-pill');
                 if (wakeupPill) wakeupPill.style.display = 'none';
             }
         } else {
