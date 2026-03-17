@@ -4,6 +4,19 @@
 
 /* ── Camp Layout ─────────────────────────────────────────────── */
 
+/* iPhone safe area — applied to the scrollable setup screen
+   and to any panel that is the last child before the bottom edge. */
+.surv-camp-wrap-outer,       /* outer scrollable div if present */
+#surv-camp-wrap,
+#surv-deck-selector-wrap {
+    padding-bottom: max(30px, env(safe-area-inset-bottom, 30px));
+}
+
+/* Camp actions row gets extra clearance so buttons aren't behind the home bar */
+.surv-camp-actions {
+    padding-bottom: max(8px, env(safe-area-inset-bottom, 8px));
+}
+
 .surv-camp-header {
     display: flex;
     justify-content: space-between;
@@ -263,8 +276,9 @@
     color: white; text-shadow: 0 1px 6px rgba(0,0,0,0.9); letter-spacing: 1px;
 }
 
-/* Pause button (pointer-events set inline so it works within .surv-hud) */
+/* Pause button — must opt out of parent .surv-hud pointer-events:none */
 .surv-pause-btn {
+    pointer-events: auto;
     width: 28px; height: 28px;
     background: rgba(0,0,0,0.45);
     border: 1px solid rgba(255,255,255,0.2);
@@ -435,9 +449,11 @@
 .surv-modal {
     background: var(--surface-color);
     border-radius: 16px; width: 100%; max-width: 400px;
-    padding: 22px 20px 20px;
+    padding: 22px 20px max(20px, env(safe-area-inset-bottom, 20px));
     box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06);
     display: flex; flex-direction: column; gap: 14px;
+    /* Modal sits above home bar — the overlay itself needs side/bottom insets */
+    margin-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 /* Badge pills */
@@ -621,6 +637,10 @@
     box-shadow: 0 1px 4px rgba(0,0,0,0.2);
 }
 .surv-tab-panel  { animation: surv-tab-in 0.15s ease; }
+.surv-tab-panel:last-of-type {
+    /* Last tab panel gets extra bottom breathing room for iPhone home bar */
+    padding-bottom: max(8px, env(safe-area-inset-bottom, 8px));
+}
 @keyframes surv-tab-in { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
 
 /* ── Character stat tags ─────────────────────────────────────────────────── */
@@ -661,6 +681,7 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 12px));
 }
 @media (min-width: 520px) {
     .surv-stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -744,4 +765,162 @@
 .surv-shrine-buy.prestige:hover:not(:disabled) {
     background: rgba(241,196,15,0.22);
     border-color: #f1c40f;
+}
+
+/* ── Settings Button (header) ────────────────────────────────── */
+
+.surv-settings-btn {
+    width: 36px; height: 36px;
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 18px; line-height: 1;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+    flex-shrink: 0;
+}
+.surv-settings-btn:hover { border-color: var(--primary-color); background: rgba(255,255,255,0.06); }
+
+/* ── Settings Overlay ────────────────────────────────────────── */
+
+.surv-settings-overlay {
+    position: absolute;
+    inset: 0;
+    background: var(--bg-color, #0f1923);
+    z-index: 300;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    display: flex;
+    flex-direction: column;
+}
+
+.surv-settings-inner {
+    max-width: 620px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 16px 16px max(40px, calc(env(safe-area-inset-bottom, 0px) + 24px));
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.surv-settings-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 4px;
+}
+.surv-settings-title {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 800;
+    color: var(--text-main);
+}
+.surv-settings-close {
+    width: 34px; height: 34px;
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-muted);
+    font-size: 16px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+}
+.surv-settings-close:hover { border-color: var(--text-muted); color: var(--text-main); }
+
+/* ── Settings Sections ───────────────────────────────────────── */
+
+.surv-settings-section {
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    overflow: hidden;
+}
+.surv-settings-danger-section {
+    border-color: rgba(231,76,60,0.25);
+}
+
+.surv-settings-section-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-muted);
+    padding: 9px 14px 7px;
+    border-bottom: 1px solid var(--border-color);
+    background: rgba(255,255,255,0.02);
+}
+.surv-settings-danger-section .surv-settings-section-label {
+    color: #e67e22;
+    border-color: rgba(231,76,60,0.15);
+}
+
+.surv-settings-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 13px 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.surv-settings-row:last-child { border-bottom: none; }
+.surv-settings-row-btn {
+    cursor: pointer;
+    transition: background 0.12s;
+}
+.surv-settings-row-btn:hover { background: rgba(255,255,255,0.04); }
+.surv-settings-row-btn:active { background: rgba(255,255,255,0.08); }
+
+.surv-settings-row-info { flex: 1; }
+.surv-settings-row-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-main);
+    line-height: 1.2;
+}
+.surv-settings-row-desc {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+    line-height: 1.35;
+}
+.surv-settings-chevron {
+    font-size: 20px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    line-height: 1;
+}
+
+/* ── Toggle Switch ───────────────────────────────────────────── */
+
+.surv-toggle {
+    position: relative;
+    width: 46px; height: 26px;
+    border-radius: 13px;
+    border: 2px solid var(--border-color);
+    background: rgba(255,255,255,0.06);
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+    flex-shrink: 0;
+    padding: 0;
+}
+.surv-toggle.on {
+    background: #27ae60;
+    border-color: #2ecc71;
+}
+.surv-toggle-knob {
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.5);
+    transition: transform 0.18s ease, background 0.2s;
+    pointer-events: none;
+}
+.surv-toggle.on .surv-toggle-knob {
+    transform: translateX(20px);
+    background: white;
 }

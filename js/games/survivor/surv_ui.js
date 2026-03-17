@@ -53,7 +53,7 @@ export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
                         <span class="surv-hud-stat-icon">💀</span>
                         <span id="surv-hud-kills">0</span>
                     </div>
-                    <button id="surv-btn-pause" class="surv-pause-btn" style="pointer-events:auto;">⏸</button>
+                    <button id="surv-btn-pause" class="surv-pause-btn">⏸</button>
                 </div>
             </div>
             <div class="surv-hp-row">

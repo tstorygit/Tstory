@@ -6,6 +6,7 @@ import { initCanvas, startRun, stop, applyUpgrade, applyHeal, applyPenalty,
 import { initUI, resetGameUI, drawHUD, incrementKill, showSrsQuiz,
          showChestQuiz, showBossWarning, showGameOver } from './surv_ui.js';
 import { CHARACTERS } from './surv_entities.js';
+import * as Audio from './surv_audio.js';
 
 let _screens       = null;
 let _onExitGlobal  = null;
@@ -22,6 +23,20 @@ function _injectStyles() {
     link.rel  = 'stylesheet';
     link.href = './js/games/survivor/survivor.css';
     document.head.appendChild(link);
+
+    // viewport-fit=cover is required for env(safe-area-inset-bottom) to work on iPhone.
+    // Update the existing viewport meta if present, otherwise create one.
+    let vp = document.querySelector('meta[name="viewport"]');
+    if (vp) {
+        if (!vp.content.includes('viewport-fit')) {
+            vp.content += ', viewport-fit=cover';
+        }
+    } else {
+        vp = document.createElement('meta');
+        vp.name    = 'viewport';
+        vp.content = 'width=device-width, initial-scale=1, viewport-fit=cover';
+        document.head.appendChild(vp);
+    }
 }
 
 export function init(screens, onExit) {
@@ -31,7 +46,7 @@ export function init(screens, onExit) {
 
     const setupHTML = `
         <div id="surv-deck-selector-wrap" style="display:none;"></div>
-        <div id="surv-camp-wrap" style="display:none; max-width:680px; margin:0 auto; padding-bottom:30px;">
+        <div id="surv-camp-wrap" style="display:none; max-width:680px; margin:0 auto;">
 
             <!-- Header -->
             <div class="surv-camp-header">
@@ -45,7 +60,7 @@ export function init(screens, onExit) {
                         <span id="surv-soul-count">0</span>
                         <span class="surv-soul-label">Souls</span>
                     </div>
-                    <button id="surv-btn-change-deck" class="surv-deck-btn">⚙️ Deck</button>
+                    <button id="surv-btn-settings" class="surv-settings-btn" title="Settings">⚙️</button>
                 </div>
             </div>
 
@@ -229,7 +244,7 @@ function showCamp() {
     campWrap.style.display     = 'block';
 
     const el = _screens.setup;
-    el.querySelector('#surv-btn-change-deck').onclick = () => showVocabSelector();
+    el.querySelector('#surv-btn-settings').onclick = () => _showSettings();
     el.querySelector('#surv-btn-start-run').onclick   = () => startActualRun(_vocabQueue);
     el.querySelector('#surv-btn-exit-camp').onclick   = _onExitGlobal;
     el.querySelector('#surv-soul-count').textContent  = _meta.souls.toLocaleString();
@@ -549,6 +564,129 @@ function _renderStatistics(el) {
 
         </div>
     `;
+}
+
+
+// ── Settings overlay ──────────────────────────────────────────────────────────
+
+function _showSettings() {
+    // Remove any stale overlay
+    const stale = _screens.setup.querySelector('#surv-settings-overlay');
+    if (stale) stale.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'surv-settings-overlay';
+    overlay.className = 'surv-settings-overlay';
+
+    const render = () => {
+        const muted = Audio.isMuted();
+
+        overlay.innerHTML = `
+            <div class="surv-settings-inner">
+
+                <div class="surv-settings-header">
+                    <h2 class="surv-settings-title">⚙️ Settings</h2>
+                    <button class="surv-settings-close" id="surv-settings-close">✕</button>
+                </div>
+
+                <!-- Sound -->
+                <div class="surv-settings-section">
+                    <div class="surv-settings-section-label">🔊 Audio</div>
+                    <div class="surv-settings-row">
+                        <div class="surv-settings-row-info">
+                            <div class="surv-settings-row-name">Sound Effects</div>
+                            <div class="surv-settings-row-desc">Hit feedback, quiz chimes, level-up fanfare.</div>
+                        </div>
+                        <button class="surv-toggle ${muted ? '' : 'on'}" id="surv-toggle-sound">
+                            <span class="surv-toggle-knob"></span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Vocabulary -->
+                <div class="surv-settings-section">
+                    <div class="surv-settings-section-label">📚 Vocabulary</div>
+                    <div class="surv-settings-row surv-settings-row-btn" id="surv-settings-deck">
+                        <div class="surv-settings-row-info">
+                            <div class="surv-settings-row-name">Change Word Deck</div>
+                            <div class="surv-settings-row-desc">Switch to a specific vocabulary list for quiz questions.</div>
+                        </div>
+                        <span class="surv-settings-chevron">›</span>
+                    </div>
+                </div>
+
+                <!-- Danger zone -->
+                <div class="surv-settings-section surv-settings-danger-section">
+                    <div class="surv-settings-section-label">⚠️ Reset</div>
+                    <div class="surv-settings-row surv-settings-row-btn" id="surv-settings-reset-shrine">
+                        <div class="surv-settings-row-info">
+                            <div class="surv-settings-row-name">Reset Shrine Upgrades</div>
+                            <div class="surv-settings-row-desc">Refund all Souls spent in the Shrine. Stats and characters kept.</div>
+                        </div>
+                        <span class="surv-settings-chevron" style="color:#f39c12;">›</span>
+                    </div>
+                    <div class="surv-settings-row surv-settings-row-btn" id="surv-settings-reset-all">
+                        <div class="surv-settings-row-info">
+                            <div class="surv-settings-row-name" style="color:#e74c3c;">Reset All Progress</div>
+                            <div class="surv-settings-row-desc">Wipes everything — Souls, characters, upgrades, statistics.</div>
+                        </div>
+                        <span class="surv-settings-chevron" style="color:#e74c3c;">›</span>
+                    </div>
+                </div>
+
+            </div>
+        `;
+
+        overlay.querySelector('#surv-settings-close').onclick = () => overlay.remove();
+
+        // Sound toggle
+        overlay.querySelector('#surv-toggle-sound').onclick = () => {
+            Audio.setMuted(!Audio.isMuted());
+            render(); // re-render to reflect new state
+        };
+
+        // Change deck
+        overlay.querySelector('#surv-settings-deck').onclick = () => {
+            overlay.remove();
+            showVocabSelector();
+        };
+
+        // Reset shrine upgrades (refund all souls spent)
+        overlay.querySelector('#surv-settings-reset-shrine').onclick = () => {
+            if (!confirm('Refund all Shrine upgrades? Your Souls will be returned.')) return;
+            // Re-calculate total souls spent and refund them
+            const SHRINE_COSTS = {
+                vitality: 200, swiftness: 200, greed: 200, power: 200,
+                ironWill: 250, regen: 300,
+                haste: 250, magnetism: 200,
+                scholar: 300, ghostStep: 600,
+                ancestralPower: 1500, secondWind: 5000,
+            };
+            let refund = 0;
+            for (const [key, costPerRank] of Object.entries(SHRINE_COSTS)) {
+                const lvl = _meta.upgrades[key] || 0;
+                for (let r = 1; r <= lvl; r++) refund += r * costPerRank;
+                _meta.upgrades[key] = 0;
+            }
+            _meta.souls += refund;
+            saveMeta();
+            overlay.remove();
+            showCamp();
+        };
+
+        // Reset all
+        overlay.querySelector('#surv-settings-reset-all').onclick = () => {
+            if (!confirm('Reset EVERYTHING? Souls, characters, shrine upgrades, and statistics will all be wiped. This cannot be undone.')) return;
+            localStorage.removeItem('surv_meta');
+            _meta = null;
+            _customDeckActive = false;
+            overlay.remove();
+            launch(); // restart fresh
+        };
+    };
+
+    render();
+    _screens.setup.querySelector('#surv-camp-wrap').appendChild(overlay);
 }
 
 // ── Run lifecycle ─────────────────────────────────────────────────────────────
