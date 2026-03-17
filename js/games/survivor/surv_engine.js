@@ -56,7 +56,10 @@ export function initCanvas(canvasEl, callbacks) {
     window.addEventListener('resize', resize);
 }
 
-function resize() {
+// Exported so survivor.js can force a re-measure after _show('game') makes the
+// screen visible — initCanvas() runs while the screen is display:none, which
+// gives clientWidth/clientHeight=0 and produces a 0×0 canvas (red screen).
+export function resize() {
     if (!canvas) return;
     const parent = canvas.parentElement;
     canvas.width  = parent.clientWidth;

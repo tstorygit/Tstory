@@ -1,21 +1,37 @@
 import { CHARACTERS, WEAPONS, PASSIVES } from './surv_entities.js';
 import * as Audio from './surv_audio.js';
 
-let _container = null;
-let _engine    = null;
+let _container  = null;
+let _engine     = null;
 let _vocabQueue = [];
 let _srsDb      = null;
 let _meta       = null;
-let _metaCb     = null;  // { saveMeta() } — parent owns persistence
+let _metaCb     = null;
 
 let dom   = {};
 let kills = 0;
 
-// ── Separate timers for quiz vs chest to prevent cross-cancellation ──
+// ── Per-run counters (reset in resetGameUI) ─────────────────────────────────
+let _runCorrect = 0;
+let _runWrong   = 0;
+let _runStreak  = 0;   // current correct streak this run
+let _runBestStreak = 0; // best streak this run
+
+// ── Separate timers for quiz vs chest ──────────────────────────────────────
 let _srsQuizTimer   = null;
 let _chestQuizTimer = null;
-
 let _manuallyPaused = false;
+
+// ── Public accessor so survivor.js can read run stats at game-over ─────────
+export function getRunStats() {
+    return {
+        kills,
+        correct:    _runCorrect,
+        wrong:      _runWrong,
+        bestStreak: _runBestStreak,
+        level:      _engine ? (_engine.getActiveWeapons ? undefined : undefined) : undefined
+    };
+}
 
 export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
     _container = container;
@@ -24,7 +40,6 @@ export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
     _metaCb    = metaCallbacks || { saveMeta: () => {} };
 
     _container.innerHTML = `
-
         <!-- ── HUD ── -->
         <div class="surv-hud" id="surv-hud" style="display:none;">
             <div class="surv-hud-top">
@@ -58,13 +73,13 @@ export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
             <div id="surv-joystick-base"><div id="surv-joystick-knob"></div></div>
         </div>
 
-        <!-- ── Landscape hint (portrait-mode on touch devices) ── -->
+        <!-- Landscape hint -->
         <div id="surv-landscape-hint" class="surv-landscape-hint" style="display:none;">
             <div class="surv-landscape-icon">📱</div>
             <div class="surv-landscape-msg">Rotate for a better experience</div>
         </div>
 
-        <!-- ── Boss Warning (pointer-events none — game keeps running) ── -->
+        <!-- Boss Warning -->
         <div id="surv-boss-warning" class="surv-boss-warning-overlay" style="display:none; pointer-events:none;">
             <div class="surv-boss-warning-inner">
                 <div class="surv-boss-warning-title">⚠ BOSS APPROACHING ⚠</div>
@@ -72,7 +87,7 @@ export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
             </div>
         </div>
 
-        <!-- ── Manual Pause Screen ── -->
+        <!-- Manual Pause -->
         <div class="surv-overlay" id="surv-pause-screen" style="display:none;">
             <div class="surv-modal" style="text-align:center; max-width:300px;">
                 <div class="surv-modal-badge surv-badge-green">⏸ PAUSED</div>
@@ -81,7 +96,7 @@ export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
             </div>
         </div>
 
-        <!-- ── SRS Level-Up Quiz ── -->
+        <!-- SRS Level-Up Quiz -->
         <div class="surv-overlay" id="surv-srs-overlay" style="display:none;">
             <div class="surv-modal surv-modal-levelup">
                 <div class="surv-modal-badge surv-badge-gold">⬆ LEVEL UP</div>
@@ -98,7 +113,7 @@ export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
             </div>
         </div>
 
-        <!-- ── Boss Chest Quiz ── -->
+        <!-- Boss Chest Quiz -->
         <div class="surv-overlay" id="surv-chest-overlay" style="display:none;">
             <div class="surv-modal surv-modal-chest">
                 <div class="surv-modal-badge surv-badge-purple">🧰 BOSS CHEST</div>
@@ -120,7 +135,7 @@ export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
             </div>
         </div>
 
-        <!-- ── Upgrade Selection ── -->
+        <!-- Upgrade Selection -->
         <div class="surv-overlay" id="surv-upgrade-overlay" style="display:none;">
             <div class="surv-modal surv-modal-upgrade">
                 <div id="surv-upg-badge" class="surv-modal-badge surv-badge-green">⚡ POWER UP</div>
@@ -129,7 +144,7 @@ export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
             </div>
         </div>
 
-        <!-- ── Penalty Overlay ── -->
+        <!-- Penalty -->
         <div class="surv-overlay" id="surv-penalty-overlay" style="display:none;">
             <div class="surv-modal surv-modal-penalty">
                 <div class="surv-modal-badge surv-badge-red">✗ FOCUS LOST</div>
@@ -146,7 +161,7 @@ export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
             </div>
         </div>
 
-        <!-- ── Game Over / Win Summary ── -->
+        <!-- Game Over / Win Summary -->
         <div class="surv-overlay" id="surv-summary-overlay" style="display:none;">
             <div class="surv-modal surv-modal-summary">
                 <h2 id="surv-sum-title" class="surv-sum-title"></h2>
@@ -158,6 +173,14 @@ export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
                     <div class="surv-sum-row">
                         <span class="surv-sum-label">💀 Enemies Defeated</span>
                         <strong id="surv-sum-kills" class="surv-sum-val"></strong>
+                    </div>
+                    <div class="surv-sum-row">
+                        <span class="surv-sum-label">✅ Correct / ❌ Wrong</span>
+                        <strong id="surv-sum-quiz" class="surv-sum-val"></strong>
+                    </div>
+                    <div class="surv-sum-row">
+                        <span class="surv-sum-label">⚡ Best Streak</span>
+                        <strong id="surv-sum-streak" class="surv-sum-val"></strong>
                     </div>
                     <div class="surv-sum-row">
                         <span class="surv-sum-label">👻 Souls Earned</span>
@@ -217,23 +240,22 @@ export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
         penDesc: _container.querySelector('#surv-penalty-desc'),
         btnCont: _container.querySelector('#surv-btn-continue'),
 
-        sum:        _container.querySelector('#surv-summary-overlay'),
-        sumTitle:   _container.querySelector('#surv-sum-title'),
-        sumTime:    _container.querySelector('#surv-sum-time'),
-        sumKills:   _container.querySelector('#surv-sum-kills'),
-        sumSouls:   _container.querySelector('#surv-sum-souls'),
+        sum:          _container.querySelector('#surv-summary-overlay'),
+        sumTitle:     _container.querySelector('#surv-sum-title'),
+        sumTime:      _container.querySelector('#surv-sum-time'),
+        sumKills:     _container.querySelector('#surv-sum-kills'),
+        sumQuiz:      _container.querySelector('#surv-sum-quiz'),
+        sumStreak:    _container.querySelector('#surv-sum-streak'),
+        sumSouls:     _container.querySelector('#surv-sum-souls'),
         sumRecordRow: _container.querySelector('#surv-sum-record-row'),
         sumRecord:    _container.querySelector('#surv-sum-record'),
         btnCamp:      _container.querySelector('#surv-btn-camp')
     };
 
-    // ── Pause button ──
     dom.btnPause.onclick = () => {
-        // Don't allow manual pause while a quiz/upgrade overlay is showing
         const anyOverlay = [dom.srs, dom.chest, dom.upg, dom.pen, dom.sum]
             .some(el => el.style.display !== 'none');
         if (anyOverlay) return;
-
         if (_manuallyPaused) {
             _resumeFromManualPause();
         } else {
@@ -243,16 +265,12 @@ export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
             _engine.pause();
         }
     };
-
     dom.btnResumePause.onclick = _resumeFromManualPause;
-
-    // ── Penalty continue ──
     dom.btnCont.onclick = () => { dom.pen.style.display = 'none'; _engine.resume(); };
 
-    // ── Landscape hint ──
     const checkOrientation = () => {
-        const isPortrait  = window.innerHeight > window.innerWidth;
-        const isTouch     = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+        const isPortrait = window.innerHeight > window.innerWidth;
+        const isTouch    = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
         dom.landscapeHint.style.display = (isPortrait && isTouch) ? 'flex' : 'none';
     };
     window.addEventListener('resize', checkOrientation);
@@ -271,6 +289,10 @@ export function resetGameUI(vocabQueue, metaData) {
     _meta           = metaData;
     kills           = 0;
     chestStep       = 0;
+    _runCorrect     = 0;
+    _runWrong       = 0;
+    _runStreak      = 0;
+    _runBestStreak  = 0;
     _manuallyPaused = false;
     dom.hud.style.display = 'flex';
     dom.sum.style.display = 'none';
@@ -283,7 +305,7 @@ export function drawHUD(hp, maxHp, xp, xpNext, level, time) {
 
     const m = Math.floor(time / 60).toString().padStart(2, '0');
     const s = Math.floor(time % 60).toString().padStart(2, '0');
-    dom.time.textContent  = `${m}:${s}`;
+    dom.time.textContent = `${m}:${s}`;
 
     dom.xpFill.style.width = `${(xp / xpNext) * 100}%`;
 
@@ -309,30 +331,28 @@ export function incrementKill() { kills++; }
 
 export function showBossWarning() {
     dom.bossWarning.style.display = 'flex';
-    // Remove/re-add animation class so it restarts if called again
     dom.bossWarning.classList.remove('surv-boss-anim');
-    void dom.bossWarning.offsetWidth; // reflow
+    void dom.bossWarning.offsetWidth;
     dom.bossWarning.classList.add('surv-boss-anim');
     setTimeout(() => { dom.bossWarning.style.display = 'none'; }, 3500);
 }
 
 // ── Vocab helpers ───────────────────────────────────────────────────────────
 
-/** ✅ FIX: safe word picker — never returns undefined */
 function safeGetWord() {
     if (!_vocabQueue.length) return null;
     const res = _srsDb.getNextGameWord?.(_vocabQueue, 'mixed');
     return res?.wordObj ?? _vocabQueue[Math.floor(Math.random() * _vocabQueue.length)];
 }
 
-// ─── REGULAR SRS LEVEL-UP QUIZ ──────────────────────────────────────────────
+// ─── SRS LEVEL-UP QUIZ ──────────────────────────────────────────────────────
 
 let currentTarget = null;
 let _srsTimeLeft  = 5.0;
 
 export function showSrsQuiz() {
     currentTarget = safeGetWord();
-    if (!currentTarget) { showUpgrades(false); return; } // no words — skip quiz
+    if (!currentTarget) { showUpgrades(false); return; }
 
     dom.srs.style.display = 'flex';
     dom.kanji.textContent = currentTarget.word;
@@ -340,12 +360,11 @@ export function showSrsQuiz() {
 
     _buildAnswerGrid(dom.grid, currentTarget, (isCorrect, clickedBtn) => {
         clearInterval(_srsQuizTimer);
-        // ── Quiz flash feedback before proceeding ──
         _flashAnswers(dom.grid, clickedBtn, currentTarget.trans, isCorrect, () => {
             _gradeWord(currentTarget, isCorrect);
+            _recordAnswer(isCorrect);
             dom.srs.style.display = 'none';
             if (isCorrect) {
-                _meta.stats.totalWordsMastered++;
                 showUpgrades(false);
             } else {
                 _showPenalty(`Correct meaning: "${currentTarget.trans}"`);
@@ -364,6 +383,7 @@ export function showSrsQuiz() {
             clearInterval(_srsQuizTimer);
             _flashAnswers(dom.grid, null, currentTarget.trans, false, () => {
                 _gradeWord(currentTarget, false);
+                _recordAnswer(false);
                 dom.srs.style.display = 'none';
                 _showPenalty(`Time's up! Correct: "${currentTarget.trans}"`);
                 _engine.applyPenalty();
@@ -374,7 +394,7 @@ export function showSrsQuiz() {
 
 // ─── BOSS CHEST QUIZ ────────────────────────────────────────────────────────
 
-let chestStep   = 0;
+let chestStep      = 0;
 let _chestTimeLeft = 4.0;
 
 export function showChestQuiz() {
@@ -395,6 +415,7 @@ function _nextChestQuestion() {
         clearInterval(_chestQuizTimer);
         _flashAnswers(dom.chestGrid, clickedBtn, currentTarget.trans, isCorrect, () => {
             _gradeWord(currentTarget, isCorrect);
+            _recordAnswer(isCorrect);
             if (isCorrect) {
                 dom.chestDots[chestStep].classList.add('filled');
                 chestStep++;
@@ -425,6 +446,7 @@ function _nextChestQuestion() {
             clearInterval(_chestQuizTimer);
             _flashAnswers(dom.chestGrid, null, currentTarget.trans, false, () => {
                 _gradeWord(currentTarget, false);
+                _recordAnswer(false);
                 dom.chestDots[chestStep].classList.add('wrong');
                 dom.chest.style.display = 'none';
                 _meta.souls += 500;
@@ -448,26 +470,19 @@ function _buildAnswerGrid(gridEl, target, onAnswer) {
         const btn = document.createElement('button');
         btn.className   = 'surv-srs-btn';
         btn.textContent = opt;
-        btn.onclick     = () => {
-            if (btn.disabled) return;
-            onAnswer(opt === target.trans, btn);
-        };
+        btn.onclick     = () => { if (btn.disabled) return; onAnswer(opt === target.trans, btn); };
         gridEl.appendChild(btn);
     });
 }
 
-/** Show green/red flash on buttons, then call callback after 650ms */
 function _flashAnswers(gridEl, clickedBtn, correctTrans, isCorrect, callback) {
-    const allBtns = gridEl.querySelectorAll('.surv-srs-btn');
-    allBtns.forEach(b => {
+    gridEl.querySelectorAll('.surv-srs-btn').forEach(b => {
         b.disabled = true;
         if (b.textContent === correctTrans) b.classList.add('correct');
     });
     if (clickedBtn && !isCorrect) clickedBtn.classList.add('wrong');
-
     if (isCorrect) Audio.playCorrect();
     else           Audio.playWrong();
-
     setTimeout(callback, 650);
 }
 
@@ -475,6 +490,24 @@ function _gradeWord(target, isCorrect) {
     _srsDb.gradeWordInGame?.({
         word: target.word, furi: target.furi, trans: target.trans
     }, isCorrect ? 3 : 0, false);
+}
+
+/** Track per-run and lifetime correct/wrong/streak stats */
+function _recordAnswer(isCorrect) {
+    if (isCorrect) {
+        _runCorrect++;
+        _runStreak++;
+        if (_runStreak > _runBestStreak) _runBestStreak = _runStreak;
+        _meta.stats.totalCorrect = (_meta.stats.totalCorrect || 0) + 1;
+    } else {
+        _runWrong++;
+        _runStreak = 0;
+        _meta.stats.totalWrong = (_meta.stats.totalWrong || 0) + 1;
+    }
+    // Update global best streak
+    if (_runBestStreak > (_meta.stats.bestStreak || 0)) {
+        _meta.stats.bestStreak = _runBestStreak;
+    }
 }
 
 function _showPenalty(msg, desc = '+1% Max HP. No power-up this level.') {
@@ -485,7 +518,6 @@ function _showPenalty(msg, desc = '+1% Max HP. No power-up this level.') {
 
 // ─── UPGRADE SELECTION ───────────────────────────────────────────────────────
 
-/** ✅ Weighted pool: existing upgrades 3×, new items 1× — prevents maxed weapons cluttering */
 function _buildUpgradePool() {
     const activeW = _engine.getActiveWeapons();
     const activeP = _engine.getActivePassives();
@@ -495,8 +527,7 @@ function _buildUpgradePool() {
         .map(aw => ({ type: 'weapon', id: aw.id, level: aw.level + 1 }));
 
     const wNew = activeW.length < 6
-        ? Object.keys(WEAPONS)
-            .filter(k => !activeW.find(aw => aw.id === k))
+        ? Object.keys(WEAPONS).filter(k => !activeW.find(aw => aw.id === k))
             .map(k => ({ type: 'weapon', id: k, level: 1 }))
         : [];
 
@@ -505,12 +536,10 @@ function _buildUpgradePool() {
         .map(ap => ({ type: 'passive', id: ap.id, level: ap.level + 1 }));
 
     const pNew = activeP.length < 6
-        ? Object.keys(PASSIVES)
-            .filter(k => !activeP.find(ap => ap.id === k))
+        ? Object.keys(PASSIVES).filter(k => !activeP.find(ap => ap.id === k))
             .map(k => ({ type: 'passive', id: k, level: 1 }))
         : [];
 
-    // Existing upgrades get 3× weight over new items
     const weighted = [
         ...wUpgrade, ...wUpgrade, ...wUpgrade,
         ...wNew,
@@ -526,7 +555,6 @@ function _buildUpgradePool() {
         if (chosen.length >= 3) break;
     }
 
-    // Fallbacks when nothing is available (fully upgraded)
     const fallbacks = [
         { type: 'heal', name: 'Ramen Bowl', icon: '🍜', desc: 'Restore 50% HP.',  healPct: 0.5  },
         { type: 'gold', name: 'Coin Pouch', icon: '💰', desc: '+200 Souls.',       amount:  200  },
@@ -553,10 +581,8 @@ function showUpgrades(isChest) {
         dom.upgBadge.className   = 'surv-modal-badge surv-badge-green';
     }
 
-    const choices = _buildUpgradePool();
-
-    choices.forEach(c => {
-        const card  = document.createElement('div');
+    _buildUpgradePool().forEach(c => {
+        const card = document.createElement('div');
         card.className = 'surv-upg-card' + (isChest ? ' chest-reward' : '');
 
         let icon, name, desc, isNew = false;
@@ -575,9 +601,7 @@ function showUpgrades(isChest) {
             <div class="surv-upg-info">
                 <div class="surv-upg-name">
                     ${name}
-                    ${c.level != null
-                        ? `<span class="surv-upg-lvl ${isNew ? 'surv-upg-lvl-new' : ''}">Lv.${c.level}</span>`
-                        : ''}
+                    ${c.level != null ? `<span class="surv-upg-lvl ${isNew ? 'surv-upg-lvl-new' : ''}">Lv.${c.level}</span>` : ''}
                 </div>
                 <div class="surv-upg-desc">${desc}</div>
             </div>
@@ -586,7 +610,7 @@ function showUpgrades(isChest) {
             dom.upg.style.display = 'none';
             Audio.playUpgradePick();
             if (c.type === 'heal') {
-                _engine.applyHeal(c.healPct ?? 0.5); // ✅ proper heal — no maxHp inflation
+                _engine.applyHeal(c.healPct ?? 0.5);
             } else if (c.type === 'gold') {
                 _meta.souls += (c.amount ?? 100);
                 _metaCb.saveMeta();
@@ -611,11 +635,11 @@ export function showGameOver(isWin, exitCallback) {
     const t = _engine.getElapsedTime();
     const m = Math.floor(t / 60).toString().padStart(2, '0');
     const s = Math.floor(t % 60).toString().padStart(2, '0');
-    dom.sumTime.textContent  = `${m}:${s}`;
-    dom.sumKills.textContent = kills.toLocaleString();
+    dom.sumTime.textContent   = `${m}:${s}`;
+    dom.sumKills.textContent  = kills.toLocaleString();
+    dom.sumQuiz.textContent   = `${_runCorrect} / ${_runWrong}`;
+    dom.sumStreak.textContent = `${_runBestStreak}`;
 
-    // ── Soul calculation lives in the parent (survivor.js) via callback ──
-    // But we do it here since we have all the data; parent just gets saveMeta()
     let earned = Math.floor(kills / 10);
     if (isWin) earned = Math.floor(earned * 1.5);
     earned = Math.floor(earned * (1 + (_meta.upgrades.greed || 0) * 0.05));
@@ -623,16 +647,24 @@ export function showGameOver(isWin, exitCallback) {
 
     _meta.souls += earned;
 
-    const isNewRecord = t > (_meta.stats.highestTime || 0);
+    // ── Lifetime stats ──────────────────────────────────────────────────────
+    const st = _meta.stats;
+    st.totalRuns      = (st.totalRuns      || 0) + 1;
+    st.totalWins      = (st.totalWins      || 0) + (isWin ? 1 : 0);
+    st.totalKills     = (st.totalKills     || 0) + kills;
+    st.totalTimePlayed = (st.totalTimePlayed || 0) + t;
+    st.highestKills   = Math.max(st.highestKills   || 0, kills);
+    // bestStreak already updated incrementally in _recordAnswer
+
+    const isNewRecord = t > (st.highestTime || 0);
     if (isNewRecord) {
-        _meta.stats.highestTime = t;
+        st.highestTime = t;
         dom.sumRecordRow.style.display = '';
         dom.sumRecord.textContent = `${m}:${s}`;
     } else {
         dom.sumRecordRow.style.display = 'none';
     }
 
-    _metaCb.saveMeta(); // ✅ single save point, owned by parent
-
+    _metaCb.saveMeta();
     dom.btnCamp.onclick = () => { dom.sum.style.display = 'none'; exitCallback(); };
 }
