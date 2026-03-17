@@ -814,14 +814,18 @@ function drawEverything() {
     }
 
     // ── Enemies ──
+    // Reset state before enemy loop so no bleed from projectile/gem draws
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur  = 0;
     for (let i = 0; i < poolEnemies.length; i++) {
         const e = poolEnemies[i];
         if (!e.active) continue;
         const ex = e.x - camera.x, ey = e.y - camera.y;
         const fontSize = e.def.isBoss ? 80 : e.def.isElite ? 40 : 24;
 
-        if (e.def.isBoss)   { ctx.shadowColor = 'rgba(231,76,60,0.7)';  ctx.shadowBlur = 30; }
-        else if (e.def.isElite) { ctx.shadowColor = 'rgba(155,89,182,0.6)'; ctx.shadowBlur = 15; }
+        if (e.def.isBoss)        { ctx.shadowColor = 'rgba(231,76,60,0.7)';  ctx.shadowBlur = 30; }
+        else if (e.def.isElite)  { ctx.shadowColor = 'rgba(155,89,182,0.6)'; ctx.shadowBlur = 15; }
+        else                     { ctx.shadowBlur = 0; } // explicit reset for regular enemies
 
         ctx.font = `${fontSize}px Arial`;
         ctx.fillText(e.def.emoji, ex, ey);

@@ -9,7 +9,13 @@
 .surv-camp-wrap-outer,       /* outer scrollable div if present */
 #surv-camp-wrap,
 #surv-deck-selector-wrap {
-    padding-bottom: max(80px, calc(env(safe-area-inset-bottom, 0px) + 60px));
+    padding-bottom: max(100px, calc(env(safe-area-inset-bottom, 0px) + 80px));
+}
+
+/* Vocab selector actions row — the buttons (Go to Camp, Back) need bottom clearance */
+#surv-deck-selector-wrap .vocab-actions,
+#surv-deck-selector-wrap [class*="actions"] {
+    padding-bottom: max(100px, calc(env(safe-area-inset-bottom, 0px) + 80px));
 }
 
 /* Camp actions row gets extra clearance so buttons aren't behind the home bar */

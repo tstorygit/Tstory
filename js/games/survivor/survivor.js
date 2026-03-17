@@ -120,7 +120,7 @@ export function init(screens, onExit) {
     // returns null (element doesn't exist yet) → if(!touchZone) return → no listeners.
     initUI(
         _screens.game.querySelector('#surv-ui-layer'),
-        { applyUpgrade, applyHeal, applyPenalty, resume,
+        { applyUpgrade, applyHeal, applyPenalty, pause, resume,  // ← pause was missing!
           getActiveWeapons, getActivePassives, getElapsedTime },
         srsDb,
         { saveMeta }
