@@ -99,7 +99,7 @@ game module → GameVocabManager → srs_db
 The single vocabulary brain for all games. Responsibilities:
 - Selects the next quiz word (`getNextWord()`) using one of three pedagogical modes: `auto`, `manual`, or `random`.
 - Records answers and updates SM-2 scheduling state (`gradeWord()`).
-- Operates in two scheduling modes transparently: **Local** (self-contained SM-2, progress exportable) and **Global** (delegates directly to `srs_db`, answers affect the player's main flashcard reviews in real time). The mode is set automatically via the `globalSrs` flag in `setPool()`.
+- Operates in two scheduling modes: **Local** (self-contained SM-2, progress exportable) and **Global** (delegates directly to `srs_db`, answers affect the player's main flashcard reviews in real time). The mode is set automatically via the `globalSrs` flag in `setPool()`.
 - Exposes static helpers that games must use instead of touching storage directly: `loadSrsPool()`, `defaultConfig()`, `configLimits`.
 
 **`game_vocab_mgr_ui.js`**
@@ -107,11 +107,78 @@ Drop-in UI components built on top of `GameVocabManager`. Use these unless a gam
 - `showStandardQuiz(vocabMgr, options)` — single flashcard question in a modal overlay.
 - `showQuizSequence(vocabMgr, count, options)` — multi-question sequence (e.g. a boss chest).
 - `renderVocabSettings(vocabMgr, container, onSave)` — full settings panel (mode selector, thresholds, SM-2 params). **Always prefer this over handwriting your own settings UI.** Any new config field added to `GameVocabManager` will appear here automatically.
+- `injectVocabBadgeStyles()` — injects the shared `.gvm-badge-real` / `.gvm-badge-rainbow` CSS. Call once at UI init for games that implement a custom quiz UI and don't call `showStandardQuiz`.
 
 **`vocab_selector.js`**
-Standalone UI for letting the player pick which word deck to use before a game starts. Mount it with `mountVocabSelector(container, options)`, then call `selector.getQueue()` to retrieve the chosen pool and pass it to `vocabMgr.setPool()`.
+Standalone UI for letting the player pick which word deck to use before a game starts. Mount it with `mountVocabSelector(container, options)`, then call `selector.getQueue()` to retrieve the chosen pool and pass it to `vocabMgr.setPool()`. Call `getDeckConfig(screenEl)` to snapshot the selector's current state for persistence; pass this snapshot back as `preloadConfig` when remounting to restore the player's last selection.
 
-### 4.2 Standard game lifecycle
+### 4.2 The three pool sources and their data flows
+
+The player picks a word source in `vocab_selector.js`. What that choice means for where data lives and when `srs_db` is updated differs significantly between the three cases. **This distinction is critical — get it wrong and you will either silently skip SRS updates or overwrite the player's real review schedule unexpectedly.**
+
+---
+
+#### A. Pure SRS Pool (`deckId: 'srs'` only, `globalSrs: true`)
+
+The player enabled "My SRS Vocabulary" and selected no custom word-list decks.
+
+- `setPool()` is called with `{ globalSrs: true }`.
+- Every answer goes **directly and immediately** to `srs_db` via `srsDb.gradeWordInGame()`.
+- Nothing is written to the game's local save (`_meta.vocabState` is never populated).
+- `exportToAppSrs()` at session end is a **no-op** — data is already live.
+- The Learning Mode setting (auto / manual / random) is **greyed out** in `renderVocabSettings` because the SRS schedule controls word selection, not the game's local engine.
+
+**Free review** (`type === 'free'`): when no cards are currently due, `srsDb.getNextGameWord()` returns `type: 'random'`. `GameVocabManager` re-labels this `'free'`. The quiz still runs, but:
+- A **correct** answer does **not** update the SRS interval (it's a bonus round).
+- A **wrong** answer **does** update the interval (you clearly still need to learn it).
+
+The quiz UI should signal this state visually. Use `.gvm-badge-rainbow` on the quiz badge for free reviews and `.gvm-badge-real` for scheduled reviews — these classes are injected by `injectVocabBadgeStyles()` and are intentionally owned by `game_vocab_mgr_ui`, not by individual game stylesheets.
+
+---
+
+#### B. Pure Custom Deck (word-list decks only, `globalSrs: false`)
+
+The player selected only word-list decks (Anime, JLPT N5, etc.) with no SRS toggle.
+
+- `setPool()` is called **without** `{ globalSrs: true }` (default is `false`).
+- A **fully self-contained SM-2 engine** runs inside the game. `srs_db` is never touched during the session.
+- All scheduling state lives in the game's own save slot, serialised via `vocabMgr.exportState()` into e.g. `_meta.vocabState`.
+- At session end, `exportToAppSrs(null, 'skip')` **pushes newly learned words into the app-wide SRS** using the `'skip'` policy — words already in `srs_db` are not overwritten; only genuinely new words are added. Pass `'overwrite'` instead if your game tracks mature intervals that should replace the existing ones.
+- The Learning Mode setting is fully active — `auto`, `manual`, and `random` all function normally.
+
+This is the correct mode for a "learn a new deck" flow where you want the player to build up local progress before committing anything to their main review schedule.
+
+---
+
+#### C. Mixed Pool (SRS words + custom deck words, `globalSrs: true`)
+
+The player enabled both the SRS toggle and at least one word-list deck.
+
+- `setPool()` is called with `{ globalSrs: true }` because the pool contains at least one `deckId: 'srs'` word.
+- `isGlobalSrs === true` and `_hasCustomWords === true` simultaneously.
+- Word selection routes through `srsDb.getNextGameWord()` for the entire combined pool.
+- **Every answer for every word — including custom deck words — is written to `srs_db` immediately.** A custom deck word that the player answers correctly gets added to and scheduled in the app-wide SRS on the spot. There is no local buffer.
+- `exportToAppSrs()` at session end is a **no-op** (same as pure SRS).
+- The Learning Mode setting is active and applies to the combined pool.
+
+**Key implication:** mixed mode is a fast way to bulk-add custom deck words to the player's main SRS, because each correct answer registers them. If you want custom words to stay local until the player explicitly exports them, use a pure custom deck instead.
+
+`renderVocabSettings` reflects the current state automatically:
+- Pure SRS → shows "Global App SRS Active" notice, greys out Learning Mode.
+- Mixed → shows "Mixed Pool Active" notice, Learning Mode active.
+- Pure custom → shows Local SM-2 parameters (interval, ease), Learning Mode active.
+
+#### Summary table
+
+| Pool source | `globalSrs` | SRS updates | Local save written | Export at session end |
+|---|---|---|---|---|
+| SRS only | `true` | Live, every answer | Nothing | No-op (already live) |
+| Custom deck only | `false` | Never during session | Full SM-2 state in `vocabState` | New words pushed via `'skip'` |
+| Mixed | `true` | Live, every answer (incl. custom words) | Nothing | No-op (already live) |
+
+---
+
+### 4.3 Standard game lifecycle
 
 ```js
 // 1. Construct — use GameVocabManager.defaultConfig() as the base
@@ -121,11 +188,11 @@ const mgr = new GameVocabManager({ mode: 'auto', ...savedConfig });
 const pool = GameVocabManager.loadSrsPool();   // player's SRS library
 mgr.setPool(pool, 'my_game_banned', { globalSrs: true });
 
-// 3. Seed (auto mode only)
+// 3. Seed (auto mode only — no-op for globalSrs or random)
 mgr.seedInitialWords(5);
 
 // 4. Quiz loop
-const challenge = mgr.getNextWord();           // { refId, wordObj, options, correctIdx }
+const challenge = mgr.getNextWord();           // { refId, type, wordObj, options, correctIdx }
 const result    = mgr.gradeWord(challenge.refId, isCorrect);
 
 // 5. Pause / resume around any blocking UI
@@ -133,10 +200,11 @@ mgr.pause();   // freezes the SM-2 clock
 mgr.resume();
 
 // 6. Session end — export local progress back to app SRS
+// No-op when globalSrs is true — safe to call unconditionally.
 mgr.exportToAppSrs(null, 'skip');
 ```
 
-### 4.3 Config persistence pattern
+### 4.4 Config persistence pattern
 
 Games that expose vocab settings should store the config inside their own save object and use `GameVocabManager.defaultConfig()` as the fallback:
 
@@ -147,16 +215,20 @@ const mgr = new GameVocabManager(_meta.vocabConfig);
 
 On save, use `renderVocabSettings`'s `onSave` callback to mirror the updated `vocabMgr.config` back into `_meta.vocabConfig`, then persist to `localStorage`. Do not hardcode clamp limits — read them from `GameVocabManager.configLimits`.
 
-### 4.4 Reference implementation
+Games must also persist the **pool source** alongside the vocab config so the settings label ("Currently: Your SRS library") survives page reloads. Store it in `_meta.poolSource` and restore the runtime variable from it in `loadMeta()`. See `survivor.js` for the reference implementation.
+
+### 4.5 Reference implementation
 
 **`games/survivor/survivor.js`** is the canonical example of how to integrate `GameVocabManager` in a full-featured game. It demonstrates:
 - Building and rebuilding the manager around a run lifecycle (`_buildVocabMgr` / `returnToCamp`).
-- The `globalSrs` flag pattern vs. custom-deck local mode.
-- `importState` / `exportState` for persisting SM-2 progress between sessions.
+- Persisting `_poolSource` in `_meta` so the settings label is correct after a page reload.
+- Saving a `deckConfig` snapshot from `getDeckConfig()` and passing it as `preloadConfig` to `mountVocabSelector()` so the player's last vocab selection is restored.
+- Calling `setPool()` inside `_getOrCreateVocabMgr()` (not just at run start) so `isGlobalSrs` and `_hasCustomWords` are correct whenever `renderVocabSettings` is opened between runs.
+- `importState` / `exportState` for persisting SM-2 progress between sessions (Local mode only).
 - Delegating the settings panel to `renderVocabSettings` while keeping game-specific settings (audio, deck picker, danger-zone resets) in the game's own overlay.
 - Doing the lifetime stat rollup from `vocabMgr.getStats()` once at run-end (`showGameOver`) rather than accumulating per-answer.
 
-**`games/survivor/surv_ui.js`** shows the correct pattern for a game with a **custom quiz UI** that doesn't use `showStandardQuiz` — keeping the `getNextWord → render → gradeWord` call pattern identical to the standard components while preserving game-specific visual theming.
+**`games/survivor/surv_ui.js`** shows the correct pattern for a game with a **custom quiz UI** that doesn't use `showStandardQuiz` — keeping the `getNextWord → render → gradeWord` call pattern identical to the standard components while preserving game-specific visual theming. It calls `injectVocabBadgeStyles()` at init and applies `gvm-badge-rainbow` / `gvm-badge-real` to signal free vs. scheduled reviews.
 
 ---
 
@@ -311,23 +383,33 @@ value = Math.max(min, Math.min(max, rawInput));
 ### 7.2 Loading and setting the vocab pool
 
 ```js
-// ── Option A: player's own SRS library (most common) ──────────────────────
+// ── Option A: player's own SRS library (Pure SRS) ──────────────────────────
 const pool = GameVocabManager.loadSrsPool(); // reads srs_db; never touch localStorage directly
 mgr.setPool(pool, 'mygame_banned', { globalSrs: true });
-// globalSrs:true → answers affect the player's main SRS reviews in real time.
+// Every answer updates srs_db in real time.
+// exportToAppSrs() at session end is a no-op — data is already live.
 
-// ── Option B: custom deck from vocab_selector ──────────────────────────────
+// ── Option B: custom word-list deck only (Pure Custom) ─────────────────────
 const selector = mountVocabSelector(containerEl, { bannedKey: 'mygame_banned' });
-const queue    = await selector.getQueue(); // called when player confirms their selection
-mgr.setPool(queue, 'mygame_banned');
-// No globalSrs flag → Local SM-2 mode; progress is self-contained and exportable.
+const queue    = await selector.getQueue();
+mgr.setPool(queue, 'mygame_banned'); // no globalSrs flag → defaults to false
+// Self-contained SM-2; srs_db is never touched during the session.
+// Call exportToAppSrs(null, 'skip') at session end to push new words to the app SRS.
+
+// ── Option C: mixed — SRS words + custom deck words ─────────────────────────
+// queue contains words with both deckId:'srs' and deckId:'anime' (for example).
+mgr.setPool(queue, 'mygame_banned', { globalSrs: true });
+// CAUTION: globalSrs:true applies to the whole pool.  Custom deck words are also
+// written to srs_db immediately on answer — there is no local buffer.
+// Use this intentionally (fast bulk-enroll into the app SRS), not by accident.
+// exportToAppSrs() is a no-op.
 
 // ── After setPool, seed an initial hand (Local / auto mode only) ───────────
 // No-op in random mode or globalSrs mode — safe to call unconditionally.
 mgr.seedInitialWords(5);
 ```
 
-`setPool` must be called before any `getNextWord()` call. Calling it again mid-session replaces the pool; existing SM-2 state for words still in the new pool is preserved.
+See **§ 4.2** for the full breakdown of what each pool source writes, where, and when.
 
 ### 7.3 Pedagogical modes
 
@@ -349,7 +431,11 @@ const challenge = mgr.getNextWord();
 // challenge shape:
 // {
 //   refId:      string,      // opaque token — pass back to gradeWord()
-//   type:       string,      // 'due' | 'new' | 'drill' | 'leech' | 'random'
+//   type:       string,      // 'due' | 'new' | 'drill' | 'leech' | 'random' | 'free'
+//                            // 'free' = no cards due in the SRS; this is a bonus round.
+//                            //   Correct answers do NOT update the SRS interval.
+//                            //   Wrong answers DO (you still need to learn it).
+//                            //   Signal 'free' visually — use .gvm-badge-rainbow on the quiz badge.
 //   wordObj:    {            // the word to display
 //     kanji:  string,        // the Japanese word (display as the question)
 //     kana:   string,        // furigana / reading
@@ -371,6 +457,9 @@ showMyQuizUI(challenge.wordObj, challenge.options, challenge.correctIdx, (isCorr
     //   newInterval:    number,   // seconds until next review (Local) or 0 (Global)
     //   isLeech:        boolean,  // is this word now flagged as a leech?
     //   justBecameLeech:boolean,  // true only on the answer that crossed the threshold
+    //   isFreeReview:   boolean,  // true when challenge.type was 'free' (no due cards).
+    //                             // Correct answers did NOT update the SRS interval.
+    //                             // Useful for showing a "(no interval change)" notice in the UI.
     // }
 
     mgr.resume(); // always unpause after grading
@@ -383,6 +472,13 @@ showMyQuizUI(challenge.wordObj, challenge.options, challenge.correctIdx, (isCorr
 ### 7.5 Using the standard quiz UI components
 
 For games that don't need a custom visual theme, skip the quiz loop above entirely and use the drop-in components from `game_vocab_mgr_ui.js`:
+
+```js
+import { showStandardQuiz, showQuizSequence, renderVocabSettings, injectVocabBadgeStyles }
+    from '../../game_vocab_mgr_ui.js';
+```
+
+For games that **do** implement a custom quiz UI (like Survivor), import and call `injectVocabBadgeStyles()` once at UI init. This injects the shared `.gvm-badge-real` (green, scheduled review) and `.gvm-badge-rainbow` (animated gradient, free review) CSS classes. Apply them to your quiz badge element based on `challenge.type === 'free'`. Do **not** define these styles in your game's own stylesheet — they belong to the GVM module.
 
 ```js
 import { showStandardQuiz, showQuizSequence, renderVocabSettings }

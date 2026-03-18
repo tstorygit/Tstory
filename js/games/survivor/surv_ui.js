@@ -8,7 +8,7 @@
 
 import { CHARACTERS, WEAPONS, PASSIVES } from './surv_entities.js';
 import * as Audio from './surv_audio.js';
-import { injectVocabBadgeStyles } from '../../game_vocab_mgr_ui.js';
+import { showGameQuiz, showQuizSequence } from '../../game_vocab_mgr_ui.js';
 
 let _container    = null;
 let _engine       = null;
@@ -21,17 +21,9 @@ let dom   = {};
 let kills = 0;
 
 // ── Per-run counters (reset in resetGameUI) ──────────────────────────────────
-// NOTE: correct/wrong/combo are NOT tracked here — vocabMgr.getStats() is the
-// source of truth for those. Only bestStreak is tracked locally because it maps
-// to the game's own run-streak concept (consecutive correct answers this run),
-// which is separate from vocabMgr's combo (which resets on any wrong answer
-// across the full session, not just this run).
 let _runBestStreak = 0;
 let _runStreak     = 0;
 
-// ── Separate timers for quiz vs chest ────────────────────────────────────────
-let _srsQuizTimer   = null;
-let _chestQuizTimer = null;
 let _manuallyPaused = false;
 
 // ── Public accessor so survivor.js can read run stats at game-over ────────────
@@ -60,10 +52,6 @@ export function initUI(container, engineFunctions, vocabMgr, metaCallbacks) {
     _vocabMgr     = vocabMgr;
     _metaCb       = metaCallbacks || { saveMeta: () => {} };
     _onLeaveRound = metaCallbacks?.onLeaveRound || (() => {});
-
-    // Ensure shared review-type badge CSS (rainbow dot, real-review dot) is injected.
-    // This lives in game_vocab_mgr_ui so every game benefits, not just Survivor.
-    injectVocabBadgeStyles();
 
     _container.innerHTML = `
         <!-- ── HUD ── -->
@@ -118,44 +106,8 @@ export function initUI(container, engineFunctions, vocabMgr, metaCallbacks) {
             </div>
         </div>
 
-        <!-- SRS Level-Up Quiz -->
-        <div class="surv-overlay" id="surv-srs-overlay" style="display:none;">
-            <div class="surv-modal surv-modal-levelup">
-                <div class="surv-modal-badge surv-badge-gold">⬆ LEVEL UP</div>
-                <h3 class="surv-modal-title" style="color:#f1c40f;">Clash of Wills</h3>
-                <p class="surv-modal-sub">Answer correctly to choose a power-up!</p>
-                <div id="surv-srs-timer-wrap" class="surv-timer-bar-wrap">
-                    <div id="surv-srs-timer-fill" class="surv-timer-fill"></div>
-                </div>
-                <div class="surv-quiz-word-block">
-                    <div class="surv-srs-furi"  id="surv-srs-furi"></div>
-                    <div class="surv-srs-kanji" id="surv-srs-kanji"></div>
-                </div>
-                <div class="surv-srs-grid" id="surv-srs-grid"></div>
-            </div>
-        </div>
-
-        <!-- Boss Chest Quiz -->
-        <div class="surv-overlay" id="surv-chest-overlay" style="display:none;">
-            <div class="surv-modal surv-modal-chest">
-                <div class="surv-modal-badge surv-badge-purple">🧰 BOSS CHEST</div>
-                <h3 class="surv-modal-title" style="color:#9b59b6;">Rapid Fire!</h3>
-                <p class="surv-modal-sub">Answer 3 in a row to claim the chest.</p>
-                <div class="surv-chest-progress" id="surv-chest-progress">
-                    <div class="surv-chest-dot" id="surv-chest-dot-1"></div>
-                    <div class="surv-chest-dot" id="surv-chest-dot-2"></div>
-                    <div class="surv-chest-dot" id="surv-chest-dot-3"></div>
-                </div>
-                <div id="surv-chest-timer-wrap" class="surv-timer-bar-wrap">
-                    <div id="surv-chest-timer-fill" class="surv-timer-fill surv-timer-fill-purple"></div>
-                </div>
-                <div class="surv-quiz-word-block">
-                    <div class="surv-srs-furi"  id="surv-chest-furi"></div>
-                    <div class="surv-srs-kanji" id="surv-chest-kanji"></div>
-                </div>
-                <div class="surv-srs-grid" id="surv-chest-grid"></div>
-            </div>
-        </div>
+        <!-- SRS Level-Up Quiz — rendered dynamically by showGameQuiz() -->
+        <!-- Boss Chest Quiz  — rendered dynamically by showGameQuiz() -->
 
         <!-- Upgrade Selection -->
         <div class="surv-overlay" id="surv-upgrade-overlay" style="display:none;">
@@ -236,22 +188,9 @@ export function initUI(container, engineFunctions, vocabMgr, metaCallbacks) {
 
         bossWarning: _container.querySelector('#surv-boss-warning'),
 
-        srs:      _container.querySelector('#surv-srs-overlay'),
-        srsTimer: _container.querySelector('#surv-srs-timer-fill'),
-        furi:     _container.querySelector('#surv-srs-furi'),
-        kanji:    _container.querySelector('#surv-srs-kanji'),
-        grid:     _container.querySelector('#surv-srs-grid'),
-
-        chest:     _container.querySelector('#surv-chest-overlay'),
-        chestDots: [
-            _container.querySelector('#surv-chest-dot-1'),
-            _container.querySelector('#surv-chest-dot-2'),
-            _container.querySelector('#surv-chest-dot-3'),
-        ],
-        chestTimer: _container.querySelector('#surv-chest-timer-fill'),
-        chestFuri:  _container.querySelector('#surv-chest-furi'),
-        chestKanji: _container.querySelector('#surv-chest-kanji'),
-        chestGrid:  _container.querySelector('#surv-chest-grid'),
+        // NOTE: srs / chest quiz overlays are no longer persistent DOM elements.
+        // showGameQuiz() / showQuizSequence() from game_vocab_mgr_ui create and
+        // remove them dynamically on each call.
 
         upg:      _container.querySelector('#surv-upgrade-overlay'),
         upgBadge: _container.querySelector('#surv-upg-badge'),
@@ -276,8 +215,9 @@ export function initUI(container, engineFunctions, vocabMgr, metaCallbacks) {
     };
 
     dom.btnPause.onclick = () => {
-        const anyOverlay = [dom.srs, dom.chest, dom.upg, dom.pen, dom.sum]
-            .some(el => el.style.display !== 'none');
+        // Quiz overlays are now dynamic .gvm-overlay elements — check for those too.
+        const anyOverlay = _container.querySelector('.gvm-overlay') !== null
+            || [dom.upg, dom.pen, dom.sum].some(el => el.style.display !== 'none');
         if (anyOverlay) return;
         if (_manuallyPaused) {
             _resumeFromManualPause();
@@ -425,163 +365,89 @@ export function showBossWarning() {
 
 // ─── SRS LEVEL-UP QUIZ ───────────────────────────────────────────────────────
 //
-// NOTE: This module implements its own quiz UI (showSrsQuiz / showChestQuiz) rather
-// than using showStandardQuiz / showQuizSequence from game_vocab_mgr_ui.js.
-// That is intentional: survivor has a deep custom visual theme (surv-overlay CSS
-// classes, gold/purple badge colours, "Clash of Wills" / "Rapid Fire" flavour text,
-// HUD-flash feedback) that would be lost if we used the generic components.
+// Both quiz functions delegate all rendering to showGameQuiz / showQuizSequence
+// from game_vocab_mgr_ui.  Survivor injects its own flavour text (title, subtitle,
+// titleColor) via the options object.  The shared window handles:
+//   • Badge pill with automatic review-type colour (🟢 due / 🔵 new / 🌈 free / …)
+//   • Word block (kanji + furigana)
+//   • Answer grid with flash feedback
+//   • Overlay creation and removal
 //
-// The underlying call pattern is identical to what the standard components do:
-//   vocabMgr.getNextWord() → render question → vocabMgr.gradeWord() → callback
-// If you add a new mode to GameVocabManager, no changes are needed here — the
-// correct word type (due / new / drill / leech) is already selected by the manager.
-
-// Tracks the pending challenge (refId + wordObj) across the async answer flow.
-let _currentChallenge = null;
+// This keeps quiz-window structure and review-type semantics in one place (gvm_ui)
+// while letting every game supply its own narrative context.
 
 export function showSrsQuiz() {
-    _currentChallenge = _vocabMgr.getNextWord();
-    if (!_currentChallenge) { showUpgrades(false); return; }
-
-    const { wordObj, options, correctIdx, type } = _currentChallenge;
-    const isFree = type === 'free';
-
-    // Pause the vocab clock while the player is reading the question
     _vocabMgr.pause();
 
-    dom.srs.style.display   = 'flex';
-    dom.kanji.textContent   = wordObj.kanji;
-    dom.furi.textContent    = (wordObj.kana !== wordObj.kanji) ? wordObj.kana : '';
-    dom.srsTimer.style.display = 'none';
+    showGameQuiz(_vocabMgr, {
+        container:  _container,
+        title:      (isFree) => isFree ? 'Free Practice'         : 'Clash of Wills',
+        titleColor: (isFree) => isFree ? 'var(--text-muted,#aaa)': '#f1c40f',
+        subtitle:   (isFree) => isFree
+            ? 'No cards due — correct answers won\'t update your SRS interval.'
+            : 'Answer correctly to choose a power-up!',
 
-    // Show review type indicator in the badge.
-    // gvm-badge-rainbow / gvm-badge-real are injected by game_vocab_mgr_ui (shared across all games).
-    const badge = dom.srs.querySelector('.surv-modal-badge');
-    if (badge) {
-        badge.textContent = isFree ? '🌈 FREE REVIEW' : '🟢 LEVEL UP';
-        badge.className   = isFree
-            ? 'surv-modal-badge gvm-badge-rainbow'
-            : 'surv-modal-badge surv-badge-gold gvm-badge-real';
-    }
-    const subtitle = dom.srs.querySelector('.surv-modal-sub');
-    if (subtitle) {
-        subtitle.textContent = isFree
-            ? 'No cards due — practice freely! Correct won\'t change intervals.'
-            : 'Answer correctly to choose a power-up!';
-    }
+        onEmpty: () => {
+            // Pool exhausted — skip to upgrade screen without a quiz
+            _vocabMgr.resume();
+            showUpgrades(false);
+        },
 
-    _buildAnswerGrid(dom.grid, options, correctIdx, (isCorrect, clickedBtn) => {
-        clearInterval(_srsQuizTimer);
-        _flashAnswers(dom.grid, clickedBtn, options[correctIdx], isCorrect, () => {
-            const result = _vocabMgr.gradeWord(_currentChallenge.refId, isCorrect);
-            _vocabMgr.resume(); // unpause clock after grading
+        onAnswer: (isCorrect, wordObj, result) => {
+            _vocabMgr.resume();
+            if (isCorrect) Audio.playCorrect();
+            else           Audio.playWrong();
             _recordAnswer(isCorrect, result);
-            dom.srs.style.display = 'none';
-            _currentChallenge     = null;
             if (isCorrect) {
                 showUpgrades(false);
             } else {
-                _showPenalty(`Correct meaning: "${options[correctIdx]}"`);
+                _showPenalty(`Correct meaning: "${wordObj?.eng ?? ''}"`);
                 _engine.applyPenalty();
             }
-        });
+        },
     });
-
-    dom.srsTimer.style.width   = '0%';
-    dom.srsTimer.style.display = 'none';
-    clearInterval(_srsQuizTimer);
 }
 
 // ─── BOSS CHEST QUIZ ─────────────────────────────────────────────────────────
 
-let chestStep = 0;
-
 export function showChestQuiz() {
-    dom.chest.style.display = 'flex';
-    chestStep = 0;
-    dom.chestDots.forEach(d => d.classList.remove('filled', 'wrong'));
-    _vocabMgr.pause(); // pause clock for the entire chest sequence
-    _nextChestQuestion();
-}
+    _vocabMgr.pause();
 
-function _nextChestQuestion() {
-    _currentChallenge = _vocabMgr.getNextWord();
-    if (!_currentChallenge) { dom.chest.style.display = 'none'; _vocabMgr.resume(); showUpgrades(true); return; }
+    // Track the correct meaning of the last wrong answer so the penalty
+    // message can quote it accurately.
+    let _lastCorrectMeaning = '';
 
-    const { wordObj, options, correctIdx } = _currentChallenge;
+    showQuizSequence(_vocabMgr, 3, {
+        container:  _container,
+        title:      () => 'Rapid Fire!',
+        titleColor: () => '#9b59b6',
+        subtitle:   () => 'Answer 3 in a row to claim the chest.',
 
-    dom.chestKanji.textContent = wordObj.kanji;
-    dom.chestFuri.textContent  = (wordObj.kana !== wordObj.kanji) ? wordObj.kana : '';
-
-    _buildAnswerGrid(dom.chestGrid, options, correctIdx, (isCorrect, clickedBtn) => {
-        clearInterval(_chestQuizTimer);
-        _flashAnswers(dom.chestGrid, clickedBtn, options[correctIdx], isCorrect, () => {
-            const result = _vocabMgr.gradeWord(_currentChallenge.refId, isCorrect);
+        onStepAnswer: (isCorrect, wordObj, result) => {
+            if (isCorrect) Audio.playCorrect();
+            else {
+                Audio.playWrong();
+                _lastCorrectMeaning = wordObj?.eng ?? '';
+            }
             _recordAnswer(isCorrect, result);
-            _currentChallenge = null;
+        },
 
-            if (isCorrect) {
-                dom.chestDots[chestStep].classList.add('filled');
-                chestStep++;
-                if (chestStep >= 3) {
-                    dom.chest.style.display = 'none';
-                    _vocabMgr.resume(); // unpause after sequence completes
-                    showUpgrades(true);
-                } else {
-                    _nextChestQuestion();
-                }
+        onComplete: (successes, failures) => {
+            _vocabMgr.resume();
+            if (failures === 0) {
+                showUpgrades(true);
             } else {
-                dom.chestDots[chestStep].classList.add('wrong');
-                dom.chest.style.display = 'none';
-                _vocabMgr.resume(); // unpause after failure
                 _meta.souls += 500;
                 _metaCb.saveMeta();
-                _showPenalty(`Chest corrupted! Correct: "${options[correctIdx]}" — +500 Souls consolation.`);
+                const hint = _lastCorrectMeaning ? ` Correct: "${_lastCorrectMeaning}"` : '';
+                _showPenalty(`Chest corrupted!${hint} — +500 Souls consolation.`);
                 _engine.applyPenalty();
             }
-        });
-    });
-
-    dom.chestTimer.style.width   = '0%';
-    dom.chestTimer.style.display = 'none';
-    clearInterval(_chestQuizTimer);
-}
-
-// ─── QUIZ HELPERS ─────────────────────────────────────────────────────────────
-
-/**
- * Render a 4-button answer grid.
- * All distractor/option logic has already been done by GameVocabManager.getNextWord().
- *
- * @param {HTMLElement} gridEl
- * @param {string[]} options - 4 options, already shuffled by vocabMgr
- * @param {number} correctIdx - Index of the correct answer in options[]
- * @param {Function} onAnswer - (isCorrect: boolean, clickedBtn: HTMLElement) => void
- */
-function _buildAnswerGrid(gridEl, options, correctIdx, onAnswer) {
-    gridEl.innerHTML = '';
-    options.forEach((opt, idx) => {
-        const btn = document.createElement('button');
-        btn.className   = 'surv-srs-btn';
-        btn.textContent = opt;
-        btn.onclick     = () => {
-            if (btn.disabled) return;
-            onAnswer(idx === correctIdx, btn);
-        };
-        gridEl.appendChild(btn);
+        },
     });
 }
 
-function _flashAnswers(gridEl, clickedBtn, correctText, isCorrect, callback) {
-    gridEl.querySelectorAll('.surv-srs-btn').forEach(b => {
-        b.disabled = true;
-        if (b.textContent === correctText) b.classList.add('correct');
-    });
-    if (clickedBtn && !isCorrect) clickedBtn.classList.add('wrong');
-    if (isCorrect) Audio.playCorrect();
-    else           Audio.playWrong();
-    setTimeout(callback, 650);
-}
+
 
 // ─── STATS ────────────────────────────────────────────────────────────────────
 
