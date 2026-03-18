@@ -1278,6 +1278,7 @@ function drawEverything() {
                                ppy + Math.sin(p.angle) * p.radius * 0.6);
             ctx.globalAlpha = 1;
             ctx.restore();
+        }
     }
 
     // ── Enemies ──
@@ -1341,4 +1342,4 @@ function drawEverything() {
     }
 
     uiCallbacks.onDraw(player.hp, player.maxHp, player.xp, player.xpToNext, player.level, elapsedTime);
-}}
+}
