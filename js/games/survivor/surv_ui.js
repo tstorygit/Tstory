@@ -3,7 +3,8 @@ import * as Audio from './surv_audio.js';
 
 let _container  = null;
 let _engine     = null;
-let _vocabQueue = [];\nlet _srsDb      = null;
+let _vocabQueue = [];
+let _srsDb      = null;
 let _meta       = null;
 let _metaCb     = null;
 let _isSrsMode  = false;   // true = use SRS scheduling; false = pure random vocab drill
