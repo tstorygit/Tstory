@@ -1341,4 +1341,4 @@ function drawEverything() {
     }
 
     uiCallbacks.onDraw(player.hp, player.maxHp, player.xp, player.xpToNext, player.level, elapsedTime);
-}
+}}
