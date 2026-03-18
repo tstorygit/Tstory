@@ -77,20 +77,6 @@ export const CHARACTERS = {
         flavour: 'A winged war-demon — devastating but reckless.',
         stats: { damageMult: 0.20, hpMult: -0.20 }
     },
-    // ── Chi's attack ─────────────────────────────────────────────────────────
-
-    // Cat's Paw — spinning multi-directional swipe AOE bursts around the player
-    catspaw: {
-        id: 'catspaw', name: "Cat's Paw", icon: '🐾', type: 'catspaw', rare: true,
-        levels: [
-            { damage: 20, cooldown: 1.8, count: 3, radius: 90,  desc: "3 paw swipes burst outward in all directions." },
-            { damage: 28, cooldown: 1.7, count: 3, radius: 100, desc: "+8 Damage, wider reach." },
-            { damage: 28, cooldown: 1.6, count: 4, radius: 105, desc: "4 swipes per burst." },
-            { damage: 38, cooldown: 1.4, count: 4, radius: 115, desc: "+10 Damage, Cooldown reduced." },
-            { damage: 38, cooldown: 1.3, count: 5, radius: 125, desc: "5 swipes — full 360° coverage." },
-            { damage: 58, cooldown: 1.0, count: 6, radius: 145, desc: "6 swipes, massive damage. Unstoppable frenzy." },
-        ]
-    }
 };
 
 export const WEAPONS = {
@@ -225,6 +211,21 @@ export const WEAPONS = {
             { damage: 52, cooldown: 1.0, speed: 560, knockback: 260, desc: "+14 Damage, greater knockback." },
             { damage: 52, cooldown: 0.85,speed: 580, knockback: 300, desc: "Even faster. Enemies fly." },
             { damage: 78, cooldown: 0.65,speed: 650, knockback: 380, desc: "Devastating bolt. Maximum knockback." },
+        ]
+    }
+
+    // ── Chi's attack ─────────────────────────────────────────────────────────
+
+    // Cat's Paw — spinning multi-directional swipe AOE bursts around the player
+    catspaw: {
+        id: 'catspaw', name: "Cat's Paw", icon: '🐾', type: 'catspaw', rare: true,
+        levels: [
+            { damage: 20, cooldown: 1.8, count: 3, radius: 90,  desc: "3 paw swipes burst outward in all directions." },
+            { damage: 28, cooldown: 1.7, count: 3, radius: 100, desc: "+8 Damage, wider reach." },
+            { damage: 28, cooldown: 1.6, count: 4, radius: 105, desc: "4 swipes per burst." },
+            { damage: 38, cooldown: 1.4, count: 4, radius: 115, desc: "+10 Damage, Cooldown reduced." },
+            { damage: 38, cooldown: 1.3, count: 5, radius: 125, desc: "5 swipes — full 360° coverage." },
+            { damage: 58, cooldown: 1.0, count: 6, radius: 145, desc: "6 swipes, massive damage. Unstoppable frenzy." },
         ]
     }
 };
