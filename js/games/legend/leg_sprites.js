@@ -181,15 +181,41 @@ function _drawRock(ctx, px, py, ts) {
 }
 
 function _drawPit(ctx, px, py, ts) {
-    _fill(ctx, '#111', px, py, ts, ts);
-    const grad = ctx.createRadialGradient(
-        px + ts / 2, py + ts / 2, ts * 0.15,
-        px + ts / 2, py + ts / 2, ts * 0.48
-    );
-    grad.addColorStop(0, 'rgba(0,0,0,0)');
-    grad.addColorStop(1, 'rgba(0,0,0,0.55)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(px, py, ts, ts);
+    // Floor rim around the void
+    _fill(ctx, '#8fa068', px, py, ts, ts);
+
+    const cx  = px + ts / 2;
+    const cy  = py + ts / 2;
+    const rim = Math.round(ts * 0.12);
+
+    // Outer rim shadow — slightly darker than floor
+    _fill(ctx, '#6d7f50', px + rim * 0.5, py + rim * 0.5, ts - rim, ts - rim);
+
+    // The void
+    _fill(ctx, '#0d0d0d', px + rim, py + rim, ts - rim * 2, ts - rim * 2);
+
+    // Inner depth ellipse — sells the "looking down into a hole" feel
+    ctx.fillStyle = '#050505';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + ts * 0.04, ts * 0.22, ts * 0.17, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Top rim highlight
+    ctx.strokeStyle = '#aec47a';
+    ctx.lineWidth   = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(px + rim, py + rim);
+    ctx.lineTo(px + ts - rim, py + rim);
+    ctx.stroke();
+
+    // Left side shadow
+    ctx.strokeStyle = '#5a6e40';
+    ctx.lineWidth   = 1;
+    ctx.beginPath();
+    ctx.moveTo(px + rim, py + rim + 1.5);
+    ctx.lineTo(px + rim, py + ts - rim);
+    ctx.stroke();
+
     _tileGrid(ctx, px, py, ts);
 }
 
@@ -198,13 +224,31 @@ function _drawPost(ctx, px, py, ts) {
 
     const cx = px + ts / 2;
 
-    _fill(ctx, '#95a5a6', cx - ts * 0.18, py + ts * 0.77, ts * 0.36, ts * 0.22);
-    _fill(ctx, '#8e44ad', cx - ts * 0.08, py + ts * 0.12, ts * 0.16, ts * 0.62);
-    _fill(ctx, '#9b59b6', cx - ts * 0.04, py + ts * 0.14, ts * 0.05, ts * 0.58);
+    // Stone base block
+    _fill(ctx, '#7f8c8d', cx - ts * 0.22, py + ts * 0.70, ts * 0.44, ts * 0.26);
+    _stroke(ctx, '#636e72', 1, cx - ts * 0.22, py + ts * 0.70, ts * 0.44, ts * 0.26);
+    // Base highlight
+    _fill(ctx, '#95a5a6', cx - ts * 0.22, py + ts * 0.70, ts * 0.44, ts * 0.06);
 
-    ctx.fillStyle = '#c39bd3';
+    // Pole — tapers slightly (two rects side by side for the highlight)
+    _fill(ctx, '#8e44ad', cx - ts * 0.09, py + ts * 0.18, ts * 0.18, ts * 0.54);
+    _fill(ctx, '#9b59b6', cx - ts * 0.05, py + ts * 0.20, ts * 0.06, ts * 0.50);
+
+    // Grapple ring at top — open circle (the hook target)
+    ctx.strokeStyle = '#e8daef';
+    ctx.lineWidth   = 2;
     ctx.beginPath();
-    ctx.arc(cx, py + ts * 0.18, ts * 0.11, 0, Math.PI * 2);
+    ctx.arc(cx, py + ts * 0.19, ts * 0.12, 0, Math.PI * 2);
+    ctx.stroke();
+    // Ring fill (so it's distinct from the pole)
+    ctx.fillStyle = '#6c3483';
+    ctx.beginPath();
+    ctx.arc(cx, py + ts * 0.19, ts * 0.09, 0, Math.PI * 2);
+    ctx.fill();
+    // Inner ring highlight
+    ctx.fillStyle = '#a569bd';
+    ctx.beginPath();
+    ctx.arc(cx - ts * 0.03, py + ts * 0.16, ts * 0.04, 0, Math.PI * 2);
     ctx.fill();
 
     _tileGrid(ctx, px, py, ts);
@@ -213,18 +257,25 @@ function _drawPost(ctx, px, py, ts) {
 function _drawStairs(ctx, px, py, ts, active) {
     _fill(ctx, '#8fa068', px, py, ts, ts);
 
-    if (!active) {
-        ctx.fillStyle = 'rgba(241,196,15,0.20)';
-        ctx.fillRect(px + ts * 0.2, py + ts * 0.2, ts * 0.6, ts * 0.6);
-        _tileGrid(ctx, px, py, ts);
-        return;
-    }
-
-    const stepColors = ['#f1c40f', '#d4ac0d', '#b7950b'];
     const margin = Math.round(ts * 0.10);
     const totalW = ts - margin * 2;
     const stepH  = Math.round((ts - margin * 2) / 3);
 
+    if (!active) {
+        // Draw recognisable steps but desaturated/dimmed — locked behind clearing room
+        const dimColors = ['#7a7040', '#6b6236', '#5c552e'];
+        for (let i = 0; i < 3; i++) {
+            const inset = i * Math.round(totalW / 6);
+            const sy    = py + margin + i * stepH;
+            _fill(ctx, dimColors[i], px + margin + inset, sy, totalW - inset * 2, stepH - 1);
+        }
+        _stroke(ctx, '#5a5028', 1, px + margin - 1, py + margin - 1, totalW + 2, stepH * 3 + 2);
+        _tileGrid(ctx, px, py, ts);
+        return;
+    }
+
+    // Active — gold steps
+    const stepColors = ['#f1c40f', '#d4ac0d', '#b7950b'];
     for (let i = 0; i < 3; i++) {
         const inset = i * Math.round(totalW / 6);
         const sy    = py + margin + i * stepH;

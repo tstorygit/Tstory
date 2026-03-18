@@ -148,23 +148,33 @@ function updatePlayer(dt) {
         let ny = state.player.y + move.y * speed;
 
         const room = mapData.rooms[state.roomY][state.roomX];
-        
-        const checkCollision = (x, y) => {
-            const c = Math.floor(x / TILE_SIZE);
-            const r = Math.floor(y / TILE_SIZE);
-            if (r >= 0 && r < ROOM_ROWS && c >= 0 && c < ROOM_COLS) {
-                const t = room.grid[r][c];
-                return t === TILE.FLOOR || t === TILE.STAIRS || t === TILE.CHEST;
-            }
-            // Allow stepping out of bounds to trigger the room transition
-            return true;
+        const R = 9; // player collision half-extent in pixels
+
+        // Returns true if tile at pixel (x,y) is walkable.
+        // Out-of-bounds is allowed so the transition trigger can fire.
+        const walkable = (x, y) => {
+            const tc = Math.floor(x / TILE_SIZE);
+            const tr = Math.floor(y / TILE_SIZE);
+            if (tr < 0 || tr >= ROOM_ROWS || tc < 0 || tc >= ROOM_COLS) return true;
+            const t = room.grid[tr][tc];
+            return t === TILE.FLOOR || t === TILE.STAIRS || t === TILE.CHEST || t === TILE.GRASS;
         };
 
-        if (!checkCollision(nx, state.player.y)) nx = state.player.x;
-        if (!checkCollision(state.player.x, ny)) ny = state.player.y;
+        // Check all four corners of the AABB for a given center position
+        const canMove = (x, y) =>
+            walkable(x - R, y - R) && walkable(x + R, y - R) &&
+            walkable(x - R, y + R) && walkable(x + R, y + R);
 
-        state.player.x = nx;
-        state.player.y = ny;
+        // Try full move, then slide on each axis independently
+        if (canMove(nx, ny)) {
+            state.player.x = nx;
+            state.player.y = ny;
+        } else if (canMove(nx, state.player.y)) {
+            state.player.x = nx;         // slide along X
+        } else if (canMove(state.player.x, ny)) {
+            state.player.y = ny;         // slide along Y
+        }
+        // else: fully blocked, don't move
     }
 
     // ── Zelda-style scrolling room transitions ────────────────────────────────
