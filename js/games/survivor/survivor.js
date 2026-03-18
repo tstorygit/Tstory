@@ -9,7 +9,7 @@
 
 import { mountVocabSelector }  from '../../vocab_selector.js';
 import { GameVocabManager }    from '../../game_vocab_mgr.js';
-import { renderVocabSettings } from '../../game_vocab_mgr_ui.js';
+import { renderVocabSettings, poolSourceLabel } from '../../game_vocab_mgr_ui.js';
 import { initInput }          from './surv_input.js';
 import {
     initCanvas, startRun, stop, applyUpgrade, applyHeal, applyPenalty,
@@ -656,11 +656,7 @@ function _showSettings() {
         const muted = Audio.isMuted();
         const cfg   = _meta.vocabConfig;
 
-        const sourceLabel = {
-            srs:    'Your SRS library',
-            custom: 'Custom deck',
-            mixed:  'SRS + Custom deck',
-        }[_poolSource] || 'Your SRS library';
+        const sourceLabel = poolSourceLabel(_poolSource);
 
         overlay.innerHTML = `
             <div class="surv-settings-inner">

@@ -161,6 +161,36 @@ function _injectStyles() {
 /** Public export — inject GVM styles without importing the full quiz components. */
 export function injectVocabBadgeStyles() { _injectStyles(); }
 
+/**
+ * Returns a human-readable label for a pool source value.
+ * Use this instead of hardcoding labels in game files.
+ *
+ * @param {'srs'|'custom'|'mixed'} poolSource
+ * @returns {string}
+ */
+export function poolSourceLabel(poolSource) {
+    return {
+        srs:    'Your SRS library',
+        custom: 'Custom deck',
+        mixed:  'SRS + Custom deck',
+    }[poolSource] ?? 'Your SRS library';
+}
+
+/**
+ * Returns a one-line summary description for a pool source.
+ * Suitable for an infobox or subtitle next to the source label.
+ *
+ * @param {'srs'|'custom'|'mixed'} poolSource
+ * @returns {string}
+ */
+export function poolSourceDescription(poolSource) {
+    return {
+        srs:    'Live SRS reviews — answers update your real flashcard schedule.',
+        custom: 'Local SM-2 — progress is self-contained and exported at session end.',
+        mixed:  'SRS + custom deck — all answers update your real flashcard schedule.',
+    }[poolSource] ?? '';
+}
+
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
 const TYPE_BADGE = {
@@ -468,17 +498,19 @@ export function renderVocabSettings(vocabMgr, container, onSave, poolSource = 'c
     container.innerHTML = `
         <div style="display:flex; flex-direction:column; gap:14px; font-size:13px;">
 
-            ${(isSrs || isMixed) ? `
-            <div style="padding:10px 12px; background:rgba(74,144,226,0.1);
-                        border:1px solid var(--primary-color,#4A90E2); border-radius:8px;
-                        font-size:12px; color:var(--text-main,#333); text-align:center;">
-                <div style="font-size:20px; margin-bottom:4px;">🌍</div>
-                <strong>${isMixed ? 'Mixed Pool Active' : 'Global App SRS Active'}</strong><br>
-                ${isMixed
-                    ? 'SRS words use your real review schedule. Custom deck words use local SM-2. Answers for SRS words affect your main flashcard reviews.'
-                    : 'Answers here affect your main flashcard reviews. 🌈 = free review (no due cards — correct answers won\'t update intervals).'
-                }
-            </div>` : ''}
+            <!-- Pool source infobox — always visible, summarises what mode is active -->
+            <div style="display:flex; align-items:center; gap:10px; padding:10px 12px;
+                        background:${isSrs ? 'rgba(74,144,226,0.08)' : isMixed ? 'rgba(155,89,182,0.08)' : 'rgba(39,174,96,0.08)'};
+                        border:1px solid ${isSrs ? 'var(--primary-color,#4A90E2)' : isMixed ? 'rgba(155,89,182,0.5)' : 'rgba(39,174,96,0.4)'};
+                        border-radius:8px; font-size:12px; color:var(--text-main,#333);">
+                <div style="font-size:22px; flex-shrink:0;">${isSrs ? '🌍' : isMixed ? '🔀' : '📦'}</div>
+                <div>
+                    <strong>${isSrs ? 'Global SRS' : isMixed ? 'Mixed Pool' : 'Custom Deck'}</strong>
+                    <div style="color:var(--text-muted,#888); margin-top:2px; line-height:1.4;">
+                        ${poolSourceDescription(poolSource)}
+                    </div>
+                </div>
+            </div>
 
             <!-- Mode (greyed out when SRS-only) -->
             <div class="gvm-settings-row" style="flex-direction:column; align-items:flex-start; gap:8px;
