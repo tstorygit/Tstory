@@ -425,18 +425,29 @@ export function showQuizSequence(vocabMgr, count, options) {
 
 /**
  * Generates the HTML for a settings menu to configure the VocabManager.
- * Does not display it as a modal; it injects it into a provided container.
- * Works for both Local and Global SRS modes.
+ * Injects into a provided container element — not a modal.
  *
  * @param {GameVocabManager} vocabMgr
  * @param {HTMLElement} container
- * @param {Function} onSave - Callback triggered when settings are saved
+ * @param {Function} onSave - Callback triggered when the player hits Save
+ * @param {'srs'|'custom'|'mixed'} [poolSource='custom']
+ *   The active pool source, as tracked by the game (e.g. survivor's _poolSource).
+ *   This is the authoritative input for what to grey out and what notice to show:
+ *     'srs'    → Global App SRS Active; Learning Mode greyed out (SRS controls scheduling)
+ *     'mixed'  → Mixed Pool Active; Learning Mode active
+ *     'custom' → Local SM-2 active; all settings editable
+ *   Default is 'custom' so games that don't pass a source get the fully-editable view.
  */
-export function renderVocabSettings(vocabMgr, container, onSave) {
+export function renderVocabSettings(vocabMgr, container, onSave, poolSource = 'custom') {
     _injectStyles();
 
-    const cfg = vocabMgr.config;
-    const isSrsOnly = vocabMgr.isGlobalSrs && !vocabMgr._hasCustomWords;
+    const cfg       = vocabMgr.config;
+    const isSrs     = poolSource === 'srs';
+    const isMixed   = poolSource === 'mixed';
+    const isCustom  = poolSource === 'custom';
+    // Learning Mode is only meaningful when the game's own SM-2 engine controls scheduling.
+    // For pure SRS the SRS DB controls order; greying it out prevents confusing the player.
+    const isSrsOnly = isSrs;
 
     const modeLabels = { auto: '🤖 Auto', manual: '📋 SRS Order', random: '🎲 Random' };
     const modeDescs  = {
@@ -457,13 +468,13 @@ export function renderVocabSettings(vocabMgr, container, onSave) {
     container.innerHTML = `
         <div style="display:flex; flex-direction:column; gap:14px; font-size:13px;">
 
-            ${vocabMgr.isGlobalSrs ? `
+            ${(isSrs || isMixed) ? `
             <div style="padding:10px 12px; background:rgba(74,144,226,0.1);
                         border:1px solid var(--primary-color,#4A90E2); border-radius:8px;
                         font-size:12px; color:var(--text-main,#333); text-align:center;">
                 <div style="font-size:20px; margin-bottom:4px;">🌍</div>
-                <strong>${vocabMgr._hasCustomWords ? 'Mixed Pool Active' : 'Global App SRS Active'}</strong><br>
-                ${vocabMgr._hasCustomWords
+                <strong>${isMixed ? 'Mixed Pool Active' : 'Global App SRS Active'}</strong><br>
+                ${isMixed
                     ? 'SRS words use your real review schedule. Custom deck words use local SM-2. Answers for SRS words affect your main flashcard reviews.'
                     : 'Answers here affect your main flashcard reviews. 🌈 = free review (no due cards — correct answers won\'t update intervals).'
                 }
@@ -536,8 +547,8 @@ export function renderVocabSettings(vocabMgr, container, onSave) {
                 </div>
             </div>
 
-            <!-- Local-only SM-2 parameters -->
-            ${!vocabMgr.isGlobalSrs ? `
+            <!-- Local-only SM-2 parameters (hidden for pure SRS — DB controls scheduling) -->
+            ${isCustom || isMixed ? `
             <div class="gvm-settings-row">
                 <div>
                     <strong>🩸 Leech Threshold</strong>
@@ -617,7 +628,7 @@ export function renderVocabSettings(vocabMgr, container, onSave) {
         const accPct = parseInt(container.querySelector('#gvm-cfg-accuracy')?.value);
         if (accPct >= 50 && accPct <= 100) vocabMgr.config.autoThresholds.minAccuracy = accPct / 100;
 
-        if (!vocabMgr.isGlobalSrs) {
+        if (isCustom || isMixed) {
             const leech = parseInt(container.querySelector('#gvm-cfg-leech')?.value);
             if (leech >= 5) vocabMgr.config.leechThreshold = leech;
 
@@ -628,6 +639,19 @@ export function renderVocabSettings(vocabMgr, container, onSave) {
             if (ease >= 1.3) vocabMgr.config.initialEase = ease;
         }
 
-        if (onSave) onSave();
+        // Call onSave with the full updated config snapshot so callers don't have
+        // to enumerate fields manually. Shape matches GameVocabManager.defaultConfig()
+        // plus autoThresholds flattened for easy persistence.
+        if (onSave) onSave({
+            mode:                  vocabMgr.config.mode,
+            newWordThreshold:      vocabMgr.config.newWordThreshold,
+            newWordBatchBootstrap: vocabMgr.config.newWordBatchBootstrap,
+            newWordBatchNormal:    vocabMgr.config.newWordBatchNormal,
+            minDueTime:            vocabMgr.config.autoThresholds.minDueTime,
+            minAccuracy:           vocabMgr.config.autoThresholds.minAccuracy,
+            leechThreshold:        vocabMgr.config.leechThreshold,
+            initialInterval:       vocabMgr.config.initialInterval,
+            initialEase:           vocabMgr.config.initialEase,
+        });
     });
 }

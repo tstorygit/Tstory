@@ -742,26 +742,19 @@ function _showSettings() {
         };
 
         // Vocab settings panel — delegated entirely to game_vocab_mgr_ui.
-        // renderVocabSettings reads/writes vocabMgr.config directly and calls
-        // onSave when the player hits "Save Settings".
+        // Survivor passes _poolSource so the panel knows what to grey out
+        // without needing to inspect manager internals.
         renderVocabSettings(
             _getOrCreateVocabMgr(),
             overlay.querySelector('#surv-vocab-settings-mount'),
-            () => {
-                // Mirror updated config back into _meta so it persists across sessions.
-                const c = _getOrCreateVocabMgr().config;
-                _meta.vocabConfig.mode                  = c.mode;
-                _meta.vocabConfig.newWordThreshold      = c.newWordThreshold;
-                _meta.vocabConfig.newWordBatchBootstrap = c.newWordBatchBootstrap;
-                _meta.vocabConfig.newWordBatchNormal    = c.newWordBatchNormal;
-                _meta.vocabConfig.minDueTime            = c.autoThresholds.minDueTime;
-                _meta.vocabConfig.minAccuracy           = c.autoThresholds.minAccuracy;
-                _meta.vocabConfig.leechThreshold        = c.leechThreshold;
-                _meta.vocabConfig.initialInterval       = c.initialInterval;
-                _meta.vocabConfig.initialEase           = c.initialEase;
+            (updatedConfig) => {
+                // renderVocabSettings passes the full updated config — just assign it.
+                // No field enumeration needed; new GVM fields appear here automatically.
+                Object.assign(_meta.vocabConfig, updatedConfig);
                 saveMeta();
                 _vocabMgr = null;
-            }
+            },
+            _poolSource
         );
 
         // Reset shrine
