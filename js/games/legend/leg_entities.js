@@ -26,4 +26,4 @@ export const PERKS = {
     mp:    { name: 'Mystic Mind',   desc: '+20 Base MP', cost: 1 },
     exp:   { name: 'Scholar',       desc: '+10% EXP Gain', cost: 2 },
     dodge: { name: 'Reflexes',      desc: '-0.5s Dodge Cooldown', cost: 2 }
-};
+};	

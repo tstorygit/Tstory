@@ -202,15 +202,25 @@ function checkLevelUp() {
 function handleLootDrop(type, weaponId) {
     if (type === 'potion') {
         gameState.player.potions++;
+        const fx = document.createElement('div');
+        fx.textContent = `You found a Potion!`;
+        fx.style.cssText = 'position:fixed;top:50px;left:50%;transform:translateX(-50%);background:#3498db;color:#fff;padding:10px 20px;border-radius:10px;font-weight:bold;z-index:9999;box-shadow:0 5px 15px rgba(0,0,0,0.5);';
+        document.body.appendChild(fx);
+        setTimeout(() => fx.remove(), 2500);
     } else if (type === 'weapon') {
-        if (!gameState.unlockedWeapons.includes(weaponId)) {
+        // Safety check just in case it's still null somehow
+        if (!weaponId) {
+            const order = ['axe', 'sickle', 'chain', 'spear', 'star'];
+            weaponId = order.find(w => !gameState.unlockedWeapons.includes(w));
+        }
+        
+        if (weaponId && !gameState.unlockedWeapons.includes(weaponId)) {
             gameState.unlockedWeapons.push(weaponId);
-            // Non blocking alert for finding a new item so game flows well
             const fx = document.createElement('div');
             fx.textContent = `You found the ${weaponId.toUpperCase()}!`;
             fx.style.cssText = 'position:fixed;top:50px;left:50%;transform:translateX(-50%);background:#f1c40f;color:#000;padding:10px 20px;border-radius:10px;font-weight:bold;z-index:9999;box-shadow:0 5px 15px rgba(0,0,0,0.5);';
             document.body.appendChild(fx);
-            setTimeout(() => fx.remove(), 3000);
+            setTimeout(() => fx.remove(), 3500);
         }
     }
     updateHUD(gameState);

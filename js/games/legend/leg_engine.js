@@ -142,7 +142,14 @@ function updatePlayer(dt) {
     if (room.hasChest && room.cleared && Math.hypot(state.player.x - (ROOM_COLS/2*TILE_SIZE), state.player.y - (ROOM_ROWS/2*TILE_SIZE)) < 30) {
         room.hasChest = false;
         room.grid[Math.floor(ROOM_ROWS/2)][Math.floor(ROOM_COLS/2)] = TILE.FLOOR;
-        state.callbacks.onItemFound('weapon', null); // specific weapon logic handled in callback
+        
+        // Figure out weapon drop natively
+        const unowned = Object.keys(WEAPONS).filter(w => !state.unlockedWeapons.includes(w));
+        if (unowned.length > 0) {
+            state.callbacks.onItemFound('weapon', unowned[0]);
+        } else {
+            state.callbacks.onItemFound('potion', null);
+        }
     }
 
     // Attack / Magic
@@ -165,7 +172,7 @@ function updatePlayer(dt) {
                 currentRange: wpn.type === 'projectile' ? 0 : wpn.range
             });
 
-            // Obstacle Interaction (Trees, Grass, Rocks, Posts)
+            // Map Obstacle Interaction
             const range = wpn.type === 'projectile' || wpn.type === 'linear' ? wpn.range : TILE_SIZE * 1.2;
             const px = state.player.x + state.player.dirX * range;
             const py = state.player.y + state.player.dirY * range;
@@ -240,14 +247,11 @@ function updateHitboxes(dt) {
         hb.life -= dt;
         if (hb.life <= 0) { activeHitboxes.splice(i, 1); continue; }
         
-        if (hb.weapon.type === 'projectile') {
-            hb.currentRange += 600 * dt;
-            hb.x = state.player.x + hb.dirX * hb.currentRange;
-            hb.y = state.player.y + hb.dirY * hb.currentRange;
-        } else if (hb.weapon.type === 'linear') {
-            hb.x = state.player.x; hb.y = state.player.y;
+        // Linear weapons extend outward
+        if (hb.weapon.type === 'linear') {
+            hb.currentRange = (hb.weapon.range) * (1 - hb.life/0.15); // Shoots out rapidly
         } else {
-            hb.x = state.player.x; hb.y = state.player.y; 
+            hb.x = state.player.x; hb.y = state.player.y; // Arcs stay on player
         }
 
         activeEnemies.forEach(e => {
@@ -259,19 +263,19 @@ function updateHitboxes(dt) {
                 isHit = Math.hypot(e.x - hb.x, e.y - hb.y) < hb.weapon.range;
             } 
             else if (hb.weapon.type === 'linear') {
-                const hx = hb.x + hb.dirX * hb.weapon.range;
-                const hy = hb.y + hb.dirY * hb.weapon.range;
-                isHit = Math.hypot(e.x - hx, e.y - hy) < 30; // wider leniency for thrusts
-            }
-            else if (hb.weapon.type === 'projectile') {
-                isHit = Math.hypot(e.x - hb.x, e.y - hb.y) < 25;
+                // Circle-line collision approximation (point travelling along line)
+                const hx = hb.x + hb.dirX * hb.currentRange;
+                const hy = hb.y + hb.dirY * hb.currentRange;
+                isHit = Math.hypot(e.x - hx, e.y - hy) < 25;
             }
             else if (hb.weapon.type === 'arc') {
                 const dist = Math.hypot(e.x - hb.x, e.y - hb.y);
                 const angle = Math.atan2(e.y - hb.y, e.x - hb.x);
                 const faceAngle = Math.atan2(hb.dirY, hb.dirX);
+                // Normalize angle diff
                 let diff = Math.abs(angle - faceAngle);
                 if (diff > Math.PI) diff = 2 * Math.PI - diff;
+                
                 isHit = dist < hb.weapon.range && diff <= hb.weapon.arc/2;
             }
             
@@ -280,8 +284,9 @@ function updateHitboxes(dt) {
                 const dmg = Math.max(1, Math.floor(state.player.str * hb.weapon.damage * (1 + Math.random()*0.2)));
                 e.hp -= dmg;
                 e.flashTimer = 0.1;
-                e.iFrames = 0.1;
+                e.iFrames = 0.1; // Prevent multihit from same swing
                 
+                // Knockback
                 e.x += hb.dirX * 15; e.y += hb.dirY * 15; 
                 spawnFloat(e.x, e.y, dmg, '#fff');
                 
@@ -325,6 +330,8 @@ function draw() {
             const t = room.grid[r][c];
             ctx.fillStyle = t===TILE.WALL ? '#2c3e50' : t===TILE.TREE ? '#27ae60' : t===TILE.ROCK ? '#7f8c8d' : t===TILE.GRASS ? '#2ecc71' : t===TILE.PIT ? '#111' : t===TILE.POST ? '#8e44ad' : '#8fa068';
             ctx.fillRect(c*TILE_SIZE, r*TILE_SIZE, TILE_SIZE, TILE_SIZE);
+            
+            // Inner borders for retro feel
             ctx.strokeStyle = 'rgba(0,0,0,0.1)';
             ctx.strokeRect(c*TILE_SIZE, r*TILE_SIZE, TILE_SIZE, TILE_SIZE);
 
@@ -333,9 +340,11 @@ function draw() {
         }
     }
 
+    // Drops
     ctx.font = '20px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     drops.forEach(d => { ctx.fillText(d.emoji, d.x, d.y); });
 
+    // Enemies
     ctx.font = '24px Arial'; 
     activeEnemies.forEach(e => {
         if (e.isBoss) ctx.font = '48px Arial'; else ctx.font = '24px Arial';
@@ -344,13 +353,13 @@ function draw() {
         ctx.globalAlpha = 1;
     });
 
-    // Hitboxes
+    // Hitboxes (Visual Swing)
     activeHitboxes.forEach(hb => {
         ctx.strokeStyle = '#fff'; ctx.lineWidth = 4;
         ctx.beginPath();
         if (hb.weapon.type === 'linear') {
             ctx.moveTo(hb.x, hb.y);
-            ctx.lineTo(hb.x + hb.dirX * hb.weapon.range, hb.y + hb.dirY * hb.weapon.range);
+            ctx.lineTo(hb.x + hb.dirX * hb.currentRange, hb.y + hb.dirY * hb.currentRange);
         } else if (hb.weapon.type === 'projectile') {
             ctx.arc(hb.x, hb.y, 8, 0, Math.PI*2);
         } else if (hb.weapon.type === 'radial') {
@@ -362,11 +371,13 @@ function draw() {
         ctx.stroke();
     });
 
+    // Player
     ctx.globalAlpha = state.player.invincibility > 0 && Math.floor(performance.now()/100)%2===0 ? 0.3 : 1;
     ctx.font = '24px Arial';
     ctx.fillText('🧝', state.player.x, state.player.y);
     ctx.globalAlpha = 1;
 
+    // Floats
     floatingTexts.forEach(f => {
         ctx.fillStyle = f.color; ctx.font = 'bold 16px sans-serif';
         ctx.fillText(f.text, f.x, f.y - (1 - f.life)*30);
