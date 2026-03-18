@@ -307,7 +307,6 @@ export function resetGameUI(vocabMgr, metaData) {
     _vocabMgr       = vocabMgr;
     _meta           = metaData;
     kills           = 0;
-    chestStep       = 0;
     _runStreak      = 0;
     _runBestStreak  = 0;
     _manuallyPaused = false;
