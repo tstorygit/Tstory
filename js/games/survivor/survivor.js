@@ -115,6 +115,10 @@ export function init(screens, onExit) {
         onBossWarning: () => showBossWarning()
     });
 
+    // Prevent iOS Safari from scrolling the page while the game screen is active.
+    // touchmove with passive:false lets us call preventDefault() to suppress scroll.
+    _screens.game.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+
     // ✅ initUI MUST come before initInput — initUI writes the joystick HTML
     // into #surv-ui-layer. If initInput runs first, querySelector('#surv-joystick-zone')
     // returns null (element doesn't exist yet) → if(!touchZone) return → no listeners.

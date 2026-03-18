@@ -239,6 +239,9 @@
        the first paint when the parent is display:flex */
     min-height: 0;
     min-width: 0;
+    /* Prevent iOS Safari rubber-band scrolling inside the game view */
+    touch-action: none;
+    overscroll-behavior: none;
 }
 #surv-canvas {
     /* Fill the wrapper div exactly — JS reads clientWidth/Height
@@ -246,6 +249,7 @@
     display: block;
     width: 100%;
     height: 100%;
+    touch-action: none;
 }
 
 /* The game screen itself must be a column-flex so HUD + canvas stack */
@@ -256,6 +260,8 @@
     inset: 0;
     pointer-events: none;    /* layer itself transparent; children opt-in */
     z-index: 10;
+    touch-action: none;
+    overscroll-behavior: none;
 }
 
 /* ── HUD ─────────────────────────────────────────────────────── */
