@@ -329,9 +329,16 @@ export class GameVocabManager {
                         if (accuracy   >= this.config.autoThresholds.minAccuracy &&
                             timeToNext >= this.config.autoThresholds.minDueTime) {
 
-                            // Introduce up to autoNewWordBatchSize words; quiz on the last one
+                            // Choose batch size based on how many words are already active.
+                            // Below the threshold → bootstrap batch (more words, faster ramp-up).
+                            // At or above → normal batch (slower, steadier pace).
+                            const activeCount = Object.keys(this.state.activeSrs).length;
+                            const threshold   = this.config.newWordThreshold       ?? 10;
+                            const batchSize   = activeCount < threshold
+                                ? (this.config.newWordBatchBootstrap ?? 3)
+                                : (this.config.newWordBatchNormal    ?? 1);
+
                             let lastNew = null;
-                            const batchSize = this.config.autoNewWordBatchSize || 1;
                             for (let i = 0; i < batchSize; i++) {
                                 const w = this.learnNewWord();
                                 if (w) lastNew = w;
@@ -582,13 +589,16 @@ export class GameVocabManager {
      * No-ops in 'random' mode (no concept of "new" words) and in Global SRS mode
      * (the SRS database controls introduction order).
      *
+     * The default count uses newWordBatchBootstrap (the "starting fresh" batch size)
+     * because at run start the active pool is always empty — the same condition that
+     * triggers bootstrap-sized batches during auto-introduction.
+     *
      * @param {number} count  Number of words to introduce. Defaults to
-     *                        Math.max(autoNewWordBatchSize, 5) — enough to give
-     *                        the player a small starting hand without overwhelming them.
+     *                        Math.max(newWordBatchBootstrap, 5).
      * @returns {number}      Actual number of words introduced (may be less if pool
      *                        is smaller than requested count).
      */
-    seedInitialWords(count = Math.max(this.config.autoNewWordBatchSize, 5)) {
+    seedInitialWords(count = Math.max(this.config.newWordBatchBootstrap ?? 3, 5)) {
         if (this.config.mode === 'random' || this.isGlobalSrs) return 0;
         let introduced = 0;
         for (let i = 0; i < count; i++) {
@@ -821,13 +831,15 @@ export class GameVocabManager {
      */
     static defaultConfig() {
         return {
-            mode:                 'auto',   // 'auto' | 'manual' | 'random'
-            initialInterval:      8,        // seconds before first re-review
-            initialEase:          1.5,      // SM-2 ease multiplier
-            leechThreshold:       20,       // wrong-answer count to flag a leech
-            autoNewWordBatchSize: 1,        // words introduced per auto-event
-            minDueTime:           10,       // seconds with no due cards before auto-introducing
-            minAccuracy:          0.80,     // recent accuracy required before auto-introducing
+            mode:                   'auto',   // 'auto' | 'manual' | 'random'
+            initialInterval:        8,        // seconds before first re-review
+            initialEase:            1.5,      // SM-2 ease multiplier
+            leechThreshold:         20,       // wrong-answer count to flag a leech
+            newWordThreshold:       10,       // active-SRS count below which bootstrap batch is used
+            newWordBatchBootstrap:  3,        // words introduced per event when active < threshold
+            newWordBatchNormal:     1,        // words introduced per event when active >= threshold
+            minDueTime:             10,       // seconds with no due cards before auto-introducing
+            minAccuracy:            0.80,     // recent accuracy required before auto-introducing
         };
     }
 
@@ -842,12 +854,14 @@ export class GameVocabManager {
      */
     static get configLimits() {
         return {
-            initialInterval:      { min: 1,    max: 300  },
-            initialEase:          { min: 1.1,  max: 5.0  },
-            leechThreshold:       { min: 3,    max: 100  },
-            autoNewWordBatchSize: { min: 1,    max: 5    },
-            minDueTime:           { min: 5,    max: 120  },
-            minAccuracy:          { min: 0.50, max: 1.00 },
+            initialInterval:        { min: 1,    max: 300  },
+            initialEase:            { min: 1.1,  max: 5.0  },
+            leechThreshold:         { min: 3,    max: 100  },
+            newWordThreshold:       { min: 1,    max: 50   },
+            newWordBatchBootstrap:  { min: 1,    max: 10   },
+            newWordBatchNormal:     { min: 1,    max: 5    },
+            minDueTime:             { min: 5,    max: 120  },
+            minAccuracy:            { min: 0.50, max: 1.00 },
         };
     }
 }

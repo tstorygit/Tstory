@@ -140,33 +140,24 @@ export function init(screens, onExit) {
 /**
  * Returns the current _vocabMgr, creating one if it doesn't exist yet.
  * Config is read from _meta.vocabConfig (persisted in localStorage).
- *
- * Also calls setPool() with the current _vocabPool so that isGlobalSrs and
- * _hasCustomWords are set correctly even when no run is active — this is
- * required for renderVocabSettings to show the correct greyed-out state.
  */
 function _getOrCreateVocabMgr() {
     if (_vocabMgr) return _vocabMgr;
 
     const cfg = _meta?.vocabConfig || _defaultVocabConfig();
     _vocabMgr = new GameVocabManager({
-        mode:                cfg.mode,
-        initialInterval:     cfg.initialInterval,
-        initialEase:         cfg.initialEase,
-        leechThreshold:      cfg.leechThreshold,
-        autoNewWordBatchSize: cfg.autoNewWordBatchSize,
+        mode:                  cfg.mode,
+        initialInterval:       cfg.initialInterval,
+        initialEase:           cfg.initialEase,
+        leechThreshold:        cfg.leechThreshold,
+        newWordThreshold:      cfg.newWordThreshold,
+        newWordBatchBootstrap: cfg.newWordBatchBootstrap,
+        newWordBatchNormal:    cfg.newWordBatchNormal,
         autoThresholds: {
             minDueTime:  cfg.minDueTime,
             minAccuracy: cfg.minAccuracy,
         },
     });
-
-    // Populate the pool so isGlobalSrs / _hasCustomWords reflect the current
-    // source, even before a run starts. Required by renderVocabSettings.
-    if (_vocabPool.length > 0) {
-        _vocabMgr.setPool(_vocabPool, 'surv_banned', { globalSrs: _poolSource !== 'custom' });
-    }
-
     return _vocabMgr;
 }
 
@@ -179,11 +170,13 @@ function _buildVocabMgr() {
     const cfg = _meta.vocabConfig || _defaultVocabConfig();
 
     _vocabMgr = new GameVocabManager({
-        mode:                cfg.mode,
-        initialInterval:     cfg.initialInterval,
-        initialEase:         cfg.initialEase,
-        leechThreshold:      cfg.leechThreshold,
-        autoNewWordBatchSize: cfg.autoNewWordBatchSize,
+        mode:                  cfg.mode,
+        initialInterval:       cfg.initialInterval,
+        initialEase:           cfg.initialEase,
+        leechThreshold:        cfg.leechThreshold,
+        newWordThreshold:      cfg.newWordThreshold,
+        newWordBatchBootstrap: cfg.newWordBatchBootstrap,
+        newWordBatchNormal:    cfg.newWordBatchNormal,
         autoThresholds: {
             minDueTime:  cfg.minDueTime,
             minAccuracy: cfg.minAccuracy,
@@ -200,11 +193,10 @@ function _buildVocabMgr() {
     _vocabMgr.setPool(_vocabPool, 'surv_banned', { globalSrs: _poolSource !== 'custom' });
 
     // Seed initial words for auto mode only.
-    // manual mode requires explicit player action via learnNewWord();
-    // random mode needs no seeding at all.
-    // seedInitialWords() is a no-op for both those cases.
+    // seedInitialWords() uses newWordBatchBootstrap as its default count — correct
+    // since at run start the active pool is always empty (same bootstrap condition).
     if (cfg.mode === 'auto') {
-        _vocabMgr.seedInitialWords(Math.max(cfg.autoNewWordBatchSize, 5));
+        _vocabMgr.seedInitialWords();  // default count comes from config via seedInitialWords()
     }
 
     return _vocabMgr;
@@ -263,18 +255,11 @@ function loadMeta() {
             totalCorrect: 0, totalWrong: 0, bestStreak: 0,
         },
         vocabConfig: _defaultVocabConfig(),
-        poolSource:  'srs',   // persisted so settings label survives page reload
-        deckConfig:  null,    // last vocab_selector config snapshot (preloadConfig shape)
     };
     try { _meta = JSON.parse(localStorage.getItem('surv_meta')) || def; }
     catch { _meta = def; }
     _meta.stats       = { ...def.stats,       ..._meta.stats };
     _meta.vocabConfig = { ...def.vocabConfig,  ..._meta.vocabConfig };
-    if (!_meta.poolSource) _meta.poolSource = 'srs';
-
-    // Restore runtime variable from persisted meta so settings labels are correct
-    // even if the page was reloaded between sessions.
-    _poolSource = _meta.poolSource;
 
     // Migrate old totalWordsMastered key
     if (_meta.stats.totalWordsMastered && !_meta.stats.totalCorrect) {
@@ -288,8 +273,6 @@ function saveMeta() {
     if (_vocabMgr && !_vocabMgr.isGlobalSrs) {
         _meta.vocabState = _vocabMgr.exportState();
     }
-    // Keep _poolSource in sync so the settings label is correct after a page reload.
-    _meta.poolSource = _poolSource;
     localStorage.setItem('surv_meta', JSON.stringify(_meta));
 }
 
@@ -311,17 +294,12 @@ function showVocabSelector(fromSettings = false) {
     selectorWrap.style.display = 'block';
     campWrap.style.display     = 'none';
 
-    // Always remount so the selector reflects the latest saved settings.
-    // Pass _meta.deckConfig as preloadConfig so the user's last selection
-    // (SRS toggle, deck checkboxes, ranges) is restored correctly.
+    // Always remount so the selector reflects the latest saved settings
     _selector = null;
     selectorWrap.innerHTML = '';
 
     _selector = mountVocabSelector(selectorWrap, {
-        bannedKey:     'surv_banned',
-        defaultCount:  'All',
-        title:         'Vocabulary Queue',
-        preloadConfig: _meta?.deckConfig ?? null,
+        bannedKey: 'surv_banned', defaultCount: 'All', title: 'Vocabulary Queue',
     });
     const actions = _selector.getActionsEl();
 
@@ -333,25 +311,21 @@ function showVocabSelector(fromSettings = false) {
         const queue = await _selector.getQueue();
         if (!queue.length) return;
 
-        // Snapshot the selector state so it can be restored next time.
-        // getDeckConfig reads the live DOM, so call it before we tear down.
-        const { getDeckConfig } = await import('../../vocab_selector.js');
-        const snap = getDeckConfig(selectorWrap);
-        if (snap) { _meta.deckConfig = snap; }
-
         // Separate SRS words (deckId:'srs') from custom deck words
         const srsWords    = queue.filter(w => w.deckId === 'srs');
         const customWords = queue.filter(w => w.deckId !== 'srs');
 
         if (srsWords.length > 0 && customWords.length > 0) {
+            // Mixed: SRS + at least one custom deck
             _poolSource = 'mixed';
             _vocabPool  = queue.map(w => ({
                 word:   w.word,
                 furi:   w.furi  || w.word,
                 trans:  w.trans || '—',
-                deckId: w.deckId,
+                deckId: w.deckId,   // preserve 'srs' tag so GVM routes correctly
             }));
         } else if (srsWords.length > 0) {
+            // SRS only — same as the default SRS path
             _poolSource = 'srs';
             _vocabPool  = srsWords.map(w => ({
                 word:   w.word,
@@ -360,6 +334,7 @@ function showVocabSelector(fromSettings = false) {
                 deckId: 'srs',
             }));
         } else {
+            // Pure custom deck
             _poolSource = 'custom';
             _vocabPool  = customWords.map(w => ({
                 word:   w.word,
@@ -369,9 +344,7 @@ function showVocabSelector(fromSettings = false) {
             }));
         }
 
-        _meta.poolSource = _poolSource;
-        saveMeta();           // persist source + deckConfig immediately
-        _vocabMgr = null;     // force rebuild with new pool
+        _vocabMgr = null; // force rebuild with new pool
         showCamp();
     };
 
@@ -380,24 +353,20 @@ function showVocabSelector(fromSettings = false) {
     backBtn.className   = 'caro-back-btn';
 
     if (fromSettings) {
-        // Came from the settings overlay → return to camp (settings will reopen)
+        // Came from the settings overlay → go back to camp (settings will reopen)
         backBtn.textContent = '← Back to Settings';
         backBtn.onclick = () => {
             showCamp();
+            // Re-open settings after a tick so the camp DOM is ready
             setTimeout(() => _showSettings(), 50);
         };
-    } else if (_vocabPool.length > 0) {
-        // Selector opened from camp (user clicked "Change Word Deck" in setup
-        // before entering settings, or was redirected here).  They already have
-        // a pool, so Back cancels and goes to camp.
-        backBtn.textContent = '← Back to Camp';
-        backBtn.onclick = () => showCamp();
     } else {
-        // Launched with no SRS words at all → back goes to the games list
+        // Came from launch with no SRS words → back goes to games list
         backBtn.textContent = '← Back to Games';
         backBtn.onclick = () => {
             const srsWords = _loadSrsWords();
             if (srsWords.length > 0) {
+                // User has SRS words now (maybe added some) — default to SRS
                 _poolSource = 'srs';
                 _vocabPool  = srsWords;
                 _vocabMgr   = null;
@@ -732,15 +701,7 @@ function _showSettings() {
 
                 <!-- Vocabulary learning mode — rendered by game_vocab_mgr_ui -->
                 <div class="surv-settings-section">
-                    <div class="surv-settings-section-label">🧠 Vocabulary Mode
-                        ${(() => {
-                            const mgr = _getOrCreateVocabMgr();
-                            const isSrsOnly = mgr.isGlobalSrs && !mgr._hasCustomWords;
-                            return isSrsOnly
-                                ? '<span style="font-size:9px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted);margin-left:6px;">(controlled by SRS — greyed out)</span>'
-                                : '';
-                        })()}
-                    </div>
+                    <div class="surv-settings-section-label">🧠 Vocabulary Mode</div>
                     <div id="surv-vocab-settings-mount"></div>
                 </div>
 
@@ -789,15 +750,16 @@ function _showSettings() {
             () => {
                 // Mirror updated config back into _meta so it persists across sessions.
                 const c = _getOrCreateVocabMgr().config;
-                _meta.vocabConfig.mode                = c.mode;
-                _meta.vocabConfig.autoNewWordBatchSize = c.autoNewWordBatchSize;
-                _meta.vocabConfig.minDueTime           = c.autoThresholds.minDueTime;
-                _meta.vocabConfig.minAccuracy          = c.autoThresholds.minAccuracy;
-                _meta.vocabConfig.leechThreshold       = c.leechThreshold;
-                _meta.vocabConfig.initialInterval      = c.initialInterval;
-                _meta.vocabConfig.initialEase          = c.initialEase;
+                _meta.vocabConfig.mode                  = c.mode;
+                _meta.vocabConfig.newWordThreshold      = c.newWordThreshold;
+                _meta.vocabConfig.newWordBatchBootstrap = c.newWordBatchBootstrap;
+                _meta.vocabConfig.newWordBatchNormal    = c.newWordBatchNormal;
+                _meta.vocabConfig.minDueTime            = c.autoThresholds.minDueTime;
+                _meta.vocabConfig.minAccuracy           = c.autoThresholds.minAccuracy;
+                _meta.vocabConfig.leechThreshold        = c.leechThreshold;
+                _meta.vocabConfig.initialInterval       = c.initialInterval;
+                _meta.vocabConfig.initialEase           = c.initialEase;
                 saveMeta();
-                // Force the manager to be rebuilt from new config at the start of next run.
                 _vocabMgr = null;
             }
         );
@@ -826,7 +788,6 @@ function _showSettings() {
             localStorage.removeItem('surv_meta');
             _meta       = null;
             _poolSource = 'srs';
-            _vocabPool  = [];
             _vocabMgr   = null;
             overlay.remove();
             launch();

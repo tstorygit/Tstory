@@ -42,6 +42,7 @@ function _injectStyles() {
             display: flex; align-items: center; justify-content: center;
             z-index: 10000; padding: 20px;
             backdrop-filter: blur(6px);
+            pointer-events: auto; /* opt back in — parent ui-layer has pointer-events:none */
         }
         /* ── Modal shell ────────────────────────────────────────────────────── */
         .gvm-modal {
@@ -480,14 +481,36 @@ export function renderVocabSettings(vocabMgr, container, onSave) {
                 </div>
             </div>
 
-            <!-- Batch size -->
+            <!-- New-word introduction — threshold + two batch sizes -->
             <div class="gvm-settings-row" id="gvm-row-batch">
                 <div>
-                    <strong>➕ Words per Batch</strong>
-                    <div style="font-size:11px; color:var(--text-muted,#888);">How many new words are introduced at once.</div>
+                    <strong>📚 Bootstrap Threshold</strong>
+                    <div style="font-size:11px; color:var(--text-muted,#888);">
+                        While fewer than this many words are active, use the bootstrap batch size.
+                    </div>
                 </div>
-                <input type="number" id="gvm-cfg-batch" class="gvm-settings-input"
-                       value="${cfg.autoNewWordBatchSize}" min="1" max="5">
+                <input type="number" id="gvm-cfg-threshold" class="gvm-settings-input"
+                       value="${cfg.newWordThreshold ?? 10}" min="1" max="50">
+            </div>
+            <div class="gvm-settings-row" id="gvm-row-batch-bootstrap">
+                <div>
+                    <strong>➕ Bootstrap Batch</strong>
+                    <div style="font-size:11px; color:var(--text-muted,#888);">
+                        New words introduced at once when below the threshold (fast ramp-up).
+                    </div>
+                </div>
+                <input type="number" id="gvm-cfg-batch-bootstrap" class="gvm-settings-input"
+                       value="${cfg.newWordBatchBootstrap ?? 3}" min="1" max="10">
+            </div>
+            <div class="gvm-settings-row" id="gvm-row-batch-normal">
+                <div>
+                    <strong>➕ Normal Batch</strong>
+                    <div style="font-size:11px; color:var(--text-muted,#888);">
+                        New words introduced at once when at or above the threshold (steady pace).
+                    </div>
+                </div>
+                <input type="number" id="gvm-cfg-batch-normal" class="gvm-settings-input"
+                       value="${cfg.newWordBatchNormal ?? 1}" min="1" max="5">
             </div>
 
             <!-- Auto-only thresholds -->
@@ -554,8 +577,11 @@ export function renderVocabSettings(vocabMgr, container, onSave) {
         selectedMode = mode;
         const isRandom = mode === 'random';
         const isAuto   = mode === 'auto';
-        container.querySelector('#gvm-row-batch').style.display = isRandom ? 'none' : '';
-        container.querySelector('#gvm-auto-only').style.display = isAuto   ? ''     : 'none';
+        const hideDisplay = isRandom ? 'none' : '';
+        container.querySelector('#gvm-row-batch').style.display            = hideDisplay;
+        container.querySelector('#gvm-row-batch-bootstrap').style.display  = hideDisplay;
+        container.querySelector('#gvm-row-batch-normal').style.display     = hideDisplay;
+        container.querySelector('#gvm-auto-only').style.display = isAuto ? '' : 'none';
         container.querySelector('#gvm-mode-desc').textContent   = modeDescs[mode] || '';
     };
     syncVisibility(cfg.mode);
@@ -576,8 +602,14 @@ export function renderVocabSettings(vocabMgr, container, onSave) {
     container.querySelector('#gvm-btn-save').addEventListener('click', () => {
         vocabMgr.config.mode = selectedMode;
 
-        const batch = parseInt(container.querySelector('#gvm-cfg-batch')?.value);
-        if (batch >= 1 && batch <= 5) vocabMgr.config.autoNewWordBatchSize = batch;
+        const threshold = parseInt(container.querySelector('#gvm-cfg-threshold')?.value);
+        if (threshold >= 1) vocabMgr.config.newWordThreshold = threshold;
+
+        const batchBootstrap = parseInt(container.querySelector('#gvm-cfg-batch-bootstrap')?.value);
+        if (batchBootstrap >= 1) vocabMgr.config.newWordBatchBootstrap = batchBootstrap;
+
+        const batchNormal = parseInt(container.querySelector('#gvm-cfg-batch-normal')?.value);
+        if (batchNormal >= 1) vocabMgr.config.newWordBatchNormal = batchNormal;
 
         const dueTime = parseInt(container.querySelector('#gvm-cfg-duetime')?.value);
         if (dueTime >= 5) vocabMgr.config.autoThresholds.minDueTime = dueTime;
