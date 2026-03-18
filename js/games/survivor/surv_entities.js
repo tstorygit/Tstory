@@ -212,7 +212,7 @@ export const WEAPONS = {
             { damage: 52, cooldown: 0.85,speed: 580, knockback: 300, desc: "Even faster. Enemies fly." },
             { damage: 78, cooldown: 0.65,speed: 650, knockback: 380, desc: "Devastating bolt. Maximum knockback." },
         ]
-    }
+    },
 
     // ── Chi's attack ─────────────────────────────────────────────────────────
 

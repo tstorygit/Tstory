@@ -517,6 +517,7 @@ function updateWeapons(dt) {
                 }
                 // Rotate offset each burst for visual variety
                 aw.angle = (aw.angle || 0) + Math.PI / lvlDef.count;
+            }
         }
     });
 }
