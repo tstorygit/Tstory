@@ -1,5 +1,5 @@
 # AI Japanese Reader & SRS — Architecture & Context Guide
-**Version: 1.1**
+**Version: 1.2**
 
 This document provides a comprehensive overview of the application's architecture, file structure, and core module responsibilities. It is designed to give a developer full context for working on any part of the app, including the mini-game ecosystem, without needing prior knowledge of the codebase.
 
@@ -104,10 +104,13 @@ The single vocabulary brain for all games. Responsibilities:
 
 **`game_vocab_mgr_ui.js`**
 Drop-in UI components built on top of `GameVocabManager`. Use these unless a game has a deep custom visual theme that would be lost:
-- `showStandardQuiz(vocabMgr, options)` — single flashcard question in a modal overlay.
-- `showQuizSequence(vocabMgr, count, options)` — multi-question sequence (e.g. a boss chest).
-- `renderVocabSettings(vocabMgr, container, onSave)` — full settings panel (mode selector, thresholds, SM-2 params). **Always prefer this over handwriting your own settings UI.** Any new config field added to `GameVocabManager` will appear here automatically.
-- `injectVocabBadgeStyles()` — injects the shared badge CSS (`.gvm-badge-real`, `.gvm-badge-unscheduled`, etc.). Call once at UI init for games that implement a custom quiz UI and don't call `showStandardQuiz`.
+- `showGameQuiz(vocabMgr, options)` — **the primary quiz window**. Renders badge, title, subtitle, optional progress dots, word block, and answer grid inside a full-screen overlay. All text fields accept plain strings or `(isUnscheduled, type) => string` functions, so every game can apply its own flavour text while sharing the same shell. Prefer this over `showStandardQuiz` whenever you want custom titles or per-type behaviour.
+- `showStandardQuiz(vocabMgr, options)` — thin wrapper around `showGameQuiz` for games that need no custom flavour text. The badge, free-review subtitle, and type indicator are fully automatic.
+- `showQuizSequence(vocabMgr, count, options)` — multi-question sequence with automatic progress dots (e.g. a boss chest requiring 3 correct answers).
+- `renderVocabSettings(vocabMgr, container, onSave, poolSource?)` — full settings panel (mode selector, thresholds, SM-2 params). **Always prefer this over handwriting your own settings UI.** Pass the optional `poolSource` argument (`'srs'`, `'custom'`, or `'mixed'`) so the panel can grey out the Learning Mode selector when the SRS database controls scheduling. Defaults to `'custom'` (fully editable). Any new config field added to `GameVocabManager` will appear here automatically.
+- `injectVocabBadgeStyles()` — injects the shared badge CSS (`.gvm-badge-real`, `.gvm-badge-unscheduled`, etc.). Call once at UI init for games that implement a custom quiz UI and don't call `showGameQuiz`.
+- `poolSourceLabel(poolSource)` — returns a human-readable label for a pool source value (`'srs'` → `'Your SRS library'`, etc.). Use this instead of hardcoding labels in game files.
+- `poolSourceDescription(poolSource)` — returns a one-line description suitable for an infobox subtitle next to the source label.
 
 **`vocab_selector.js`**
 Standalone UI for letting the player pick which word deck to use before a game starts. Mount it with `mountVocabSelector(container, options)`, then call `selector.getQueue()` to retrieve the chosen pool and pass it to `vocabMgr.setPool()`. Call `getDeckConfig(screenEl)` to snapshot the selector's current state for persistence; pass this snapshot back as `preloadConfig` when remounting to restore the player's last selection.
@@ -229,10 +232,10 @@ Games must also persist the **pool source** alongside the vocab config so the se
 - Saving a `deckConfig` snapshot from `getDeckConfig()` and passing it as `preloadConfig` to `mountVocabSelector()` so the player's last vocab selection is restored.
 - Calling `setPool()` inside `_getOrCreateVocabMgr()` (not just at run start) so `isGlobalSrs` and `_hasCustomWords` are correct whenever `renderVocabSettings` is opened between runs.
 - `importState` / `exportState` for persisting SM-2 progress between sessions (Local mode only).
-- Delegating the settings panel to `renderVocabSettings` while keeping game-specific settings (audio, deck picker, danger-zone resets) in the game's own overlay.
+- Delegating the settings panel to `renderVocabSettings(mgr, el, onSave, _poolSource)` — passing `_poolSource` so the panel greys out the correct fields — while keeping game-specific settings (audio, deck picker, danger-zone resets) in the game's own overlay.
 - Doing the lifetime stat rollup from `vocabMgr.getStats()` once at run-end (`showGameOver`) rather than accumulating per-answer.
 
-**`games/survivor/surv_ui.js`** shows the correct pattern for a game with a **custom quiz UI** that doesn't use `showStandardQuiz` — keeping the `getNextWord → render → gradeWord` call pattern identical to the standard components while preserving game-specific visual theming. It calls `injectVocabBadgeStyles()` at init and applies `gvm-badge-unscheduled` / `gvm-badge-real` to signal unscheduled vs. scheduled reviews.
+**`games/survivor/surv_ui.js`** shows the correct pattern for a game with a **custom quiz UI** that doesn't use `showGameQuiz` — keeping the `getNextWord → render → gradeWord` call pattern identical to the standard components while preserving game-specific visual theming. It calls `injectVocabBadgeStyles()` at init and applies `gvm-badge-unscheduled` / `gvm-badge-real` to signal unscheduled vs. scheduled reviews.
 
 ---
 
@@ -373,9 +376,21 @@ const mgr = new GameVocabManager({
 | `initialInterval` | `8` | Seconds before a newly introduced word reappears (Local mode) |
 | `initialEase` | `1.5` | SM-2 ease multiplier — higher means intervals grow faster |
 | `leechThreshold` | `20` | Wrong-answer count before a word is flagged as a leech |
-| `autoNewWordBatchSize` | `1` | Words introduced per auto-event |
-| `minDueTime` | `10` | Seconds with no due cards before auto-introducing a new word |
-| `minAccuracy` | `0.80` | Recent accuracy (0–1) required before auto-introducing |
+| `autoNewWordBatchSize` | `1` | Words introduced per auto-event (steady-state pace) |
+| `autoThresholds.minDueTime` | `10` | Seconds with no due cards before auto-introducing a new word |
+| `autoThresholds.minAccuracy` | `0.80` | Recent accuracy (0–1) required before auto-introducing |
+
+> **Note:** `minDueTime` and `minAccuracy` are nested under `autoThresholds` in the config object (i.e. `config.autoThresholds.minDueTime`). `defaultConfig()` returns them at the top level as a convenience for spread-merging, but the constructor always normalises them into `config.autoThresholds`.
+
+`renderVocabSettings` also reads and saves several additional config fields that the settings UI manages but that are not part of `defaultConfig()`:
+
+| Field | Description |
+|---|---|
+| `newWordThreshold` | Active-word count below which the bootstrap batch size is used instead of the normal one |
+| `newWordBatchBootstrap` | Words introduced at once when below `newWordThreshold` (fast ramp-up) |
+| `newWordBatchNormal` | Words introduced at once at or above `newWordThreshold` (steady pace) |
+
+These fields are written to `vocabMgr.config` by `renderVocabSettings`'s save handler and are passed back to the game's `onSave` callback. If you persist the config snapshot returned by `onSave`, these fields will be present and will be respected on the next session without any extra work.
 
 When clamping user input in a settings UI, use `GameVocabManager.configLimits` instead of hardcoding ranges:
 
@@ -478,23 +493,43 @@ showMyQuizUI(challenge.wordObj, challenge.options, challenge.correctIdx, (isCorr
 For games that don't need a custom visual theme, skip the quiz loop above entirely and use the drop-in components from `game_vocab_mgr_ui.js`:
 
 ```js
-import { showStandardQuiz, showQuizSequence, renderVocabSettings, injectVocabBadgeStyles }
+import { showGameQuiz, showStandardQuiz, showQuizSequence,
+         renderVocabSettings, injectVocabBadgeStyles,
+         poolSourceLabel, poolSourceDescription }
     from '../../game_vocab_mgr_ui.js';
 ```
 
 For games that **do** implement a custom quiz UI (like Survivor), import and call `injectVocabBadgeStyles()` once at UI init. This injects all shared badge CSS classes. Apply `.gvm-badge-unscheduled` (rainbow animated) when `challenge.type === 'unscheduled'` and `.gvm-badge-real` (green) for scheduled reviews. Do **not** define these styles in your game's own stylesheet — they belong to the GVM module.
 
 ```js
-import { showStandardQuiz, showQuizSequence, renderVocabSettings }
+import { showGameQuiz, showQuizSequence, renderVocabSettings }
     from '../../game_vocab_mgr_ui.js';
 
-// ── Single question (e.g. on level-up) ────────────────────────────────────
+// ── Single question — full flavour text (e.g. on level-up) ────────────────
 mgr.pause();
-showStandardQuiz(mgr, {
+showGameQuiz(mgr, {
     container:    gameOverlayEl,    // overlay is appended here and removed on answer
-    title:        '⚔️ Clash!',
+    title:        (isFree) => isFree ? '✨ Practice' : '⚔️ Clash!',
+    titleColor:   (isFree) => isFree ? 'var(--text-muted)' : '#f1c40f',
+    subtitle:     (isFree) => isFree
+                      ? 'No cards due — correct answers won\'t update your SRS interval.'
+                      : 'Answer correctly to choose a power-up!',
     showFurigana: true,
     optionCount:  4,                // 2–9; actual count may be lower if pool is small
+    onAnswer: (isCorrect, wordObj, result) => {
+        mgr.resume();
+        if (isCorrect) showUpgradeScreen();
+        else           applyPenalty();
+    },
+});
+
+// ── Single question — no custom text needed (use showStandardQuiz) ─────────
+mgr.pause();
+showStandardQuiz(mgr, {
+    container:    gameOverlayEl,
+    title:        '⚔️ Clash!',
+    showFurigana: true,
+    optionCount:  4,
     onAnswer: (isCorrect, wordObj, result) => {
         mgr.resume();
         if (isCorrect) showUpgradeScreen();
@@ -612,14 +647,20 @@ Always use `renderVocabSettings` rather than building your own panel. It renders
 ```js
 import { renderVocabSettings } from '../../game_vocab_mgr_ui.js';
 
-// Render into a <div> inside your settings screen:
-renderVocabSettings(mgr, settingsContainerEl, () => {
-    // onSave: mirror the updated config back into your save object
-    save.vocabConfig = { ...mgr.config, ...mgr.config.autoThresholds };
+// Render into a <div> inside your settings screen.
+// Pass poolSource so the panel greys out the right fields:
+//   'srs'    → Global SRS active; Learning Mode greyed out
+//   'mixed'  → Mixed Pool active; Learning Mode active
+//   'custom' → Local SM-2; all settings editable (default)
+renderVocabSettings(mgr, settingsContainerEl, (updatedConfig) => {
+    // onSave receives a flat config snapshot — mirror it into your save object.
+    // updatedConfig includes mode, threshold/batch fields, autoThresholds fields,
+    // and SM-2 params — everything renderVocabSettings manages.
+    save.vocabConfig = updatedConfig;
     localStorage.setItem('mygame_save', JSON.stringify(save));
     // If you reconstruct the manager at run start, null it here to force a rebuild:
     mgr = null;
-});
+}, _poolSource); // e.g. 'srs', 'custom', or 'mixed'
 ```
 
-The panel automatically shows/hides fields based on the current mode, displays the Global SRS notice when `globalSrs` is true, and respects `configLimits` for all inputs. Any new fields added to `GameVocabManager` in the future will appear in it automatically.
+The panel automatically shows/hides fields based on the current mode, displays the appropriate pool-source notice, and respects `configLimits` for all inputs. Any new fields added to `GameVocabManager` in the future will appear in it automatically.

@@ -1,5 +1,6 @@
 // js/games/legend/leg_engine.js
 import { TILE_SIZE, ROOM_COLS, ROOM_ROWS, TILE } from './leg_map.js';
+import { drawTile, prewarmTileCache } from './leg_sprites.js';
 import { WEAPONS, ENEMIES, BOSSES } from './leg_entities.js';
 import { getMovement, consumeTap } from './leg_input.js';
 
@@ -12,15 +13,30 @@ let drops = [];
 let rafId;
 let lastTime = 0;
 
+// ── Room-scroll transition ────────────────────────────────────────────────────
+// When the player walks off an edge we freeze gameplay and scroll the canvas
+// from the old room to the new room, exactly like classic Zelda.
+const SCROLL_DURATION = 0.45; // seconds for the full pan
+let transition = null;
+// transition shape: {
+//   fromRoom: {grid, …},  toRoom: {grid, …},
+//   dx: -1|0|1,           dy: -1|0|1,   // direction player is travelling
+//   progress: 0→1,
+//   playerStartX, playerStartY,          // player pos when scroll began
+//   playerEndX,   playerEndY,            // landing pos in the new room
+// }
+
 export function initEngine(cvs, st, map) {
     canvas = cvs;
     ctx = canvas.getContext('2d');
     state = st;
     mapData = map;
+    transition = null;
     
     const parent = canvas.parentElement;
     canvas.width = ROOM_COLS * TILE_SIZE;
     canvas.height = ROOM_ROWS * TILE_SIZE;
+    prewarmTileCache(TILE_SIZE);
     
     const scale = Math.min(parent.clientWidth / canvas.width, parent.clientHeight / canvas.height);
     canvas.style.transform = `scale(${scale})`;
@@ -64,17 +80,44 @@ function spawnEnemy(template, isBoss) {
 }
 
 function loop(time) {
-    if (state.isPaused) { lastTime = time; rafId = requestAnimationFrame(loop); return; }
     const dt = Math.min(0.1, (time - lastTime) / 1000);
     lastTime = time;
+
+    if (transition) {
+        // Advance scroll
+        transition.progress = Math.min(1, transition.progress + dt / SCROLL_DURATION);
+
+        // Move player linearly from their starting edge position to their landing position
+        const t = easeInOut(transition.progress);
+        state.player.x = transition.playerStartX + (transition.playerEndX - transition.playerStartX) * t;
+        state.player.y = transition.playerStartY + (transition.playerEndY - transition.playerStartY) * t;
+
+        drawTransition();
+
+        if (transition.progress >= 1) {
+            // Scroll complete — commit new room
+            const { newRX, newRY } = transition;
+            transition = null;
+            loadRoom(newRX, newRY);
+        }
+
+        rafId = requestAnimationFrame(loop);
+        return;
+    }
+
+    if (state.isPaused) { lastTime = time; rafId = requestAnimationFrame(loop); return; }
 
     updatePlayer(dt);
     updateEnemies(dt);
     updateHitboxes(dt);
     updateDrops();
-    draw();
+    draw(dt);
 
     rafId = requestAnimationFrame(loop);
+}
+
+function easeInOut(t) {
+    return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
 }
 
 function updatePlayer(dt) {
@@ -124,12 +167,61 @@ function updatePlayer(dt) {
         state.player.y = ny;
     }
 
-    // Zelda-style Screen Transitions
+    // ── Zelda-style scrolling room transitions ────────────────────────────────
+    // When the player crosses an edge, start a scroll instead of teleporting.
     const MARGIN = 15;
-    if (state.player.x < 0) { state.player.x = canvas.width - MARGIN; loadRoom(state.roomX - 1, state.roomY); }
-    else if (state.player.x > canvas.width) { state.player.x = MARGIN; loadRoom(state.roomX + 1, state.roomY); }
-    else if (state.player.y < 0) { state.player.y = canvas.height - MARGIN; loadRoom(state.roomX, state.roomY - 1); }
-    else if (state.player.y > canvas.height) { state.player.y = MARGIN; loadRoom(state.roomX, state.roomY + 1); }
+    let triggerDX = 0, triggerDY = 0;
+    if      (state.player.x < 0)            triggerDX = -1;
+    else if (state.player.x > canvas.width) triggerDX =  1;
+    else if (state.player.y < 0)            triggerDY = -1;
+    else if (state.player.y > canvas.height) triggerDY =  1;
+
+    if ((triggerDX !== 0 || triggerDY !== 0) && !transition) {
+        const newRX = state.roomX + triggerDX;
+        const newRY = state.roomY + triggerDY;
+
+        // Only scroll if the neighbouring room exists in the map
+        if (newRX >= 0 && newRX < mapData.cols &&
+            newRY >= 0 && newRY < mapData.rows &&
+            mapData.rooms[newRY] && mapData.rooms[newRY][newRX]) {
+
+            // Player landing position: appear at the opposite edge of the new room
+            const landX = triggerDX === -1 ? canvas.width - MARGIN
+                        : triggerDX ===  1 ? MARGIN
+                        : state.player.x;
+            const landY = triggerDY === -1 ? canvas.height - MARGIN
+                        : triggerDY ===  1 ? MARGIN
+                        : state.player.y;
+
+            // Clamp player to just outside the edge so the scroll starts cleanly
+            if (triggerDX === -1) state.player.x = 0;
+            if (triggerDX ===  1) state.player.x = canvas.width;
+            if (triggerDY === -1) state.player.y = 0;
+            if (triggerDY ===  1) state.player.y = canvas.height;
+
+            transition = {
+                fromRoom: mapData.rooms[state.roomY][state.roomX],
+                toRoom:   mapData.rooms[newRY][newRX],
+                newRX, newRY,
+                dx: triggerDX, dy: triggerDY,
+                progress: 0,
+                playerStartX: state.player.x,
+                playerStartY: state.player.y,
+                playerEndX: landX,
+                playerEndY: landY,
+            };
+            // Clear combat state so enemies don't fire while we scroll
+            activeHitboxes = [];
+            floatingTexts  = [];
+            return; // hand off to the transition branch in loop()
+        } else {
+            // No room there — bounce the player back to the edge
+            if (triggerDX === -1) state.player.x = MARGIN;
+            if (triggerDX ===  1) state.player.x = canvas.width - MARGIN;
+            if (triggerDY === -1) state.player.y = MARGIN;
+            if (triggerDY ===  1) state.player.y = canvas.height - MARGIN;
+        }
+    }
 
     const room = mapData.rooms[state.roomY][state.roomX];
     
@@ -323,22 +415,76 @@ function spawnFloat(x, y, text, color) {
     floatingTexts.push({ x, y, text, color, life: 0.8 });
 }
 
-function draw() {
+// ── Room canvas cache ─────────────────────────────────────────────────────────
+// Each room is baked to a full-size offscreen canvas once and re-used every
+// frame.  This reduces drawRoomTiles from 117 drawImage calls to 1 blit.
+// A room is re-baked when its `cleared` state changes (CHEST/STAIRS appearance).
+const _roomCanvas  = new WeakMap(); // room object → { canvas, clearedWhenBaked }
+
+function _getRoomCanvas(room) {
+    const cached = _roomCanvas.get(room);
+    if (cached && cached.clearedWhenBaked === room.cleared) return cached.canvas;
+
+    const oc  = document.createElement('canvas');
+    oc.width  = canvas.width;
+    oc.height = canvas.height;
+    const octx = oc.getContext('2d');
+    for (let r = 0; r < ROOM_ROWS; r++) {
+        for (let c = 0; c < ROOM_COLS; c++) {
+            drawTile(octx, room.grid[r][c], c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE, room.cleared);
+        }
+    }
+    _roomCanvas.set(room, { canvas: oc, clearedWhenBaked: room.cleared });
+    return oc;
+}
+
+
+// Draws both the old and new room tiles offset by the scroll progress, then
+// draws the player sprite on top (it moves in sync with the scroll).
+function drawTransition() {
+    const { fromRoom, toRoom, dx, dy, progress } = transition;
+    const W = canvas.width;
+    const H = canvas.height;
+    const t = easeInOut(progress);
+
+    // How many pixels the viewport has panned so far
+    const panX = dx * W * t;
+    const panY = dy * H * t;
+
+    ctx.clearRect(0, 0, W, H);
+    ctx.save();
+
+    // Old room: slides out opposite to travel direction
+    ctx.save();
+    ctx.translate(-panX, -panY);
+    drawRoomTiles(fromRoom);
+    ctx.restore();
+
+    // New room: slides in from the travel direction
+    ctx.save();
+    ctx.translate(dx * W - panX, dy * H - panY);
+    drawRoomTiles(toRoom);
+    ctx.restore();
+
+    // Player sprite on top, position already updated by loop()
+    ctx.font = '24px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.globalAlpha = 1;
+    ctx.fillText('🧝', state.player.x, state.player.y);
+
+    ctx.restore();
+}
+
+function drawRoomTiles(room) {
+    ctx.drawImage(_getRoomCanvas(room), 0, 0);
+}
+
+function draw(dt) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const room = mapData.rooms[state.roomY][state.roomX];
 
-    for (let r=0; r<ROOM_ROWS; r++) {
-        for (let c=0; c<ROOM_COLS; c++) {
-            const t = room.grid[r][c];
-            ctx.fillStyle = t===TILE.WALL ? '#2c3e50' : t===TILE.TREE ? '#27ae60' : t===TILE.ROCK ? '#7f8c8d' : t===TILE.GRASS ? '#2ecc71' : t===TILE.PIT ? '#111' : t===TILE.POST ? '#8e44ad' : '#8fa068';
-            ctx.fillRect(c*TILE_SIZE, r*TILE_SIZE, TILE_SIZE, TILE_SIZE);
-            ctx.strokeStyle = 'rgba(0,0,0,0.1)';
-            ctx.strokeRect(c*TILE_SIZE, r*TILE_SIZE, TILE_SIZE, TILE_SIZE);
-
-            if (t===TILE.STAIRS && room.cleared) { ctx.fillStyle='#f1c40f'; ctx.fillRect(c*TILE_SIZE+10, r*TILE_SIZE+10, 20, 20); }
-            if (t===TILE.CHEST && room.cleared)  { ctx.fillStyle='#e67e22'; ctx.fillRect(c*TILE_SIZE+5, r*TILE_SIZE+10, 30, 20); }
-        }
-    }
+    drawRoomTiles(room);
 
     ctx.font = '20px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     drops.forEach(d => { ctx.fillText(d.emoji, d.x, d.y); });
@@ -375,8 +521,8 @@ function draw() {
 
     floatingTexts.forEach(f => {
         ctx.fillStyle = f.color; ctx.font = 'bold 16px sans-serif';
-        ctx.fillText(f.text, f.x, f.y - (1 - f.life)*30);
-        f.life -= 0.016;
+        ctx.fillText(f.text, f.x, f.y - (1 - f.life) * 30);
+        f.life -= dt / 0.8; // life 1→0 over 0.8 s regardless of frame rate
     });
     floatingTexts = floatingTexts.filter(f => f.life > 0);
 }
