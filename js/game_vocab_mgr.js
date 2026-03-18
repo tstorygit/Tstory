@@ -90,6 +90,7 @@ export class GameVocabManager {
         this._pendingPulls = new Map();
         this._isPaused = false;
         this.isGlobalSrs = false; // Set to true by setPool() when the pool contains deckId:'srs' words
+        this._hasCustomWords = false; // Set by setPool() — true when non-SRS words are mixed in
 
         this.resetState();
     }
@@ -166,6 +167,10 @@ export class GameVocabManager {
         // The legacy path (words tagged deckId:'srs') is still supported for
         // backwards compatibility with older game modules.
         this.isGlobalSrs = opts.globalSrs === true || this._pool.some(w => w.deckId === 'srs');
+
+        // Track whether there are any non-SRS (custom deck) words mixed in.
+        // Used by renderVocabSettings to know if mode selection is relevant.
+        this._hasCustomWords = this._pool.some(w => w.deckId !== 'srs');
 
         // Orphan protection for Local mode: words already in activeSrs that are no longer
         // in the new pool are re-pinned so their SRS progress is not lost.
@@ -281,11 +286,15 @@ export class GameVocabManager {
                 if (globalResult && globalResult.wordObj) {
                     selectedWordObj = this._pool.find(w => w.id === globalResult.wordObj.word);
                     type = globalResult.type;
+                    // If srsDb returned a 'random' type it means no due items exist →
+                    // mark as 'free' so gradeWord knows correct answers should NOT
+                    // update the SRS interval (bonus review, not a scheduled review).
+                    if (type === 'random' || type === 'free') type = 'free';
                 } else {
                     const internalAvailable = this._pool.filter(w => !pendingWordIds.has(w.id));
                     if (internalAvailable.length === 0) return null;
                     selectedWordObj = internalAvailable[Math.floor(Math.random() * internalAvailable.length)];
-                    type = 'random';
+                    type = 'free';
                 }
             }
             else {
@@ -454,15 +463,21 @@ export class GameVocabManager {
 
         if (this.isGlobalSrs) {
             // ─── GLOBAL SRS PASSTHROUGH ───
-            const updated = srsDb.gradeWordInGame({
-                word: wordObj.kanji,
-                furi: wordObj.kana,
-                translation: wordObj.eng
-            }, sm2Grade, true);
+            // 'free' type = no due cards in the SRS pool; player is doing bonus review.
+            //   • Correct answer → do NOT update SRS interval (it's a freebie).
+            //   • Wrong answer   → DO update interval (you still need to learn it).
+            const isFreeReview = pull.type === 'free';
 
-            // updated is the new srsDb word object; interval there is in fractional days
-            // — convert back to seconds so callers get a consistent unit
-            const newIntervalSecs = updated ? Math.round((updated.interval || 0) * 86400) : 0;
+            let newIntervalSecs = 0;
+            if (!isFreeReview || !isCorrect) {
+                // Only write to srsDb when it should actually count
+                const updated = srsDb.gradeWordInGame({
+                    word: wordObj.kanji,
+                    furi: wordObj.kana,
+                    translation: wordObj.eng
+                }, sm2Grade, true);
+                newIntervalSecs = updated ? Math.round((updated.interval || 0) * 86400) : 0;
+            }
 
             return {
                 wordId:          pull.wordId,
@@ -472,6 +487,7 @@ export class GameVocabManager {
                 newInterval:     newIntervalSecs,
                 isLeech:         srsItem.isLeech,
                 justBecameLeech: isLeechAlert,
+                isFreeReview,
                 isLevelUp:       false  // new-word introduction doesn't happen inside gradeWord
             };
         }

@@ -167,7 +167,7 @@ export function showStandardQuiz(vocabMgr, options) {
     const overlay = document.createElement('div');
     overlay.className = 'gvm-overlay';
 
-    const TYPE_ICON = { due: '🟢', new: '🔵', leech: '🩸', drill: '🟡' };
+    const TYPE_ICON = { due: '🟢', new: '🔵', leech: '🩸', drill: '🟡', free: '🌈' };
     const dotClass  = TYPE_ICON[challenge.type] ?? '⚪';
     const cols     = _gridCols(challenge.options.length);
 
@@ -305,6 +305,7 @@ export function renderVocabSettings(vocabMgr, container, onSave) {
     _injectStyles();
 
     const cfg = vocabMgr.config;
+    const isSrsOnly = vocabMgr.isGlobalSrs && !vocabMgr._hasCustomWords;
 
     const modeLabels = { auto: '🤖 Auto', manual: '📋 SRS Order', random: '🎲 Random' };
     const modeDescs  = {
@@ -330,18 +331,22 @@ export function renderVocabSettings(vocabMgr, container, onSave) {
                         border:1px solid var(--primary-color,#4A90E2); border-radius:8px;
                         font-size:12px; color:var(--text-main,#333); text-align:center;">
                 <div style="font-size:20px; margin-bottom:4px;">🌍</div>
-                <strong>Global App SRS Active</strong><br>
-                Answers here affect your main flashcard reviews.
+                <strong>${vocabMgr._hasCustomWords ? 'Mixed Pool Active' : 'Global App SRS Active'}</strong><br>
+                ${vocabMgr._hasCustomWords
+                    ? 'SRS words use your real review schedule. Custom deck words use local SM-2. Answers for SRS words affect your main flashcard reviews.'
+                    : 'Answers here affect your main flashcard reviews. 🌈 = free review (no due cards — correct answers won\'t update intervals).'
+                }
             </div>` : ''}
 
-            <!-- Mode -->
-            <div class="gvm-settings-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
-                <strong>🧠 Learning Mode</strong>
+            <!-- Mode (greyed out when SRS-only — SRS controls scheduling) -->
+            <div class="gvm-settings-row" style="flex-direction:column; align-items:flex-start; gap:8px;
+                 ${isSrsOnly ? 'opacity:0.45; pointer-events:none;' : ''}">
+                <strong>🧠 Learning Mode ${isSrsOnly ? '<span style="font-size:10px;font-weight:normal;color:var(--text-muted,#888);margin-left:4px;">(controlled by SRS)</span>' : ''}</strong>
                 <div style="display:flex; gap:8px; flex-wrap:wrap;" id="gvm-mode-btns">
                     ${renderModeButtons()}
                 </div>
                 <div id="gvm-mode-desc" style="font-size:11px; color:var(--text-muted,#888);">
-                    ${modeDescs[cfg.mode]}
+                    ${isSrsOnly ? 'Your SRS schedule controls which words appear. Mode selection is only relevant when mixing SRS with custom decks.' : modeDescs[cfg.mode]}
                 </div>
             </div>
 

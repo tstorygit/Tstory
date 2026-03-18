@@ -32,8 +32,8 @@ let _meta          = null;
 
 // Raw vocab arrays (word, furi, trans objects from vocab selector or SRS db)
 let _vocabPool     = [];
-// True when the user picked a custom deck instead of their SRS library
-let _customDeckActive = false;
+// 'srs' | 'custom' | 'mixed' — tracks what the current pool contains for display purposes
+let _poolSource    = 'srs';
 
 // The single GameVocabManager instance for the entire game session.
 // Re-created (or reset) before each run starts.
@@ -184,10 +184,9 @@ function _buildVocabMgr() {
         _vocabMgr.importState(_meta.vocabState);
     }
 
-    // Pass globalSrs:true when the player's own SRS library is active so
-    // GameVocabManager routes scheduling through srs_db.  Custom deck words
-    // use the local SM-2 engine — no flag needed.
-    _vocabMgr.setPool(_vocabPool, 'surv_banned', { globalSrs: !_customDeckActive });
+    // Pass globalSrs:true when the pool contains SRS words (source is 'srs' or 'mixed').
+    // Pure custom deck words ('custom') use the local SM-2 engine only.
+    _vocabMgr.setPool(_vocabPool, 'surv_banned', { globalSrs: _poolSource !== 'custom' });
 
     // Seed initial words for auto mode only.
     // manual mode requires explicit player action via learnNewWord();
@@ -214,8 +213,9 @@ export function launch() {
     // If the user has SRS words, default to their deck.
     // Otherwise open the vocab selector first.
     const srsWords = _loadSrsWords();
-    if (srsWords.length > 0 && !_customDeckActive) {
-        _vocabPool = srsWords;
+    if (srsWords.length > 0 && _poolSource !== 'custom') {
+        _vocabPool  = srsWords;
+        _poolSource = 'srs';
         _show('setup');
         showCamp();
     } else {
@@ -280,51 +280,101 @@ function _show(name) {
 
 // ─── VOCAB SELECTOR ───────────────────────────────────────────────────────────
 
-function showVocabSelector() {
+// Context passed when opening the selector from settings (so back goes to settings, not games)
+let _selectorFromSettings = false;
+
+function showVocabSelector(fromSettings = false) {
+    _selectorFromSettings = fromSettings;
+
     const selectorWrap = _screens.setup.querySelector('#surv-deck-selector-wrap');
     const campWrap     = _screens.setup.querySelector('#surv-camp-wrap');
     selectorWrap.style.display = 'block';
     campWrap.style.display     = 'none';
 
-    if (!_selector) {
-        _selector = mountVocabSelector(selectorWrap, {
-            bannedKey: 'surv_banned', defaultCount: 'All', title: 'Vocabulary Queue',
-        });
-        const actions = _selector.getActionsEl();
+    // Always remount so the selector reflects the latest saved settings
+    _selector = null;
+    selectorWrap.innerHTML = '';
 
-        const startBtn = document.createElement('button');
-        startBtn.className   = 'surv-start-btn';
-        startBtn.textContent = '⛺ Go to Camp';
-        startBtn.onclick = async () => {
-            const queue = await _selector.getQueue();
-            if (!queue.length) return;
-            _customDeckActive = true;
-            _vocabPool = queue.map(w => ({
-                word:  w.word,
-                furi:  w.furi  || w.word,
-                trans: w.trans || '—',
+    _selector = mountVocabSelector(selectorWrap, {
+        bannedKey: 'surv_banned', defaultCount: 'All', title: 'Vocabulary Queue',
+    });
+    const actions = _selector.getActionsEl();
+
+    // ── "Go to Camp" — build pool from selector state ─────────────────────────
+    const startBtn = document.createElement('button');
+    startBtn.className   = 'surv-start-btn';
+    startBtn.textContent = '⛺ Go to Camp';
+    startBtn.onclick = async () => {
+        const queue = await _selector.getQueue();
+        if (!queue.length) return;
+
+        // Separate SRS words (deckId:'srs') from custom deck words
+        const srsWords    = queue.filter(w => w.deckId === 'srs');
+        const customWords = queue.filter(w => w.deckId !== 'srs');
+
+        if (srsWords.length > 0 && customWords.length > 0) {
+            // Mixed: SRS + at least one custom deck
+            _poolSource = 'mixed';
+            _vocabPool  = queue.map(w => ({
+                word:   w.word,
+                furi:   w.furi  || w.word,
+                trans:  w.trans || '—',
+                deckId: w.deckId,   // preserve 'srs' tag so GVM routes correctly
+            }));
+        } else if (srsWords.length > 0) {
+            // SRS only — same as the default SRS path
+            _poolSource = 'srs';
+            _vocabPool  = srsWords.map(w => ({
+                word:   w.word,
+                furi:   w.furi  || w.word,
+                trans:  w.trans || '—',
+                deckId: 'srs',
+            }));
+        } else {
+            // Pure custom deck
+            _poolSource = 'custom';
+            _vocabPool  = customWords.map(w => ({
+                word:   w.word,
+                furi:   w.furi  || w.word,
+                trans:  w.trans || '—',
                 deckId: 'custom',
             }));
-            _vocabMgr = null; // force rebuild with new pool
-            showCamp();
-        };
+        }
 
-        const backBtn = document.createElement('button');
-        backBtn.className   = 'caro-back-btn';
+        _vocabMgr = null; // force rebuild with new pool
+        showCamp();
+    };
+
+    // ── Back button — context-aware ───────────────────────────────────────────
+    const backBtn = document.createElement('button');
+    backBtn.className   = 'caro-back-btn';
+
+    if (fromSettings) {
+        // Came from the settings overlay → go back to camp (settings will reopen)
+        backBtn.textContent = '← Back to Settings';
+        backBtn.onclick = () => {
+            showCamp();
+            // Re-open settings after a tick so the camp DOM is ready
+            setTimeout(() => _showSettings(), 50);
+        };
+    } else {
+        // Came from launch with no SRS words → back goes to games list
         backBtn.textContent = '← Back to Games';
         backBtn.onclick = () => {
             const srsWords = _loadSrsWords();
             if (srsWords.length > 0) {
-                _customDeckActive = false;
-                _vocabPool = srsWords;
-                _vocabMgr  = null;
+                // User has SRS words now (maybe added some) — default to SRS
+                _poolSource = 'srs';
+                _vocabPool  = srsWords;
+                _vocabMgr   = null;
                 showCamp();
             } else {
                 _onExitGlobal();
             }
         };
-        actions.append(startBtn, backBtn);
     }
+
+    actions.append(startBtn, backBtn);
 }
 
 // ─── CAMP ─────────────────────────────────────────────────────────────────────
@@ -602,7 +652,12 @@ function _showSettings() {
     const render = () => {
         const muted = Audio.isMuted();
         const cfg   = _meta.vocabConfig;
-        const isCustom = _customDeckActive;
+
+        const sourceLabel = {
+            srs:    'Your SRS library',
+            custom: 'Custom deck',
+            mixed:  'SRS + Custom deck',
+        }[_poolSource] || 'Your SRS library';
 
         overlay.innerHTML = `
             <div class="surv-settings-inner">
@@ -633,7 +688,7 @@ function _showSettings() {
                         <div class="surv-settings-row-info">
                             <div class="surv-settings-row-name">Change Word Deck</div>
                             <div class="surv-settings-row-desc">
-                                Currently: <strong>${isCustom ? 'Custom deck' : 'Your SRS library'}</strong>
+                                Currently: <strong>${sourceLabel}</strong>
                                 (${_vocabPool.length} words)
                             </div>
                         </div>
@@ -680,7 +735,7 @@ function _showSettings() {
 
         overlay.querySelector('#surv-settings-deck').onclick = () => {
             overlay.remove();
-            showVocabSelector();
+            showVocabSelector(true); // fromSettings=true → back button returns here
         };
 
         // Vocab settings panel — delegated entirely to game_vocab_mgr_ui.
@@ -727,9 +782,9 @@ function _showSettings() {
         overlay.querySelector('#surv-settings-reset-all').onclick = () => {
             if (!confirm('Reset EVERYTHING? Souls, characters, shrine upgrades, statistics — all wiped.')) return;
             localStorage.removeItem('surv_meta');
-            _meta             = null;
-            _customDeckActive = false;
-            _vocabMgr         = null;
+            _meta       = null;
+            _poolSource = 'srs';
+            _vocabMgr   = null;
             overlay.remove();
             launch();
         };

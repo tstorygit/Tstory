@@ -479,6 +479,17 @@
 .surv-badge-purple { background: rgba(155,89,182,0.15); color: #c39bd3; border: 1px solid rgba(155,89,182,0.4); }
 .surv-badge-green  { background: rgba(39,174,96,0.15);  color: #2ecc71; border: 1px solid rgba(39,174,96,0.4); }
 .surv-badge-red    { background: rgba(231,76,60,0.15);  color: #e74c3c; border: 1px solid rgba(231,76,60,0.4); }
+.surv-badge-rainbow {
+    background: linear-gradient(90deg, rgba(255,100,100,0.15), rgba(255,200,50,0.15), rgba(80,220,120,0.15), rgba(80,160,255,0.15));
+    color: #ccc;
+    border: 1px solid rgba(180,180,255,0.35);
+    background-size: 200% 100%;
+    animation: surv-rainbow-shift 3s linear infinite;
+}
+@keyframes surv-rainbow-shift {
+    0%   { background-position: 0% 50%; }
+    100% { background-position: 200% 50%; }
+}
 
 .surv-modal-title  { margin: 0; font-size: 20px; font-weight: 800; letter-spacing: -0.3px; }
 .surv-modal-sub    { margin: 0; font-size: 13px; color: var(--text-muted); line-height: 1.4; }

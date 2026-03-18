@@ -438,7 +438,8 @@ export function showSrsQuiz() {
     _currentChallenge = _vocabMgr.getNextWord();
     if (!_currentChallenge) { showUpgrades(false); return; }
 
-    const { wordObj, options, correctIdx } = _currentChallenge;
+    const { wordObj, options, correctIdx, type } = _currentChallenge;
+    const isFree = type === 'free';
 
     // Pause the vocab clock while the player is reading the question
     _vocabMgr.pause();
@@ -447,6 +448,19 @@ export function showSrsQuiz() {
     dom.kanji.textContent   = wordObj.kanji;
     dom.furi.textContent    = (wordObj.kana !== wordObj.kanji) ? wordObj.kana : '';
     dom.srsTimer.style.display = 'none';
+
+    // Show review type indicator in the badge
+    const badge = dom.srs.querySelector('.surv-modal-badge');
+    if (badge) {
+        badge.textContent = isFree ? '🌈 FREE REVIEW' : '⬆ LEVEL UP';
+        badge.className   = isFree ? 'surv-modal-badge surv-badge-rainbow' : 'surv-modal-badge surv-badge-gold';
+    }
+    const subtitle = dom.srs.querySelector('.surv-modal-sub');
+    if (subtitle) {
+        subtitle.textContent = isFree
+            ? 'No cards due — practice freely! Correct won\'t change intervals.'
+            : 'Answer correctly to choose a power-up!';
+    }
 
     _buildAnswerGrid(dom.grid, options, correctIdx, (isCorrect, clickedBtn) => {
         clearInterval(_srsQuizTimer);
