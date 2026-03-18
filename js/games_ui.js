@@ -94,6 +94,18 @@ const GAME_REGISTRY = [
             game:    { classes: '', style: 'padding:0; overflow:hidden; position:relative; display:flex; flex-direction:column;' },
         },
     },
+    {
+        id:     'legend',
+        icon:   '🗡️',
+        title:  'Legend of Vocab',
+        desc:   'Explore dungeons, cut trees, grapple across pits, and fight monsters. Answer vocab to level up and dodge fatal blows!',
+        loader: () => import('./games/legend/legend.js'),
+        headerTitle: 'Legend of Vocab',
+        screens: {
+            setup:   { classes: 'content-scroll' },
+            game:    { classes: '', style: 'padding:0; overflow:hidden; position:relative; display:flex; flex-direction:column;' },
+        },
+    },
 ];
 
 // ─── Module cache ─────────────────────────────────────────────────────────────
