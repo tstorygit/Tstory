@@ -380,10 +380,10 @@ export function showSrsQuiz() {
 
     showGameQuiz(_vocabMgr, {
         container:  _container,
-        title:      (isFree) => isFree ? 'Free Practice'         : 'Clash of Wills',
-        titleColor: (isFree) => isFree ? 'var(--text-muted,#aaa)': '#f1c40f',
-        subtitle:   (isFree) => isFree
-            ? 'No cards due — correct answers won\'t update your SRS interval.'
+        title:      (isUnscheduled) => isUnscheduled ? 'Free Practice'              : 'Clash of Wills',
+        titleColor: (isUnscheduled) => isUnscheduled ? 'var(--text-muted,#aaa)'     : '#f1c40f',
+        subtitle:   (isUnscheduled) => isUnscheduled
+            ? 'Not scheduled — correct answers won\'t update your SRS interval.'
             : 'Answer correctly to choose a power-up!',
 
         onEmpty: () => {

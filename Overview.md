@@ -107,7 +107,7 @@ Drop-in UI components built on top of `GameVocabManager`. Use these unless a gam
 - `showStandardQuiz(vocabMgr, options)` — single flashcard question in a modal overlay.
 - `showQuizSequence(vocabMgr, count, options)` — multi-question sequence (e.g. a boss chest).
 - `renderVocabSettings(vocabMgr, container, onSave)` — full settings panel (mode selector, thresholds, SM-2 params). **Always prefer this over handwriting your own settings UI.** Any new config field added to `GameVocabManager` will appear here automatically.
-- `injectVocabBadgeStyles()` — injects the shared `.gvm-badge-real` / `.gvm-badge-rainbow` CSS. Call once at UI init for games that implement a custom quiz UI and don't call `showStandardQuiz`.
+- `injectVocabBadgeStyles()` — injects the shared badge CSS (`.gvm-badge-real`, `.gvm-badge-unscheduled`, etc.). Call once at UI init for games that implement a custom quiz UI and don't call `showStandardQuiz`.
 
 **`vocab_selector.js`**
 Standalone UI for letting the player pick which word deck to use before a game starts. Mount it with `mountVocabSelector(container, options)`, then call `selector.getQueue()` to retrieve the chosen pool and pass it to `vocabMgr.setPool()`. Call `getDeckConfig(screenEl)` to snapshot the selector's current state for persistence; pass this snapshot back as `preloadConfig` when remounting to restore the player's last selection.
@@ -128,11 +128,15 @@ The player enabled "My SRS Vocabulary" and selected no custom word-list decks.
 - `exportToAppSrs()` at session end is a **no-op** — data is already live.
 - The Learning Mode setting (auto / manual / random) is **greyed out** in `renderVocabSettings` because the SRS schedule controls word selection, not the game's local engine.
 
-**Free review** (`type === 'free'`): when no cards are currently due, `srsDb.getNextGameWord()` returns `type: 'random'`. `GameVocabManager` re-labels this `'free'`. The quiz still runs, but:
-- A **correct** answer does **not** update the SRS interval (it's a bonus round).
-- A **wrong** answer **does** update the interval (you clearly still need to learn it).
+**Unscheduled review** (`type === 'unscheduled'`): covers two cases that share identical grading rules —
+- **No due cards** (`srsDb` returned `type: 'random'` because nothing is due yet)
+- **Not yet due** (word exists in SRS but its interval hasn't expired; previously called `'drill'`)
 
-The quiz UI should signal this state visually. Use `.gvm-badge-rainbow` on the quiz badge for free reviews and `.gvm-badge-real` for scheduled reviews — these classes are injected by `injectVocabBadgeStyles()` and are intentionally owned by `game_vocab_mgr_ui`, not by individual game stylesheets.
+In both cases the rule is the same:
+- A **correct** answer does **not** update the SRS interval — promoting an interval early because the player guessed correctly breaks SM-2 scheduling.
+- A **wrong** answer **does** update the interval — you still need to learn it.
+
+The quiz UI should signal this state visually. Use `.gvm-badge-unscheduled` (rainbow animated class) on the quiz badge. This class is injected by `injectVocabBadgeStyles()` and owned by `game_vocab_mgr_ui`.
 
 ---
 
@@ -228,7 +232,7 @@ Games must also persist the **pool source** alongside the vocab config so the se
 - Delegating the settings panel to `renderVocabSettings` while keeping game-specific settings (audio, deck picker, danger-zone resets) in the game's own overlay.
 - Doing the lifetime stat rollup from `vocabMgr.getStats()` once at run-end (`showGameOver`) rather than accumulating per-answer.
 
-**`games/survivor/surv_ui.js`** shows the correct pattern for a game with a **custom quiz UI** that doesn't use `showStandardQuiz` — keeping the `getNextWord → render → gradeWord` call pattern identical to the standard components while preserving game-specific visual theming. It calls `injectVocabBadgeStyles()` at init and applies `gvm-badge-rainbow` / `gvm-badge-real` to signal free vs. scheduled reviews.
+**`games/survivor/surv_ui.js`** shows the correct pattern for a game with a **custom quiz UI** that doesn't use `showStandardQuiz` — keeping the `getNextWord → render → gradeWord` call pattern identical to the standard components while preserving game-specific visual theming. It calls `injectVocabBadgeStyles()` at init and applies `gvm-badge-unscheduled` / `gvm-badge-real` to signal unscheduled vs. scheduled reviews.
 
 ---
 
@@ -431,11 +435,11 @@ const challenge = mgr.getNextWord();
 // challenge shape:
 // {
 //   refId:      string,      // opaque token — pass back to gradeWord()
-//   type:       string,      // 'due' | 'new' | 'drill' | 'leech' | 'random' | 'free'
-//                            // 'free' = no cards due in the SRS; this is a bonus round.
+//   type:       string,      // 'due' | 'new' | 'drill' | 'leech' | 'unscheduled'
+//                            // 'unscheduled' = word not due OR no due cards exist.
 //                            //   Correct answers do NOT update the SRS interval.
 //                            //   Wrong answers DO (you still need to learn it).
-//                            //   Signal 'free' visually — use .gvm-badge-rainbow on the quiz badge.
+//                            //   Signal visually — use .gvm-badge-unscheduled on the badge.
 //   wordObj:    {            // the word to display
 //     kanji:  string,        // the Japanese word (display as the question)
 //     kana:   string,        // furigana / reading
@@ -457,7 +461,7 @@ showMyQuizUI(challenge.wordObj, challenge.options, challenge.correctIdx, (isCorr
     //   newInterval:    number,   // seconds until next review (Local) or 0 (Global)
     //   isLeech:        boolean,  // is this word now flagged as a leech?
     //   justBecameLeech:boolean,  // true only on the answer that crossed the threshold
-    //   isFreeReview:   boolean,  // true when challenge.type was 'free' (no due cards).
+    //   isUnscheduled:  boolean,  // true when challenge.type was 'unscheduled'.
     //                             // Correct answers did NOT update the SRS interval.
     //                             // Useful for showing a "(no interval change)" notice in the UI.
     // }
@@ -478,7 +482,7 @@ import { showStandardQuiz, showQuizSequence, renderVocabSettings, injectVocabBad
     from '../../game_vocab_mgr_ui.js';
 ```
 
-For games that **do** implement a custom quiz UI (like Survivor), import and call `injectVocabBadgeStyles()` once at UI init. This injects the shared `.gvm-badge-real` (green, scheduled review) and `.gvm-badge-rainbow` (animated gradient, free review) CSS classes. Apply them to your quiz badge element based on `challenge.type === 'free'`. Do **not** define these styles in your game's own stylesheet — they belong to the GVM module.
+For games that **do** implement a custom quiz UI (like Survivor), import and call `injectVocabBadgeStyles()` once at UI init. This injects all shared badge CSS classes. Apply `.gvm-badge-unscheduled` (rainbow animated) when `challenge.type === 'unscheduled'` and `.gvm-badge-real` (green) for scheduled reviews. Do **not** define these styles in your game's own stylesheet — they belong to the GVM module.
 
 ```js
 import { showStandardQuiz, showQuizSequence, renderVocabSettings }

@@ -71,17 +71,18 @@ function _injectStyles() {
          * showGameQuiz picks the correct class automatically from challenge.type.
          * Games never need to set these manually.
          *
-         *   gvm-badge-real   → scheduled SRS review           (green)
-         *   gvm-badge-new    → first time seeing this word     (blue)
-         *   gvm-badge-drill  → not yet due, reinforcing        (yellow)
-         *   gvm-badge-leech  → repeatedly missed word          (red)
-         *   gvm-badge-free   → no cards due; correct skips SRS (rainbow)
+         *   gvm-badge-real         → scheduled SRS review           (green)
+         *   gvm-badge-new          → first time seeing this word     (blue)
+         *   gvm-badge-drill        → local SM-2 not yet due          (yellow — local mode only)
+         *   gvm-badge-leech        → repeatedly missed word          (red)
+         *   gvm-badge-unscheduled  → not due / no due cards; correct
+         *                            answers don't update interval   (rainbow)
          */
         .gvm-badge-real  { background:rgba(39,174,96,0.15);  color:#2ecc71; border:1px solid rgba(39,174,96,0.4); }
         .gvm-badge-new   { background:rgba(52,152,219,0.15); color:#3498db; border:1px solid rgba(52,152,219,0.4); }
         .gvm-badge-drill { background:rgba(241,196,15,0.15); color:#f1c40f; border:1px solid rgba(241,196,15,0.4); }
         .gvm-badge-leech { background:rgba(192,57,43,0.15);  color:#e74c3c; border:1px solid rgba(192,57,43,0.4); }
-        .gvm-badge-free {
+        .gvm-badge-unscheduled {
             background: linear-gradient(90deg,
                 rgba(255,100,100,0.15), rgba(255,200,50,0.15),
                 rgba(80,220,120,0.15),  rgba(80,160,255,0.15));
@@ -185,7 +186,7 @@ export function poolSourceLabel(poolSource) {
  */
 export function poolSourceDescription(poolSource) {
     return {
-        srs:    'Live SRS reviews — answers update your real flashcard schedule.',
+        srs:    'Live SRS reviews — answers update your real flashcard schedule. 🌈 = unscheduled (correct won\'t count).',
         custom: 'Local SM-2 — progress is self-contained and exported at session end.',
         mixed:  'SRS + custom deck — all answers update your real flashcard schedule.',
     }[poolSource] ?? '';
@@ -194,12 +195,12 @@ export function poolSourceDescription(poolSource) {
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
 const TYPE_BADGE = {
-    due:    { cls: 'gvm-badge-real',  label: '🟢 Review'     },
-    new:    { cls: 'gvm-badge-new',   label: '🔵 New Word'   },
-    drill:  { cls: 'gvm-badge-drill', label: '🟡 Drill'      },
-    leech:  { cls: 'gvm-badge-leech', label: '🩸 Leech'      },
-    free:   { cls: 'gvm-badge-free',  label: '🌈 Free Review' },
-    random: { cls: 'gvm-badge-real',  label: '🟢 Review'     },
+    due:          { cls: 'gvm-badge-real',         label: '🟢 Review'       },
+    new:          { cls: 'gvm-badge-new',           label: '🔵 New Word'     },
+    drill:        { cls: 'gvm-badge-drill',         label: '🟡 Drill'        },
+    leech:        { cls: 'gvm-badge-leech',         label: '🩸 Leech'        },
+    unscheduled:  { cls: 'gvm-badge-unscheduled',   label: '🌈 Unscheduled'  },
+    random:       { cls: 'gvm-badge-real',          label: '🟢 Review'       },
 };
 function _badgeFor(type) { return TYPE_BADGE[type] ?? TYPE_BADGE.due; }
 
@@ -304,17 +305,17 @@ export function showGameQuiz(vocabMgr, options = {}) {
     }
 
     const { wordObj, options: answerOpts, correctIdx, type } = challenge;
-    const isFree = type === 'free';
+    const isUnscheduled = type === 'unscheduled';
 
     // ── Resolve injectable text ───────────────────────────────────────────────
-    const resolve = (v) => typeof v === 'function' ? v(isFree, type) : v;
+    const resolve = (v) => typeof v === 'function' ? v(isUnscheduled, type) : v;
 
     const badge      = _badgeFor(type);
     const title      = resolve(options.title)      ?? badge.label;
     const titleColor = resolve(options.titleColor) ?? 'var(--text-main, #eee)';
     const subtitle   = options.subtitle !== undefined
         ? resolve(options.subtitle)
-        : (isFree ? 'No cards due — correct answers won\'t update your SRS interval.' : '');
+        : (isUnscheduled ? 'Not scheduled — correct answers won\'t update your SRS interval.' : '');
 
     // ── Progress dots ─────────────────────────────────────────────────────────
     const dotsHtml = options.dots
