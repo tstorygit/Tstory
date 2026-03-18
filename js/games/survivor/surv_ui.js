@@ -8,6 +8,7 @@
 
 import { CHARACTERS, WEAPONS, PASSIVES } from './surv_entities.js';
 import * as Audio from './surv_audio.js';
+import { injectVocabBadgeStyles } from '../../game_vocab_mgr_ui.js';
 
 let _container    = null;
 let _engine       = null;
@@ -59,6 +60,10 @@ export function initUI(container, engineFunctions, vocabMgr, metaCallbacks) {
     _vocabMgr     = vocabMgr;
     _metaCb       = metaCallbacks || { saveMeta: () => {} };
     _onLeaveRound = metaCallbacks?.onLeaveRound || (() => {});
+
+    // Ensure shared review-type badge CSS (rainbow dot, real-review dot) is injected.
+    // This lives in game_vocab_mgr_ui so every game benefits, not just Survivor.
+    injectVocabBadgeStyles();
 
     _container.innerHTML = `
         <!-- ── HUD ── -->
@@ -449,11 +454,14 @@ export function showSrsQuiz() {
     dom.furi.textContent    = (wordObj.kana !== wordObj.kanji) ? wordObj.kana : '';
     dom.srsTimer.style.display = 'none';
 
-    // Show review type indicator in the badge
+    // Show review type indicator in the badge.
+    // gvm-badge-rainbow / gvm-badge-real are injected by game_vocab_mgr_ui (shared across all games).
     const badge = dom.srs.querySelector('.surv-modal-badge');
     if (badge) {
-        badge.textContent = isFree ? '🌈 FREE REVIEW' : '⬆ LEVEL UP';
-        badge.className   = isFree ? 'surv-modal-badge surv-badge-rainbow' : 'surv-modal-badge surv-badge-gold';
+        badge.textContent = isFree ? '🌈 FREE REVIEW' : '🟢 LEVEL UP';
+        badge.className   = isFree
+            ? 'surv-modal-badge gvm-badge-rainbow'
+            : 'surv-modal-badge surv-badge-gold gvm-badge-real';
     }
     const subtitle = dom.srs.querySelector('.surv-modal-sub');
     if (subtitle) {

@@ -92,6 +92,31 @@ function _injectStyles() {
         .gvm-dot.filled { background: #27ae60; border-color: #2ecc71; box-shadow: 0 0 8px rgba(46,204,113,0.6); }
         .gvm-dot.failed { background: #c0392b; border-color: #e74c3c; box-shadow: 0 0 8px rgba(231,76,60,0.6); }
 
+        /* ── Review-type badge pills ─────────────────────────────────────────────
+         * These are shared across ALL games that use GameVocabManager.
+         * gvm-badge-real  → a scheduled SRS review (green dot indicator)
+         * gvm-badge-rainbow → a free/bonus review (no due cards; correct won't update interval)
+         * Games can apply these classes to any badge element they render.
+         */
+        .gvm-badge-real {
+            background: rgba(39,174,96,0.15);
+            color: #2ecc71;
+            border: 1px solid rgba(39,174,96,0.4);
+        }
+        .gvm-badge-rainbow {
+            background: linear-gradient(90deg,
+                rgba(255,100,100,0.15), rgba(255,200,50,0.15),
+                rgba(80,220,120,0.15), rgba(80,160,255,0.15));
+            border: 1px solid rgba(180,180,255,0.35);
+            color: #ccc;
+            background-size: 200% 100%;
+            animation: gvm-rainbow-shift 3s linear infinite;
+        }
+        @keyframes gvm-rainbow-shift {
+            0%   { background-position: 0% 50%; }
+            100% { background-position: 200% 50%; }
+        }
+
         /* Settings Styles */
         .gvm-settings-row {
             display: flex; justify-content: space-between; align-items: center;
@@ -108,7 +133,17 @@ function _injectStyles() {
 }
 
 /**
- * Compute the ideal number of grid columns for N answer buttons.
+ * Public export so games with custom quiz UIs (e.g. Survivor) can inject the
+ * shared review-type badge styles (gvm-badge-rainbow, gvm-badge-real) without
+ * importing the full quiz component.
+ *
+ * Call once at game UI init time — safe to call multiple times (idempotent).
+ */
+export function injectVocabBadgeStyles() {
+    _injectStyles(); // _injectStyles is already idempotent via the #gvm-styles guard
+}
+
+/**
  *
  * Layout rules:
  *   2        → 1×2  (single column, stacked)
