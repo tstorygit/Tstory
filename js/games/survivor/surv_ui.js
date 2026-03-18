@@ -7,6 +7,7 @@ let _vocabQueue = [];
 let _srsDb      = null;
 let _meta       = null;
 let _metaCb     = null;
+let _isSrsMode  = false;   // true = use SRS scheduling; false = pure random vocab drill
 
 let dom   = {};
 let kills = 0;
@@ -271,9 +272,10 @@ function _resumeFromManualPause() {
     _engine.resume();
 }
 
-export function resetGameUI(vocabQueue, metaData) {
+export function resetGameUI(vocabQueue, metaData, isSrsMode = false) {
     _vocabQueue     = vocabQueue;
     _meta           = metaData;
+    _isSrsMode      = isSrsMode;
     kills           = 0;
     chestStep       = 0;
     _runCorrect     = 0;
@@ -326,10 +328,26 @@ export function showBossWarning() {
 
 // ── Vocab helpers ───────────────────────────────────────────────────────────
 
+// Tracks whether the current question card is SRS-due (set by safeGetWord each call)
+let _currentWordIsDue = false;
+
 function safeGetWord() {
     if (!_vocabQueue.length) return null;
-    const res = _srsDb.getNextGameWord?.(_vocabQueue, 'mixed');
-    return res?.wordObj ?? _vocabQueue[Math.floor(Math.random() * _vocabQueue.length)];
+
+    if (_isSrsMode) {
+        // SRS mode: use proper scheduling (due first, then learning drill, then new)
+        const res = _srsDb.getNextGameWord?.(_vocabQueue, 'mixed');
+        if (!res) return _vocabQueue[Math.floor(Math.random() * _vocabQueue.length)];
+
+        // Track due-ness so _gradeWord can decide whether to update the interval
+        const entry = _srsDb.getWord?.(res.wordObj.word);
+        _currentWordIsDue = !entry?.dueDate || new Date(entry.dueDate) <= new Date();
+        return res.wordObj;
+    } else {
+        // Vocab-list mode: purely random — never use SRS ordering
+        _currentWordIsDue = false;
+        return _vocabQueue[Math.floor(Math.random() * _vocabQueue.length)];
+    }
 }
 
 // ─── SRS LEVEL-UP QUIZ ──────────────────────────────────────────────────────
@@ -344,6 +362,7 @@ export function showSrsQuiz() {
     dom.srs.style.display = 'flex';
     dom.kanji.textContent = currentTarget.word;
     dom.furi.textContent  = (currentTarget.furi !== currentTarget.word) ? currentTarget.furi : '';
+    if (dom.srsTimer) dom.srsTimer.style.display = 'none';
 
     _buildAnswerGrid(dom.grid, currentTarget, (isCorrect, clickedBtn) => {
         clearInterval(_srsQuizTimer);
@@ -360,23 +379,10 @@ export function showSrsQuiz() {
         });
     });
 
-    _srsTimeLeft = 5.0;
-    dom.srsTimer.style.width = '100%';
+    // No time limit — hide the timer bar
+    dom.srsTimer.style.width = '0%';
+    dom.srsTimer.style.display = 'none';
     clearInterval(_srsQuizTimer);
-    _srsQuizTimer = setInterval(() => {
-        _srsTimeLeft -= 0.1;
-        dom.srsTimer.style.width = `${(_srsTimeLeft / 5) * 100}%`;
-        if (_srsTimeLeft <= 0) {
-            clearInterval(_srsQuizTimer);
-            _flashAnswers(dom.grid, null, currentTarget.trans, false, () => {
-                _gradeWord(currentTarget, false);
-                _recordAnswer(false);
-                dom.srs.style.display = 'none';
-                _showPenalty(`Time's up! Correct: "${currentTarget.trans}"`);
-                _engine.applyPenalty();
-            });
-        }
-    }, 100);
 }
 
 // ─── BOSS CHEST QUIZ ────────────────────────────────────────────────────────
@@ -423,26 +429,10 @@ function _nextChestQuestion() {
         });
     });
 
-    _chestTimeLeft = 4.0;
-    dom.chestTimer.style.width = '100%';
+    // No time limit — hide the timer bar
+    dom.chestTimer.style.width = '0%';
+    dom.chestTimer.style.display = 'none';
     clearInterval(_chestQuizTimer);
-    _chestQuizTimer = setInterval(() => {
-        _chestTimeLeft -= 0.1;
-        dom.chestTimer.style.width = `${(_chestTimeLeft / 4) * 100}%`;
-        if (_chestTimeLeft <= 0) {
-            clearInterval(_chestQuizTimer);
-            _flashAnswers(dom.chestGrid, null, currentTarget.trans, false, () => {
-                _gradeWord(currentTarget, false);
-                _recordAnswer(false);
-                dom.chestDots[chestStep].classList.add('wrong');
-                dom.chest.style.display = 'none';
-                _meta.souls += 500;
-                _metaCb.saveMeta();
-                _showPenalty(`Time's up! Correct: "${currentTarget.trans}" — +500 Souls consolation.`);
-                _engine.applyPenalty();
-            });
-        }
-    }, 100);
 }
 
 // ─── QUIZ HELPERS ────────────────────────────────────────────────────────────
@@ -474,9 +464,25 @@ function _flashAnswers(gridEl, clickedBtn, correctTrans, isCorrect, callback) {
 }
 
 function _gradeWord(target, isCorrect) {
-    _srsDb.gradeWordInGame?.({
-        word: target.word, furi: target.furi, trans: target.trans
-    }, isCorrect ? 3 : 0, false);
+    if (!_isSrsMode) {
+        // Pure vocab drill — never touch SRS intervals
+        return;
+    }
+
+    if (_currentWordIsDue) {
+        // Due card: always update the interval (correct → grade 3, wrong → grade 0)
+        _srsDb.gradeWordInGame?.({
+            word: target.word, furi: target.furi, trans: target.trans
+        }, isCorrect ? 3 : 0, false);
+    } else {
+        // Free drill on a non-due card: only penalise wrong answers
+        if (!isCorrect) {
+            _srsDb.gradeWordInGame?.({
+                word: target.word, furi: target.furi, trans: target.trans
+            }, 0, false);
+        }
+        // Correct on a non-due card → no interval change
+    }
 }
 
 /** Track per-run and lifetime correct/wrong/streak stats */
@@ -513,10 +519,14 @@ function _buildUpgradePool() {
         .filter(aw => aw.level < WEAPONS[aw.id].levels.length)
         .map(aw => ({ type: 'weapon', id: aw.id, level: aw.level + 1 }));
 
-    const wNew = activeW.length < 6
+    // Split new weapons into common (weight ×3) and rare (weight ×1, ~25% as likely).
+    // Already-owned weapons that can be upgraded always appear at full weight regardless.
+    const allNewWeapons = activeW.length < 6
         ? Object.keys(WEAPONS).filter(k => !activeW.find(aw => aw.id === k))
             .map(k => ({ type: 'weapon', id: k, level: 1 }))
         : [];
+    const wNewCommon = allNewWeapons.filter(w => !WEAPONS[w.id].rare);
+    const wNewRare   = allNewWeapons.filter(w =>  WEAPONS[w.id].rare);
 
     const pUpgrade = activeP
         .filter(ap => ap.level < PASSIVES[ap.id].maxLevel)
@@ -528,8 +538,9 @@ function _buildUpgradePool() {
         : [];
 
     const weighted = [
-        ...wUpgrade, ...wUpgrade, ...wUpgrade,
-        ...wNew,
+        ...wUpgrade, ...wUpgrade, ...wUpgrade,  // upgrades: ×3
+        ...wNewCommon, ...wNewCommon, ...wNewCommon, // common new: ×3
+        ...wNewRare,                              // rare new: ×1 (≈25% vs common)
         ...pUpgrade, ...pUpgrade, ...pUpgrade,
         ...pNew
     ].sort(() => Math.random() - 0.5);

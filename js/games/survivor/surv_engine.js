@@ -9,7 +9,7 @@ let activePassives = [];
 
 const MAX_ENEMIES     = 500;
 const MAX_GEMS        = 800;
-const MAX_PROJECTILES = 300;
+const MAX_PROJECTILES = 600;
 const MAX_DMG_TEXTS   = 100;
 const MAX_CHESTS      = 10;
 
@@ -351,6 +351,27 @@ function updateWeapons(dt) {
                         duration: 2.0, pierce: 1, emoji: def.icon
                     });
                 });
+
+            } else if (def.type === 'soul_strike') {
+                // Like projectile but distinct visual + sound
+                const nearest = poolEnemies
+                    .filter(e => e.active)
+                    .sort((a, b) => Math.hypot(a.x - player.x, a.y - player.y) -
+                                    Math.hypot(b.x - player.x, b.y - player.y))
+                    .slice(0, lvlDef.count);
+                nearest.forEach(target => {
+                    const dx = target.x - player.x;
+                    const dy = target.y - player.y;
+                    const d  = Math.hypot(dx, dy) || 1;
+                    spawnProjectile({
+                        type: 'soul_strike',
+                        x: player.x, y: player.y,
+                        vx: (dx / d) * lvlDef.speed, vy: (dy / d) * lvlDef.speed,
+                        radius: 11, damage: lvlDef.damage * dmgMult,
+                        duration: 2.0, pierce: 1,
+                    });
+                });
+                Audio.playSoulStrike();
             } else if (def.type === 'random_aoe') {
                 const targets = poolEnemies.filter(e => e.active);
                 for (let i = 0; i < lvlDef.count; i++) {
@@ -384,7 +405,118 @@ function updateWeapons(dt) {
                     damage: lvlDef.damage * dmgMult,
                     duration: 0.55, pierce: 999
                 });
-            }
+
+            } else if (def.type === 'meteor_storm') {
+                // Queue `count` delayed meteor impacts near random enemies.
+                // Each impact is spawned as a `meteor_pending` that counts down,
+                // then becomes a visible `meteor_impact` AOE for its duration.
+                const targets = poolEnemies.filter(e => e.active);
+                for (let i = 0; i < lvlDef.count; i++) {
+                    const scatter = 80;
+                    let tx, ty;
+                    if (targets.length) {
+                        const t = targets[Math.floor(Math.random() * targets.length)];
+                        tx = t.x + (Math.random() - 0.5) * scatter;
+                        ty = t.y + (Math.random() - 0.5) * scatter;
+                    } else {
+                        const a = Math.random() * Math.PI * 2;
+                        tx = player.x + Math.cos(a) * (150 + Math.random() * 200);
+                        ty = player.y + Math.sin(a) * (150 + Math.random() * 200);
+                    }
+                    spawnProjectile({
+                        type: 'meteor_pending',
+                        x: tx, y: ty,
+                        radius: 55 * (lvlDef.area || 1),
+                        damage: lvlDef.damage * dmgMult,
+                        // stagger impacts: delay + small jitter per index
+                        duration: lvlDef.delay * (i + 1) + Math.random() * 0.15,
+                        impactDuration: 0.45,
+                        pierce: 999,
+                    });
+                }
+                Audio.playMeteorStrike();
+
+            } else if (def.type === 'lov') {
+                // Spawn a LOV controller projectile that fires boltCount lightning bolts
+                // spaced boltInterval seconds apart, each at a random screen position.
+                spawnProjectile({
+                    type: 'lov_controller',
+                    x: player.x, y: player.y,
+                    radius: 0,   // controller has no hitbox
+                    damage: lvlDef.damage * dmgMult,
+                    boltsLeft: lvlDef.boltCount,
+                    boltInterval: lvlDef.boltInterval,
+                    boltTimer: 0,
+                    boltArea: lvlDef.area || 1,
+                    duration: lvlDef.boltCount * lvlDef.boltInterval + 0.5,
+                    pierce: 0,
+                });
+                Audio.playLov();
+
+            } else if (def.type === 'heavens_drive') {
+                // Spawn `count` earth impact AOEs in a line along facing direction,
+                // each slightly delayed so they appear to erupt in sequence.
+                const dX  = player.lastDirX;
+                const dY  = player.lastDirY;
+                const baseDelay = 0.08;
+                for (let i = 0; i < lvlDef.count; i++) {
+                    const dist = 50 + i * lvlDef.spacing;
+                    spawnProjectile({
+                        type: 'heavens_drive',
+                        x: player.x + dX * dist,
+                        y: player.y + dY * dist,
+                        radius: 38 * (lvlDef.area || 1),
+                        damage: lvlDef.damage * dmgMult,
+                        // pending delay then active impact window
+                        duration: baseDelay * i + 0.40,
+                        pendingFor: baseDelay * i,
+                        pierce: 999,
+                    });
+                }
+                Audio.playHeavensDrive();
+
+            } else if (def.type === 'jupitel') {
+                // Single fast bolt toward nearest enemy, applies knockback on hit.
+                const nearest = poolEnemies
+                    .filter(e => e.active)
+                    .sort((a, b) => Math.hypot(a.x - player.x, a.y - player.y) -
+                                    Math.hypot(b.x - player.x, b.y - player.y))[0];
+                if (nearest) {
+                    const dx = nearest.x - player.x;
+                    const dy = nearest.y - player.y;
+                    const d  = Math.hypot(dx, dy) || 1;
+                    spawnProjectile({
+                        type: 'jupitel',
+                        x: player.x, y: player.y,
+                        vx: (dx / d) * lvlDef.speed,
+                        vy: (dy / d) * lvlDef.speed,
+                        radius: 14,
+                        damage: lvlDef.damage * dmgMult,
+                        knockback: lvlDef.knockback,
+                        duration: 2.0, pierce: 1,
+                    });
+                    Audio.playJupitel();
+                }
+
+            } else if (def.type === 'catspaw') {
+                // Burst of `count` paw-swipe AOEs evenly spread in a full ring around the player.
+                // Each swipe is a short-lived arc hitbox slightly offset from the player.
+                Audio.playCatPaw();
+                for (let i = 0; i < lvlDef.count; i++) {
+                    const a  = (Math.PI * 2 / lvlDef.count) * i + aw.angle;
+                    const ox = player.x + Math.cos(a) * lvlDef.radius * 0.55;
+                    const oy = player.y + Math.sin(a) * lvlDef.radius * 0.55;
+                    spawnProjectile({
+                        type: 'catspaw',
+                        x: ox, y: oy,
+                        angle: a,
+                        radius: lvlDef.radius * 0.45,
+                        damage: lvlDef.damage * dmgMult,
+                        duration: 0.22, pierce: 999,
+                    });
+                }
+                // Rotate offset each burst for visual variety
+                aw.angle = (aw.angle || 0) + Math.PI / lvlDef.count;
         }
     });
 }
@@ -392,14 +524,20 @@ function updateWeapons(dt) {
 function spawnProjectile(opts) {
     const p = poolProjectiles.find(x => !x.active);
     if (!p) return;
-    // Clear fields from previous occupant that aren't set by current opts,
-    // so stale emoji/radiusX/radiusY/angle don't bleed into new projectile types.
-    p.emoji   = null;
-    p.radiusX = null;
-    p.radiusY = null;
-    p.angle   = null;
-    p.vx      = null;
-    p.vy      = null;
+    // Clear fields from previous occupant so stale data never bleeds into new types.
+    p.emoji          = null;
+    p.radiusX        = null;
+    p.radiusY        = null;
+    p.angle          = null;
+    p.vx             = null;
+    p.vy             = null;
+    p.knockback      = null;
+    p.boltsLeft      = null;
+    p.boltInterval   = null;
+    p.boltTimer      = null;
+    p.boltArea       = null;
+    p.pendingFor     = null;
+    p.impactDuration = null;
     Object.assign(p, { active: true, hitList: new Set() }, opts);
 }
 
@@ -483,9 +621,56 @@ function updateProjectiles(dt) {
         const p = poolProjectiles[i];
         if (!p.active) continue;
         p.duration -= dt;
-        if (p.duration <= 0) { p.active = false; continue; }
+        if (p.duration <= 0) {
+            // meteor_pending that expires becomes a live impact
+            if (p.type === 'meteor_pending') {
+                p.type     = 'meteor_impact';
+                p.duration = p.impactDuration || 0.45;
+                p.hitList  = new Set(); // fresh hit list for the impact
+                Audio.playMeteorStrike();
+                continue;
+            }
+            // heavens_drive pending phase ends → becomes active impact
+            if (p.type === 'heavens_drive' && p.pendingFor > 0) {
+                p.pendingFor = 0;
+                p.duration   = 0.35;
+                p.hitList    = new Set();
+                continue;
+            }
+            p.active = false;
+            continue;
+        }
         if (p.vx) p.x += p.vx * dt;
         if (p.vy) p.y += p.vy * dt;
+
+        // LOV controller: fire bolts on its own timer
+        if (p.type === 'lov_controller' && p.boltsLeft > 0) {
+            p.boltTimer -= dt;
+            if (p.boltTimer <= 0) {
+                p.boltTimer = p.boltInterval;
+                p.boltsLeft--;
+                // Pick a random active enemy or scatter randomly on screen
+                const enemies = poolEnemies.filter(e => e.active);
+                let bx, by;
+                if (enemies.length) {
+                    const t = enemies[Math.floor(Math.random() * enemies.length)];
+                    bx = t.x + (Math.random() - 0.5) * 60 * (p.boltArea || 1);
+                    by = t.y + (Math.random() - 0.5) * 60 * (p.boltArea || 1);
+                } else {
+                    bx = player.x + (Math.random() - 0.5) * canvas.width  * 0.8;
+                    by = player.y + (Math.random() - 0.5) * canvas.height * 0.8;
+                }
+                spawnProjectile({
+                    type: 'lov_bolt',
+                    x: bx, y: by,
+                    radius: 28 * (p.boltArea || 1),
+                    damage: p.damage,
+                    duration: 0.18,
+                    pierce: 999,
+                });
+                Audio.playLov();
+            }
+        }
     }
 }
 
@@ -585,6 +770,11 @@ function checkCollisions() {
         if (!p.active) continue;
 
         const targets = getEnemiesNear(p.x, p.y, p.radius + 15);
+
+        // Types that never deal direct collision damage
+        if (p.type === 'lov_controller' || p.type === 'meteor_pending' ||
+            (p.type === 'heavens_drive' && p.pendingFor > 0)) continue;
+
         for (let k = 0; k < targets.length; k++) {
             const e = targets[k];
             if (p.hitList && p.hitList.has(e)) continue;
@@ -602,6 +792,14 @@ function checkCollisions() {
             if (p.hitList) p.hitList.add(e);
             p.pierce--;
             spawnDmgText(e.x, e.y - 20, Math.floor(p.damage), '#fff');
+
+            // Knockback (Jupitel Thunder)
+            if (p.knockback && p.knockback > 0) {
+                const kbDx = e.x - p.x, kbDy = e.y - p.y;
+                const kbD  = Math.hypot(kbDx, kbDy) || 1;
+                e.x += (kbDx / kbD) * p.knockback;
+                e.y += (kbDy / kbD) * p.knockback;
+            }
 
             // Throttled enemy-hit sound (max once every 80ms)
             if (now - lastEnemyHitSound > 80) {
@@ -907,7 +1105,178 @@ function drawEverything() {
             ctx.beginPath();
             ctx.arc(ppx, ppy, p.radius, 0, Math.PI * 2);
             ctx.stroke();
-        }
+
+        } else if (p.type === 'meteor_pending') {
+            // Falling shadow / warning circle — pulses as the meteor approaches
+            const t = 1 - Math.max(0, p.duration / (p.impactDuration + 0.01));
+            const alpha = 0.2 + t * 0.5;
+            ctx.shadowColor = 'rgba(255,120,30,0.6)';
+            ctx.shadowBlur  = 12;
+            ctx.strokeStyle = `rgba(255,160,40,${alpha})`;
+            ctx.lineWidth   = 2;
+            ctx.beginPath();
+            ctx.arc(ppx, ppy, p.radius * (1.2 - t * 0.3), 0, Math.PI * 2);
+            ctx.stroke();
+            // Crosshair lines
+            ctx.beginPath();
+            ctx.moveTo(ppx - 12, ppy); ctx.lineTo(ppx + 12, ppy);
+            ctx.moveTo(ppx, ppy - 12); ctx.lineTo(ppx, ppy + 12);
+            ctx.strokeStyle = `rgba(255,200,80,${alpha * 0.8})`;
+            ctx.lineWidth   = 1;
+            ctx.stroke();
+            ctx.shadowBlur  = 0;
+
+        } else if (p.type === 'meteor_impact') {
+            const life = Math.max(0, p.duration / 0.45);
+            ctx.save();
+            ctx.shadowColor = 'rgba(255,80,0,0.8)';
+            ctx.shadowBlur  = 30 * life;
+            // Outer fire circle
+            ctx.fillStyle   = `rgba(255,60,0,${0.4 * life})`;
+            ctx.strokeStyle = `rgba(255,180,40,${0.9 * life})`;
+            ctx.lineWidth   = 3;
+            ctx.beginPath();
+            ctx.arc(ppx, ppy, p.radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            // Inner core
+            ctx.fillStyle = `rgba(255,230,100,${0.7 * life})`;
+            ctx.beginPath();
+            ctx.arc(ppx, ppy, p.radius * 0.4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = life * 0.8;
+            ctx.font = '28px Arial';
+            ctx.fillText('☄️', ppx, ppy);
+            ctx.globalAlpha = 1;
+            ctx.restore();
+
+        } else if (p.type === 'lov_controller') {
+            // Invisible — child bolts do all the rendering
+
+        } else if (p.type === 'lov_bolt') {
+            const life = Math.max(0, p.duration / 0.18);
+            ctx.save();
+            ctx.shadowColor = 'rgba(180,100,255,0.9)';
+            ctx.shadowBlur  = 24 * life;
+            // Jagged lightning circle
+            ctx.strokeStyle = `rgba(220,160,255,${0.95 * life})`;
+            ctx.fillStyle   = `rgba(160,80,255,${0.35 * life})`;
+            ctx.lineWidth   = 2.5;
+            ctx.beginPath();
+            ctx.arc(ppx, ppy, p.radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle   = `rgba(255,240,255,${0.9 * life})`;
+            ctx.beginPath();
+            ctx.arc(ppx, ppy, p.radius * 0.3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.font = `${Math.floor(p.radius * 1.1)}px Arial`;
+            ctx.globalAlpha = life * 0.7;
+            ctx.fillText('⚡', ppx, ppy);
+            ctx.globalAlpha = 1;
+            ctx.restore();
+
+        } else if (p.type === 'heavens_drive') {
+            if (p.pendingFor > 0) {
+                // Warning crack on the ground
+                ctx.strokeStyle = 'rgba(180,140,60,0.5)';
+                ctx.lineWidth   = 2;
+                ctx.setLineDash([4, 4]);
+                ctx.beginPath();
+                ctx.arc(ppx, ppy, p.radius, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            } else {
+                const life = Math.max(0, p.duration / 0.35);
+                ctx.save();
+                ctx.shadowColor = 'rgba(160,110,40,0.8)';
+                ctx.shadowBlur  = 18 * life;
+                ctx.fillStyle   = `rgba(120,80,20,${0.45 * life})`;
+                ctx.strokeStyle = `rgba(200,160,60,${0.9 * life})`;
+                ctx.lineWidth   = 3;
+                ctx.beginPath();
+                ctx.arc(ppx, ppy, p.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+                // Rock shards — small rectangles scattered in radius
+                ctx.fillStyle = `rgba(180,140,60,${0.7 * life})`;
+                for (let s = 0; s < 5; s++) {
+                    const sa = (s / 5) * Math.PI * 2 + elapsedTime;
+                    const sr = p.radius * 0.55;
+                    ctx.fillRect(
+                        ppx + Math.cos(sa) * sr - 4,
+                        ppy + Math.sin(sa) * sr - 3,
+                        8, 6
+                    );
+                }
+                ctx.globalAlpha = life * 0.75;
+                ctx.font = '22px Arial';
+                ctx.fillText('🪨', ppx, ppy);
+                ctx.globalAlpha = 1;
+                ctx.restore();
+            }
+
+        } else if (p.type === 'jupitel') {
+            // Fast-moving electric bolt
+            ctx.save();
+            ctx.shadowColor = 'rgba(100,180,255,0.9)';
+            ctx.shadowBlur  = 16;
+            ctx.fillStyle   = 'rgba(80,160,255,0.85)';
+            ctx.strokeStyle = 'rgba(200,240,255,0.95)';
+            ctx.lineWidth   = 2;
+            ctx.beginPath();
+            ctx.arc(ppx, ppy, p.radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.font = '18px Arial';
+            ctx.globalAlpha = 0.9;
+            ctx.fillText('🌩️', ppx, ppy);
+            ctx.globalAlpha = 1;
+            ctx.restore();
+
+        } else if (p.type === 'soul_strike') {
+            // Glowing teal/white orb
+            ctx.save();
+            ctx.shadowColor = 'rgba(80,255,220,0.9)';
+            ctx.shadowBlur  = 18;
+            ctx.fillStyle   = 'rgba(40,200,180,0.9)';
+            ctx.strokeStyle = 'rgba(200,255,245,1.0)';
+            ctx.lineWidth   = 2;
+            ctx.beginPath();
+            ctx.arc(ppx, ppy, p.radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            // Bright core
+            ctx.fillStyle = 'rgba(220,255,250,0.95)';
+            ctx.beginPath();
+            ctx.arc(ppx, ppy, p.radius * 0.4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+
+        } else if (p.type === 'catspaw') {
+            // Arc-shaped swipe with a paw print emoji
+            const life = Math.max(0, p.duration / 0.22);
+            ctx.save();
+            ctx.globalAlpha = life;
+            ctx.shadowColor = 'rgba(255,180,220,0.9)';
+            ctx.shadowBlur  = 14 * life;
+            // Fan / arc shape
+            ctx.fillStyle   = `rgba(255,160,200,${0.35 * life})`;
+            ctx.strokeStyle = `rgba(255,200,230,${0.85 * life})`;
+            ctx.lineWidth   = 2.5;
+            ctx.beginPath();
+            ctx.moveTo(ppx, ppy);
+            ctx.arc(ppx, ppy, p.radius, p.angle - 0.55, p.angle + 0.55);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            // Paw print at tip
+            ctx.font = `${Math.floor(p.radius * 0.55)}px Arial`;
+            ctx.globalAlpha = life * 0.85;
+            ctx.fillText('🐾', ppx + Math.cos(p.angle) * p.radius * 0.6,
+                               ppy + Math.sin(p.angle) * p.radius * 0.6);
+            ctx.globalAlpha = 1;
+            ctx.restore();
     }
 
     // ── Enemies ──

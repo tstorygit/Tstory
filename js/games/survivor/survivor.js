@@ -148,7 +148,7 @@ export function launch() {
 function loadMeta() {
     const def = {
         souls: 0,
-        unlockedChars: ['gamewizard'],
+        unlockedChars: ['gamewizard', 'chi'],
         upgrades: {
             // Foundation
             vitality: 0, swiftness: 0, greed: 0, power: 0,
@@ -694,7 +694,8 @@ function _showSettings() {
 function startActualRun(queue) {
     _show('game');
     resizeCanvas(); // canvas was 0×0 while screen was display:none
-    resetGameUI(queue, _meta);
+    // isSrsMode = true when using the player's own SRS library (not a custom vocab deck)
+    resetGameUI(queue, _meta, !_customDeckActive);
     startRun(selectedChar, _meta.upgrades);
 }
 

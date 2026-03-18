@@ -48,4 +48,10 @@ export function playChestOpen()   { tone(880, 0.07, 'sine',     0.12); tone(1100
 export function playUpgradePick() { tone(520, 0.05, 'sine',     0.14); tone(780,  0.10, 'sine',     0.10, 0.05); }
 export function playGameOver()    { tone(220, 0.4,  'sawtooth', 0.15); tone(180,  0.5,  'sawtooth', 0.12, 0.35); tone(140, 0.7, 'sawtooth', 0.10, 0.70); }
 export function playVictory()     { [440, 554, 659, 880].forEach((f, i) => tone(f, 0.18, 'sine', 0.16, i * 0.13)); }
-export function playStormGust()   { tone(180, 0.08, 'sawtooth', 0.06); tone(220, 0.25, 'sawtooth', 0.08, 0.05); tone(160, 0.40, 'sine', 0.05, 0.18); }
+export function playStormGust()      { tone(180, 0.08, 'sawtooth', 0.06); tone(220, 0.25, 'sawtooth', 0.08, 0.05); tone(160, 0.40, 'sine', 0.05, 0.18); }
+export function playMeteorStrike()   { tone(80,  0.05, 'square',   0.14); tone(55,  0.18, 'sawtooth', 0.12, 0.04); tone(40,  0.30, 'square', 0.08, 0.14); }
+export function playLov()            { tone(1200,0.03, 'square',   0.06); tone(900, 0.04, 'square',   0.05, 0.02); tone(600, 0.06, 'square', 0.04, 0.05); }
+export function playHeavensDrive()   { tone(100, 0.04, 'sawtooth', 0.12); tone(70,  0.14, 'sawtooth', 0.10, 0.03); tone(50,  0.25, 'square', 0.06, 0.12); }
+export function playSoulStrike()     { tone(880, 0.04, 'sine',     0.10); tone(660, 0.08, 'sine',     0.08, 0.03); }
+export function playJupitel()        { tone(300, 0.03, 'square',   0.08); tone(500, 0.05, 'square',   0.10, 0.02); tone(800, 0.10, 'sawtooth', 0.08, 0.05); tone(200, 0.20, 'sawtooth', 0.06, 0.12); }
+export function playCatPaw()         { tone(600, 0.03, 'sine',     0.08); tone(800, 0.05, 'sine',     0.07, 0.02); tone(400, 0.08, 'sine',     0.05, 0.04); }
