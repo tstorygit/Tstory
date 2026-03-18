@@ -172,7 +172,6 @@ function handleDamage(baseDamage, enemy) {
 function checkLevelUp() {
     if (gameState.player.exp >= gameState.player.nextExp && gameState.player.level < 999) {
         gameState.player.exp -= gameState.player.nextExp;
-        // Fast scaling: 15, 30, 45, 60... Very easy to reach 999 over time.
         gameState.player.nextExp = Math.floor(15 * gameState.player.level); 
         
         gameState.isPaused = true;
@@ -204,11 +203,10 @@ function handleLootDrop(type, weaponId) {
         gameState.player.potions++;
         const fx = document.createElement('div');
         fx.textContent = `You found a Potion!`;
-        fx.style.cssText = 'position:fixed;top:50px;left:50%;transform:translateX(-50%);background:#3498db;color:#fff;padding:10px 20px;border-radius:10px;font-weight:bold;z-index:9999;box-shadow:0 5px 15px rgba(0,0,0,0.5);';
+        fx.style.cssText = 'position:fixed;top:50px;left:50%;transform:translateX(-50%);background:#3498db;color:#fff;padding:8px 16px;border-radius:10px;font-weight:bold;z-index:9999;box-shadow:0 5px 15px rgba(0,0,0,0.5);font-size:12px;';
         document.body.appendChild(fx);
         setTimeout(() => fx.remove(), 2500);
     } else if (type === 'weapon') {
-        // Safety check just in case it's still null somehow
         if (!weaponId) {
             const order = ['axe', 'sickle', 'chain', 'spear', 'star'];
             weaponId = order.find(w => !gameState.unlockedWeapons.includes(w));
@@ -218,7 +216,7 @@ function handleLootDrop(type, weaponId) {
             gameState.unlockedWeapons.push(weaponId);
             const fx = document.createElement('div');
             fx.textContent = `You found the ${weaponId.toUpperCase()}!`;
-            fx.style.cssText = 'position:fixed;top:50px;left:50%;transform:translateX(-50%);background:#f1c40f;color:#000;padding:10px 20px;border-radius:10px;font-weight:bold;z-index:9999;box-shadow:0 5px 15px rgba(0,0,0,0.5);';
+            fx.style.cssText = 'position:fixed;top:50px;left:50%;transform:translateX(-50%);background:#f1c40f;color:#000;padding:8px 16px;border-radius:10px;font-weight:bold;z-index:9999;box-shadow:0 5px 15px rgba(0,0,0,0.5);font-size:12px;';
             document.body.appendChild(fx);
             setTimeout(() => fx.remove(), 3500);
         }

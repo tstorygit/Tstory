@@ -1,4 +1,3 @@
-/* main/js/games/legend/legend.css */
 .leg-root {
     display: flex; flex-direction: column; height: 100%;
     background: #0f0f0f; color: #eee; font-family: 'Courier New', Courier, monospace;
@@ -9,19 +8,19 @@
 /* ── HUD ── */
 .leg-hud {
     display: flex; justify-content: space-between; align-items: center;
-    background: #1a252f; padding: 10px 12px; border-bottom: 3px solid #f1c40f;
+    background: #1a252f; padding: 6px 8px; border-bottom: 2px solid #f1c40f;
     flex-shrink: 0; z-index: 10; pointer-events: auto;
 }
-.leg-hud-col { display: flex; flex-direction: column; gap: 4px; flex: 1; }
-.leg-bar-wrap { width: 100%; max-width: 120px; height: 10px; background: #000; border: 1px solid #7f8c8d; border-radius: 5px; overflow: hidden; }
+.leg-hud-col { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.leg-bar-wrap { width: 100%; max-width: 90px; height: 8px; background: #000; border: 1px solid #7f8c8d; border-radius: 4px; overflow: hidden; }
 .leg-hp-fill { height: 100%; background: #e74c3c; transition: width 0.2s; }
 .leg-mp-fill { height: 100%; background: #3498db; transition: width 0.2s; }
 .leg-exp-fill { height: 100%; background: #f1c40f; transition: width 0.2s; }
-.leg-stat-text { font-size: 11px; font-weight: bold; color: #ecf0f1; text-shadow: 1px 1px 0 #000; white-space: nowrap; }
+.leg-stat-text { font-size: 9px; font-weight: bold; color: #ecf0f1; text-shadow: 1px 1px 0 #000; white-space: nowrap; }
 
-.leg-hud-center { text-align: center; flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.leg-hud-right { display: flex; gap: 8px; align-items: center; justify-content: flex-end; flex: 1; }
-.leg-btn { background: #34495e; color: #fff; border: 2px solid #7f8c8d; border-radius: 6px; padding: 8px 12px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.leg-hud-center { text-align: center; flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.leg-hud-right { display: flex; gap: 6px; align-items: center; justify-content: flex-end; flex: 1; }
+.leg-btn { background: #34495e; color: #fff; border: 1px solid #7f8c8d; border-radius: 6px; padding: 5px 8px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 11px; }
 .leg-btn:active { transform: scale(0.95); }
 .leg-btn-magic { background: #8e44ad; border-color: #9b59b6; }
 .leg-btn-primary { background: #f1c40f; border-color: #f39c12; color: #000; }
@@ -41,46 +40,46 @@
 /* ── Overlays ── */
 .leg-overlay {
     position: absolute; inset: 0; background: rgba(0,0,0,0.85);
-    z-index: 100; display: none; flex-direction: column; padding: 15px;
+    z-index: 100; display: none; flex-direction: column; padding: 10px;
     backdrop-filter: blur(4px); pointer-events: auto;
 }
-.leg-menu-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-.leg-menu-title { color: #f1c40f; margin: 0; font-size: 20px; font-weight: bold; text-transform: uppercase; letter-spacing: 2px; }
+.leg-menu-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.leg-menu-title { color: #f1c40f; margin: 0; font-size: 16px; font-weight: bold; text-transform: uppercase; letter-spacing: 2px; }
 
 /* 3-Column Grid */
 .leg-menu-container {
-    flex: 1; display: grid; grid-template-columns: 1fr 1fr 1.5fr; gap: 10px;
-    background: #2c3e50; border: 4px solid #f1c40f; border-radius: 12px; padding: 15px;
+    flex: 1; display: grid; grid-template-columns: 1fr 1fr 1.5fr; gap: 8px;
+    background: #2c3e50; border: 2px solid #f1c40f; border-radius: 10px; padding: 10px;
     overflow-y: auto;
 }
 @media (max-width: 650px) {
     .leg-menu-container { grid-template-columns: 1fr; }
 }
 .leg-menu-col {
-    background: rgba(0,0,0,0.25); padding: 12px; border-radius: 8px;
-    display: flex; flex-direction: column; gap: 10px; overflow-y: auto;
+    background: rgba(0,0,0,0.25); padding: 8px; border-radius: 8px;
+    display: flex; flex-direction: column; gap: 8px; overflow-y: auto;
 }
-.leg-col-title { font-size: 14px; font-weight: bold; color: #f1c40f; border-bottom: 1px dashed #7f8c8d; padding-bottom: 6px; text-align: center; text-transform: uppercase; }
+.leg-col-title { font-size: 12px; font-weight: bold; color: #f1c40f; border-bottom: 1px dashed #7f8c8d; padding-bottom: 4px; text-align: center; text-transform: uppercase; }
 
 /* Weapons */
-.leg-weapon-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.leg-weapon-btn { background: #34495e; border: 2px solid #7f8c8d; border-radius: 8px; padding: 10px 5px; text-align: center; cursor: pointer; transition: 0.2s; }
-.leg-weapon-btn.active { border-color: #2ecc71; background: #27ae60; box-shadow: 0 0 10px #2ecc71; }
+.leg-weapon-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.leg-weapon-btn { background: #34495e; border: 1px solid #7f8c8d; border-radius: 6px; padding: 6px 4px; text-align: center; cursor: pointer; transition: 0.2s; }
+.leg-weapon-btn.active { border-color: #2ecc71; background: #27ae60; box-shadow: 0 0 8px #2ecc71; }
 .leg-weapon-btn.locked { opacity: 0.3; filter: grayscale(1); pointer-events: none; }
-.leg-weapon-icon { font-size: 24px; line-height: 1; margin-bottom: 4px; }
-.leg-weapon-name { font-size: 10px; font-weight: bold; }
+.leg-weapon-icon { font-size: 18px; line-height: 1; margin-bottom: 2px; }
+.leg-weapon-name { font-size: 9px; font-weight: bold; }
 
 /* Stats */
-.leg-stat-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.1); }
-.leg-stat-val { font-weight: bold; color: #3498db; font-size: 15px; }
-.leg-stat-add { background: #e67e22; color: #fff; border: none; border-radius: 6px; width: 28px; height: 28px; font-weight: bold; font-size: 16px; cursor: pointer; }
+.leg-stat-row { display: flex; justify-content: space-between; align-items: center; font-size: 11px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.1); }
+.leg-stat-val { font-weight: bold; color: #3498db; font-size: 13px; }
+.leg-stat-add { background: #e67e22; color: #fff; border: none; border-radius: 4px; width: 22px; height: 22px; font-weight: bold; font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 .leg-stat-add:disabled { background: #555; cursor: not-allowed; }
-.leg-stat-pts { text-align: center; color: #e74c3c; font-weight: bold; font-size: 14px; padding: 8px; background: rgba(231,76,60,0.1); border-radius: 6px; }
+.leg-stat-pts { text-align: center; color: #e74c3c; font-weight: bold; font-size: 12px; padding: 6px; background: rgba(231,76,60,0.1); border-radius: 6px; }
 
 /* Rebirth & Death */
-.leg-death-box { background: #1a0000; border: 4px solid #e74c3c; border-radius: 12px; padding: 30px; text-align: center; width: 100%; max-width: 400px; margin: auto; }
-.leg-death-title { font-size: 32px; color: #e74c3c; font-weight: bold; margin-bottom: 15px; }
+.leg-death-box { background: #1a0000; border: 2px solid #e74c3c; border-radius: 10px; padding: 20px; text-align: center; width: 100%; max-width: 320px; margin: auto; }
+.leg-death-title { font-size: 24px; color: #e74c3c; font-weight: bold; margin-bottom: 10px; }
 
 /* Floating Text */
-.leg-float { position: absolute; pointer-events: none; font-weight: bold; font-size: 16px; text-shadow: 1px 1px 0 #000; animation: legFloatUp 0.8s forwards; z-index: 50; }
-@keyframes legFloatUp { 0% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; transform: translate(-50%, -40px); } }
+.leg-float { position: absolute; pointer-events: none; font-weight: bold; font-size: 14px; text-shadow: 1px 1px 0 #000; animation: legFloatUp 0.8s forwards; z-index: 50; }
+@keyframes legFloatUp { 0% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; transform: translate(-50%, -30px); } }

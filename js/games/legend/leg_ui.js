@@ -13,16 +13,16 @@ export function initUI(container, cbs) {
                 <div class="leg-bar-wrap"><div id="leg-hp-fill" class="leg-hp-fill"></div></div>
             </div>
             <div class="leg-hud-center">
-                <div id="leg-lvl-txt" style="margin-bottom:2px;">LV. 1</div>
-                <div class="leg-bar-wrap" style="width:70px;height:6px;"><div id="leg-exp-fill" class="leg-exp-fill"></div></div>
-                <div id="leg-exp-txt" style="font-size:9px; color:#bdc3c7; margin-top:2px;">0/100</div>
+                <div id="leg-lvl-txt" style="margin-bottom:2px; font-size:10px;">LV. 1</div>
+                <div class="leg-bar-wrap" style="width:60px;height:5px;"><div id="leg-exp-fill" class="leg-exp-fill"></div></div>
+                <div id="leg-exp-txt" style="font-size:8px; color:#bdc3c7; margin-top:2px;">0/100</div>
             </div>
             <div class="leg-hud-col" style="align-items:flex-end;">
                 <span id="leg-mp-txt" class="leg-stat-text">MP</span>
                 <div class="leg-bar-wrap"><div id="leg-mp-fill" class="leg-mp-fill"></div></div>
             </div>
             <div class="leg-hud-right">
-                <button id="leg-btn-action" class="leg-btn" style="font-size:18px;">🗡️</button>
+                <button id="leg-btn-action" class="leg-btn" style="font-size:14px; padding:4px 8px;">🗡️</button>
                 <button id="leg-btn-menu" class="leg-btn" style="border-color:#f1c40f;">☰</button>
             </div>
         </div>
@@ -39,24 +39,24 @@ export function initUI(container, cbs) {
                 </div>
                 <div class="leg-menu-col">
                     <div class="leg-col-title">Items & Magic</div>
-                    <div style="background:rgba(0,0,0,0.3); border-radius:6px; padding:10px; margin-bottom:10px;">
-                        <div style="display:flex;justify-content:space-between;font-size:14px;font-weight:bold;margin-bottom:6px;">
+                    <div style="background:rgba(0,0,0,0.3); border-radius:6px; padding:8px; margin-bottom:8px;">
+                        <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:bold;margin-bottom:6px;">
                             <span>🧪 Potion</span>
                             <span id="leg-potion-count">x3</span>
                         </div>
-                        <button id="leg-use-potion" class="leg-btn" style="width:100%;font-size:12px;">Drink (+50 HP)</button>
+                        <button id="leg-use-potion" class="leg-btn" style="width:100%;font-size:10px;">Drink (+50 HP)</button>
                     </div>
-                    <div class="leg-col-title" style="margin-top:10px;">Action Button</div>
-                    <button id="leg-toggle-magic" class="leg-btn" style="width:100%;">Equip Magic (Heal 30HP / -10MP)</button>
-                    <p style="font-size:10px;color:#aaa;margin-top:10px;">Tap screen to use equipped action.</p>
+                    <div class="leg-col-title" style="margin-top:8px;">Action Button</div>
+                    <button id="leg-toggle-magic" class="leg-btn" style="width:100%;font-size:10px;">Equip Magic (Heal 30HP / -10MP)</button>
+                    <p style="font-size:9px;color:#aaa;margin-top:8px;">Tap screen to use equipped action.</p>
                 </div>
                 <div class="leg-menu-col">
                     <div class="leg-col-title">Stats</div>
                     <div id="leg-stat-pts-wrap" class="leg-stat-pts">Unspent Points: <span id="leg-stat-pts">0</span></div>
-                    <div id="leg-stat-list" style="margin-top:10px;"></div>
+                    <div id="leg-stat-list" style="margin-top:8px;"></div>
                 </div>
             </div>
-            <div style="display:flex; gap:10px; margin-top:15px; flex-shrink:0;">
+            <div style="display:flex; gap:8px; margin-top:10px; flex-shrink:0;">
                 <button id="leg-btn-rebirth-check" class="leg-btn" style="flex:1; background:#c0392b; border-color:#e74c3c;">Rebirth</button>
                 <button id="leg-btn-exit" class="leg-btn" style="flex:1;">Save & Exit</button>
             </div>
@@ -65,10 +65,10 @@ export function initUI(container, cbs) {
         <div class="leg-overlay" id="leg-rebirth-overlay" style="background:#1a0000; align-items:center; justify-content:center;">
             <div class="leg-death-box">
                 <div class="leg-death-title">REBIRTH</div>
-                <p style="color:#bdc3c7;margin-bottom:20px;">Ascend and start over. You will gain <b style="color:#f1c40f" id="leg-ap-gain">0</b> AP.</p>
-                <div id="leg-perk-list" style="display:flex;flex-direction:column;gap:10px;width:100%;max-width:300px;margin-bottom:20px;overflow-y:auto;max-height:30vh;"></div>
+                <p style="color:#bdc3c7;margin-bottom:15px;font-size:12px;">Ascend and start over. You will gain <b style="color:#f1c40f" id="leg-ap-gain">0</b> AP.</p>
+                <div id="leg-perk-list" style="display:flex;flex-direction:column;gap:8px;width:100%;margin-bottom:15px;overflow-y:auto;max-height:30vh;"></div>
                 <button id="leg-btn-confirm-rebirth" class="leg-btn leg-btn-primary" style="width:100%;">Ascend Now</button>
-                <button id="leg-btn-cancel-rebirth" class="leg-btn" style="width:100%;margin-top:10px;">Cancel</button>
+                <button id="leg-btn-cancel-rebirth" class="leg-btn" style="width:100%;margin-top:8px;">Cancel</button>
             </div>
         </div>
     `;
@@ -185,17 +185,17 @@ function renderMenu() {
 
 function renderPerks(state) {
     dom.perkList.innerHTML = `
-        <div style="text-align:center; color:#2ecc71; font-weight:bold; margin-bottom:10px;">Your AP: ${state.ap}</div>
+        <div style="text-align:center; color:#2ecc71; font-weight:bold; margin-bottom:10px; font-size:12px;">Your AP: ${state.ap}</div>
         ${Object.entries(PERKS).map(([k, p]) => {
             const owned = state.perks[k] || 0;
             return `
-                <div style="background:rgba(255,255,255,0.1); padding:10px; border-radius:8px; text-align:left;">
-                    <div style="display:flex;justify-content:space-between;font-weight:bold;color:#f1c40f;">
+                <div style="background:rgba(255,255,255,0.1); padding:8px; border-radius:6px; text-align:left;">
+                    <div style="display:flex;justify-content:space-between;font-weight:bold;color:#f1c40f;font-size:12px;">
                         <span>${p.name} (Lv.${owned})</span>
                         <span>Cost: ${p.cost} AP</span>
                     </div>
-                    <div style="font-size:10px;color:#ccc;margin-top:4px;">${p.desc}</div>
-                    <button class="leg-btn" style="width:100%;margin-top:6px;padding:4px;" ${state.ap >= p.cost ? '' : 'disabled'} data-perk="${k}">Buy</button>
+                    <div style="font-size:9px;color:#ccc;margin-top:2px;">${p.desc}</div>
+                    <button class="leg-btn" style="width:100%;margin-top:6px;padding:4px;font-size:10px;" ${state.ap >= p.cost ? '' : 'disabled'} data-perk="${k}">Buy</button>
                 </div>
             `;
         }).join('')}
