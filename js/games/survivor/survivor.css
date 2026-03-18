@@ -936,3 +936,24 @@
     transform: translateX(20px);
     background: white;
 }
+/* ── Vocab Mode Selector Buttons (Settings Panel) ──────────────────────────── */
+.surv-mode-btn {
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: 2px solid var(--border-color, #444);
+    background: var(--surface-color, #2a2a2a);
+    color: var(--text-muted, #aaa);
+    font-size: 13px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.surv-mode-btn:hover {
+    border-color: var(--primary-color, #4A90E2);
+    color: var(--text-main, #eee);
+}
+.surv-mode-btn.active {
+    background: var(--primary-color, #4A90E2);
+    border-color: var(--primary-color, #4A90E2);
+    color: #fff;
+}

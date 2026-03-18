@@ -1,21 +1,46 @@
-import { mountVocabSelector } from '../../vocab_selector.js';
-import * as srsDb from '../../srs_db.js';
-import { initInput } from './surv_input.js';
-import { initCanvas, startRun, stop, applyUpgrade, applyHeal, applyPenalty,
-         pause, resume, getActiveWeapons, getActivePassives, getElapsedTime, resize as resizeCanvas } from './surv_engine.js';
-import { initUI, resetGameUI, drawHUD, incrementKill, showSrsQuiz,
-         showChestQuiz, showBossWarning, showGameOver } from './surv_ui.js';
-import { CHARACTERS } from './surv_entities.js';
-import * as Audio from './surv_audio.js';
+/**
+ * survivor.js — Yōkai Survivor: top-level game controller
+ *
+ * Vocabulary chain: survivor.js → GameVocabManager → srs_db
+ *
+ * This module never imports srs_db directly. All vocabulary operations,
+ * including SRS scheduling, go through the GameVocabManager instance.
+ */
+
+import { mountVocabSelector }  from '../../vocab_selector.js';
+import { GameVocabManager }    from '../../game_vocab_mgr.js';
+import { renderVocabSettings } from '../../game_vocab_mgr_ui.js';
+import { initInput }          from './surv_input.js';
+import {
+    initCanvas, startRun, stop, applyUpgrade, applyHeal, applyPenalty,
+    pause, resume, getActiveWeapons, getActivePassives, getElapsedTime,
+    resize as resizeCanvas,
+} from './surv_engine.js';
+import {
+    initUI, resetGameUI, drawHUD, incrementKill,
+    showSrsQuiz, showChestQuiz, showBossWarning, showGameOver,
+} from './surv_ui.js';
+import { CHARACTERS }  from './surv_entities.js';
+import * as Audio      from './surv_audio.js';
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 let _screens       = null;
 let _onExitGlobal  = null;
 let _selector      = null;
 let _meta          = null;
-let _vocabQueue    = [];
+
+// Raw vocab arrays (word, furi, trans objects from vocab selector or SRS db)
+let _vocabPool     = [];
+// True when the user picked a custom deck instead of their SRS library
 let _customDeckActive = false;
 
+// The single GameVocabManager instance for the entire game session.
+// Re-created (or reset) before each run starts.
+let _vocabMgr = null;
+
 // ── CSS injection ─────────────────────────────────────────────────────────────
+
 function _injectStyles() {
     if (document.getElementById('surv-styles')) return;
     const link = document.createElement('link');
@@ -24,13 +49,9 @@ function _injectStyles() {
     link.href = './js/games/survivor/survivor.css';
     document.head.appendChild(link);
 
-    // viewport-fit=cover is required for env(safe-area-inset-bottom) to work on iPhone.
-    // Update the existing viewport meta if present, otherwise create one.
     let vp = document.querySelector('meta[name="viewport"]');
     if (vp) {
-        if (!vp.content.includes('viewport-fit')) {
-            vp.content += ', viewport-fit=cover';
-        }
+        if (!vp.content.includes('viewport-fit')) vp.content += ', viewport-fit=cover';
     } else {
         vp = document.createElement('meta');
         vp.name    = 'viewport';
@@ -38,6 +59,8 @@ function _injectStyles() {
         document.head.appendChild(vp);
     }
 }
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
 
 export function init(screens, onExit) {
     _injectStyles();
@@ -48,7 +71,6 @@ export function init(screens, onExit) {
         <div id="surv-deck-selector-wrap" style="display:none;"></div>
         <div id="surv-camp-wrap" style="display:none; max-width:680px; margin:0 auto;">
 
-            <!-- Header -->
             <div class="surv-camp-header">
                 <div>
                     <div class="surv-camp-subtitle">Yōkai Survivor</div>
@@ -64,29 +86,16 @@ export function init(screens, onExit) {
                 </div>
             </div>
 
-            <!-- Tabs -->
             <div class="surv-tabs">
                 <button class="surv-tab active" data-tab="chars">🥷 Characters</button>
                 <button class="surv-tab" data-tab="shrine">⛩️ Shrine</button>
                 <button class="surv-tab" data-tab="stats">📊 Statistics</button>
             </div>
 
-            <!-- Tab: Characters -->
-            <div class="surv-tab-panel" id="surv-tab-chars">
-                <div id="surv-char-list"></div>
-            </div>
+            <div class="surv-tab-panel" id="surv-tab-chars"></div>
+            <div class="surv-tab-panel" id="surv-tab-shrine" style="display:none;"></div>
+            <div class="surv-tab-panel" id="surv-tab-stats"  style="display:none;"></div>
 
-            <!-- Tab: Shrine -->
-            <div class="surv-tab-panel" id="surv-tab-shrine" style="display:none;">
-                <div id="surv-shrine-list"></div>
-            </div>
-
-            <!-- Tab: Statistics -->
-            <div class="surv-tab-panel" id="surv-tab-stats" style="display:none;">
-                <div id="surv-stats-content"></div>
-            </div>
-
-            <!-- Actions -->
             <div class="surv-camp-actions">
                 <button id="surv-btn-start-run" class="surv-start-btn">⚔️ Enter the Forest</button>
                 <button id="surv-btn-exit-camp" class="surv-exit-btn">← Exit</button>
@@ -95,9 +104,6 @@ export function init(screens, onExit) {
     `;
 
     _screens.setup.innerHTML = setupHTML;
-    // The game screen must be a flex-column so HUD + canvas stack vertically.
-    // These styles are applied here directly so the screen is self-contained
-    // regardless of how games_ui.js configures the container.
     _screens.game.style.cssText += ';display:flex;flex-direction:column;padding:0;overflow:hidden;position:relative;';
     _screens.game.innerHTML = `
         <div class="surv-canvas-wrap">
@@ -112,33 +118,104 @@ export function init(screens, onExit) {
         onKill:        () => incrementKill(),
         onDraw:        (hp, max, xp, xpN, lvl, t) => drawHUD(hp, max, xp, xpN, lvl, t),
         onGameOver:    (isWin) => showGameOver(isWin, () => returnToCamp()),
-        onBossWarning: () => showBossWarning()
+        onBossWarning: () => showBossWarning(),
     });
 
-    // Prevent iOS Safari from scrolling the page while the game screen is active.
-    // touchmove with passive:false lets us call preventDefault() to suppress scroll.
     _screens.game.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
 
-    // ✅ initUI MUST come before initInput — initUI writes the joystick HTML
-    // into #surv-ui-layer. If initInput runs first, querySelector('#surv-joystick-zone')
-    // returns null (element doesn't exist yet) → if(!touchZone) return → no listeners.
+    // initUI must come before initInput (writes joystick HTML into DOM)
     initUI(
         _screens.game.querySelector('#surv-ui-layer'),
-        { applyUpgrade, applyHeal, applyPenalty, pause, resume,  // ← pause was missing!
+        { applyUpgrade, applyHeal, applyPenalty, pause, resume,
           getActiveWeapons, getActivePassives, getElapsedTime },
-        srsDb,
+        _getOrCreateVocabMgr(),  // provide initial instance; replaced before each run
         { saveMeta, onLeaveRound: () => returnToCamp() }
     );
 
-    // initInput runs AFTER initUI so #surv-joystick-zone is guaranteed to be in the DOM
     initInput(_screens.game);
 }
 
+// ─── VOCAB MANAGER FACTORY ────────────────────────────────────────────────────
+
+/**
+ * Returns the current _vocabMgr, creating one if it doesn't exist yet.
+ * Config is read from _meta.vocabConfig (persisted in localStorage).
+ */
+function _getOrCreateVocabMgr() {
+    if (_vocabMgr) return _vocabMgr;
+
+    const cfg = _meta?.vocabConfig || _defaultVocabConfig();
+    _vocabMgr = new GameVocabManager({
+        mode:                cfg.mode,
+        initialInterval:     cfg.initialInterval,
+        initialEase:         cfg.initialEase,
+        leechThreshold:      cfg.leechThreshold,
+        autoNewWordBatchSize: cfg.autoNewWordBatchSize,
+        autoThresholds: {
+            minDueTime:  cfg.minDueTime,
+            minAccuracy: cfg.minAccuracy,
+        },
+    });
+    return _vocabMgr;
+}
+
+/**
+ * (Re-)creates the VocabManager with the current persisted config and
+ * loads the current _vocabPool into it.
+ * Called at the start of every run so each run gets a fresh scheduling state.
+ */
+function _buildVocabMgr() {
+    const cfg = _meta.vocabConfig || _defaultVocabConfig();
+
+    _vocabMgr = new GameVocabManager({
+        mode:                cfg.mode,
+        initialInterval:     cfg.initialInterval,
+        initialEase:         cfg.initialEase,
+        leechThreshold:      cfg.leechThreshold,
+        autoNewWordBatchSize: cfg.autoNewWordBatchSize,
+        autoThresholds: {
+            minDueTime:  cfg.minDueTime,
+            minAccuracy: cfg.minAccuracy,
+        },
+    });
+
+    // Restore any saved session state (local SRS progress from previous runs)
+    if (_meta.vocabState) {
+        _vocabMgr.importState(_meta.vocabState);
+    }
+
+    // Pass globalSrs:true when the player's own SRS library is active so
+    // GameVocabManager routes scheduling through srs_db.  Custom deck words
+    // use the local SM-2 engine — no flag needed.
+    _vocabMgr.setPool(_vocabPool, 'surv_banned', { globalSrs: !_customDeckActive });
+
+    // Seed initial words for auto mode only.
+    // manual mode requires explicit player action via learnNewWord();
+    // random mode needs no seeding at all.
+    // seedInitialWords() is a no-op for both those cases.
+    if (cfg.mode === 'auto') {
+        _vocabMgr.seedInitialWords(Math.max(cfg.autoNewWordBatchSize, 5));
+    }
+
+    return _vocabMgr;
+}
+
+// Delegate to GameVocabManager so there is a single canonical set of defaults.
+function _defaultVocabConfig() {
+    return GameVocabManager.defaultConfig();
+}
+
+// ─── LAUNCH ───────────────────────────────────────────────────────────────────
+
 export function launch() {
     loadMeta();
-    const srsWords = Object.values(srsDb.getAllWords());
+    _vocabMgr = null; // will be rebuilt before next run
+
+    // If the user has SRS words, default to their deck.
+    // Otherwise open the vocab selector first.
+    const srsWords = _loadSrsWords();
     if (srsWords.length > 0 && !_customDeckActive) {
-        _vocabQueue = srsWords.map(w => ({ word: w.word, furi: w.furi, trans: w.translation }));
+        _vocabPool = srsWords;
         _show('setup');
         showCamp();
     } else {
@@ -147,56 +224,61 @@ export function launch() {
     }
 }
 
-// ── Meta ─────────────────────────────────────────────────────────────────────
+/**
+ * Returns the player's SRS word list as a normalized pool array.
+ * Delegates entirely to GameVocabManager.loadSrsPool() so this file
+ * never touches raw localStorage keys or SRS field names directly.
+ */
+function _loadSrsWords() {
+    return GameVocabManager.loadSrsPool(); // pass srsDb module here if imported
+}
+
+// ─── META ─────────────────────────────────────────────────────────────────────
 
 function loadMeta() {
     const def = {
         souls: 0,
         unlockedChars: ['gamewizard', 'chi'],
         upgrades: {
-            // Foundation
             vitality: 0, swiftness: 0, greed: 0, power: 0,
-            // Survival
             ironWill: 0, regen: 0,
-            // Combat
             haste: 0, magnetism: 0,
-            // Mastery
             scholar: 0, ghostStep: 0,
-            // Prestige
             ancestralPower: 0, secondWind: 0,
         },
         stats: {
-            // Run history
-            totalRuns:       0,
-            totalWins:       0,
-            totalKills:      0,
-            totalTimePlayed: 0,
-            highestTime:     0,
-            highestKills:    0,
-            // Vocab
-            totalCorrect:    0,
-            totalWrong:      0,
-            bestStreak:      0,
-        }
+            totalRuns: 0, totalWins: 0, totalKills: 0,
+            totalTimePlayed: 0, highestTime: 0, highestKills: 0,
+            totalCorrect: 0, totalWrong: 0, bestStreak: 0,
+        },
+        vocabConfig: _defaultVocabConfig(),
     };
     try { _meta = JSON.parse(localStorage.getItem('surv_meta')) || def; }
     catch { _meta = def; }
-    // Backfill any missing keys from older saves
-    _meta.stats = { ...def.stats, ..._meta.stats };
-    // Migrate old "totalWordsMastered" → totalCorrect
+    _meta.stats       = { ...def.stats,       ..._meta.stats };
+    _meta.vocabConfig = { ...def.vocabConfig,  ..._meta.vocabConfig };
+
+    // Migrate old totalWordsMastered key
     if (_meta.stats.totalWordsMastered && !_meta.stats.totalCorrect) {
         _meta.stats.totalCorrect = _meta.stats.totalWordsMastered;
     }
 }
 
-function saveMeta() { localStorage.setItem('surv_meta', JSON.stringify(_meta)); }
+function saveMeta() {
+    // Persist local-mode SRS progress so it survives between runs.
+    // Global SRS state is managed by srs_db directly, so no export needed there.
+    if (_vocabMgr && !_vocabMgr.isGlobalSrs) {
+        _meta.vocabState = _vocabMgr.exportState();
+    }
+    localStorage.setItem('surv_meta', JSON.stringify(_meta));
+}
 
 function _show(name) {
     if (_screens.setup) _screens.setup.style.display = name === 'setup' ? 'block' : 'none';
     if (_screens.game)  _screens.game.style.display  = name === 'game'  ? 'flex'  : 'none';
 }
 
-// ── Vocab selector ────────────────────────────────────────────────────────────
+// ─── VOCAB SELECTOR ───────────────────────────────────────────────────────────
 
 function showVocabSelector() {
     const selectorWrap = _screens.setup.querySelector('#surv-deck-selector-wrap');
@@ -206,7 +288,7 @@ function showVocabSelector() {
 
     if (!_selector) {
         _selector = mountVocabSelector(selectorWrap, {
-            bannedKey: 'surv_banned', defaultCount: 'All', title: 'Vocabulary Queue'
+            bannedKey: 'surv_banned', defaultCount: 'All', title: 'Vocabulary Queue',
         });
         const actions = _selector.getActionsEl();
 
@@ -217,7 +299,13 @@ function showVocabSelector() {
             const queue = await _selector.getQueue();
             if (!queue.length) return;
             _customDeckActive = true;
-            _vocabQueue = queue.map(w => ({ word: w.word, furi: w.furi || w.word, trans: w.trans || '—' }));
+            _vocabPool = queue.map(w => ({
+                word:  w.word,
+                furi:  w.furi  || w.word,
+                trans: w.trans || '—',
+                deckId: 'custom',
+            }));
+            _vocabMgr = null; // force rebuild with new pool
             showCamp();
         };
 
@@ -225,18 +313,21 @@ function showVocabSelector() {
         backBtn.className   = 'caro-back-btn';
         backBtn.textContent = '← Back to Games';
         backBtn.onclick = () => {
-            const srsWords = Object.values(srsDb.getAllWords());
+            const srsWords = _loadSrsWords();
             if (srsWords.length > 0) {
                 _customDeckActive = false;
-                _vocabQueue = srsWords.map(w => ({ word: w.word, furi: w.furi, trans: w.translation }));
+                _vocabPool = srsWords;
+                _vocabMgr  = null;
                 showCamp();
-            } else { _onExitGlobal(); }
+            } else {
+                _onExitGlobal();
+            }
         };
         actions.append(startBtn, backBtn);
     }
 }
 
-// ── Camp ──────────────────────────────────────────────────────────────────────
+// ─── CAMP ─────────────────────────────────────────────────────────────────────
 
 let selectedChar = 'gamewizard';
 let _activeTab   = 'chars';
@@ -248,48 +339,36 @@ function showCamp() {
     campWrap.style.display     = 'block';
 
     const el = _screens.setup;
-    el.querySelector('#surv-btn-settings').onclick = () => _showSettings();
-    el.querySelector('#surv-btn-start-run').onclick   = () => startActualRun(_vocabQueue);
-    el.querySelector('#surv-btn-exit-camp').onclick   = _onExitGlobal;
-    el.querySelector('#surv-soul-count').textContent  = _meta.souls.toLocaleString();
+    el.querySelector('#surv-btn-settings').onclick  = () => _showSettings();
+    el.querySelector('#surv-btn-start-run').onclick = () => startActualRun();
+    el.querySelector('#surv-btn-exit-camp').onclick = _onExitGlobal;
+    el.querySelector('#surv-soul-count').textContent = _meta.souls.toLocaleString();
 
-    // ── Tabs ──
     el.querySelectorAll('.surv-tab').forEach(tab => {
         tab.classList.toggle('active', tab.dataset.tab === _activeTab);
-        tab.onclick = () => {
-            _activeTab = tab.dataset.tab;
-            showCamp();
-        };
+        tab.onclick = () => { _activeTab = tab.dataset.tab; showCamp(); };
     });
-    el.querySelector('#surv-tab-chars').style.display   = _activeTab === 'chars'  ? 'block' : 'none';
-    el.querySelector('#surv-tab-shrine').style.display  = _activeTab === 'shrine' ? 'block' : 'none';
-    el.querySelector('#surv-tab-stats').style.display   = _activeTab === 'stats'  ? 'block' : 'none';
+    el.querySelector('#surv-tab-chars').style.display  = _activeTab === 'chars'  ? 'block' : 'none';
+    el.querySelector('#surv-tab-shrine').style.display = _activeTab === 'shrine' ? 'block' : 'none';
+    el.querySelector('#surv-tab-stats').style.display  = _activeTab === 'stats'  ? 'block' : 'none';
 
     if (_activeTab === 'chars')  _renderCharacters(el);
     if (_activeTab === 'shrine') _renderShrine(el);
     if (_activeTab === 'stats')  _renderStatistics(el);
 }
 
-// ── Characters tab ────────────────────────────────────────────────────────────
+// ─── CHARACTERS ───────────────────────────────────────────────────────────────
 
 function _renderCharacters(el) {
-    const charList = el.querySelector('#surv-char-list');
+    const charList = el.querySelector('#surv-tab-chars');
     charList.innerHTML = Object.values(CHARACTERS).map(c => {
         const isUnlocked = _meta.unlockedChars.includes(c.id);
         const isActive   = selectedChar === c.id;
 
-        // Build stat tags from character stats object
         const statTags = Object.entries(c.stats).map(([k, v]) => {
-            const pct = Math.round(v * 100);
-            const label = {
-                moveSpeedMult: 'Speed',
-                soulMult:      'Souls',
-                cooldownMult:  'Cooldown',
-                damageMult:    'Damage',
-                magnetMult:    'Magnet',
-                hpMult:        'Max HP',
-                armor:         'Armor'
-            }[k] || k;
+            const pct   = Math.round(v * 100);
+            const label = { moveSpeedMult: 'Speed', soulMult: 'Souls', cooldownMult: 'Cooldown',
+                            damageMult: 'Damage', magnetMult: 'Magnet', hpMult: 'Max HP', armor: 'Armor' }[k] || k;
             const isFlat   = k === 'armor';
             const positive = v >= 0;
             const display  = isFlat ? `${v > 0 ? '+' : ''}${v}` : `${pct > 0 ? '+' : ''}${pct}%`;
@@ -335,11 +414,8 @@ function _renderCharacters(el) {
     });
 }
 
-// ── Shrine tab ────────────────────────────────────────────────────────────────
+// ─── SHRINE ───────────────────────────────────────────────────────────────────
 
-// Shrine upgrade definitions — grouped by tier.
-// Each entry: id (matches _meta.upgrades key), name, icon, desc,
-//             max (cap), costPerRank (multiplier), group label.
 const SHRINE_UPGRADES = [
     {
         group: 'Foundation', groupIcon: '🏯',
@@ -349,54 +425,53 @@ const SHRINE_UPGRADES = [
             { id: 'swiftness', name: 'Swiftness',  icon: '💨',  max: 10, costMult: 200, desc: '+2% Move Speed per rank.' },
             { id: 'power',     name: 'Power',       icon: '⚡',  max: 10, costMult: 200, desc: '+5% Damage per rank.' },
             { id: 'greed',     name: 'Greed',       icon: '👻',  max: 10, costMult: 200, desc: '+5% Soul gain per rank.' },
-        ]
+        ],
     },
     {
         group: 'Survival', groupIcon: '🛡️',
         groupDesc: 'Reduce incoming damage and outlast longer waves.',
         items: [
-            { id: 'ironWill',  name: 'Iron Will',    icon: '🛡️', max: 10, costMult: 250, desc: '+3 flat Armor per rank. Reduces enemy damage directly.' },
-            { id: 'regen',     name: 'Regeneration', icon: '💚',  max: 10, costMult: 300, desc: '+0.08% Max HP restored per second per rank.' },
-        ]
+            { id: 'ironWill', name: 'Iron Will',    icon: '🛡️', max: 10, costMult: 250, desc: '+3 flat Armor per rank.' },
+            { id: 'regen',    name: 'Regeneration', icon: '💚',  max: 10, costMult: 300, desc: '+0.08% Max HP/s per rank.' },
+        ],
     },
     {
         group: 'Combat', groupIcon: '⚔️',
         groupDesc: 'Attack faster and collect loot more efficiently.',
         items: [
-            { id: 'haste',     name: 'Haste',        icon: '⏱️',  max: 10, costMult: 250, desc: '-3% Weapon Cooldowns per rank. Stacks with in-run cooldown passives.' },
-            { id: 'magnetism', name: 'Magnetism',     icon: '🧲',  max: 10, costMult: 200, desc: '+20% Pickup Radius per rank. XP gems fly to you from further away.' },
-        ]
+            { id: 'haste',     name: 'Haste',     icon: '⏱️', max: 10, costMult: 250, desc: '-3% Weapon Cooldowns per rank.' },
+            { id: 'magnetism', name: 'Magnetism', icon: '🧲', max: 10, costMult: 200, desc: '+20% Pickup Radius per rank.' },
+        ],
     },
     {
         group: 'Mastery', groupIcon: '📖',
-        groupDesc: 'Accelerate your in-run growth and punish damage windows.',
+        groupDesc: 'Accelerate in-run growth and punish damage windows.',
         items: [
-            { id: 'scholar',   name: 'Scholar',      icon: '📖',  max: 10, costMult: 300, desc: '+8% XP from kills per rank. Reach higher levels and more upgrades.' },
-            { id: 'ghostStep', name: 'Ghost Step',    icon: '👣',  max:  5, costMult: 600, desc: '+0.2s Invincibility after being hit per rank (base: 0.5s).' },
-        ]
+            { id: 'scholar',   name: 'Scholar',    icon: '📖', max: 10, costMult: 300, desc: '+8% XP from kills per rank.' },
+            { id: 'ghostStep', name: 'Ghost Step', icon: '👣', max:  5, costMult: 600, desc: '+0.2s Invincibility after being hit per rank.' },
+        ],
     },
     {
         group: 'Prestige', groupIcon: '✨',
-        groupDesc: 'Powerful one-time boons. Very expensive — plan carefully.',
+        groupDesc: 'Powerful one-time boons. Very expensive.',
         items: [
             { id: 'ancestralPower', name: 'Ancestral Power', icon: '🌟', max: 5, costMult: 1500,
-              desc: 'Start each run at level (1 + rank). Rank 5 = begin at level 6 with 5 free upgrades already chosen.' },
-            { id: 'secondWind',     name: 'Second Wind',      icon: '🔱', max: 1, costMult: 5000,
-              desc: 'Once per run, a fatal blow leaves you at 1 HP instead of killing you. "SECOND WIND!" flashes on screen.' },
-        ]
+              desc: 'Start each run at level (1+rank). Rank 5 = begin at level 6.' },
+            { id: 'secondWind', name: 'Second Wind', icon: '🔱', max: 1, costMult: 5000,
+              desc: 'Once per run, a fatal blow leaves you at 1 HP instead.' },
+        ],
     },
 ];
 
 function _renderShrine(el) {
-    const shrineList = el.querySelector('#surv-shrine-list');
+    const shrineList = el.querySelector('#surv-tab-shrine');
     shrineList.innerHTML = SHRINE_UPGRADES.map(group => {
         const itemsHtml = group.items.map(u => {
             const lvl       = _meta.upgrades[u.id] || 0;
             const cost      = (lvl + 1) * u.costMult;
             const canAfford = _meta.souls >= cost && lvl < u.max;
             const pips      = Array.from({ length: u.max }, (_, i) =>
-                `<span class="surv-pip${i < lvl ? ' filled' : ''}"></span>`
-            ).join('');
+                `<span class="surv-pip${i < lvl ? ' filled' : ''}"></span>`).join('');
             const maxLabel  = u.max === 1 ? 'ONCE' : `${u.max}`;
             return `
                 <div class="surv-shrine-item">
@@ -440,33 +515,28 @@ function _renderShrine(el) {
             _meta.souls        -= cost;
             _meta.upgrades[id]  = lvl + 1;
             saveMeta();
-            el.querySelector('#surv-soul-count').textContent = _meta.souls.toLocaleString();
-            _renderShrine(el);
+            _screens.setup.querySelector('#surv-soul-count').textContent = _meta.souls.toLocaleString();
+            _renderShrine(_screens.setup);
         }
     });
 }
 
-// ── Statistics tab ────────────────────────────────────────────────────────────
-// ── Statistics tab ────────────────────────────────────────────────────────────
+// ─── STATISTICS ───────────────────────────────────────────────────────────────
 
 function _renderStatistics(el) {
-    const st  = _meta.stats;
-    const container = el.querySelector('#surv-stats-content');
+    const st        = _meta.stats;
+    const container = el.querySelector('#surv-tab-stats');
 
     const totalAnswers = (st.totalCorrect || 0) + (st.totalWrong || 0);
     const accuracy     = totalAnswers > 0
-        ? Math.round(((st.totalCorrect || 0) / totalAnswers) * 100)
-        : 0;
+        ? Math.round(((st.totalCorrect || 0) / totalAnswers) * 100) : 0;
 
-    // Format seconds → mm:ss
     const fmtTime = (secs) => {
         if (!secs) return '—';
         const m = Math.floor(secs / 60).toString().padStart(2, '0');
         const s = Math.floor(secs % 60).toString().padStart(2, '0');
         return `${m}:${s}`;
     };
-
-    // Format total playtime as "Xh Ym" or "Ym Zs"
     const fmtTotal = (secs) => {
         if (!secs) return '—';
         const h = Math.floor(secs / 3600);
@@ -477,113 +547,62 @@ function _renderStatistics(el) {
         return `${s}s`;
     };
 
-    const hasAnyData = (st.totalRuns || 0) > 0;
-
-    if (!hasAnyData) {
+    if (!(st.totalRuns || 0)) {
         container.innerHTML = `
             <div class="surv-stats-empty">
                 <div class="surv-stats-empty-icon">📊</div>
                 <div class="surv-stats-empty-msg">No runs yet — enter the forest to start tracking!</div>
-            </div>
-        `;
+            </div>`;
         return;
     }
 
-    const winRate = (st.totalRuns || 0) > 0
-        ? Math.round(((st.totalWins || 0) / st.totalRuns) * 100)
-        : 0;
+    const winRate = Math.round(((st.totalWins || 0) / st.totalRuns) * 100);
 
     container.innerHTML = `
         <div class="surv-stats-grid">
-
             <div class="surv-stats-section">
                 <div class="surv-stats-section-title">🗡️ Combat</div>
-                <div class="surv-stat-row">
-                    <span>Total Runs</span>
-                    <strong>${(st.totalRuns || 0).toLocaleString()}</strong>
-                </div>
-                <div class="surv-stat-row">
-                    <span>Victories</span>
-                    <strong>${(st.totalWins || 0).toLocaleString()} <small>(${winRate}%)</small></strong>
-                </div>
-                <div class="surv-stat-row">
-                    <span>Total Kills</span>
-                    <strong>${(st.totalKills || 0).toLocaleString()}</strong>
-                </div>
-                <div class="surv-stat-row">
-                    <span>Most Kills (run)</span>
-                    <strong>${(st.highestKills || 0).toLocaleString()}</strong>
-                </div>
+                <div class="surv-stat-row"><span>Total Runs</span><strong>${(st.totalRuns||0).toLocaleString()}</strong></div>
+                <div class="surv-stat-row"><span>Victories</span><strong>${(st.totalWins||0).toLocaleString()} <small>(${winRate}%)</small></strong></div>
+                <div class="surv-stat-row"><span>Total Kills</span><strong>${(st.totalKills||0).toLocaleString()}</strong></div>
+                <div class="surv-stat-row"><span>Most Kills (run)</span><strong>${(st.highestKills||0).toLocaleString()}</strong></div>
             </div>
-
             <div class="surv-stats-section">
                 <div class="surv-stats-section-title">⏱️ Time</div>
-                <div class="surv-stat-row">
-                    <span>Longest Run</span>
-                    <strong>${fmtTime(st.highestTime)}</strong>
-                </div>
-                <div class="surv-stat-row">
-                    <span>Total Played</span>
-                    <strong>${fmtTotal(st.totalTimePlayed)}</strong>
-                </div>
-                <div class="surv-stat-row">
-                    <span>Avg Run Length</span>
-                    <strong>${fmtTime(Math.round((st.totalTimePlayed || 0) / Math.max(1, st.totalRuns)))}</strong>
-                </div>
+                <div class="surv-stat-row"><span>Longest Run</span><strong>${fmtTime(st.highestTime)}</strong></div>
+                <div class="surv-stat-row"><span>Total Played</span><strong>${fmtTotal(st.totalTimePlayed)}</strong></div>
+                <div class="surv-stat-row"><span>Avg Run Length</span><strong>${fmtTime(Math.round((st.totalTimePlayed||0)/Math.max(1,st.totalRuns)))}</strong></div>
             </div>
-
             <div class="surv-stats-section">
                 <div class="surv-stats-section-title">📚 Vocabulary</div>
-                <div class="surv-stat-row">
-                    <span>Correct Answers</span>
-                    <strong style="color:#2ecc71">${(st.totalCorrect || 0).toLocaleString()}</strong>
-                </div>
-                <div class="surv-stat-row">
-                    <span>Wrong Answers</span>
-                    <strong style="color:#e74c3c">${(st.totalWrong || 0).toLocaleString()}</strong>
-                </div>
-                <div class="surv-stat-row">
-                    <span>Accuracy</span>
-                    <strong style="color:${accuracy >= 70 ? '#2ecc71' : accuracy >= 50 ? '#f39c12' : '#e74c3c'}">
-                        ${accuracy}%
-                    </strong>
-                </div>
-                <div class="surv-stat-row">
-                    <span>Best Answer Streak</span>
-                    <strong style="color:#f1c40f">⚡ ${(st.bestStreak || 0).toLocaleString()}</strong>
-                </div>
+                <div class="surv-stat-row"><span>Correct Answers</span><strong style="color:#2ecc71">${(st.totalCorrect||0).toLocaleString()}</strong></div>
+                <div class="surv-stat-row"><span>Wrong Answers</span><strong style="color:#e74c3c">${(st.totalWrong||0).toLocaleString()}</strong></div>
+                <div class="surv-stat-row"><span>Accuracy</span><strong style="color:${accuracy>=70?'#2ecc71':accuracy>=50?'#f39c12':'#e74c3c'}">${accuracy}%</strong></div>
+                <div class="surv-stat-row"><span>Best Streak</span><strong style="color:#f1c40f">⚡ ${(st.bestStreak||0).toLocaleString()}</strong></div>
             </div>
-
             <div class="surv-stats-section">
                 <div class="surv-stats-section-title">👻 Souls</div>
-                <div class="surv-stat-row">
-                    <span>Current Souls</span>
-                    <strong style="color:#c39bd3">${(_meta.souls || 0).toLocaleString()}</strong>
-                </div>
-                <div class="surv-stat-row">
-                    <span>Characters Unlocked</span>
-                    <strong>${(_meta.unlockedChars || []).length} / ${Object.keys(CHARACTERS).length}</strong>
-                </div>
+                <div class="surv-stat-row"><span>Current Souls</span><strong style="color:#c39bd3">${(_meta.souls||0).toLocaleString()}</strong></div>
+                <div class="surv-stat-row"><span>Characters Unlocked</span><strong>${(_meta.unlockedChars||[]).length} / ${Object.keys(CHARACTERS).length}</strong></div>
             </div>
-
         </div>
     `;
 }
 
-
-// ── Settings overlay ──────────────────────────────────────────────────────────
+// ─── SETTINGS OVERLAY ─────────────────────────────────────────────────────────
 
 function _showSettings() {
-    // Remove any stale overlay
     const stale = _screens.setup.querySelector('#surv-settings-overlay');
     if (stale) stale.remove();
 
     const overlay = document.createElement('div');
-    overlay.id = 'surv-settings-overlay';
+    overlay.id        = 'surv-settings-overlay';
     overlay.className = 'surv-settings-overlay';
 
     const render = () => {
         const muted = Audio.isMuted();
+        const cfg   = _meta.vocabConfig;
+        const isCustom = _customDeckActive;
 
         overlay.innerHTML = `
             <div class="surv-settings-inner">
@@ -593,7 +612,7 @@ function _showSettings() {
                     <button class="surv-settings-close" id="surv-settings-close">✕</button>
                 </div>
 
-                <!-- Sound -->
+                <!-- Audio -->
                 <div class="surv-settings-section">
                     <div class="surv-settings-section-label">🔊 Audio</div>
                     <div class="surv-settings-row">
@@ -607,16 +626,25 @@ function _showSettings() {
                     </div>
                 </div>
 
-                <!-- Vocabulary -->
+                <!-- Vocabulary source -->
                 <div class="surv-settings-section">
-                    <div class="surv-settings-section-label">📚 Vocabulary</div>
+                    <div class="surv-settings-section-label">📚 Vocabulary Source</div>
                     <div class="surv-settings-row surv-settings-row-btn" id="surv-settings-deck">
                         <div class="surv-settings-row-info">
                             <div class="surv-settings-row-name">Change Word Deck</div>
-                            <div class="surv-settings-row-desc">Switch to a specific vocabulary list for quiz questions.</div>
+                            <div class="surv-settings-row-desc">
+                                Currently: <strong>${isCustom ? 'Custom deck' : 'Your SRS library'}</strong>
+                                (${_vocabPool.length} words)
+                            </div>
                         </div>
                         <span class="surv-settings-chevron">›</span>
                     </div>
+                </div>
+
+                <!-- Vocabulary learning mode — rendered by game_vocab_mgr_ui -->
+                <div class="surv-settings-section">
+                    <div class="surv-settings-section-label">🧠 Vocabulary Mode</div>
+                    <div id="surv-vocab-settings-mount"></div>
                 </div>
 
                 <!-- Danger zone -->
@@ -625,14 +653,14 @@ function _showSettings() {
                     <div class="surv-settings-row surv-settings-row-btn" id="surv-settings-reset-shrine">
                         <div class="surv-settings-row-info">
                             <div class="surv-settings-row-name">Reset Shrine Upgrades</div>
-                            <div class="surv-settings-row-desc">Refund all Souls spent in the Shrine. Stats and characters kept.</div>
+                            <div class="surv-settings-row-desc">Refund all Souls spent in the Shrine.</div>
                         </div>
                         <span class="surv-settings-chevron" style="color:#f39c12;">›</span>
                     </div>
                     <div class="surv-settings-row surv-settings-row-btn" id="surv-settings-reset-all">
                         <div class="surv-settings-row-info">
                             <div class="surv-settings-row-name" style="color:#e74c3c;">Reset All Progress</div>
-                            <div class="surv-settings-row-desc">Wipes everything — Souls, characters, upgrades, statistics.</div>
+                            <div class="surv-settings-row-desc">Wipes Souls, characters, upgrades, statistics.</div>
                         </div>
                         <span class="surv-settings-chevron" style="color:#e74c3c;">›</span>
                     </div>
@@ -641,33 +669,50 @@ function _showSettings() {
             </div>
         `;
 
+        // ── event listeners ──────────────────────────────────────────────────
+
         overlay.querySelector('#surv-settings-close').onclick = () => overlay.remove();
 
-        // Sound toggle
         overlay.querySelector('#surv-toggle-sound').onclick = () => {
             Audio.setMuted(!Audio.isMuted());
-            render(); // re-render to reflect new state
+            render();
         };
 
-        // Change deck
         overlay.querySelector('#surv-settings-deck').onclick = () => {
             overlay.remove();
             showVocabSelector();
         };
 
-        // Reset shrine upgrades (refund all souls spent)
+        // Vocab settings panel — delegated entirely to game_vocab_mgr_ui.
+        // renderVocabSettings reads/writes vocabMgr.config directly and calls
+        // onSave when the player hits "Save Settings".
+        renderVocabSettings(
+            _getOrCreateVocabMgr(),
+            overlay.querySelector('#surv-vocab-settings-mount'),
+            () => {
+                // Mirror updated config back into _meta so it persists across sessions.
+                const c = _getOrCreateVocabMgr().config;
+                _meta.vocabConfig.mode                = c.mode;
+                _meta.vocabConfig.autoNewWordBatchSize = c.autoNewWordBatchSize;
+                _meta.vocabConfig.minDueTime           = c.autoThresholds.minDueTime;
+                _meta.vocabConfig.minAccuracy          = c.autoThresholds.minAccuracy;
+                _meta.vocabConfig.leechThreshold       = c.leechThreshold;
+                _meta.vocabConfig.initialInterval      = c.initialInterval;
+                _meta.vocabConfig.initialEase          = c.initialEase;
+                saveMeta();
+                // Force the manager to be rebuilt from new config at the start of next run.
+                _vocabMgr = null;
+            }
+        );
+
+        // Reset shrine
         overlay.querySelector('#surv-settings-reset-shrine').onclick = () => {
             if (!confirm('Refund all Shrine upgrades? Your Souls will be returned.')) return;
-            // Re-calculate total souls spent and refund them
-            const SHRINE_COSTS = {
-                vitality: 200, swiftness: 200, greed: 200, power: 200,
-                ironWill: 250, regen: 300,
-                haste: 250, magnetism: 200,
-                scholar: 300, ghostStep: 600,
-                ancestralPower: 1500, secondWind: 5000,
-            };
+            const COSTS = { vitality:200, swiftness:200, greed:200, power:200,
+                            ironWill:250, regen:300, haste:250, magnetism:200,
+                            scholar:300, ghostStep:600, ancestralPower:1500, secondWind:5000 };
             let refund = 0;
-            for (const [key, costPerRank] of Object.entries(SHRINE_COSTS)) {
+            for (const [key, costPerRank] of Object.entries(COSTS)) {
                 const lvl = _meta.upgrades[key] || 0;
                 for (let r = 1; r <= lvl; r++) refund += r * costPerRank;
                 _meta.upgrades[key] = 0;
@@ -680,12 +725,13 @@ function _showSettings() {
 
         // Reset all
         overlay.querySelector('#surv-settings-reset-all').onclick = () => {
-            if (!confirm('Reset EVERYTHING? Souls, characters, shrine upgrades, and statistics will all be wiped. This cannot be undone.')) return;
+            if (!confirm('Reset EVERYTHING? Souls, characters, shrine upgrades, statistics — all wiped.')) return;
             localStorage.removeItem('surv_meta');
-            _meta = null;
+            _meta             = null;
             _customDeckActive = false;
+            _vocabMgr         = null;
             overlay.remove();
-            launch(); // restart fresh
+            launch();
         };
     };
 
@@ -693,18 +739,40 @@ function _showSettings() {
     _screens.setup.querySelector('#surv-camp-wrap').appendChild(overlay);
 }
 
-// ── Run lifecycle ─────────────────────────────────────────────────────────────
+// ─── RUN LIFECYCLE ────────────────────────────────────────────────────────────
 
-function startActualRun(queue) {
+function startActualRun() {
+    if (!_vocabPool.length) {
+        alert('No vocabulary loaded! Please select a word deck first.');
+        return;
+    }
+
+    // Build (or re-build) the VocabManager for this run
+    _buildVocabMgr();
+
     _show('game');
-    resizeCanvas(); // canvas was 0×0 while screen was display:none
-    // isSrsMode = true when using the player's own SRS library (not a custom vocab deck)
-    resetGameUI(queue, _meta, !_customDeckActive);
+    resizeCanvas();
+
+    // Pass the freshly built manager to the UI
+    resetGameUI(_vocabMgr, _meta);
     startRun(selectedChar, _meta.upgrades);
 }
 
 function returnToCamp() {
     stop();
+
+    // Save local SRS progress and export to app SRS before discarding the manager.
+    // exportToAppSrs(null) uses GameVocabManager's built-in localStorage fallback —
+    // no adapter function needed here any more.
+    if (_vocabMgr) {
+        if (!_vocabMgr.isGlobalSrs) {
+            _meta.vocabState = _vocabMgr.exportState();
+            _vocabMgr.exportToAppSrs(null, 'skip');
+        }
+        saveMeta();
+        _vocabMgr = null;
+    }
+
     loadMeta();
     _show('setup');
     showCamp();

@@ -1,45 +1,63 @@
+/**
+ * surv_ui.js — Yōkai Survivor HUD & Quiz UI
+ *
+ * All vocabulary logic is delegated to a GameVocabManager instance.
+ * This module never touches srs_db directly; the chain is:
+ *   surv_ui → GameVocabManager → srs_db
+ */
+
 import { CHARACTERS, WEAPONS, PASSIVES } from './surv_entities.js';
 import * as Audio from './surv_audio.js';
 
-let _container  = null;
-let _engine     = null;
-let _vocabQueue = [];
-let _srsDb      = null;
-let _meta       = null;
-let _metaCb     = null;
-let _isSrsMode  = false;   // true = use SRS scheduling; false = pure random vocab drill
-let _onLeaveRound = null;  // callback set by initUI, triggered by Leave Round
+let _container    = null;
+let _engine       = null;
+let _vocabMgr     = null;   // GameVocabManager instance — the ONLY vocab interface
+let _meta         = null;
+let _metaCb       = null;
+let _onLeaveRound = null;
 
 let dom   = {};
 let kills = 0;
 
-// ── Per-run counters (reset in resetGameUI) ─────────────────────────────────
-let _runCorrect = 0;
-let _runWrong   = 0;
-let _runStreak  = 0;   // current correct streak this run
-let _runBestStreak = 0; // best streak this run
+// ── Per-run counters (reset in resetGameUI) ──────────────────────────────────
+// NOTE: correct/wrong/combo are NOT tracked here — vocabMgr.getStats() is the
+// source of truth for those. Only bestStreak is tracked locally because it maps
+// to the game's own run-streak concept (consecutive correct answers this run),
+// which is separate from vocabMgr's combo (which resets on any wrong answer
+// across the full session, not just this run).
+let _runBestStreak = 0;
+let _runStreak     = 0;
 
-// ── Separate timers for quiz vs chest ──────────────────────────────────────
+// ── Separate timers for quiz vs chest ────────────────────────────────────────
 let _srsQuizTimer   = null;
 let _chestQuizTimer = null;
 let _manuallyPaused = false;
 
-// ── Public accessor so survivor.js can read run stats at game-over ─────────
+// ── Public accessor so survivor.js can read run stats at game-over ────────────
 export function getRunStats() {
+    const vs = _vocabMgr?.getStats();
     return {
         kills,
-        correct:    _runCorrect,
-        wrong:      _runWrong,
+        correct:    vs?.correct    ?? 0,
+        wrong:      vs?.wrong      ?? 0,
         bestStreak: _runBestStreak,
-        level:      _engine ? (_engine.getActiveWeapons ? undefined : undefined) : undefined
     };
 }
 
-export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
-    _container = container;
-    _engine    = engineFunctions;
-    _srsDb     = srsDbRef;
-    _metaCb    = metaCallbacks || { saveMeta: () => {} };
+/**
+ * Initialise the UI layer.
+ *
+ * @param {HTMLElement} container - The overlay element (#surv-ui-layer)
+ * @param {Object} engineFunctions - { applyUpgrade, applyHeal, applyPenalty, pause, resume,
+ *                                     getActiveWeapons, getActivePassives, getElapsedTime }
+ * @param {GameVocabManager} vocabMgr - The shared GameVocabManager for this run
+ * @param {Object} metaCallbacks - { saveMeta, onLeaveRound }
+ */
+export function initUI(container, engineFunctions, vocabMgr, metaCallbacks) {
+    _container    = container;
+    _engine       = engineFunctions;
+    _vocabMgr     = vocabMgr;
+    _metaCb       = metaCallbacks || { saveMeta: () => {} };
     _onLeaveRound = metaCallbacks?.onLeaveRound || (() => {});
 
     _container.innerHTML = `
@@ -69,6 +87,7 @@ export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
                 <div id="surv-weapons-list"  class="surv-slot-list"></div>
                 <div id="surv-passives-list" class="surv-slot-list surv-slot-list-right"></div>
             </div>
+            <div id="surv-vocab-bar" style="font-size:10px;color:var(--text-muted,#888);text-align:center;padding:2px 0 0;letter-spacing:0.3px;"></div>
         </div>
 
         <!-- Virtual Joystick -->
@@ -104,7 +123,7 @@ export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
                     <div id="surv-srs-timer-fill" class="surv-timer-fill"></div>
                 </div>
                 <div class="surv-quiz-word-block">
-                    <div class="surv-srs-furi" id="surv-srs-furi"></div>
+                    <div class="surv-srs-furi"  id="surv-srs-furi"></div>
                     <div class="surv-srs-kanji" id="surv-srs-kanji"></div>
                 </div>
                 <div class="surv-srs-grid" id="surv-srs-grid"></div>
@@ -126,7 +145,7 @@ export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
                     <div id="surv-chest-timer-fill" class="surv-timer-fill surv-timer-fill-purple"></div>
                 </div>
                 <div class="surv-quiz-word-block">
-                    <div class="surv-srs-furi" id="surv-chest-furi"></div>
+                    <div class="surv-srs-furi"  id="surv-chest-furi"></div>
                     <div class="surv-srs-kanji" id="surv-chest-kanji"></div>
                 </div>
                 <div class="surv-srs-grid" id="surv-chest-grid"></div>
@@ -204,12 +223,13 @@ export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
         hpText:  _container.querySelector('#surv-hp-text'),
         wpnList: _container.querySelector('#surv-weapons-list'),
         pasList: _container.querySelector('#surv-passives-list'),
-        btnPause:_container.querySelector('#surv-btn-pause'),
-        pauseScr:_container.querySelector('#surv-pause-screen'),
+        vocabBar: _container.querySelector('#surv-vocab-bar'),
+        btnPause:       _container.querySelector('#surv-btn-pause'),
+        pauseScr:       _container.querySelector('#surv-pause-screen'),
         btnResumePause: _container.querySelector('#surv-btn-resume-pause'),
         btnLeaveRound:  _container.querySelector('#surv-btn-leave-round'),
 
-        bossWarning:   _container.querySelector('#surv-boss-warning'),
+        bossWarning: _container.querySelector('#surv-boss-warning'),
 
         srs:      _container.querySelector('#surv-srs-overlay'),
         srsTimer: _container.querySelector('#surv-srs-timer-fill'),
@@ -221,7 +241,7 @@ export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
         chestDots: [
             _container.querySelector('#surv-chest-dot-1'),
             _container.querySelector('#surv-chest-dot-2'),
-            _container.querySelector('#surv-chest-dot-3')
+            _container.querySelector('#surv-chest-dot-3'),
         ],
         chestTimer: _container.querySelector('#surv-chest-timer-fill'),
         chestFuri:  _container.querySelector('#surv-chest-furi'),
@@ -247,7 +267,7 @@ export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
         sumSouls:     _container.querySelector('#surv-sum-souls'),
         sumRecordRow: _container.querySelector('#surv-sum-record-row'),
         sumRecord:    _container.querySelector('#surv-sum-record'),
-        btnCamp:      _container.querySelector('#surv-btn-camp')
+        btnCamp:      _container.querySelector('#surv-btn-camp'),
     };
 
     dom.btnPause.onclick = () => {
@@ -258,9 +278,11 @@ export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
             _resumeFromManualPause();
         } else {
             _manuallyPaused = true;
-            dom.btnPause.textContent = '▶';
-            dom.pauseScr.style.display = 'flex';
+            dom.btnPause.textContent    = '▶';
+            dom.pauseScr.style.display  = 'flex';
             _engine.pause();
+            _vocabMgr.pause();
+            _renderPauseMenu();
         }
     };
     dom.btnResumePause.onclick = _resumeFromManualPause;
@@ -270,25 +292,77 @@ export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
         showGameOver(false, _onLeaveRound);
     };
     dom.btnCont.onclick = () => { dom.pen.style.display = 'none'; _engine.resume(); };
-
-    // Portrait and landscape both supported — no orientation hint needed
 }
 
 function _resumeFromManualPause() {
     _manuallyPaused = false;
-    dom.btnPause.textContent = '⏸';
+    dom.btnPause.textContent   = '⏸';
     dom.pauseScr.style.display = 'none';
+    _vocabMgr.resume();
     _engine.resume();
 }
 
-export function resetGameUI(vocabQueue, metaData, isSrsMode = false) {
-    _vocabQueue     = vocabQueue;
+function _renderPauseMenu() {
+    const stats = _vocabMgr.getStats();
+    const mode  = _vocabMgr.getMode();
+    const isManual = mode === 'manual';
+    const acc   = Math.round(stats.accuracy * 100);
+
+    // Find or create the vocab section inside the pause modal
+    let vocabSection = dom.pauseScr.querySelector('.surv-pause-vocab');
+    if (!vocabSection) {
+        vocabSection = document.createElement('div');
+        vocabSection.className = 'surv-pause-vocab';
+        vocabSection.style.cssText = 'margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.15);width:100%;font-size:12px;color:var(--text-muted,#aaa);';
+        dom.pauseScr.querySelector('.surv-modal').appendChild(vocabSection);
+    }
+
+    const leechCount = stats.leechCount > 0 ? ` · 🩸 ${stats.leechCount} leech${stats.leechCount > 1 ? 'es' : ''}` : '';
+    vocabSection.innerHTML = `
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+            <span>📚 ${stats.activeCount} active · ${stats.newCount} new${leechCount}</span>
+            <span>🎯 ${acc}% accuracy</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:${isManual ? '10px' : '0'};">
+            <span>✅ ${stats.correct} correct · ❌ ${stats.wrong} wrong</span>
+            <span>⚡ ${stats.combo} combo</span>
+        </div>
+        ${isManual && stats.newCount > 0 ? `
+        <button id="surv-btn-learn-word" style="
+            width:100%;padding:9px;background:var(--primary-color,#4A90E2);color:#fff;
+            border:none;border-radius:8px;font-weight:bold;cursor:pointer;font-size:13px;">
+            📖 Learn New Word (${stats.newCount} remaining)
+        </button>` : ''}
+        ${isManual && stats.newCount === 0 ? `
+        <div style="text-align:center;color:#2ecc71;font-size:12px;">✅ All words introduced!</div>
+        ` : ''}
+    `;
+
+    if (isManual) {
+        const learnBtn = vocabSection.querySelector('#surv-btn-learn-word');
+        if (learnBtn) {
+            learnBtn.onclick = () => {
+                const introduced = _vocabMgr.learnNewWord();
+                if (introduced) {
+                    Audio.playLevelUp?.();
+                    _renderPauseMenu(); // refresh counts
+                }
+            };
+        }
+    }
+}
+
+/**
+ * Called at the start of each run to wire up the vocab manager and reset all counters.
+ *
+ * @param {GameVocabManager} vocabMgr - Fresh (or re-initialised) manager for this run.
+ * @param {Object} metaData - The _meta object from survivor.js.
+ */
+export function resetGameUI(vocabMgr, metaData) {
+    _vocabMgr       = vocabMgr;
     _meta           = metaData;
-    _isSrsMode      = isSrsMode;
     kills           = 0;
     chestStep       = 0;
-    _runCorrect     = 0;
-    _runWrong       = 0;
     _runStreak      = 0;
     _runBestStreak  = 0;
     _manuallyPaused = false;
@@ -321,11 +395,20 @@ export function drawHUD(hp, maxHp, xp, xpNext, level, time) {
         const def = PASSIVES[p.id];
         return `<div class="surv-slot" title="${def.name} Lv.${p.level}">${def.icon}<span class="surv-slot-lvl">${p.level}</span></div>`;
     }).join('');
+
+    // Live vocab stats — updated every frame via the engine's draw callback.
+    // Kept brief so it doesn't clutter the HUD.
+    if (dom.vocabBar && _vocabMgr) {
+        const stats = _vocabMgr.getStats();
+        const acc   = Math.round(stats.accuracy * 100);
+        const due   = stats.dueCount;
+        dom.vocabBar.textContent = `📚 ${stats.activeCount} · 🎯 ${acc}% · ${due > 0 ? `📬 ${due} due` : '✓'}`;
+    }
 }
 
 export function incrementKill() { kills++; }
 
-// ── Boss Warning ────────────────────────────────────────────────────────────
+// ── Boss Warning ─────────────────────────────────────────────────────────────
 
 export function showBossWarning() {
     dom.bossWarning.style.display = 'flex';
@@ -335,94 +418,92 @@ export function showBossWarning() {
     setTimeout(() => { dom.bossWarning.style.display = 'none'; }, 3500);
 }
 
-// ── Vocab helpers ───────────────────────────────────────────────────────────
+// ─── SRS LEVEL-UP QUIZ ───────────────────────────────────────────────────────
+//
+// NOTE: This module implements its own quiz UI (showSrsQuiz / showChestQuiz) rather
+// than using showStandardQuiz / showQuizSequence from game_vocab_mgr_ui.js.
+// That is intentional: survivor has a deep custom visual theme (surv-overlay CSS
+// classes, gold/purple badge colours, "Clash of Wills" / "Rapid Fire" flavour text,
+// HUD-flash feedback) that would be lost if we used the generic components.
+//
+// The underlying call pattern is identical to what the standard components do:
+//   vocabMgr.getNextWord() → render question → vocabMgr.gradeWord() → callback
+// If you add a new mode to GameVocabManager, no changes are needed here — the
+// correct word type (due / new / drill / leech) is already selected by the manager.
 
-// Tracks whether the current question card is SRS-due (set by safeGetWord each call)
-let _currentWordIsDue = false;
-
-function safeGetWord() {
-    if (!_vocabQueue.length) return null;
-
-    if (_isSrsMode) {
-        // SRS mode: use proper scheduling (due first, then learning drill, then new)
-        const res = _srsDb.getNextGameWord?.(_vocabQueue, 'mixed');
-        if (!res) return _vocabQueue[Math.floor(Math.random() * _vocabQueue.length)];
-
-        // Track due-ness so _gradeWord can decide whether to update the interval
-        const entry = _srsDb.getWord?.(res.wordObj.word);
-        _currentWordIsDue = !entry?.dueDate || new Date(entry.dueDate) <= new Date();
-        return res.wordObj;
-    } else {
-        // Vocab-list mode: purely random — never use SRS ordering
-        _currentWordIsDue = false;
-        return _vocabQueue[Math.floor(Math.random() * _vocabQueue.length)];
-    }
-}
-
-// ─── SRS LEVEL-UP QUIZ ──────────────────────────────────────────────────────
-
-let currentTarget = null;
-let _srsTimeLeft  = 5.0;
+// Tracks the pending challenge (refId + wordObj) across the async answer flow.
+let _currentChallenge = null;
 
 export function showSrsQuiz() {
-    currentTarget = safeGetWord();
-    if (!currentTarget) { showUpgrades(false); return; }
+    _currentChallenge = _vocabMgr.getNextWord();
+    if (!_currentChallenge) { showUpgrades(false); return; }
 
-    dom.srs.style.display = 'flex';
-    dom.kanji.textContent = currentTarget.word;
-    dom.furi.textContent  = (currentTarget.furi !== currentTarget.word) ? currentTarget.furi : '';
-    if (dom.srsTimer) dom.srsTimer.style.display = 'none';
+    const { wordObj, options, correctIdx } = _currentChallenge;
 
-    _buildAnswerGrid(dom.grid, currentTarget, (isCorrect, clickedBtn) => {
+    // Pause the vocab clock while the player is reading the question
+    _vocabMgr.pause();
+
+    dom.srs.style.display   = 'flex';
+    dom.kanji.textContent   = wordObj.kanji;
+    dom.furi.textContent    = (wordObj.kana !== wordObj.kanji) ? wordObj.kana : '';
+    dom.srsTimer.style.display = 'none';
+
+    _buildAnswerGrid(dom.grid, options, correctIdx, (isCorrect, clickedBtn) => {
         clearInterval(_srsQuizTimer);
-        _flashAnswers(dom.grid, clickedBtn, currentTarget.trans, isCorrect, () => {
-            _gradeWord(currentTarget, isCorrect);
-            _recordAnswer(isCorrect);
+        _flashAnswers(dom.grid, clickedBtn, options[correctIdx], isCorrect, () => {
+            const result = _vocabMgr.gradeWord(_currentChallenge.refId, isCorrect);
+            _vocabMgr.resume(); // unpause clock after grading
+            _recordAnswer(isCorrect, result);
             dom.srs.style.display = 'none';
+            _currentChallenge     = null;
             if (isCorrect) {
                 showUpgrades(false);
             } else {
-                _showPenalty(`Correct meaning: "${currentTarget.trans}"`);
+                _showPenalty(`Correct meaning: "${options[correctIdx]}"`);
                 _engine.applyPenalty();
             }
         });
     });
 
-    // No time limit — hide the timer bar
-    dom.srsTimer.style.width = '0%';
+    dom.srsTimer.style.width   = '0%';
     dom.srsTimer.style.display = 'none';
     clearInterval(_srsQuizTimer);
 }
 
-// ─── BOSS CHEST QUIZ ────────────────────────────────────────────────────────
+// ─── BOSS CHEST QUIZ ─────────────────────────────────────────────────────────
 
-let chestStep      = 0;
-let _chestTimeLeft = 4.0;
+let chestStep = 0;
 
 export function showChestQuiz() {
     dom.chest.style.display = 'flex';
     chestStep = 0;
     dom.chestDots.forEach(d => d.classList.remove('filled', 'wrong'));
+    _vocabMgr.pause(); // pause clock for the entire chest sequence
     _nextChestQuestion();
 }
 
 function _nextChestQuestion() {
-    currentTarget = safeGetWord();
-    if (!currentTarget) { dom.chest.style.display = 'none'; showUpgrades(true); return; }
+    _currentChallenge = _vocabMgr.getNextWord();
+    if (!_currentChallenge) { dom.chest.style.display = 'none'; _vocabMgr.resume(); showUpgrades(true); return; }
 
-    dom.chestKanji.textContent = currentTarget.word;
-    dom.chestFuri.textContent  = (currentTarget.furi !== currentTarget.word) ? currentTarget.furi : '';
+    const { wordObj, options, correctIdx } = _currentChallenge;
 
-    _buildAnswerGrid(dom.chestGrid, currentTarget, (isCorrect, clickedBtn) => {
+    dom.chestKanji.textContent = wordObj.kanji;
+    dom.chestFuri.textContent  = (wordObj.kana !== wordObj.kanji) ? wordObj.kana : '';
+
+    _buildAnswerGrid(dom.chestGrid, options, correctIdx, (isCorrect, clickedBtn) => {
         clearInterval(_chestQuizTimer);
-        _flashAnswers(dom.chestGrid, clickedBtn, currentTarget.trans, isCorrect, () => {
-            _gradeWord(currentTarget, isCorrect);
-            _recordAnswer(isCorrect);
+        _flashAnswers(dom.chestGrid, clickedBtn, options[correctIdx], isCorrect, () => {
+            const result = _vocabMgr.gradeWord(_currentChallenge.refId, isCorrect);
+            _recordAnswer(isCorrect, result);
+            _currentChallenge = null;
+
             if (isCorrect) {
                 dom.chestDots[chestStep].classList.add('filled');
                 chestStep++;
                 if (chestStep >= 3) {
                     dom.chest.style.display = 'none';
+                    _vocabMgr.resume(); // unpause after sequence completes
                     showUpgrades(true);
                 } else {
                     _nextChestQuestion();
@@ -430,41 +511,49 @@ function _nextChestQuestion() {
             } else {
                 dom.chestDots[chestStep].classList.add('wrong');
                 dom.chest.style.display = 'none';
+                _vocabMgr.resume(); // unpause after failure
                 _meta.souls += 500;
                 _metaCb.saveMeta();
-                _showPenalty(`Chest corrupted! Correct: "${currentTarget.trans}" — +500 Souls consolation.`);
+                _showPenalty(`Chest corrupted! Correct: "${options[correctIdx]}" — +500 Souls consolation.`);
                 _engine.applyPenalty();
             }
         });
     });
 
-    // No time limit — hide the timer bar
-    dom.chestTimer.style.width = '0%';
+    dom.chestTimer.style.width   = '0%';
     dom.chestTimer.style.display = 'none';
     clearInterval(_chestQuizTimer);
 }
 
-// ─── QUIZ HELPERS ────────────────────────────────────────────────────────────
+// ─── QUIZ HELPERS ─────────────────────────────────────────────────────────────
 
-function _buildAnswerGrid(gridEl, target, onAnswer) {
-    const pool        = _vocabQueue.filter(w => w.word !== target.word).map(w => w.trans);
-    const distractors = pool.sort(() => 0.5 - Math.random()).slice(0, 3);
-    const options     = [...distractors, target.trans].sort(() => 0.5 - Math.random());
-
+/**
+ * Render a 4-button answer grid.
+ * All distractor/option logic has already been done by GameVocabManager.getNextWord().
+ *
+ * @param {HTMLElement} gridEl
+ * @param {string[]} options - 4 options, already shuffled by vocabMgr
+ * @param {number} correctIdx - Index of the correct answer in options[]
+ * @param {Function} onAnswer - (isCorrect: boolean, clickedBtn: HTMLElement) => void
+ */
+function _buildAnswerGrid(gridEl, options, correctIdx, onAnswer) {
     gridEl.innerHTML = '';
-    options.forEach(opt => {
+    options.forEach((opt, idx) => {
         const btn = document.createElement('button');
         btn.className   = 'surv-srs-btn';
         btn.textContent = opt;
-        btn.onclick     = () => { if (btn.disabled) return; onAnswer(opt === target.trans, btn); };
+        btn.onclick     = () => {
+            if (btn.disabled) return;
+            onAnswer(idx === correctIdx, btn);
+        };
         gridEl.appendChild(btn);
     });
 }
 
-function _flashAnswers(gridEl, clickedBtn, correctTrans, isCorrect, callback) {
+function _flashAnswers(gridEl, clickedBtn, correctText, isCorrect, callback) {
     gridEl.querySelectorAll('.surv-srs-btn').forEach(b => {
         b.disabled = true;
-        if (b.textContent === correctTrans) b.classList.add('correct');
+        if (b.textContent === correctText) b.classList.add('correct');
     });
     if (clickedBtn && !isCorrect) clickedBtn.classList.add('wrong');
     if (isCorrect) Audio.playCorrect();
@@ -472,44 +561,57 @@ function _flashAnswers(gridEl, clickedBtn, correctTrans, isCorrect, callback) {
     setTimeout(callback, 650);
 }
 
-function _gradeWord(target, isCorrect) {
-    if (!_isSrsMode) {
-        // Pure vocab drill — never touch SRS intervals
-        return;
+// ─── STATS ────────────────────────────────────────────────────────────────────
+
+/**
+ * Update run-local streak and trigger HUD flashes after each answer.
+ * Lifetime stat rollup (totalCorrect, totalWrong, bestStreak) is done
+ * once at the end of the run in showGameOver(), not here, because
+ * vocabMgr.getStats() is the single source of truth for correct/wrong counts.
+ *
+ * @param {boolean} isCorrect
+ * @param {Object|null} result - gradeWord() result
+ */
+function _recordAnswer(isCorrect, result) {
+    // Run-local streak — this concept doesn't belong in vocabMgr
+    if (isCorrect) {
+        _runStreak++;
+        if (_runStreak > _runBestStreak) _runBestStreak = _runStreak;
+    } else {
+        _runStreak = 0;
     }
 
-    if (_currentWordIsDue) {
-        // Due card: always update the interval (correct → grade 3, wrong → grade 0)
-        _srsDb.gradeWordInGame?.({
-            word: target.word, furi: target.furi, trans: target.trans
-        }, isCorrect ? 3 : 0, false);
-    } else {
-        // Free drill on a non-due card: only penalise wrong answers
-        if (!isCorrect) {
-            _srsDb.gradeWordInGame?.({
-                word: target.word, furi: target.furi, trans: target.trans
-            }, 0, false);
-        }
-        // Correct on a non-due card → no interval change
+    // Show leech alert flash when a word crosses the threshold
+    if (result?.justBecameLeech) {
+        _showHudFlash('🩸 Leech!', '#c0392b');
+    }
+    // Combo milestone flash (using vocabMgr's combo as source of truth)
+    const combo = result?.combo ?? 0;
+    if (isCorrect && combo > 0 && combo % 5 === 0) {
+        _showHudFlash(`⚡ ${combo} Combo!`, '#f1c40f');
     }
 }
 
-/** Track per-run and lifetime correct/wrong/streak stats */
-function _recordAnswer(isCorrect) {
-    if (isCorrect) {
-        _runCorrect++;
-        _runStreak++;
-        if (_runStreak > _runBestStreak) _runBestStreak = _runStreak;
-        _meta.stats.totalCorrect = (_meta.stats.totalCorrect || 0) + 1;
-    } else {
-        _runWrong++;
-        _runStreak = 0;
-        _meta.stats.totalWrong = (_meta.stats.totalWrong || 0) + 1;
+/** Brief flash message on the HUD (auto-clears after 1.5s) */
+function _showHudFlash(text, color = '#fff') {
+    let flash = document.getElementById('surv-hud-flash');
+    if (!flash) {
+        flash = document.createElement('div');
+        flash.id = 'surv-hud-flash';
+        flash.style.cssText = `
+            position:absolute; top:64px; left:50%; transform:translateX(-50%);
+            padding:4px 14px; border-radius:20px; font-size:13px; font-weight:bold;
+            pointer-events:none; z-index:200; white-space:nowrap;
+            opacity:0; transition:opacity 0.2s;
+        `;
+        dom.hud.appendChild(flash);
     }
-    // Update global best streak
-    if (_runBestStreak > (_meta.stats.bestStreak || 0)) {
-        _meta.stats.bestStreak = _runBestStreak;
-    }
+    flash.textContent  = text;
+    flash.style.background = color;
+    flash.style.color  = '#fff';
+    flash.style.opacity = '1';
+    clearTimeout(flash._timeout);
+    flash._timeout = setTimeout(() => { flash.style.opacity = '0'; }, 1500);
 }
 
 function _showPenalty(msg, desc = '+1% Max HP. No power-up this level.') {
@@ -528,8 +630,6 @@ function _buildUpgradePool() {
         .filter(aw => aw.level < WEAPONS[aw.id].levels.length)
         .map(aw => ({ type: 'weapon', id: aw.id, level: aw.level + 1 }));
 
-    // Split new weapons into common (weight ×3) and rare (weight ×1, ~25% as likely).
-    // Already-owned weapons that can be upgraded always appear at full weight regardless.
     const allNewWeapons = activeW.length < 6
         ? Object.keys(WEAPONS).filter(k => !activeW.find(aw => aw.id === k))
             .map(k => ({ type: 'weapon', id: k, level: 1 }))
@@ -547,11 +647,11 @@ function _buildUpgradePool() {
         : [];
 
     const weighted = [
-        ...wUpgrade, ...wUpgrade, ...wUpgrade,  // upgrades: ×3
-        ...wNewCommon, ...wNewCommon, ...wNewCommon, // common new: ×3
-        ...wNewRare,                              // rare new: ×1 (≈25% vs common)
+        ...wUpgrade, ...wUpgrade, ...wUpgrade,
+        ...wNewCommon, ...wNewCommon, ...wNewCommon,
+        ...wNewRare,
         ...pUpgrade, ...pUpgrade, ...pUpgrade,
-        ...pNew
+        ...pNew,
     ].sort(() => Math.random() - 0.5);
 
     const chosen = [];
@@ -644,7 +744,10 @@ export function showGameOver(isWin, exitCallback) {
     const s = Math.floor(t % 60).toString().padStart(2, '0');
     dom.sumTime.textContent   = `${m}:${s}`;
     dom.sumKills.textContent  = kills.toLocaleString();
-    dom.sumQuiz.textContent   = `${_runCorrect} / ${_runWrong}`;
+
+    // Read correct/wrong from vocabMgr — it's the single source of truth
+    const vs = _vocabMgr?.getStats();
+    dom.sumQuiz.textContent   = `${vs?.correct ?? 0} / ${vs?.wrong ?? 0}`;
     dom.sumStreak.textContent = `${_runBestStreak}`;
 
     let earned = Math.floor(kills / 10);
@@ -654,14 +757,17 @@ export function showGameOver(isWin, exitCallback) {
 
     _meta.souls += earned;
 
-    // ── Lifetime stats ──────────────────────────────────────────────────────
     const st = _meta.stats;
-    st.totalRuns      = (st.totalRuns      || 0) + 1;
-    st.totalWins      = (st.totalWins      || 0) + (isWin ? 1 : 0);
-    st.totalKills     = (st.totalKills     || 0) + kills;
+    st.totalRuns       = (st.totalRuns       || 0) + 1;
+    st.totalWins       = (st.totalWins       || 0) + (isWin ? 1 : 0);
+    st.totalKills      = (st.totalKills      || 0) + kills;
     st.totalTimePlayed = (st.totalTimePlayed || 0) + t;
-    st.highestKills   = Math.max(st.highestKills   || 0, kills);
-    // bestStreak already updated incrementally in _recordAnswer
+    st.highestKills    = Math.max(st.highestKills || 0, kills);
+
+    // Lifetime vocab rollup — read from vocabMgr (single source of truth) once per run end.
+    st.totalCorrect = (st.totalCorrect || 0) + (vs?.correct ?? 0);
+    st.totalWrong   = (st.totalWrong   || 0) + (vs?.wrong   ?? 0);
+    if (_runBestStreak > (st.bestStreak || 0)) st.bestStreak = _runBestStreak;
 
     const isNewRecord = t > (st.highestTime || 0);
     if (isNewRecord) {
