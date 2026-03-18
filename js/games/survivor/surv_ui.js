@@ -3,11 +3,11 @@ import * as Audio from './surv_audio.js';
 
 let _container  = null;
 let _engine     = null;
-let _vocabQueue = [];
-let _srsDb      = null;
+let _vocabQueue = [];\nlet _srsDb      = null;
 let _meta       = null;
 let _metaCb     = null;
 let _isSrsMode  = false;   // true = use SRS scheduling; false = pure random vocab drill
+let _onLeaveRound = null;  // callback set by initUI, triggered by Leave Round
 
 let dom   = {};
 let kills = 0;
@@ -39,6 +39,7 @@ export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
     _engine    = engineFunctions;
     _srsDb     = srsDbRef;
     _metaCb    = metaCallbacks || { saveMeta: () => {} };
+    _onLeaveRound = metaCallbacks?.onLeaveRound || (() => {});
 
     _container.innerHTML = `
         <!-- ── HUD ── -->
@@ -88,6 +89,7 @@ export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
                 <div class="surv-modal-badge surv-badge-green">⏸ PAUSED</div>
                 <h3 class="surv-modal-title" style="color:var(--text-main);">Game Paused</h3>
                 <button class="surv-btn-primary" id="surv-btn-resume-pause">▶ Resume</button>
+                <button class="surv-btn-danger" id="surv-btn-leave-round" style="margin-top:10px;">⛺ Leave Round</button>
             </div>
         </div>
 
@@ -204,6 +206,7 @@ export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
         btnPause:_container.querySelector('#surv-btn-pause'),
         pauseScr:_container.querySelector('#surv-pause-screen'),
         btnResumePause: _container.querySelector('#surv-btn-resume-pause'),
+        btnLeaveRound:  _container.querySelector('#surv-btn-leave-round'),
 
         bossWarning:   _container.querySelector('#surv-boss-warning'),
 
@@ -260,6 +263,11 @@ export function initUI(container, engineFunctions, srsDbRef, metaCallbacks) {
         }
     };
     dom.btnResumePause.onclick = _resumeFromManualPause;
+    dom.btnLeaveRound.onclick  = () => {
+        dom.pauseScr.style.display = 'none';
+        _manuallyPaused = false;
+        showGameOver(false, _onLeaveRound);
+    };
     dom.btnCont.onclick = () => { dom.pen.style.display = 'none'; _engine.resume(); };
 
     // Portrait and landscape both supported — no orientation hint needed

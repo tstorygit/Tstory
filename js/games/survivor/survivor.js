@@ -123,7 +123,7 @@ export function init(screens, onExit) {
         { applyUpgrade, applyHeal, applyPenalty, pause, resume,  // ← pause was missing!
           getActiveWeapons, getActivePassives, getElapsedTime },
         srsDb,
-        { saveMeta }
+        { saveMeta, onLeaveRound: () => returnToCamp() }
     );
 
     // initInput runs AFTER initUI so #surv-joystick-zone is guaranteed to be in the DOM
