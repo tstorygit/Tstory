@@ -8,7 +8,7 @@ export const settings = {
     showFurigana: true,
     showRomaji: false,
     srsMode: 'mix',
-    debugMode: false,
+    debugMode: true,
     textHighlightStyle: 'background',
     sentenceNewline: true,
     enableSentenceParsing: true,

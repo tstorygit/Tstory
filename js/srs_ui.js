@@ -38,6 +38,76 @@ let overlayBack  = null;
 let hintRight    = null;
 let hintLeft     = null;
 
+// ─── DEBUG SEED ───────────────────────────────────────────────────────────────
+
+const DEBUG_WORDS = [
+    { word: 'デバッグ①',  furi: 'でばっぐ',   translation: 'Debug word 1 (due now)'   },
+    { word: 'デバッグ②',  furi: 'でばっぐ',   translation: 'Debug word 2 (due now)'   },
+    { word: 'デバッグ③',  furi: 'でばっぐ',   translation: 'Debug word 3 (due in 2m)' },
+    { word: 'デバッグ④',  furi: 'でばっぐ',   translation: 'Debug word 4 (due in 4m)' },
+    { word: 'デバッグ⑤',  furi: 'でばっぐ',   translation: 'Debug word 5 (due in 6m)' },
+];
+
+function _seedDebugWords() {
+    const now = Date.now();
+    const words = [
+        // 2 words already due
+        { ...DEBUG_WORDS[0], dueDate: new Date(now - 60_000).toISOString() },
+        { ...DEBUG_WORDS[1], dueDate: new Date(now - 1_000).toISOString()  },
+        // 3 words due in 2, 4, 6 minutes
+        { ...DEBUG_WORDS[2], dueDate: new Date(now + 2 * 60_000).toISOString() },
+        { ...DEBUG_WORDS[3], dueDate: new Date(now + 4 * 60_000).toISOString() },
+        { ...DEBUG_WORDS[4], dueDate: new Date(now + 6 * 60_000).toISOString() },
+    ];
+
+    for (const w of words) {
+        srsDb.saveWord({
+            word:        w.word,
+            furi:        w.furi,
+            translation: w.translation,
+            status:      1,
+            interval:    1 / 1440,   // 1 minute in fractional days — clearly a debug card
+            ease:        2.5,
+            reviewCount: 0,
+            dueDate:     w.dueDate,
+            lastUpdated: new Date().toISOString(),
+        });
+    }
+
+    loadReviewQueue();
+    updateSrsBadge();
+}
+
+function _initDebugButton() {
+    // Only show when debug mode is enabled in settings
+    if (!settings.debugMode) return;
+
+    const header = document.querySelector('#view-srs header');
+    if (!header || document.getElementById('srs-debug-seed-btn')) return;
+
+    const btn = document.createElement('button');
+    btn.id          = 'srs-debug-seed-btn';
+    btn.textContent = '🐛 Seed';
+    btn.title       = 'Debug: add 2 due + 3 upcoming words to the SRS';
+    btn.style.cssText = `
+        font-size:11px; padding:3px 8px; border-radius:6px; cursor:pointer;
+        background:rgba(255,165,0,0.15); color:#f39c12;
+        border:1px solid rgba(255,165,0,0.4);
+        font-weight:600; letter-spacing:0.3px;
+    `;
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        _seedDebugWords();
+        btn.textContent = '✓ Seeded';
+        setTimeout(() => { btn.textContent = '🐛 Seed'; }, 2000);
+    });
+
+    // Insert into the right side of the header, before the counter
+    const counter = document.getElementById('srs-counter');
+    const parent  = counter?.parentElement ?? header;
+    parent.insertBefore(btn, counter ?? null);
+}
+
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 export function initSRS() {
     const srsTabBtn = document.querySelector('button[data-target="view-srs"]');
@@ -102,6 +172,8 @@ export function initSRS() {
     updateSrsBadge();
     initStatsUI();
     setInterval(updateSrsBadge, 30000);   // re-check every 30 s (sub-day words)
+
+    _initDebugButton();
 }
 
 // ─── SRS NAV BADGE ────────────────────────────────────────────────────────────

@@ -500,7 +500,7 @@ export function renderVocabSettings(vocabMgr, container, onSave) {
                     </div>
                 </div>
                 <input type="number" id="gvm-cfg-batch-bootstrap" class="gvm-settings-input"
-                       value="${cfg.newWordBatchBootstrap ?? 3}" min="1" max="10">
+                       value="${cfg.newWordBatchBootstrap ?? 5}" min="5" max="10">
             </div>
             <div class="gvm-settings-row" id="gvm-row-batch-normal">
                 <div>

@@ -589,16 +589,15 @@ export class GameVocabManager {
      * No-ops in 'random' mode (no concept of "new" words) and in Global SRS mode
      * (the SRS database controls introduction order).
      *
-     * The default count uses newWordBatchBootstrap (the "starting fresh" batch size)
-     * because at run start the active pool is always empty — the same condition that
-     * triggers bootstrap-sized batches during auto-introduction.
+     * The default count is Math.max(newWordBatchBootstrap, 5) — the user's bootstrap
+     * setting, but never fewer than 5, so there's always a meaningful starting hand.
+     * The configLimits min for newWordBatchBootstrap is also 5 so the UI reflects this.
      *
-     * @param {number} count  Number of words to introduce. Defaults to
-     *                        Math.max(newWordBatchBootstrap, 5).
+     * @param {number} count  Number of words to introduce. Defaults to Math.max(newWordBatchBootstrap, 5).
      * @returns {number}      Actual number of words introduced (may be less if pool
      *                        is smaller than requested count).
      */
-    seedInitialWords(count = Math.max(this.config.newWordBatchBootstrap ?? 3, 5)) {
+    seedInitialWords(count = Math.max(this.config.newWordBatchBootstrap ?? 5, 5)) {
         if (this.config.mode === 'random' || this.isGlobalSrs) return 0;
         let introduced = 0;
         for (let i = 0; i < count; i++) {
@@ -836,7 +835,7 @@ export class GameVocabManager {
             initialEase:            1.5,      // SM-2 ease multiplier
             leechThreshold:         20,       // wrong-answer count to flag a leech
             newWordThreshold:       10,       // active-SRS count below which bootstrap batch is used
-            newWordBatchBootstrap:  3,        // words introduced per event when active < threshold
+            newWordBatchBootstrap:  5,        // words introduced per event when active < threshold
             newWordBatchNormal:     1,        // words introduced per event when active >= threshold
             minDueTime:             10,       // seconds with no due cards before auto-introducing
             minAccuracy:            0.80,     // recent accuracy required before auto-introducing
@@ -858,7 +857,7 @@ export class GameVocabManager {
             initialEase:            { min: 1.1,  max: 5.0  },
             leechThreshold:         { min: 3,    max: 100  },
             newWordThreshold:       { min: 1,    max: 50   },
-            newWordBatchBootstrap:  { min: 1,    max: 10   },
+            newWordBatchBootstrap:  { min: 5,    max: 10   },
             newWordBatchNormal:     { min: 1,    max: 5    },
             minDueTime:             { min: 5,    max: 120  },
             minAccuracy:            { min: 0.50, max: 1.00 },
