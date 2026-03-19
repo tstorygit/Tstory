@@ -223,18 +223,47 @@ function updatePlayer(dt) {
         const newRX = state.roomX + triggerDX;
         const newRY = state.roomY + triggerDY;
 
-        // Only scroll if the neighbouring room exists in the map
-        if (newRX >= 0 && newRX < mapData.cols &&
+        // Check if the player is actually inside the door opening before allowing
+        // the transition. If they hit a wall segment next to a door, bounce back.
+        const curRoom = mapData.rooms[state.roomY][state.roomX];
+        let inDoorOpening = false;
+        if (triggerDY === -1 && curRoom.doors.n) {
+            const dc = curRoom.dpos.n;
+            const px = state.player.x / TILE_SIZE;
+            inDoorOpening = (px >= dc - 1.5 && px <= dc + 1.5);
+        } else if (triggerDY === 1 && curRoom.doors.s) {
+            const dc = curRoom.dpos.s;
+            const px = state.player.x / TILE_SIZE;
+            inDoorOpening = (px >= dc - 1.5 && px <= dc + 1.5);
+        } else if (triggerDX === -1 && curRoom.doors.w) {
+            const dr = curRoom.dpos.w;
+            const py = state.player.y / TILE_SIZE;
+            inDoorOpening = (py >= dr - 1.5 && py <= dr + 1.5);
+        } else if (triggerDX === 1 && curRoom.doors.e) {
+            const dr = curRoom.dpos.e;
+            const py = state.player.y / TILE_SIZE;
+            inDoorOpening = (py >= dr - 1.5 && py <= dr + 1.5);
+        }
+
+        if (!inDoorOpening) {
+            // Hit a wall — push player back inside
+            if (triggerDX === -1) state.player.x = MARGIN;
+            if (triggerDX ===  1) state.player.x = canvas.width - MARGIN;
+            if (triggerDY === -1) state.player.y = MARGIN;
+            if (triggerDY ===  1) state.player.y = canvas.height - MARGIN;
+        } else if (newRX >= 0 && newRX < mapData.cols &&
             newRY >= 0 && newRY < mapData.rows &&
             mapData.rooms[newRY] && mapData.rooms[newRY][newRX]) {
 
-            // Player landing position: appear at the opposite edge of the new room
+            // Player X/Y is preserved across the transition — the map guarantees
+            // the door opening in the destination room is at the same column/row,
+            // so the player walks through seamlessly without any position snap.
             const landX = triggerDX === -1 ? canvas.width - MARGIN
                         : triggerDX ===  1 ? MARGIN
-                        : state.player.x;
+                        : state.player.x;   // N/S: preserve X
             const landY = triggerDY === -1 ? canvas.height - MARGIN
                         : triggerDY ===  1 ? MARGIN
-                        : state.player.y;
+                        : state.player.y;   // E/W: preserve Y
 
             // Clamp player to just outside the edge so the scroll starts cleanly
             if (triggerDX === -1) state.player.x = 0;
@@ -253,12 +282,11 @@ function updatePlayer(dt) {
                 playerEndX: landX,
                 playerEndY: landY,
             };
-            // Clear combat state so enemies don't fire while we scroll
             activeHitboxes = [];
             floatingTexts  = [];
-            return; // hand off to the transition branch in loop()
+            return;
         } else {
-            // No room there — bounce the player back to the edge
+            // No room there — bounce back
             if (triggerDX === -1) state.player.x = MARGIN;
             if (triggerDX ===  1) state.player.x = canvas.width - MARGIN;
             if (triggerDY === -1) state.player.y = MARGIN;
@@ -476,7 +504,7 @@ function updateHitboxes(dt) {
             let isHit = false;
 
             if (hb.type === 'arc') {
-                const OFFSET   = Math.PI / 12; // same 15° shift as draw
+                const OFFSET   = Math.PI / 12; // same 15° rightward shift as draw
                 const bladeLen = hb.weapon.id === 'sword' ? 24
                                : hb.weapon.id === 'axe'   ? 27 : 30;
                 const pivot = 8;
@@ -484,8 +512,8 @@ function updateHitboxes(dt) {
                 const pivY = hb.y + Math.sin(hb.faceAngle) * pivot;
                 const dist  = Math.hypot(e.x - pivX, e.y - pivY);
                 const angle = Math.atan2(e.y - pivY, e.x - pivX);
-                // Window centre is faceAngle - OFFSET/2 (shifted 7.5° toward follow-through)
-                let diff = angle - (hb.faceAngle - OFFSET / 2);
+                // Collision window centre shifted +OFFSET/2 to the right
+                let diff = angle - (hb.faceAngle + OFFSET / 2);
                 while (diff >  Math.PI) diff -= 2 * Math.PI;
                 while (diff < -Math.PI) diff += 2 * Math.PI;
                 isHit = dist < bladeLen && Math.abs(diff) <= hb.weapon.arc / 2 + 0.08;
@@ -646,15 +674,13 @@ function draw(dt) {
             const pivotY = Math.sin(hb.faceAngle) * pivot;
             ctx.translate(pivotX, pivotY);
 
-            // ── Swing window: offset -15° from symmetric so the right-hand
-            //    start is 30° off-centre (not 45°) and the follow-through
-            //    reaches 60° past centre (not 45°).
-            //    startAngle = faceAngle + 30°  (π/6)
-            //    endAngle   = faceAngle - 60°  (-π/3)
+            // ── Swing window shifted toward the right hand (+15°):
+            //    startAngle = faceAngle + 60°  (arc/2 + OFFSET, far right)
+            //    endAngle   = faceAngle - 30°  (arc/2 - OFFSET, less far left)
             //    total arc stays 90° (π/2).
-            const OFFSET = Math.PI / 12; // 15° shift toward the left/through
+            const OFFSET = Math.PI / 12; // 15° rightward shift
             const prog       = hb.swingProgress;
-            const startAngle = hb.faceAngle + hb.weapon.arc / 2 - OFFSET;
+            const startAngle = hb.faceAngle + hb.weapon.arc / 2 + OFFSET;
             const sweepAngle = startAngle - hb.weapon.arc * prog;
 
             // ── Blade length: -20% vs previous values

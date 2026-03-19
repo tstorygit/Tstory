@@ -70,21 +70,23 @@ export class VcUI {
 
             // Canvas layer: enemies at z-index 6, projectiles drawn on top of them.
             // clearRect + draw calls have zero layout/style cost — GPU composited.
+            // pointer-events:none so all clicks fall through to the tile grid below.
             this.entitiesCanvas = document.createElement('canvas');
-            this.entitiesCanvas.style.cssText = 'position:absolute;left:0;top:0;z-index:6;pointer-events:auto;';
+            this.entitiesCanvas.style.cssText = 'position:absolute;left:0;top:0;z-index:6;pointer-events:none;';
             this.gridEl.appendChild(this.entitiesCanvas);
             this._ctx = this.entitiesCanvas.getContext('2d');
 
-            // Canvas click → enemy hit test (replaces per-element click listeners)
-            this.entitiesCanvas.addEventListener('click', ev => {
-                const rect = this.entitiesCanvas.getBoundingClientRect();
-                // Divide by zoom: gridEl is CSS-scaled so rect is in viewport px, not canvas px
+            // Enemy hit-test: capture phase on gridEl fires before any tile onclick.
+            // If we hit an enemy we stop propagation so the tile click is suppressed.
+            // If we miss, we do nothing and the click reaches the tile normally.
+            this._enemyHitHandler = (ev) => {
+                if (!this.engine.enemies.length) return;
+                const rect = this.gridEl.getBoundingClientRect();
                 const zoom = this._zoom || 1;
                 const cx = (ev.clientX - rect.left) / zoom;
                 const cy = (ev.clientY - rect.top)  / zoom;
                 const hitRSq = (this.tileSize * 0.45) ** 2;
                 let hit = null;
-                // Reverse so topmost (latest drawn) enemy wins on overlap
                 for (let i = this.engine.enemies.length - 1; i >= 0; i--) {
                     const e = this.engine.enemies[i];
                     const dx = e.x - cx, dy = e.y - cy;
@@ -98,8 +100,8 @@ export class VcUI {
                     this.selectedTile = null;
                     this.renderBottomBar();
                 }
-                // No hit — let click fall through to tiles/grid
-            });
+            };
+            this.gridEl.addEventListener('click', this._enemyHitHandler, true); // capture phase
 
             // Stable layer for structures — rendered once per change, never
             // wiped every frame. This makes pointer/drag events work reliably.
@@ -527,6 +529,10 @@ export class VcUI {
             window.removeEventListener('resize', this._onResize);
             window.removeEventListener('orientationchange', this._onResize);
             this._onResize = null;
+        }
+        if (this._enemyHitHandler && this.gridEl) {
+            this.gridEl.removeEventListener('click', this._enemyHitHandler, true);
+            this._enemyHitHandler = null;
         }
         if (this._dragGhost) {
             this._dragGhost.remove();
