@@ -1134,7 +1134,7 @@ export class VcUI {
         if (this._gemPickerRefresh) this._gemPickerRefresh();
     }
 
-    draw(engineState, eventMsg) {
+    draw(engineState, events = []) {
         // FPS counter — averaged over 30 frames to stay readable
         if (this._fpsEl) {
             this._fpsFrames++;
@@ -1414,52 +1414,74 @@ export class VcUI {
 
         this._updateEnemyStatWindow(engineState);
 
-        if (eventMsg?.type === 'dmg') {
+        // Batch fix: events is now an array flushed once per frame.
+        // Backwards-compat: if somehow a single object is passed, wrap it.
+        const eventList = Array.isArray(events) ? events : (events ? [events] : []);
+
+        // Cap damage floats per frame — showing 500 numbers at once is visual noise
+        // and creates hundreds of DOM nodes. Show the biggest hits only.
+        const MAX_DMG_FLOATS = 8;
+        let dmgFloats = [];
+        for (const evt of eventList) {
+            if (evt.type === 'dmg') dmgFloats.push(evt);
+        }
+        // Sort descending by amount, keep top MAX_DMG_FLOATS
+        if (dmgFloats.length > MAX_DMG_FLOATS) {
+            dmgFloats.sort((a, b) => b.amt - a.amt);
+            dmgFloats = dmgFloats.slice(0, MAX_DMG_FLOATS);
+        }
+        for (const evt of dmgFloats) {
             const fl = document.createElement('div');
             fl.className = 'vc-float';
-            fl.style.left = eventMsg.x + 'px';
-            fl.style.top = eventMsg.y + 'px';
-            fl.style.color = GEMS[eventMsg.color]?.color ?? '#fff';
-            fl.textContent = eventMsg.amt;
+            fl.style.left = evt.x + 'px';
+            fl.style.top  = evt.y + 'px';
+            fl.style.color = GEMS[evt.color]?.color ?? '#fff';
+            fl.textContent = evt.amt;
             this.gridEl.appendChild(fl);
             setTimeout(() => fl.remove(), 800);
-        } else if (eventMsg?.type === 'poolLevelUp') {
-            const bar = this.topBar.manaBar;
-            if (bar) {
-                bar.style.transition = 'none';
-                bar.style.background = '#fff';
-                setTimeout(() => { bar.style.transition = 'width 0.2s, background 0.3s'; }, 80);
+        }
+
+        for (const evt of eventList) {
+            if (evt.type === 'dmg') {
+                // already handled above
+            } else if (evt.type === 'poolLevelUp') {
+                const bar = this.topBar.manaBar;
+                if (bar) {
+                    bar.style.transition = 'none';
+                    bar.style.background = '#fff';
+                    setTimeout(() => { bar.style.transition = 'width 0.2s, background 0.3s'; }, 80);
+                }
+                const fl = document.createElement('div');
+                fl.className = 'vc-float';
+                fl.style.cssText = 'left:50%;top:20px;transform:translateX(-50%);font-size:14px;color:#f1c40f;text-shadow:0 0 8px #f39c12,1px 1px 0 #000;white-space:nowrap;';
+                fl.textContent = `✨ Pool Lv${evt.level} — gems +${(evt.level-1)*5}%`;
+                this.gridEl.appendChild(fl);
+                setTimeout(() => fl.remove(), 1400);
+            } else if (evt.type === 'manaLeak') {
+                const fl = document.createElement('div');
+                fl.className = 'vc-float';
+                fl.style.left = (evt.x || 50) + 'px';
+                fl.style.top  = (evt.y || 50) + 'px';
+                fl.style.color = '#e74c3c';
+                fl.style.fontSize = '14px';
+                fl.textContent = '-' + evt.amt + '💧';
+                this.gridEl.appendChild(fl);
+                setTimeout(() => fl.remove(), 900);
+            } else if (evt.type === 'waveClear') {
+                const fl = document.createElement('div');
+                fl.className = 'vc-float';
+                fl.style.cssText = 'left:50%;top:30px;transform:translateX(-50%);font-size:15px;color:#f1c40f;text-shadow:0 0 8px #f39c12,1px 1px 0 #000;';
+                fl.textContent = `✨ Perfect Wave +${evt.bonus} XP`;
+                this.gridEl.appendChild(fl);
+                setTimeout(() => fl.remove(), 1200);
+            } else if (evt.type === 'earlyCall') {
+                const fl = document.createElement('div');
+                fl.className = 'vc-float';
+                fl.style.cssText = 'left:50%;top:48px;transform:translateX(-50%);font-size:14px;color:#2ecc71;text-shadow:0 0 8px #27ae60,1px 1px 0 #000;white-space:nowrap;';
+                fl.textContent = `⚡ Early Call +${evt.bonus} 💧`;
+                this.gridEl.appendChild(fl);
+                setTimeout(() => fl.remove(), 1400);
             }
-            const fl = document.createElement('div');
-            fl.className = 'vc-float';
-            fl.style.cssText = 'left:50%;top:20px;transform:translateX(-50%);font-size:14px;color:#f1c40f;text-shadow:0 0 8px #f39c12,1px 1px 0 #000;white-space:nowrap;';
-            fl.textContent = `✨ Pool Lv${eventMsg.level} — gems +${(eventMsg.level-1)*5}%`;
-            this.gridEl.appendChild(fl);
-            setTimeout(() => fl.remove(), 1400);
-        } else if (eventMsg?.type === 'manaLeak') {
-            const fl = document.createElement('div');
-            fl.className = 'vc-float';
-            fl.style.left = (eventMsg.x || 50) + 'px';
-            fl.style.top  = (eventMsg.y || 50) + 'px';
-            fl.style.color = '#e74c3c';
-            fl.style.fontSize = '14px';
-            fl.textContent = '-' + eventMsg.amt + '💧';
-            this.gridEl.appendChild(fl);
-            setTimeout(() => fl.remove(), 900);
-        } else if (eventMsg?.type === 'waveClear') {
-            const fl = document.createElement('div');
-            fl.className = 'vc-float';
-            fl.style.cssText = 'left:50%;top:30px;transform:translateX(-50%);font-size:15px;color:#f1c40f;text-shadow:0 0 8px #f39c12,1px 1px 0 #000;';
-            fl.textContent = `✨ Perfect Wave +${eventMsg.bonus} XP`;
-            this.gridEl.appendChild(fl);
-            setTimeout(() => fl.remove(), 1200);
-        } else if (eventMsg?.type === 'earlyCall') {
-            const fl = document.createElement('div');
-            fl.className = 'vc-float';
-            fl.style.cssText = 'left:50%;top:48px;transform:translateX(-50%);font-size:14px;color:#2ecc71;text-shadow:0 0 8px #27ae60,1px 1px 0 #000;white-space:nowrap;';
-            fl.textContent = `⚡ Early Call +${eventMsg.bonus} 💧`;
-            this.gridEl.appendChild(fl);
-            setTimeout(() => fl.remove(), 1400);
         }
     }
 

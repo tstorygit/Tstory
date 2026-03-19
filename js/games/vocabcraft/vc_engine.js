@@ -163,6 +163,11 @@ export class VcEngine {
         // Perf fix 6: reuse a single event object for dmg notifications to avoid
         // allocating a new {type,x,y,amt,color} literal on every projectile hit.
         this._dmgEvent = { type: 'dmg', x: 0, y: 0, amt: 0, color: '' };
+        // Batch fix: collect all events during a tick, flush once per frame via
+        // the single end-of-tick onUpdate call. Prevents draw() being called
+        // hundreds of times per RAF tick (once per projectile hit) which caused
+        // the FPS counter to read 1500+ and the game to lag severely.
+        this._tickEvents = [];
 
         if (!this.tileSize) this.tileSize = 40; // Perf fix 9: normalise once, remove || 40 in hot loops
 
@@ -261,13 +266,16 @@ export class VcEngine {
         while (this.state.mana >= this.state.poolCap) {
             this.state.poolLevel++;
             this.state.poolCap = Math.floor(this.state.poolCap * 1.8);
-            this.onUpdate(this, { type: 'poolLevelUp', level: this.state.poolLevel });
+            this._tickEvents.push({ type: 'poolLevelUp', level: this.state.poolLevel });
         }
 
         // Pool multiplier applied to all gem damage (recalculated each frame, cheap)
         this.buffs.poolMult = 1 + (this.state.poolLevel - 1) * 0.05;
 
-        this.onUpdate(this);
+        // Flush all batched events in a single draw() call — one DOM update per frame.
+        const eventsToFlush = this._tickEvents;
+        this._tickEvents = [];
+        this.onUpdate(this, eventsToFlush);
 
         if (this.state.mana < 0) {
             this.state.status = 'gameover';
@@ -290,7 +298,7 @@ export class VcEngine {
             if (!this.state._waveLeaked) {
                 const bonus = Math.round(20 * this.difficulty);
                 this.state.xpEarned += bonus;
-                this.onUpdate(this, { type: 'waveClear', bonus });
+                this._tickEvents.push({ type: 'waveClear', bonus });
             }
         }
 
@@ -316,7 +324,7 @@ export class VcEngine {
             if (earlyBonus > 0) {
                 this.state.mana += earlyBonus;
                 this.state._earlyCallBonus = earlyBonus;
-                this.onUpdate(this, { type: 'earlyCall', bonus: earlyBonus });
+                this._tickEvents.push({ type: 'earlyCall', bonus: earlyBonus });
             }
         } else {
             this.state._earlyCallBonus = 0;
@@ -473,7 +481,7 @@ export class VcEngine {
                 this.state.mana -= drain;
                 this.state._waveLeaked = true;
                 this.state.combo = 0;  // combo resets when enemy leaks
-                this.onUpdate(this, { type: 'manaLeak', amt: drain, x: e.x, y: e.y });
+                this._tickEvents.push({ type: 'manaLeak', amt: drain, x: e.x, y: e.y });
                 // GCFW: enemy that reaches the exit grows stronger and starts over.
                 // Increase maxHp by 30% each pass — becomes a serious threat if not killed.
                 e.passCount = (e.passCount || 0) + 1;
@@ -558,10 +566,16 @@ export class VcEngine {
                     const sel = this.enemyById.get(this.selectedEnemyId);
                     if (sel && Math.hypot(sel.x - st.x, sel.y - st.y) < range) target = sel;
                 }
-                // Fix #2: use spatial grid instead of full enemy scan
+                // Target priority: most progressed enemy first.
+                // this.enemies is kept in spawn order — earliest spawned at index 0,
+                // which is always furthest along the path. A simple linear scan from
+                // the front is O(n) but correct, cheap, and needs no sorting.
                 if (!target) {
-                    const candidates = nearbyEnemies(st.x, st.y, range);
-                    if (candidates.length > 0) target = candidates[0];
+                    const rangeSq = range * range;
+                    for (const e of this.enemies) {
+                        const ddx = e.x - st.x, ddy = e.y - st.y;
+                        if (ddx * ddx + ddy * ddy <= rangeSq) { target = e; break; }
+                    }
                 }
                 if (target) {
                     this.fireProjectile(st, target, gemData);
@@ -701,14 +715,9 @@ export class VcEngine {
         if (source?.stats) source.stats.totalDmg += Math.floor(finalDmg);
 
         enemy.hp -= finalDmg;
-        if (this.onUpdate) {
-            // Perf fix 6: mutate and reuse the pre-allocated event object — no GC pressure
-            this._dmgEvent.x     = enemy.x;
-            this._dmgEvent.y     = enemy.y;
-            this._dmgEvent.amt   = Math.floor(finalDmg);
-            this._dmgEvent.color = gem.color;
-            this.onUpdate(this, this._dmgEvent);
-        }
+        // Batch fix: queue dmg float instead of calling draw() immediately.
+        // All events are flushed once at end of tick — one draw() per frame total.
+        this._tickEvents.push({ type: 'dmg', x: enemy.x, y: enemy.y, amt: Math.floor(finalDmg), color: gem.color });
     }
 
     addStructure(x, y, type) {

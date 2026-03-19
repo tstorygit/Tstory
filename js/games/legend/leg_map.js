@@ -11,15 +11,20 @@ export const TILE = {
 };
 
 export function generateStage(stageLevel) {
-    // 2x2 up to 5x5 based on stage
+    // ── Map size progression ───────────────────────────────────────────────────
+    // Stage  1 → 2×2   Stage  3 → 3×2   Stage  5 → 3×3
+    // Stage  7 → 4×3   Stage  9 → 4×4   Stage 11 → 5×4   Stage 13+ → 5×5
+    // To reach a 3×3 in-game: survive to stage 5 (clear stages 1–4).
+    // Rebirth resets stage to 1 but the map formula is purely stage-based.
     const cols = Math.min(5, 2 + Math.floor((stageLevel - 1) / 2));
     const rows = Math.min(5, 2 + Math.floor(stageLevel / 2));
     const rooms = Array(rows).fill(0).map(() => Array(cols).fill(null));
-    
-    // 1. Recursive Backtracker for Macro-Grid
+
+    // ── 1. Recursive Backtracker — builds a spanning tree (guarantees all rooms
+    //       reachable before we start adding one-way twists) ──────────────────
     const stack = [{x: 0, y: 0}];
     const visited = new Set(['0,0']);
-    const paths = [];
+    const paths = []; // bidirectional spanning-tree edges
 
     while (stack.length > 0) {
         const curr = stack[stack.length - 1];
@@ -41,6 +46,73 @@ export function generateStage(stageLevel) {
         if (!moved) stack.pop();
     }
 
+    // ── 2. One-directional corridors ─────────────────────────────────────────
+    // Every spanning-tree edge is currently bidirectional (both rooms see a door).
+    // We randomly flip ~35% of them so the door only appears on ONE side —
+    // the player can walk through but can't return (classic Zelda one-way door).
+    // Because the spanning tree already guarantees every room is reachable from
+    // (0,0), making some passages one-way can never disconnect the graph.
+    //
+    // Separate from paths: we track which directions each room actually opens.
+    // doors[ry][rx] = { n, s, w, e } — true means a walkable opening exists.
+    const doorGrid = Array(rows).fill(0).map(() =>
+        Array(cols).fill(0).map(() => ({ n: false, s: false, w: false, e: false }))
+    );
+
+    paths.forEach(p => {
+        const oneWay = Math.random() < 0.35; // 35% chance of one-way passage
+        const dx = p.to.x - p.from.x;
+        const dy = p.to.y - p.from.y;
+
+        // Decide which "half" to open based on random coin flip when one-way
+        const openFrom = !oneWay || Math.random() < 0.5;
+        const openTo   = !oneWay || !openFrom;
+
+        // from-room side
+        if (openFrom) {
+            if (dx ===  1) doorGrid[p.from.y][p.from.x].e = true;
+            if (dx === -1) doorGrid[p.from.y][p.from.x].w = true;
+            if (dy ===  1) doorGrid[p.from.y][p.from.x].s = true;
+            if (dy === -1) doorGrid[p.from.y][p.from.x].n = true;
+        }
+        // to-room side
+        if (openTo) {
+            if (dx ===  1) doorGrid[p.to.y][p.to.x].w = true;
+            if (dx === -1) doorGrid[p.to.y][p.to.x].e = true;
+            if (dy ===  1) doorGrid[p.to.y][p.to.x].n = true;
+            if (dy === -1) doorGrid[p.to.y][p.to.x].s = true;
+        }
+
+        // ── Guarantee the START room always opens east AND south (if they exist)
+        //    so the player can never be trapped at the very beginning.
+        //    (Overwrite happens after the loop, see below.)
+    });
+
+    // Ensure start room is never sealed — force open any edge that leads to a
+    // neighbour it built a path to (the spanning tree guarantees at least one).
+    paths.forEach(p => {
+        const isFromStart = (p.from.x === 0 && p.from.y === 0);
+        const isToStart   = (p.to.x   === 0 && p.to.y   === 0);
+        if (isFromStart || isToStart) {
+            const fx = p.from.x, fy = p.from.y;
+            const tx = p.to.x,   ty = p.to.y;
+            const dx = tx - fx, dy = ty - fy;
+            // Always open at least the "from" side of start-adjacent edges
+            if (isFromStart) {
+                if (dx ===  1) doorGrid[fy][fx].e = true;
+                if (dx === -1) doorGrid[fy][fx].w = true;
+                if (dy ===  1) doorGrid[fy][fx].s = true;
+                if (dy === -1) doorGrid[fy][fx].n = true;
+            }
+            if (isToStart) {
+                if (dx ===  1) doorGrid[ty][tx].w = true;
+                if (dx === -1) doorGrid[ty][tx].e = true;
+                if (dy ===  1) doorGrid[ty][tx].n = true;
+                if (dy === -1) doorGrid[ty][tx].s = true;
+            }
+        }
+    });
+
     // 2. Find furthest room for Exit
     let maxDist = 0;
     let endRoom = {x: 0, y: 0};
@@ -56,22 +128,7 @@ export function generateStage(stageLevel) {
             if (!visited.has(`${rx},${ry}`)) continue;
 
             const grid = Array(ROOM_ROWS).fill(0).map(() => Array(ROOM_COLS).fill(TILE.FLOOR));
-            const doors = { n: false, s: false, w: false, e: false };
-
-            paths.forEach(p => {
-                if (p.from.x === rx && p.from.y === ry) {
-                    if (p.to.y === ry - 1) doors.n = true;
-                    if (p.to.y === ry + 1) doors.s = true;
-                    if (p.to.x === rx - 1) doors.w = true;
-                    if (p.to.x === rx + 1) doors.e = true;
-                }
-                if (p.to.x === rx && p.to.y === ry) {
-                    if (p.from.y === ry - 1) doors.n = true;
-                    if (p.from.y === ry + 1) doors.s = true;
-                    if (p.from.x === rx - 1) doors.w = true;
-                    if (p.from.x === rx + 1) doors.e = true;
-                }
-            });
+            const doors = doorGrid[ry][rx];
 
             // Outer walls
             for (let r = 0; r < ROOM_ROWS; r++) {

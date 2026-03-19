@@ -472,20 +472,20 @@ function updateHitboxes(dt) {
             let isHit = false;
 
             if (hb.type === 'arc') {
-                // Sweep angle from (faceAngle - arc/2) to (faceAngle + arc/2)
-                const currentAngle = hb.faceAngle - hb.weapon.arc / 2 + hb.weapon.arc * hb.swingProgress;
-                const bladeLen = hb.weapon.range;
-                // Blade tip position at current sweep angle
-                const tipX = hb.x + Math.cos(currentAngle) * bladeLen;
-                const tipY = hb.y + Math.sin(currentAngle) * bladeLen;
-                // Hit if enemy is within reach of the swept blade
-                const dist = Math.hypot(e.x - hb.x, e.y - hb.y);
-                const angle = Math.atan2(e.y - hb.y, e.x - hb.x);
+                // Sweep angle: starts at faceAngle + arc/2, ends at faceAngle - arc/2
+                const currentAngle = hb.faceAngle + hb.weapon.arc / 2 - hb.weapon.arc * hb.swingProgress;
+                const bladeLen = hb.weapon.id === 'sword' ? 30
+                               : hb.weapon.id === 'axe'   ? 34 : 38;
+                // Pivot offset forward
+                const pivot = 10;
+                const pivX = hb.x + Math.cos(hb.faceAngle) * pivot;
+                const pivY = hb.y + Math.sin(hb.faceAngle) * pivot;
+                const dist  = Math.hypot(e.x - pivX, e.y - pivY);
+                const angle = Math.atan2(e.y - pivY, e.x - pivX);
                 let diff = angle - hb.faceAngle;
-                // normalise to [-π, π]
                 while (diff >  Math.PI) diff -= 2 * Math.PI;
                 while (diff < -Math.PI) diff += 2 * Math.PI;
-                isHit = dist < bladeLen && Math.abs(diff) <= hb.weapon.arc / 2 + 0.05;
+                isHit = dist < bladeLen && Math.abs(diff) <= hb.weapon.arc / 2 + 0.08;
 
             } else if (hb.type === 'radial') {
                 // Full spin — hits once per activation
@@ -636,36 +636,53 @@ function draw(dt) {
         ctx.translate(hb.x, hb.y);
 
         if (hb.type === 'arc') {
-            // Swinging blade rectangle rotating through the arc
+            // ── Pivot is offset FORWARD from player centre so the blade feels
+            //    anchored at the hilt, not the belly-button.
+            const pivot = 10; // px forward along facing direction
+            const pivotX = Math.cos(hb.faceAngle) * pivot;
+            const pivotY = Math.sin(hb.faceAngle) * pivot;
+            ctx.translate(pivotX, pivotY);
+
+            // ── Sweep direction: right-to-left relative to facing.
+            //    At prog=0 the blade is at faceAngle + arc/2 (right side),
+            //    at prog=1 it arrives at faceAngle - arc/2 (left side).
             const prog       = hb.swingProgress;
-            const sweepAngle = hb.faceAngle - hb.weapon.arc / 2 + hb.weapon.arc * prog;
-            const bladeLen   = hb.weapon.range;
-            const bladeW     = hb.weapon.id === 'star' ? 10 : 7; // morning star is chunkier
+            const sweepAngle = hb.faceAngle + hb.weapon.arc / 2 - hb.weapon.arc * prog;
+
+            // ── Blade length: shorter than the raw range value so it doesn't
+            //    reach across the whole room. Axe/Star stay slightly longer.
+            const bladeLen = hb.weapon.id === 'sword' ? 30
+                           : hb.weapon.id === 'axe'   ? 34
+                           : 38; // star
+            const bladeW   = hb.weapon.id === 'star'  ? 10 : 7;
 
             ctx.rotate(sweepAngle);
 
-            // Blade
-            ctx.fillStyle = hb.weapon.id === 'star' ? 'rgba(255,200,50,0.85)'
-                           : hb.weapon.id === 'axe'  ? 'rgba(180,200,220,0.85)'
-                           : 'rgba(200,220,255,0.85)';
-            ctx.fillRect(8, -bladeW / 2, bladeLen - 8, bladeW);
+            // Blade body
+            ctx.fillStyle = hb.weapon.id === 'star' ? 'rgba(255,200,50,0.90)'
+                           : hb.weapon.id === 'axe'  ? 'rgba(180,200,220,0.88)'
+                           : 'rgba(200,220,255,0.88)';
+            ctx.fillRect(6, -bladeW / 2, bladeLen, bladeW);
 
-            // Crossguard (Parierstange) — sword only
+            // Crossguard / Parierstange — sword only, perpendicular to blade
             if (hb.weapon.id === 'sword') {
-                ctx.fillStyle = 'rgba(180,140,60,0.9)';
-                ctx.fillRect(5, -13, 6, 26); // wide crossguard
+                ctx.fillStyle = 'rgba(200,160,60,0.95)';
+                ctx.fillRect(3, -11, 5, 22); // vertical bar across the grip
+                // Second shorter guard arm (decorative)
+                ctx.fillStyle = 'rgba(220,180,80,0.7)';
+                ctx.fillRect(7, -9, 3, 18);
             }
 
-            // Handle nub
+            // Grip nub (behind pivot)
             ctx.fillStyle = 'rgba(100,70,40,0.9)';
-            ctx.fillRect(-4, -3, 14, 6);
+            ctx.fillRect(-6, -3, 13, 6);
 
             // Blade edge highlight
-            ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+            ctx.strokeStyle = 'rgba(255,255,255,0.55)';
             ctx.lineWidth = 1.5;
             ctx.beginPath();
-            ctx.moveTo(8, -bladeW / 2);
-            ctx.lineTo(bladeLen, -bladeW / 2);
+            ctx.moveTo(6, -bladeW / 2);
+            ctx.lineTo(6 + bladeLen, -bladeW / 2);
             ctx.stroke();
 
         } else if (hb.type === 'radial') {
