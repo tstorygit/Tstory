@@ -464,6 +464,16 @@ function _showSettingsOverlay() {
             </div>
         </div>
 
+        <!-- Render Quality -->
+        <div style="display:flex;flex-direction:column;gap:8px;">
+            <div style="font-size:10px;font-weight:bold;color:#f1c40f;text-transform:uppercase;letter-spacing:1px;">🖼️ Render Quality</div>
+            <div style="display:flex;gap:6px;">
+                <button class="vc-quality-btn" data-quality="fast" style="flex:1;padding:10px 4px;border:2px solid;border-radius:8px;color:white;font-size:13px;font-weight:bold;cursor:pointer;text-align:center;">⚡ Fast<div style="font-size:10px;color:#bdc3c7;font-weight:normal;margin-top:3px;">Better FPS</div></button>
+                <button class="vc-quality-btn" data-quality="hd"   style="flex:1;padding:10px 4px;border:2px solid;border-radius:8px;color:white;font-size:13px;font-weight:bold;cursor:pointer;text-align:center;">✨ HD<div style="font-size:10px;color:#bdc3c7;font-weight:normal;margin-top:3px;">Crisp sprites</div></button>
+            </div>
+            <div style="font-size:11px;color:#7f8c8d;">Takes effect on the next battle. Fast is recommended for mobile.</div>
+        </div>
+
         <!-- Debug -->
         <div style="display:flex;flex-direction:column;gap:8px;">
             <div style="font-size:10px;font-weight:bold;color:#f1c40f;text-transform:uppercase;letter-spacing:1px;">🛠️ Debug</div>
@@ -505,6 +515,23 @@ function _showSettingsOverlay() {
                 b.style.background  = b.dataset.mode === _gameMode ? '#2c6e3f' : '#1a252f';
                 b.style.borderColor = b.dataset.mode === _gameMode ? '#2ecc71' : '#4a5568';
             });
+        };
+    });
+
+    // Render quality buttons
+    const _curQuality = () => localStorage.getItem('vocabcraft_quality') || 'fast';
+    overlay.querySelectorAll('.vc-quality-btn').forEach(btn => {
+        const refresh = () => {
+            const q = _curQuality();
+            overlay.querySelectorAll('.vc-quality-btn').forEach(b => {
+                b.style.background  = b.dataset.quality === q ? '#1a3a5c' : '#1a252f';
+                b.style.borderColor = b.dataset.quality === q ? '#3498db' : '#4a5568';
+            });
+        };
+        refresh();
+        btn.onclick = () => {
+            localStorage.setItem('vocabcraft_quality', btn.dataset.quality);
+            refresh();
         };
     });
 

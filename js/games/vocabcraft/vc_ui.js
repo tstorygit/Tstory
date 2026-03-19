@@ -123,11 +123,6 @@ export class VcUI {
             this._baseMakerKeys = null;
             this._placeMapMarkers();
 
-            this.enemyStatEl = document.createElement('div');
-            this.enemyStatEl.className = 'vc-enemy-stat-window';
-            this.enemyStatEl.style.display = 'none';
-            this.mapEl.appendChild(this.enemyStatEl);
-
             // FPS counter — fixed top-left, always above everything
             this._fpsEl = document.createElement('div');
             this._fpsEl.style.cssText = [
@@ -225,10 +220,18 @@ export class VcUI {
         // Emoji sprite cache is keyed on (emoji, size). Invalidate on tileSize change
         // because all sprite sizes depend on tileSize.
         this._emojiCache = new Map();
+        // Quality setting: 'hd' multiplies canvas by devicePixelRatio for crisp rendering.
+        // 'fast' (default) keeps 1:1 — much faster on mobile and low-end devices.
+        this._renderQuality = localStorage.getItem('vocabcraft_quality') || 'fast';
+        this._dpr = (this._renderQuality === 'hd') ? (window.devicePixelRatio || 1) : 1;
         // Resize the entity canvas to match the new grid dimensions.
         if (this.entitiesCanvas) {
-            this.entitiesCanvas.width  = cols * this.tileSize;
-            this.entitiesCanvas.height = rows * this.tileSize;
+            const dpr = this._dpr;
+            this.entitiesCanvas.width  = cols * this.tileSize * dpr;
+            this.entitiesCanvas.height = rows * this.tileSize * dpr;
+            this.entitiesCanvas.style.width  = `${cols * this.tileSize}px`;
+            this.entitiesCanvas.style.height = `${rows * this.tileSize}px`;
+            if (dpr !== 1) this._ctx.scale(dpr, dpr);
         }
         // ✅ FIX: outer for(r) loop was accidentally deleted, leaving for(c) referencing
         // undefined `r` and an orphaned `}` that closed initGrid() prematurely.
@@ -696,6 +699,35 @@ export class VcUI {
         }
         const st = this.selectedTile;
         if (!st) {
+            // If an enemy is selected, show its stats in the bottom bar
+            if (this.selectedEnemyId) {
+                const e = this.engine.enemyById?.get(this.selectedEnemyId);
+                if (e) {
+                    const hpPct = Math.max(0, Math.floor((e.hp / e.maxHp) * 100));
+                    const immunities = [];
+                    if (e.immune?.has('slow'))          immunities.push('❄️Slow');
+                    if (e.immune?.has('poison'))        immunities.push('☠️Poison');
+                    if (e.immune?.has('dmg_nonpurple')) immunities.push('🟣Non-Purple');
+                    if (e.immune?.has('dmg_nontrap'))   immunities.push('🏰Towers');
+                    const fx = e.effects || {};
+                    this.bottomBar.innerHTML = `
+                        <div class="vc-stat-panel-title" style="color:#e67e22;">
+                            ${e.emoji} ${e.isBoss ? '<span style="color:#e74c3c">BOSS</span>' : (e.label || 'Enemy')}
+                        </div>
+                        <div class="vc-stat-panel-rows">
+                            <div class="vc-stat-panel-row"><span>❤️ HP</span><span>${Math.floor(e.hp)} / ${Math.floor(e.maxHp)}</span></div>
+                            <div class="vc-stat-hpbar" style="margin:2px 0 4px;"><div class="vc-stat-hpfill" style="width:${hpPct}%"></div></div>
+                            ${e.armor > 0.5 ? `<div class="vc-stat-panel-row"><span>🛡️ Armor</span><span>${Math.round(e.armor)}</span></div>` : ''}
+                            ${e.regen > 0 ? `<div class="vc-stat-panel-row"><span>💚 Regen</span><span>${(e.regen*100).toFixed(1)}%/s</span></div>` : ''}
+                            ${fx.slow > 0 ? `<div class="vc-stat-panel-row"><span>❄️ Slowed</span><span>${Math.floor(fx.slow*100)}%</span></div>` : ''}
+                            ${fx.poison > 0 ? `<div class="vc-stat-panel-row"><span>☠️ Poison</span><span>${Math.floor(fx.poison)}/s</span></div>` : ''}
+                            ${immunities.length ? `<div class="vc-stat-panel-row"><span>🚫 Immune</span><span>${immunities.join(' ')}</span></div>` : ''}
+                        </div>
+                        <div style="font-size:10px;color:#7f8c8d;margin-top:4px;">Click enemy again to deselect</div>
+                    `;
+                    return;
+                }
+            }
             this.bottomBar.innerHTML = `<div style="color:#7f8c8d;">Select a tile to build.</div>`;
             return;
         }
@@ -1331,11 +1363,15 @@ export class VcUI {
             const ts = this.tileSize;
 
             // Resize if grid dimensions changed (e.g. after orientation change)
-            const needW = this.engine.map.cols * ts;
-            const needH = this.engine.map.rows * ts;
+            const dpr   = this._dpr || 1;
+            const needW = this.engine.map.cols * ts * dpr;
+            const needH = this.engine.map.rows * ts * dpr;
             if (canvas.width !== needW || canvas.height !== needH) {
                 canvas.width  = needW;
                 canvas.height = needH;
+                canvas.style.width  = `${this.engine.map.cols * ts}px`;
+                canvas.style.height = `${this.engine.map.rows * ts}px`;
+                if (dpr !== 1) ctx.scale(dpr, dpr);
                 this._emojiCache = new Map(); // sizes changed — bust sprite cache
             }
 
@@ -1450,7 +1486,7 @@ export class VcUI {
             }
         }
 
-        this._updateEnemyStatWindow(engineState);
+        this._updateEnemyStatWindowInBar(engineState);
 
         if (eventMsg?.type === 'dmg') {
             const fl = document.createElement('div');
@@ -1639,36 +1675,24 @@ export class VcUI {
         }
     }
 
-    _updateEnemyStatWindow(engineState) {
-        if (!this.enemyStatEl) return;
-        if (!this.selectedEnemyId) { this.enemyStatEl.style.display = 'none'; return; }
-
-        // Fix #2: O(1) map lookup instead of O(n) .find() scan
+    // Live-update the enemy stats already rendered in the bottom bar.
+    // Only refreshes the numbers that change every frame (HP, effects) —
+    // avoids re-rendering the full panel via renderBottomBar() on every tick.
+    _updateEnemyStatWindowInBar(engineState) {
+        if (!this.selectedEnemyId || this.selectedTile) return;
         const e = engineState.enemyById?.get(this.selectedEnemyId);
         if (!e) {
-            this.selectedEnemyId = null; this.engine.selectedEnemyId = null;
-            this.enemyStatEl.style.display = 'none'; return;
+            // Enemy died — clear selection and reset bar
+            this.selectedEnemyId = null;
+            this.engine.selectedEnemyId = null;
+            this.renderBottomBar();
+            return;
         }
-
+        // Patch just the HP row and bar if they exist — no full re-render
         const hpPct = Math.max(0, Math.floor((e.hp / e.maxHp) * 100));
-        const effects =[];
-        if (e.effects.slow > 0) effects.push(`❄️ Slowed ${Math.floor(e.effects.slow*100)}%`);
-        if (e.effects.poison > 0) effects.push(`☠️ Poison ${Math.floor(e.effects.poison)}/s`);
-        if (e.regen > 0) effects.push(`💚 Regen ${(e.regen*100).toFixed(1)}%/s`);
-
-        const immunities = [];
-        if (e.immune?.includes('slow')) immunities.push('❄️Slow');
-        if (e.immune?.includes('poison')) immunities.push('☠️Poison');
-
-        this.enemyStatEl.style.display = 'block';
-        this.enemyStatEl.innerHTML = `
-            <div class="vc-stat-title">${e.emoji} ${e.isBoss ? '<span style="color:#e74c3c">BOSS</span>' : (e.label || 'Enemy')}</div>
-            <div class="vc-stat-row">❤️ <span>${Math.floor(e.hp)} / ${Math.floor(e.maxHp)}</span></div>
-            <div class="vc-stat-hpbar"><div class="vc-stat-hpfill" style="width:${hpPct}%"></div></div>
-            ${e.armor > 0 ? `<div class="vc-stat-row">🛡️ Armor <span>${e.armor}</span></div>` : ''}
-            ${immunities.length ? `<div class="vc-stat-fx">🚫 Immune: ${immunities.join(' ')}</div>` : ''}
-            ${effects.map(fx => `<div class="vc-stat-fx">${fx}</div>`).join('')}
-            <div class="vc-stat-hint">🎯 Towers focusing</div>
-        `;
+        const hpFill = this.bottomBar.querySelector('.vc-stat-hpfill');
+        if (hpFill) hpFill.style.width = hpPct + '%';
+        const rows = this.bottomBar.querySelectorAll('.vc-stat-panel-row span:last-child');
+        if (rows[0]) rows[0].textContent = `${Math.floor(e.hp)} / ${Math.floor(e.maxHp)}`;
     }
 }
