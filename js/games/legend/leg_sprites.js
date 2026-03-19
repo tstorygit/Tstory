@@ -32,7 +32,7 @@ function _getCached(key, ts, paintFn) {
  */
 export function prewarmTileCache(ts) {
     _cache.clear();
-    const staticTypes = [TILE.FLOOR, TILE.WALL, TILE.TREE, TILE.GRASS, TILE.ROCK, TILE.PIT, TILE.POST, TILE.STUMP];
+    const staticTypes = [TILE.FLOOR, TILE.WALL, TILE.TREE, TILE.GRASS, TILE.ROCK, TILE.PIT, TILE.POST, TILE.STUMP, TILE.SHRINE];
     staticTypes.forEach(t => _getCached(`${t}:0`, ts, (c, x, y, s) => _paint(c, t, x, y, s, false)));
     [TILE.STAIRS, TILE.CHEST].forEach(t => {
         _getCached(`${t}:0`, ts, (c, x, y, s) => _paint(c, t, x, y, s, false));
@@ -70,6 +70,7 @@ function _paint(ctx, tileType, px, py, ts, roomCleared) {
         case TILE.PIT:    _drawPit(ctx, px, py, ts);                 break;
         case TILE.POST:   _drawPost(ctx, px, py, ts);                break;
         case TILE.STUMP:  _drawStump(ctx, px, py, ts);               break;
+        case TILE.SHRINE: _drawShrine(ctx, px, py, ts);              break;
         case TILE.CHEST:  _drawChest(ctx, px, py, ts, roomCleared);  break;
         default:          _drawFloor(ctx, px, py, ts);               break;
     }
@@ -156,7 +157,64 @@ function _drawTree(ctx, px, py, ts) {
     _tileGrid(ctx, px, py, ts);
 }
 
-function _drawStump(ctx, px, py, ts) {
+function _drawShrine(ctx, px, py, ts) {
+    _fill(ctx, '#8fa068', px, py, ts, ts);
+
+    const cx = px + ts / 2;
+
+    // Stone base — wide, low block
+    _fill(ctx, '#7f8c8d', cx - ts * 0.28, py + ts * 0.72, ts * 0.56, ts * 0.24);
+    _fill(ctx, '#95a5a6', cx - ts * 0.28, py + ts * 0.72, ts * 0.56, ts * 0.07);
+    _stroke(ctx, '#636e72', 1, cx - ts * 0.28, py + ts * 0.72, ts * 0.56, ts * 0.24);
+
+    // Pillar body
+    _fill(ctx, '#8e44ad', cx - ts * 0.12, py + ts * 0.22, ts * 0.24, ts * 0.52);
+    _fill(ctx, '#9b59b6', cx - ts * 0.08, py + ts * 0.24, ts * 0.08, ts * 0.48);
+
+    // Top ornament — diamond shape (4 triangles)
+    const tx = cx, ty = py + ts * 0.18, tr = ts * 0.13;
+    ctx.fillStyle = '#e8daef';
+    ctx.beginPath();
+    ctx.moveTo(tx,      ty - tr);
+    ctx.lineTo(tx + tr, ty);
+    ctx.lineTo(tx,      ty + tr);
+    ctx.lineTo(tx - tr, ty);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = '#c39bd3';
+    ctx.beginPath();
+    ctx.moveTo(tx,      ty - tr);
+    ctx.lineTo(tx + tr, ty);
+    ctx.lineTo(tx,      ty);
+    ctx.closePath();
+    ctx.fill();
+
+    // Glow ring around diamond
+    ctx.strokeStyle = 'rgba(232,218,239,0.6)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(tx, ty, tr * 1.5, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Small rune marks on pillar face
+    ctx.strokeStyle = 'rgba(232,218,239,0.45)';
+    ctx.lineWidth = 1;
+    [[0.38, 0.42], [0.52, 0.55]].forEach(([fy1, fy2]) => {
+        ctx.beginPath();
+        ctx.moveTo(cx - ts * 0.07, py + ts * fy1);
+        ctx.lineTo(cx + ts * 0.07, py + ts * fy1);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(cx, py + ts * fy1);
+        ctx.lineTo(cx, py + ts * fy2);
+        ctx.stroke();
+    });
+
+    _tileGrid(ctx, px, py, ts);
+}
+
+
     // Floor base
     _fill(ctx, '#8fa068', px, py, ts, ts);
 

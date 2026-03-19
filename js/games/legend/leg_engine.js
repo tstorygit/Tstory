@@ -56,14 +56,43 @@ function loadRoom(rx, ry) {
     activeEnemies = [];
     activeHitboxes = [];
     drops = [];
-    
-    if (!room.cleared && (rx !== mapData.startRoom.x || ry !== mapData.startRoom.y)) {
-        if (room.isExit) {
-            spawnEnemy(BOSSES[0], true);
-        } else {
-            const count = 2 + Math.floor(Math.random() * 3);
-            for (let i=0; i<count; i++) spawnEnemy(ENEMIES[Math.floor(Math.random()*ENEMIES.length)], false);
+
+    const isStart = (rx === mapData.startRoom.x && ry === mapData.startRoom.y);
+
+    if (!room.cleared && !isStart) {
+        // Ask legend.js to run the room-entry quiz, then call back with the right spawn function
+        state.callbacks.onRoomEnter(room, () => _spawnRoom(room), () => _spawnRoomBuffed(room));
+    }
+    // Start room and already-cleared rooms need no quiz — just show them
+}
+
+function _spawnRoom(room) {
+    if (room.isExit) {
+        spawnEnemy(BOSSES[0], true);
+    } else {
+        const count = 2 + Math.floor(Math.random() * 3);
+        for (let i = 0; i < count; i++) {
+            spawnEnemy(ENEMIES[Math.floor(Math.random() * ENEMIES.length)], false);
         }
+    }
+}
+
+function _spawnRoomBuffed(room) {
+    // Wrong answer — enemies are faster and have more HP
+    const count = 2 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < count; i++) {
+        const template = room.isExit ? BOSSES[0] : ENEMIES[Math.floor(Math.random() * ENEMIES.length)];
+        const scale = 1 + (state.stage * 0.15);
+        const isBoss = room.isExit;
+        activeEnemies.push({
+            ...template,
+            x: TILE_SIZE * 2 + Math.random() * (canvas.width - TILE_SIZE * 4),
+            y: TILE_SIZE * 2 + Math.random() * (canvas.height - TILE_SIZE * 4),
+            hp:    template.hpMult * 20 * scale * (isBoss ? 8 : 1) * 1.4,
+            maxHp: template.hpMult * 20 * scale * (isBoss ? 8 : 1) * 1.4,
+            speed: template.speed * 1.25,
+            isBoss, flashTimer: 0, iFrames: 0,
+        });
     }
 }
 
@@ -73,7 +102,7 @@ function spawnEnemy(template, isBoss) {
         ...template,
         x: TILE_SIZE * 2 + Math.random() * (canvas.width - TILE_SIZE*4),
         y: TILE_SIZE * 2 + Math.random() * (canvas.height - TILE_SIZE*4),
-        hp: template.hpMult * 20 * scale * (isBoss ? 8 : 1),
+        hp:    template.hpMult * 20 * scale * (isBoss ? 8 : 1),
         maxHp: template.hpMult * 20 * scale * (isBoss ? 8 : 1),
         isBoss, flashTimer: 0, iFrames: 0
     });
@@ -234,22 +263,36 @@ function updatePlayer(dt) {
     }
 
     const room = mapData.rooms[state.roomY][state.roomX];
-    
-    // Exit Stairs Interaction
-    if (room.isExit && room.cleared && Math.hypot(state.player.x - (ROOM_COLS/2*TILE_SIZE), state.player.y - (ROOM_ROWS/2*TILE_SIZE)) < 30) {
-        state.callbacks.onNextStage();
+
+    // Exit Stairs — quiz gate before descending (guard against repeated triggers)
+    if (room.isExit && room.cleared && !room.stairsTriggered &&
+        Math.hypot(state.player.x - (ROOM_COLS/2*TILE_SIZE), state.player.y - (ROOM_ROWS/2*TILE_SIZE)) < 30) {
+        room.stairsTriggered = true;
+        state.callbacks.onStairsReached(() => { room.stairsTriggered = false; });
     }
-    
-    // Chest Interaction
-    if (room.hasChest && room.cleared && Math.hypot(state.player.x - (ROOM_COLS/2*TILE_SIZE), state.player.y - (ROOM_ROWS/2*TILE_SIZE)) < 30) {
+
+    // Chest — quiz gate before opening (guard against double-trigger)
+    if (room.hasChest && room.cleared && !room.chestTriggered &&
+        Math.hypot(state.player.x - (ROOM_COLS/2*TILE_SIZE), state.player.y - (ROOM_ROWS/2*TILE_SIZE)) < 30) {
+        room.chestTriggered = true;
         room.hasChest = false;
         room.grid[Math.floor(ROOM_ROWS/2)][Math.floor(ROOM_COLS/2)] = TILE.FLOOR;
-        
         const unowned = Object.keys(WEAPONS).filter(w => !state.unlockedWeapons.includes(w));
-        if (unowned.length > 0) {
-            state.callbacks.onItemFound('weapon', unowned[0]);
-        } else {
-            state.callbacks.onItemFound('potion', null);
+        state.callbacks.onChestOpen(unowned.length > 0 ? unowned[0] : null);
+    }
+
+    // Shrine — optional quiz, single use
+    if (room.hasShrine) {
+        for (let r = 1; r < ROOM_ROWS - 1; r++) {
+            for (let c = 1; c < ROOM_COLS - 1; c++) {
+                if (room.grid[r][c] === TILE.SHRINE &&
+                    Math.hypot(state.player.x - (c * TILE_SIZE + TILE_SIZE/2),
+                               state.player.y - (r * TILE_SIZE + TILE_SIZE/2)) < 28) {
+                    room.hasShrine = false;
+                    room.grid[r][c] = TILE.FLOOR;
+                    state.callbacks.onShrineTouch();
+                }
+            }
         }
     }
 

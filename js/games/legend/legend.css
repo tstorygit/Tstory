@@ -83,3 +83,67 @@
 /* Floating Text */
 .leg-float { position: absolute; pointer-events: none; font-weight: bold; font-size: 14px; text-shadow: 1px 1px 0 #000; animation: legFloatUp 0.8s forwards; z-index: 50; }
 @keyframes legFloatUp { 0% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; transform: translate(-50%, -30px); } }
+
+/* ── Level-up animation ── */
+.leg-levelup {
+    position: absolute; inset: 0; z-index: 90;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    pointer-events: none; overflow: hidden;
+    animation: legLvlFade 1.6s ease-out forwards;
+}
+@keyframes legLvlFade {
+    0%   { background: rgba(241,196,15,0.0); }
+    15%  { background: rgba(241,196,15,0.3); }
+    70%  { background: rgba(241,196,15,0.18); }
+    100% { background: rgba(241,196,15,0.0); }
+}
+
+/* Big level number */
+.leg-levelup-num {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 72px; font-weight: bold;
+    color: #f1c40f;
+    text-shadow: 0 0 30px rgba(241,196,15,0.9), 0 0 60px rgba(241,196,15,0.5), 2px 2px 0 #000;
+    animation: legLvlPop 1.6s ease-out forwards;
+    line-height: 1;
+}
+@keyframes legLvlPop {
+    0%   { opacity: 0; transform: scale(0.4); }
+    20%  { opacity: 1; transform: scale(1.15); }
+    35%  { transform: scale(0.95); }
+    50%  { transform: scale(1.05); }
+    65%  { transform: scale(1.0); }
+    85%  { opacity: 1; transform: scale(1.0); }
+    100% { opacity: 0; transform: scale(1.1); }
+}
+
+/* "LEVEL UP" label above the number */
+.leg-levelup-label {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 14px; font-weight: bold; letter-spacing: 6px;
+    color: #fff;
+    text-shadow: 0 0 10px rgba(241,196,15,0.8), 1px 1px 0 #000;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    animation: legLvlLabel 1.6s ease-out forwards;
+}
+@keyframes legLvlLabel {
+    0%   { opacity: 0; transform: translateY(10px); }
+    25%  { opacity: 1; transform: translateY(0); }
+    80%  { opacity: 1; }
+    100% { opacity: 0; }
+}
+
+/* Radiating ring burst */
+.leg-levelup-ring {
+    position: absolute;
+    border-radius: 50%;
+    border: 3px solid rgba(241,196,15,0.7);
+    animation: legLvlRing 1.6s ease-out forwards;
+}
+@keyframes legLvlRing {
+    0%   { width: 0;     height: 0;     opacity: 0.9; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+    100% { width: 400px; height: 400px; opacity: 0;   top: 50%; left: 50%; transform: translate(-50%, -50%); }
+}
+.leg-levelup-ring:nth-child(3) { animation-delay: 0.15s; border-color: rgba(243,156,18,0.5); }
+.leg-levelup-ring:nth-child(4) { animation-delay: 0.30s; border-color: rgba(241,196,15,0.3); }

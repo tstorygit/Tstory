@@ -6,7 +6,8 @@ export const ROOM_ROWS = 9;
 
 export const TILE = {
     FLOOR: 0, WALL: 1, TREE: 2, GRASS: 3, ROCK: 4, PIT: 5, POST: 6, STAIRS: 7, CHEST: 8,
-    STUMP: 9   // felled tree — walkable, purely cosmetic
+    STUMP: 9,   // felled tree — walkable, purely cosmetic
+    SHRINE: 10  // vocabulary shrine — optional quiz trigger, single-use
 };
 
 export function generateStage(stageLevel) {
@@ -110,13 +111,20 @@ export function generateStage(stageLevel) {
                 }
             }
 
-            const isExit = (rx === endRoom.x && ry === endRoom.y);
-            const hasChest = (!isExit && Math.random() < 0.2); 
-            
+            const isExit  = (rx === endRoom.x && ry === endRoom.y);
+            const hasChest  = (!isExit && Math.random() < 0.2);
+            const hasShrine = (!isExit && !hasChest && Math.random() < 0.25);
+
             if (isExit) grid[midR][midC] = TILE.STAIRS;
             if (hasChest) grid[midR][midC] = TILE.CHEST;
+            if (hasShrine) {
+                // Place shrine off the centre cross-path so it doesn't block doors
+                const sc = midC + (Math.random() < 0.5 ? -2 : 2);
+                const sr = midR + (Math.random() < 0.5 ? -2 : 2);
+                if (grid[sr][sc] === TILE.FLOOR) grid[sr][sc] = TILE.SHRINE;
+            }
 
-            rooms[ry][rx] = { grid, doors, cleared: false, isExit, hasChest, x: rx, y: ry };
+            rooms[ry][rx] = { grid, doors, cleared: false, isExit, hasChest, hasShrine, x: rx, y: ry };
         }
     }
 
