@@ -60,9 +60,46 @@ export class VcUI {
             window.addEventListener('resize', this._onResize);
             window.addEventListener('orientationchange', this._onResize);
 
+            // entitiesEl: transparent overlay div, used only for the range indicator.
+            // Enemy + projectile rendering is done on entitiesCanvas (zero DOM writes).
             this.entitiesEl = document.createElement('div');
             this.entitiesEl.className = 'vc-entities';
+            this.entitiesEl.style.pointerEvents = 'none';
+            this.entitiesEl.style.zIndex = '5';
             this.gridEl.appendChild(this.entitiesEl);
+
+            // Canvas layer: enemies at z-index 6, projectiles drawn on top of them.
+            // clearRect + draw calls have zero layout/style cost — GPU composited.
+            this.entitiesCanvas = document.createElement('canvas');
+            this.entitiesCanvas.style.cssText = 'position:absolute;left:0;top:0;z-index:6;pointer-events:auto;';
+            this.gridEl.appendChild(this.entitiesCanvas);
+            this._ctx = this.entitiesCanvas.getContext('2d');
+
+            // Canvas click → enemy hit test (replaces per-element click listeners)
+            this.entitiesCanvas.addEventListener('click', ev => {
+                const rect = this.entitiesCanvas.getBoundingClientRect();
+                // Divide by zoom: gridEl is CSS-scaled so rect is in viewport px, not canvas px
+                const zoom = this._zoom || 1;
+                const cx = (ev.clientX - rect.left) / zoom;
+                const cy = (ev.clientY - rect.top)  / zoom;
+                const hitRSq = (this.tileSize * 0.45) ** 2;
+                let hit = null;
+                // Reverse so topmost (latest drawn) enemy wins on overlap
+                for (let i = this.engine.enemies.length - 1; i >= 0; i--) {
+                    const e = this.engine.enemies[i];
+                    const dx = e.x - cx, dy = e.y - cy;
+                    if (dx*dx + dy*dy < hitRSq) { hit = e; break; }
+                }
+                if (hit) {
+                    ev.stopPropagation();
+                    this.selectedEnemyId = (this.selectedEnemyId === hit.id) ? null : hit.id;
+                    this.engine.selectedEnemyId = this.selectedEnemyId;
+                    this.tiles.forEach(t => t.classList.remove('selected'));
+                    this.selectedTile = null;
+                    this.renderBottomBar();
+                }
+                // No hit — let click fall through to tiles/grid
+            });
 
             // Stable layer for structures — rendered once per change, never
             // wiped every frame. This makes pointer/drag events work reliably.
@@ -178,12 +215,19 @@ export class VcUI {
         this.gridEl.style.setProperty('--ts', `${this.tileSize}px`);
 
         this.tiles =[];
-        // Fix #1 & #3: Clear per-frame keyed maps and drag state on grid reinit —
-        // old DOM elements were removed when the grid was rebuilt above.
-        this._enemyElMap     = new Map();
-        this._projElMap      = new Map();
+        // Clear drag state on grid reinit.
         this._rangeIndicatorEl = null;
-        this._dragOverTile   = null;
+        this._dragOverTile     = null;
+        this._structuresDirty  = true; // force first structure render after (re)init
+        this._drawTick         = 0;
+        // Emoji sprite cache is keyed on (emoji, size). Invalidate on tileSize change
+        // because all sprite sizes depend on tileSize.
+        this._emojiCache = new Map();
+        // Resize the entity canvas to match the new grid dimensions.
+        if (this.entitiesCanvas) {
+            this.entitiesCanvas.width  = cols * this.tileSize;
+            this.entitiesCanvas.height = rows * this.tileSize;
+        }
         // ✅ FIX: outer for(r) loop was accidentally deleted, leaving for(c) referencing
         // undefined `r` and an orphaned `}` that closed initGrid() prematurely.
         // The orphaned `}` put this.engine.map.waypointSets and this._renderWallEdges()
@@ -564,6 +608,7 @@ export class VcUI {
                         const tmp = target.gem;
                         target.gem = src.gem;
                         src.gem = tmp;
+                        this._structuresDirty = true;
                         if (this.selectedTile?.structRef === src || this.selectedTile?.structRef === target)
                             this.renderBottomBar();
                     }
@@ -658,6 +703,7 @@ export class VcUI {
                     if (this.engine.addStructure(st.x, st.y, 'tower')) {
                         const s = this.engine.structures.find(s => s.x === st.x && s.y === st.y);
                         if (s) { s.r = st.r; s.c = st.c; }
+                        this._structuresDirty = true;
                         this.selectTile(st.r, st.c, st.type);
                     }
                 });
@@ -667,6 +713,7 @@ export class VcUI {
                     if (this.engine.addStructure(st.x, st.y, 'trap')) {
                         const s = this.engine.structures.find(s => s.x === st.x && s.y === st.y);
                         if (s) { s.r = st.r; s.c = st.c; }
+                        this._structuresDirty = true;
                         this.selectTile(st.r, st.c, st.type);
                     }
                 });
@@ -793,6 +840,7 @@ export class VcUI {
             this._lastPickedLevel = selectedLevel;
             this.handleVocabAction(cost, () => {
                 st.structRef.gem = { color: selectedColor, level: selectedLevel };
+                this._structuresDirty = true;
                 this.selectTile(st.r, st.c, st.type);
             });
         };
@@ -946,6 +994,7 @@ export class VcUI {
         this._costButtons.push({ btn: upBtn, cost });
         upBtn.onclick = () => this.handleVocabAction(cost, () => {
             structRef.gem.level++;
+            this._structuresDirty = true;
             this.selectTile(this.selectedTile.r, this.selectedTile.c, this.selectedTile.type);
         });
         btnRow.appendChild(upBtn);
@@ -957,6 +1006,7 @@ export class VcUI {
         sellBtn.textContent = '✕ Remove';
         sellBtn.onclick = () => {
             structRef.gem = null;
+            this._structuresDirty = true;
             this.selectTile(this.selectedTile.r, this.selectedTile.c, this.selectedTile.type);
         };
         btnRow.appendChild(sellBtn);
@@ -1134,7 +1184,7 @@ export class VcUI {
         if (this._gemPickerRefresh) this._gemPickerRefresh();
     }
 
-    draw(engineState, events = []) {
+    draw(engineState, eventMsg) {
         // FPS counter — averaged over 30 frames to stay readable
         if (this._fpsEl) {
             this._fpsFrames++;
@@ -1233,7 +1283,7 @@ export class VcUI {
             if (s_crit) s_crit.textContent = sts.critHits;
         }
 
-        if (!this.entitiesEl) return;
+        if (!this.entitiesCanvas) return;
 
         // Fix #1: Keyed DOM diffing — reuse existing elements instead of
         // destroying and recreating the entire entity layer every frame.
@@ -1260,228 +1310,188 @@ export class VcUI {
         }
 
         // ── Structures layer (stable DOM, handled by _renderStructures) ──────
-        if (this.structuresEl) {
+        // Only re-render when something actually changed — structures are static mid-wave.
+        if (this.structuresEl && this._structuresDirty) {
             this._renderStructures(engineState.structures);
+            this._structuresDirty = false;
         }
 
-        // ── Enemies: keyed diff ──────────────────────────────────────────────
-        // Build a map of currently rendered enemy elements.
-        if (!this._enemyElMap) this._enemyElMap = new Map();
-        const enemyElMap = this._enemyElMap;
+        // ── Canvas: enemies + projectiles ───────────────────────────────────
+        // Zero DOM writes. clearRect wipes the frame, then we draw everything
+        // with 2D API calls — no layout, no style recalc, no GC from element churn.
+        const canvas = this.entitiesCanvas;
+        const ctx    = this._ctx;
+        if (canvas && ctx) {
+            const ts = this.tileSize;
 
-        // Mark all existing elements for potential removal.
-        const toRemove = new Set(enemyElMap.keys());
-
-        for (const e of engineState.enemies) {
-            toRemove.delete(e.id); // still alive — keep it
-
-            const pct = (e.hp / e.maxHp) * 100;
-            const isSelected = e.id === this.selectedEnemyId;
-            const fx = e.effects || {};
-
-            let el = enemyElMap.get(e.id);
-            if (!el) {
-                // New enemy — create element once and attach click listener once.
-                el = document.createElement('div');
-                el.className = 'vc-enemy';
-                el.dataset.eid = e.id;
-                el.style.position = 'absolute';
-                el.addEventListener('click', ev => {
-                    ev.stopPropagation();
-                    const eid = el.dataset.eid;
-                    this.selectedEnemyId = (this.selectedEnemyId === eid) ? null : eid;
-                    this.engine.selectedEnemyId = this.selectedEnemyId;
-                    this.tiles.forEach(t => t.classList.remove('selected'));
-                    this.selectedTile = null;
-                    this.renderBottomBar();
-                });
-
-                // Build interior once (emoji + hp bar + status icons + armor).
-                // Only the parts that change are patched per frame below.
-                el._hpFill   = document.createElement('div');
-                el._hpFill.className = 'vc-enemy-hp-fill';
-                const hpBar  = document.createElement('div');
-                hpBar.className = 'vc-enemy-hp-bar';
-                hpBar.appendChild(el._hpFill);
-
-                el._emojiNode = document.createTextNode(e.emoji || '👾');
-                el._fxEl      = document.createElement('div');
-                el._fxEl.className = 'vc-fx-icons';
-                el._armorEl   = document.createElement('div');
-                el._armorEl.className = 'vc-enemy-armor';
-                el._ringEl    = document.createElement('div');
-                el._ringEl.className = 'vc-enemy-selected-ring';
-
-                el.appendChild(el._ringEl);
-                el.appendChild(el._emojiNode);
-                el.appendChild(hpBar);
-                el.appendChild(el._fxEl);
-                el.appendChild(el._armorEl);
-
-                this.entitiesEl.appendChild(el);
-                enemyElMap.set(e.id, el);
+            // Resize if grid dimensions changed (e.g. after orientation change)
+            const needW = this.engine.map.cols * ts;
+            const needH = this.engine.map.rows * ts;
+            if (canvas.width !== needW || canvas.height !== needH) {
+                canvas.width  = needW;
+                canvas.height = needH;
+                this._emojiCache = new Map(); // sizes changed — bust sprite cache
             }
 
-            // ── Per-frame patches (only write to DOM when value changed) ──────
-            el.style.left = e.x + 'px';
-            el.style.top  = e.y + 'px';
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Flash / focus class
-            const wantFocused = isSelected;
-            const hasFocused  = el.classList.contains('vc-enemy-focused');
-            if (wantFocused !== hasFocused) el.classList.toggle('vc-enemy-focused', wantFocused);
+            const emojiPx = Math.round(ts * 0.55);
+            // Pre-compute font strings — setting ctx.font inside a loop is expensive
+            // because the browser has to parse the CSS font string each time.
+            const fontArmor  = Math.max(8, ts * 0.21) + 'px sans-serif';
+            const fontStatus = Math.max(8, ts * 0.22) + 'px sans-serif';
+            // Secondary data (HP %, armor, status) only needs ~20fps — throttle to every 3 frames.
+            // Positions are always drawn from live data (enemies move at 60fps).
+            this._drawTick = (this._drawTick || 0) + 1;
+            const refreshSecondary = (this._drawTick % 3 === 0);
 
-            // Flash drop-shadow
-            let flashStyle = '';
-            if (fx.flashTimer > 0 && fx.flashColor) {
-                flashStyle = fx.flashColor === 'crit'
-                    ? 'filter:drop-shadow(0 0 6px #f1c40f);'
-                    : 'filter:drop-shadow(0 0 6px #9b59b6);';
-            }
-            if (el._lastFlashStyle !== flashStyle) {
-                el._lastFlashStyle = flashStyle;
-                el.style.filter = flashStyle
-                    ? (fx.flashColor === 'crit' ? 'drop-shadow(0 0 6px #f1c40f)' : 'drop-shadow(0 0 6px #9b59b6)')
-                    : '';
-            }
+            // ── Enemies ──
+            for (const e of engineState.enemies) {
+                const x = e.x, y = e.y;
+                const fx = e.effects || {};
+                const isSelected = e.id === this.selectedEnemyId;
 
-            // HP bar fill
-            const hpColor = e.isBoss ? '#e74c3c' : e.typeId === 'armored' ? '#95a5a6' : e.typeId === 'fast' ? '#3498db' : e.typeId === 'healer' ? '#2ecc71' : e.typeId === 'ghost' ? '#9b59b6' : e.typeId === 'swarm' ? '#f39c12' : '#2ecc71';
-            const hpPctStr = pct.toFixed(1) + '%';
-            if (el._hpFill._lastPct !== hpPctStr) {
-                el._hpFill._lastPct = hpPctStr;
-                el._hpFill.style.width = hpPctStr;
-                el._hpFill.style.background = hpColor;
-            }
+                // Throttled secondary cache: HP, armor, status, flash
+                if (refreshSecondary || e._cHp === undefined) {
+                    e._cHp     = Math.max(0, Math.min(1, e.hp / e.maxHp));
+                    e._cArmor  = e.armor > 0.5 ? Math.round(e.armor) : 0;
+                    e._cSlow   = fx.slow > 0;
+                    e._cPoison = fx.poison > 0;
+                    e._cFlash  = (fx.flashTimer > 0 && fx.flashColor) ? fx.flashColor : '';
+                }
 
-            // Status icons (slow / poison)
-            const statusKey = (fx.slow > 0 ? '1' : '0') + (fx.poison > 0 ? '1' : '0');
-            if (el._fxEl._lastKey !== statusKey) {
-                el._fxEl._lastKey = statusKey;
-                el._fxEl.innerHTML = (fx.slow > 0 ? '<span class="vc-fx-icon">❄️</span>' : '')
-                                   + (fx.poison > 0 ? '<span class="vc-fx-icon">☠️</span>' : '');
-                el._fxEl.style.display = statusKey !== '00' ? '' : 'none';
-            }
+                // Selection ring
+                if (isSelected) {
+                    ctx.beginPath();
+                    ctx.arc(x, y, ts * 0.43, 0, Math.PI * 2);
+                    ctx.strokeStyle = '#f1c40f';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
 
-            // Armor badge
-            const armorVal = e.armor > 0 ? Math.round(e.armor) : 0;
-            if (el._armorEl._lastVal !== armorVal) {
-                el._armorEl._lastVal = armorVal;
-                if (armorVal > 0) {
-                    el._armorEl.textContent = '🛡️' + armorVal;
-                    el._armorEl.style.display = '';
-                } else {
-                    el._armorEl.style.display = 'none';
+                // Flash glow
+                if (e._cFlash) {
+                    ctx.beginPath();
+                    ctx.arc(x, y, ts * 0.34, 0, Math.PI * 2);
+                    ctx.strokeStyle = e._cFlash === 'crit' ? '#f1c40f' : '#9b59b6';
+                    ctx.lineWidth = 3;
+                    ctx.globalAlpha = 0.75;
+                    ctx.stroke();
+                    ctx.globalAlpha = 1;
+                }
+
+                // Emoji sprite
+                const sprite = this._getEmojiSprite(e.emoji || '👾', emojiPx);
+                ctx.drawImage(sprite, x - (sprite.width >> 1), y - (sprite.height >> 1));
+
+                // HP bar — directly above the emoji
+                const barW  = ts * 0.9;
+                const barH  = Math.max(2, ts * 0.08);
+                const barX  = x - barW / 2;
+                const barY  = y - emojiPx * 0.6 - barH - 2;
+                const hpColor = e.isBoss             ? '#e74c3c'
+                              : e.typeId === 'armored' ? '#95a5a6'
+                              : e.typeId === 'fast'    ? '#3498db'
+                              : e.typeId === 'healer'  ? '#2ecc71'
+                              : e.typeId === 'ghost'   ? '#9b59b6'
+                              : e.typeId === 'swarm'   ? '#f39c12'
+                              : '#2ecc71';
+                ctx.fillStyle = '#222';
+                ctx.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
+                ctx.fillStyle = hpColor;
+                ctx.fillRect(barX, barY, barW * e._cHp, barH);
+
+                // Armor badge
+                if (e._cArmor > 0) {
+                    ctx.font      = fontArmor;
+                    ctx.textAlign = 'right';
+                    ctx.textBaseline = 'bottom';
+                    ctx.fillStyle = '#ecf0f1';
+                    ctx.fillText('\uD83D\uDEE1\uFE0F' + e._cArmor, x + ts * 0.48, y + ts * 0.44);
+                }
+
+                // Status icons
+                if (e._cSlow || e._cPoison) {
+                    ctx.font      = fontStatus;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'top';
+                    ctx.fillText(
+                        (e._cSlow ? '\u2744\uFE0F' : '') + (e._cPoison ? '\u2620\uFE0F' : ''),
+                        x, y + emojiPx * 0.5 + 1
+                    );
                 }
             }
 
-            // Selection ring visibility
-            el._ringEl.style.display = isSelected ? '' : 'none';
-        }
-
-        // Remove stale enemy elements (enemies that died or leaked this frame)
-        for (const deadId of toRemove) {
-            const el = enemyElMap.get(deadId);
-            if (el) { el.remove(); }
-            enemyElMap.delete(deadId);
-        }
-
-        // ── Projectiles: keyed diff ──────────────────────────────────────────
-        if (!this._projElMap) this._projElMap = new Map();
-        const projElMap = this._projElMap;
-        // Perf fix 7: use stable numeric p.id — no string concat, no Set allocation per frame
-        const activeProjIds = new Set();
-
-        for (let i = 0; i < engineState.projectiles.length; i++) {
-            const p = engineState.projectiles[i];
-            activeProjIds.add(p.id);
-
-            let pel = projElMap.get(p.id);
-            if (!pel) {
-                pel = document.createElement('div');
-                pel.className = 'vc-projectile';
-                this.entitiesEl.appendChild(pel);
-                projElMap.set(p.id, pel);
+            // ── Projectiles — batch by color to minimize state changes ──
+            // Group into color buckets first, then one beginPath per color.
+            if (engineState.projectiles.length > 0) {
+                const projR = Math.max(2, ts * 0.08);
+                const byColor = {};
+                for (const p of engineState.projectiles) {
+                    const col = p.gemData.color;
+                    if (!byColor[col]) byColor[col] = [];
+                    byColor[col].push(p);
+                }
+                for (const col in byColor) {
+                    ctx.fillStyle = col;
+                    ctx.beginPath();
+                    for (const p of byColor[col]) {
+                        ctx.moveTo(p.x + projR, p.y);
+                        ctx.arc(p.x, p.y, projR, 0, Math.PI * 2);
+                    }
+                    ctx.fill();
+                }
             }
-            pel.style.left       = p.x + 'px';
-            pel.style.top        = p.y + 'px';
-            pel.style.background = p.gemData.color;
-        }
-        // Remove stale projectile elements
-        for (const [id, el] of projElMap) {
-            if (!activeProjIds.has(id)) { el.remove(); projElMap.delete(id); }
         }
 
         this._updateEnemyStatWindow(engineState);
 
-        // Batch fix: events is now an array flushed once per frame.
-        // Backwards-compat: if somehow a single object is passed, wrap it.
-        const eventList = Array.isArray(events) ? events : (events ? [events] : []);
-
-        // Cap damage floats per frame — showing 500 numbers at once is visual noise
-        // and creates hundreds of DOM nodes. Show the biggest hits only.
-        const MAX_DMG_FLOATS = 8;
-        let dmgFloats = [];
-        for (const evt of eventList) {
-            if (evt.type === 'dmg') dmgFloats.push(evt);
-        }
-        // Sort descending by amount, keep top MAX_DMG_FLOATS
-        if (dmgFloats.length > MAX_DMG_FLOATS) {
-            dmgFloats.sort((a, b) => b.amt - a.amt);
-            dmgFloats = dmgFloats.slice(0, MAX_DMG_FLOATS);
-        }
-        for (const evt of dmgFloats) {
+        if (eventMsg?.type === 'dmg') {
             const fl = document.createElement('div');
             fl.className = 'vc-float';
-            fl.style.left = evt.x + 'px';
-            fl.style.top  = evt.y + 'px';
-            fl.style.color = GEMS[evt.color]?.color ?? '#fff';
-            fl.textContent = evt.amt;
+            fl.style.left = eventMsg.x + 'px';
+            fl.style.top = eventMsg.y + 'px';
+            fl.style.color = GEMS[eventMsg.color]?.color ?? '#fff';
+            fl.textContent = eventMsg.amt;
             this.gridEl.appendChild(fl);
             setTimeout(() => fl.remove(), 800);
-        }
-
-        for (const evt of eventList) {
-            if (evt.type === 'dmg') {
-                // already handled above
-            } else if (evt.type === 'poolLevelUp') {
-                const bar = this.topBar.manaBar;
-                if (bar) {
-                    bar.style.transition = 'none';
-                    bar.style.background = '#fff';
-                    setTimeout(() => { bar.style.transition = 'width 0.2s, background 0.3s'; }, 80);
-                }
-                const fl = document.createElement('div');
-                fl.className = 'vc-float';
-                fl.style.cssText = 'left:50%;top:20px;transform:translateX(-50%);font-size:14px;color:#f1c40f;text-shadow:0 0 8px #f39c12,1px 1px 0 #000;white-space:nowrap;';
-                fl.textContent = `✨ Pool Lv${evt.level} — gems +${(evt.level-1)*5}%`;
-                this.gridEl.appendChild(fl);
-                setTimeout(() => fl.remove(), 1400);
-            } else if (evt.type === 'manaLeak') {
-                const fl = document.createElement('div');
-                fl.className = 'vc-float';
-                fl.style.left = (evt.x || 50) + 'px';
-                fl.style.top  = (evt.y || 50) + 'px';
-                fl.style.color = '#e74c3c';
-                fl.style.fontSize = '14px';
-                fl.textContent = '-' + evt.amt + '💧';
-                this.gridEl.appendChild(fl);
-                setTimeout(() => fl.remove(), 900);
-            } else if (evt.type === 'waveClear') {
-                const fl = document.createElement('div');
-                fl.className = 'vc-float';
-                fl.style.cssText = 'left:50%;top:30px;transform:translateX(-50%);font-size:15px;color:#f1c40f;text-shadow:0 0 8px #f39c12,1px 1px 0 #000;';
-                fl.textContent = `✨ Perfect Wave +${evt.bonus} XP`;
-                this.gridEl.appendChild(fl);
-                setTimeout(() => fl.remove(), 1200);
-            } else if (evt.type === 'earlyCall') {
-                const fl = document.createElement('div');
-                fl.className = 'vc-float';
-                fl.style.cssText = 'left:50%;top:48px;transform:translateX(-50%);font-size:14px;color:#2ecc71;text-shadow:0 0 8px #27ae60,1px 1px 0 #000;white-space:nowrap;';
-                fl.textContent = `⚡ Early Call +${evt.bonus} 💧`;
-                this.gridEl.appendChild(fl);
-                setTimeout(() => fl.remove(), 1400);
+        } else if (eventMsg?.type === 'poolLevelUp') {
+            const bar = this.topBar.manaBar;
+            if (bar) {
+                bar.style.transition = 'none';
+                bar.style.background = '#fff';
+                setTimeout(() => { bar.style.transition = 'width 0.2s, background 0.3s'; }, 80);
             }
+            const fl = document.createElement('div');
+            fl.className = 'vc-float';
+            fl.style.cssText = 'left:50%;top:20px;transform:translateX(-50%);font-size:14px;color:#f1c40f;text-shadow:0 0 8px #f39c12,1px 1px 0 #000;white-space:nowrap;';
+            fl.textContent = `✨ Pool Lv${eventMsg.level} — gems +${(eventMsg.level-1)*5}%`;
+            this.gridEl.appendChild(fl);
+            setTimeout(() => fl.remove(), 1400);
+        } else if (eventMsg?.type === 'manaLeak') {
+            const fl = document.createElement('div');
+            fl.className = 'vc-float';
+            fl.style.left = (eventMsg.x || 50) + 'px';
+            fl.style.top  = (eventMsg.y || 50) + 'px';
+            fl.style.color = '#e74c3c';
+            fl.style.fontSize = '14px';
+            fl.textContent = '-' + eventMsg.amt + '💧';
+            this.gridEl.appendChild(fl);
+            setTimeout(() => fl.remove(), 900);
+        } else if (eventMsg?.type === 'waveClear') {
+            const fl = document.createElement('div');
+            fl.className = 'vc-float';
+            fl.style.cssText = 'left:50%;top:30px;transform:translateX(-50%);font-size:15px;color:#f1c40f;text-shadow:0 0 8px #f39c12,1px 1px 0 #000;';
+            fl.textContent = `✨ Perfect Wave +${eventMsg.bonus} XP`;
+            this.gridEl.appendChild(fl);
+            setTimeout(() => fl.remove(), 1200);
+        } else if (eventMsg?.type === 'earlyCall') {
+            const fl = document.createElement('div');
+            fl.className = 'vc-float';
+            fl.style.cssText = 'left:50%;top:48px;transform:translateX(-50%);font-size:14px;color:#2ecc71;text-shadow:0 0 8px #27ae60,1px 1px 0 #000;white-space:nowrap;';
+            fl.textContent = `⚡ Early Call +${eventMsg.bonus} 💧`;
+            this.gridEl.appendChild(fl);
+            setTimeout(() => fl.remove(), 1400);
         }
     }
 
@@ -1522,6 +1532,27 @@ export class VcUI {
         return h + 20;
     }
     // so pointer capture and drag events survive. Only updates what visually changed.
+    // Pre-render an emoji to an offscreen canvas and cache it by (emoji, size).
+    // drawImage from a cached canvas is ~10x faster than ctx.fillText every frame,
+    // because the browser only rasterises the glyph once per unique (emoji, size) combo.
+    _getEmojiSprite(emoji, size) {
+        if (!this._emojiCache) this._emojiCache = new Map();
+        const key = emoji + ':' + size;
+        let oc = this._emojiCache.get(key);
+        if (oc) return oc;
+        const pad = 4;
+        oc = document.createElement('canvas');
+        oc.width  = size + pad * 2;
+        oc.height = size + pad * 2;
+        const ctx = oc.getContext('2d');
+        ctx.font = size + 'px sans-serif';
+        ctx.textBaseline = 'middle';
+        ctx.textAlign    = 'center';
+        ctx.fillText(emoji, oc.width / 2, oc.height / 2);
+        this._emojiCache.set(key, oc);
+        return oc;
+    }
+
     _renderStructures(structures) {
         const el = this.structuresEl;
         const ts = this.tileSize;

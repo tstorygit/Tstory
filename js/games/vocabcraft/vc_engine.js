@@ -518,37 +518,48 @@ export class VcEngine {
     }
 
     updateStructures(dt) {
-        const tileSize = this.tileSize; // Perf fix 9: normalised in constructor, no || 40 needed
+        const tileSize = this.tileSize;
 
-        // Fix #2: Build a coarse spatial grid of enemies (1 cell = 2 tiles wide).
-        // Each structure only checks cells within its range instead of all enemies.
+        // Persistent spatial grid — reuse the Map and bucket arrays across frames.
+        // Integer key (cx * 4096 + cy) avoids string template allocation entirely.
+        // Buckets are cleared by setting length=0 rather than re-creating arrays.
         const CELL = tileSize * 2;
-        const spatialGrid = new Map();
+        if (!this._spatialGrid)  this._spatialGrid  = new Map();
+        if (!this._nearbyResult) this._nearbyResult = []; // reused result buffer
+        const spatialGrid = this._spatialGrid;
+
+        // Clear existing buckets (length=0 reuses the array allocation)
+        for (const bucket of spatialGrid.values()) bucket.length = 0;
+
         for (const e of this.enemies) {
-            const cx = Math.floor(e.x / CELL);
-            const cy = Math.floor(e.y / CELL);
-            const key = `${cx},${cy}`;
-            if (!spatialGrid.has(key)) spatialGrid.set(key, []);
-            spatialGrid.get(key).push(e);
+            const cx  = Math.floor(e.x / CELL);
+            const cy  = Math.floor(e.y / CELL);
+            const key = cx * 4096 + cy; // integer key — no string alloc
+            let bucket = spatialGrid.get(key);
+            if (!bucket) { bucket = []; spatialGrid.set(key, bucket); }
+            bucket.push(e);
         }
-        // Returns all enemies within `range` px of (sx, sy) using the grid.
+
+        // nearbyEnemies writes into the shared _nearbyResult buffer.
+        // Callers must consume it before the next call.
+        const nearbyResult = this._nearbyResult;
         const nearbyEnemies = (sx, sy, range) => {
+            nearbyResult.length = 0;
             const cellRadius = Math.ceil(range / CELL);
-            const cx0 = Math.floor(sx / CELL);
-            const cy0 = Math.floor(sy / CELL);
-            const result = [];
+            const cx0     = Math.floor(sx / CELL);
+            const cy0     = Math.floor(sy / CELL);
             const rangeSq = range * range;
             for (let dx = -cellRadius; dx <= cellRadius; dx++) {
                 for (let dy = -cellRadius; dy <= cellRadius; dy++) {
-                    const bucket = spatialGrid.get(`${cx0 + dx},${cy0 + dy}`);
+                    const bucket = spatialGrid.get((cx0 + dx) * 4096 + (cy0 + dy));
                     if (!bucket) continue;
                     for (const e of bucket) {
                         const ddx = e.x - sx, ddy = e.y - sy;
-                        if (ddx * ddx + ddy * ddy < rangeSq) result.push(e);
+                        if (ddx * ddx + ddy * ddy < rangeSq) nearbyResult.push(e);
                     }
                 }
             }
-            return result;
+            return nearbyResult;
         };
 
         this.structures.forEach(st => {
@@ -716,8 +727,11 @@ export class VcEngine {
 
         enemy.hp -= finalDmg;
         // Batch fix: queue dmg float instead of calling draw() immediately.
-        // All events are flushed once at end of tick — one draw() per frame total.
-        this._tickEvents.push({ type: 'dmg', x: enemy.x, y: enemy.y, amt: Math.floor(finalDmg), color: gem.color });
+        // Cap at 64 dmg events per tick — beyond that the floats would overlap anyway,
+        // and iterating thousands of events per flush kills performance at 5× speed with 20 traps.
+        if (this._tickEvents.length < 64) {
+            this._tickEvents.push({ type: 'dmg', x: enemy.x, y: enemy.y, amt: Math.floor(finalDmg), color: gem.color });
+        }
     }
 
     addStructure(x, y, type) {
