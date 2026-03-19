@@ -77,19 +77,24 @@ function _spawnRoom(room) {
     }
 }
 
+function _enemyHp(template, isBoss) {
+    // Stage 1: slime = 8 HP → 1–2 sword hits. Scales ×1.25 per stage.
+    // Boss multiplier kept separate so boss always feels imposing.
+    const stageScale = 1 + (state.stage - 1) * 0.25;
+    return template.hpMult * 8 * stageScale * (isBoss ? 10 : 1);
+}
+
 function _spawnRoomBuffed(room) {
-    // Wrong answer — enemies are faster and have more HP
     const count = 2 + Math.floor(Math.random() * 3);
     for (let i = 0; i < count; i++) {
         const template = room.isExit ? BOSSES[0] : ENEMIES[Math.floor(Math.random() * ENEMIES.length)];
-        const scale = 1 + (state.stage * 0.15);
         const isBoss = room.isExit;
+        const hp = _enemyHp(template, isBoss) * 1.4; // wrong-answer penalty
         activeEnemies.push({
             ...template,
             x: TILE_SIZE * 2 + Math.random() * (canvas.width - TILE_SIZE * 4),
             y: TILE_SIZE * 2 + Math.random() * (canvas.height - TILE_SIZE * 4),
-            hp:    template.hpMult * 20 * scale * (isBoss ? 8 : 1) * 1.4,
-            maxHp: template.hpMult * 20 * scale * (isBoss ? 8 : 1) * 1.4,
+            hp, maxHp: hp,
             speed: template.speed * 1.25,
             isBoss, flashTimer: 0, iFrames: 0,
         });
@@ -97,13 +102,12 @@ function _spawnRoomBuffed(room) {
 }
 
 function spawnEnemy(template, isBoss) {
-    const scale = 1 + (state.stage * 0.15);
+    const hp = _enemyHp(template, isBoss);
     activeEnemies.push({
         ...template,
         x: TILE_SIZE * 2 + Math.random() * (canvas.width - TILE_SIZE*4),
         y: TILE_SIZE * 2 + Math.random() * (canvas.height - TILE_SIZE*4),
-        hp:    template.hpMult * 20 * scale * (isBoss ? 8 : 1),
-        maxHp: template.hpMult * 20 * scale * (isBoss ? 8 : 1),
+        hp, maxHp: hp,
         isBoss, flashTimer: 0, iFrames: 0
     });
 }
@@ -472,17 +476,16 @@ function updateHitboxes(dt) {
             let isHit = false;
 
             if (hb.type === 'arc') {
-                // Sweep angle: starts at faceAngle + arc/2, ends at faceAngle - arc/2
-                const currentAngle = hb.faceAngle + hb.weapon.arc / 2 - hb.weapon.arc * hb.swingProgress;
-                const bladeLen = hb.weapon.id === 'sword' ? 30
-                               : hb.weapon.id === 'axe'   ? 34 : 38;
-                // Pivot offset forward
-                const pivot = 10;
+                const OFFSET   = Math.PI / 12; // same 15° shift as draw
+                const bladeLen = hb.weapon.id === 'sword' ? 24
+                               : hb.weapon.id === 'axe'   ? 27 : 30;
+                const pivot = 8;
                 const pivX = hb.x + Math.cos(hb.faceAngle) * pivot;
                 const pivY = hb.y + Math.sin(hb.faceAngle) * pivot;
                 const dist  = Math.hypot(e.x - pivX, e.y - pivY);
                 const angle = Math.atan2(e.y - pivY, e.x - pivX);
-                let diff = angle - hb.faceAngle;
+                // Window centre is faceAngle - OFFSET/2 (shifted 7.5° toward follow-through)
+                let diff = angle - (hb.faceAngle - OFFSET / 2);
                 while (diff >  Math.PI) diff -= 2 * Math.PI;
                 while (diff < -Math.PI) diff += 2 * Math.PI;
                 isHit = dist < bladeLen && Math.abs(diff) <= hb.weapon.arc / 2 + 0.08;
@@ -638,22 +641,26 @@ function draw(dt) {
         if (hb.type === 'arc') {
             // ── Pivot is offset FORWARD from player centre so the blade feels
             //    anchored at the hilt, not the belly-button.
-            const pivot = 10; // px forward along facing direction
+            const pivot = 8; // px forward along facing direction (was 10, -20%)
             const pivotX = Math.cos(hb.faceAngle) * pivot;
             const pivotY = Math.sin(hb.faceAngle) * pivot;
             ctx.translate(pivotX, pivotY);
 
-            // ── Sweep direction: right-to-left relative to facing.
-            //    At prog=0 the blade is at faceAngle + arc/2 (right side),
-            //    at prog=1 it arrives at faceAngle - arc/2 (left side).
+            // ── Swing window: offset -15° from symmetric so the right-hand
+            //    start is 30° off-centre (not 45°) and the follow-through
+            //    reaches 60° past centre (not 45°).
+            //    startAngle = faceAngle + 30°  (π/6)
+            //    endAngle   = faceAngle - 60°  (-π/3)
+            //    total arc stays 90° (π/2).
+            const OFFSET = Math.PI / 12; // 15° shift toward the left/through
             const prog       = hb.swingProgress;
-            const sweepAngle = hb.faceAngle + hb.weapon.arc / 2 - hb.weapon.arc * prog;
+            const startAngle = hb.faceAngle + hb.weapon.arc / 2 - OFFSET;
+            const sweepAngle = startAngle - hb.weapon.arc * prog;
 
-            // ── Blade length: shorter than the raw range value so it doesn't
-            //    reach across the whole room. Axe/Star stay slightly longer.
-            const bladeLen = hb.weapon.id === 'sword' ? 30
-                           : hb.weapon.id === 'axe'   ? 34
-                           : 38; // star
+            // ── Blade length: -20% vs previous values
+            const bladeLen = hb.weapon.id === 'sword' ? 24
+                           : hb.weapon.id === 'axe'   ? 27
+                           : 30; // star
             const bladeW   = hb.weapon.id === 'star'  ? 10 : 7;
 
             ctx.rotate(sweepAngle);
