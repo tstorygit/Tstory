@@ -307,32 +307,79 @@ function updatePlayer(dt) {
             }
         } else {
             const wpn = WEAPONS[state.player.equippedWeapon];
-            state.player.attackTimer = 0.3; 
-            
-            activeHitboxes.push({
-                x: state.player.x, y: state.player.y,
-                dirX: state.player.dirX, dirY: state.player.dirY,
-                weapon: wpn, life: 0.15, hitList: new Set(),
-                currentRange: wpn.type === 'projectile' ? 0 : wpn.range
-            });
+            state.player.attackTimer = 0.35;
 
-            // Map Obstacle Interaction
-            const range = wpn.type === 'projectile' || wpn.type === 'linear' ? wpn.range : TILE_SIZE * 1.2;
-            const px = state.player.x + state.player.dirX * range;
-            const py = state.player.y + state.player.dirY * range;
-            const pr = Math.floor(py / TILE_SIZE);
-            const pc = Math.floor(px / TILE_SIZE);
-            
-            if (pr >= 0 && pr < ROOM_ROWS && pc >= 0 && pc < ROOM_COLS) {
-                const targetTile = room.grid[pr][pc];
+            const faceAngle = Math.atan2(state.player.dirY, state.player.dirX);
+
+            if (wpn.type === 'arc') {
+                // Swing rectangle through a 90° arc
+                // startAngle = faceAngle - 45°, endAngle = faceAngle + 45°
+                activeHitboxes.push({
+                    x: state.player.x, y: state.player.y,
+                    dirX: state.player.dirX, dirY: state.player.dirY,
+                    faceAngle,
+                    weapon: wpn,
+                    life: 0.22, duration: 0.22,
+                    hitList: new Set(),
+                    // swingAngle goes from -arc/2 to +arc/2 over life
+                    swingProgress: 0,
+                    type: 'arc',
+                });
+            } else if (wpn.type === 'radial') {
+                activeHitboxes.push({
+                    x: state.player.x, y: state.player.y,
+                    dirX: state.player.dirX, dirY: state.player.dirY,
+                    faceAngle,
+                    weapon: wpn,
+                    life: 0.3, duration: 0.3,
+                    hitList: new Set(),
+                    swingProgress: 0,
+                    type: 'radial',
+                });
+            } else if (wpn.type === 'linear') {
+                // Thrust — shoots out then retracts
+                activeHitboxes.push({
+                    x: state.player.x, y: state.player.y,
+                    dirX: state.player.dirX, dirY: state.player.dirY,
+                    faceAngle,
+                    weapon: wpn,
+                    life: 0.25, duration: 0.25,
+                    hitList: new Set(),
+                    type: 'linear',
+                    // tip position updated each frame
+                    tipX: state.player.x, tipY: state.player.y,
+                });
+            } else if (wpn.type === 'projectile') {
+                activeHitboxes.push({
+                    x: state.player.x, y: state.player.y,
+                    dirX: state.player.dirX, dirY: state.player.dirY,
+                    faceAngle,
+                    weapon: wpn,
+                    life: 0.5, duration: 0.5,
+                    hitList: new Set(),
+                    type: 'projectile',
+                    ballX: state.player.x, ballY: state.player.y,
+                    currentRange: 0,
+                });
+            }
+
+            // Map Obstacle Interaction — check tile in facing direction
+            const reach = wpn.type === 'radial' ? TILE_SIZE * 1.5
+                        : wpn.type === 'linear'  ? wpn.range * 0.55
+                        : TILE_SIZE * 1.5;
+            const tx = state.player.x + state.player.dirX * reach;
+            const ty = state.player.y + state.player.dirY * reach;
+            const tr = Math.floor(ty / TILE_SIZE);
+            const tc = Math.floor(tx / TILE_SIZE);
+
+            if (tr >= 0 && tr < ROOM_ROWS && tc >= 0 && tc < ROOM_COLS) {
+                const targetTile = room.grid[tr][tc];
                 if (wpn.clear !== null && wpn.clear === targetTile) {
-                    // Trees become stumps; other clearable tiles become floor
-                    room.grid[pr][pc] = targetTile === TILE.TREE ? TILE.STUMP : TILE.FLOOR;
-                    // Invalidate the room's baked canvas so the stump renders next frame
-                    spawnFloat(px, py, 'BAM!', '#fff');
-                    tryDropLoot(px, py, 0.3);
+                    room.grid[tr][tc] = targetTile === TILE.TREE ? TILE.STUMP : TILE.FLOOR;
+                    spawnFloat(tx, ty, 'BAM!', '#fff');
+                    tryDropLoot(tx, ty, 0.3);
                 } else if (wpn.grapple && targetTile === wpn.grapple) {
-                    state.grappleTarget = {x: pc*TILE_SIZE + TILE_SIZE/2, y: pr*TILE_SIZE + TILE_SIZE/2};
+                    state.grappleTarget = {x: tc*TILE_SIZE + TILE_SIZE/2, y: tr*TILE_SIZE + TILE_SIZE/2};
                 }
             }
         }
@@ -388,64 +435,96 @@ function updateEnemies(dt) {
 }
 
 function updateHitboxes(dt) {
-    for (let i=activeHitboxes.length-1; i>=0; i--) {
-        let hb = activeHitboxes[i];
+    for (let i = activeHitboxes.length - 1; i >= 0; i--) {
+        const hb = activeHitboxes[i];
         hb.life -= dt;
         if (hb.life <= 0) { activeHitboxes.splice(i, 1); continue; }
-        
-        if (hb.weapon.type === 'linear') {
-            hb.currentRange += 600 * dt;
-            hb.x = state.player.x + hb.dirX * hb.currentRange;
-            hb.y = state.player.y + hb.dirY * hb.currentRange;
-        } else if (hb.weapon.type === 'projectile') {
-            hb.currentRange += 600 * dt;
-            hb.x = state.player.x + hb.dirX * hb.currentRange;
-            hb.y = state.player.y + hb.dirY * hb.currentRange;
-        } else {
-            hb.x = state.player.x; hb.y = state.player.y; 
+
+        // Progress 0→1 over the attack duration
+        hb.swingProgress = 1 - hb.life / hb.duration;
+
+        // Always anchor arc/radial/linear to the current player position
+        hb.x = state.player.x;
+        hb.y = state.player.y;
+
+        // Projectile ball position
+        if (hb.type === 'projectile') {
+            // Extend then retract
+            const half = hb.duration / 2;
+            const p    = hb.swingProgress;
+            const extP = p < 0.5 ? p * 2 : (1 - p) * 2; // 0→1→0
+            hb.currentRange = extP * hb.weapon.range;
+            hb.ballX = hb.x + hb.dirX * hb.currentRange;
+            hb.ballY = hb.y + hb.dirY * hb.currentRange;
+        }
+
+        // Linear thrust tip
+        if (hb.type === 'linear') {
+            // Thrust out to 55% of range, retract
+            const extP = hb.swingProgress < 0.5 ? hb.swingProgress * 2 : (1 - hb.swingProgress) * 2;
+            const reach = extP * hb.weapon.range * 0.55;
+            hb.tipX = hb.x + hb.dirX * reach;
+            hb.tipY = hb.y + hb.dirY * reach;
         }
 
         activeEnemies.forEach(e => {
             if (hb.hitList.has(e) || e.iFrames > 0) return;
-            
             let isHit = false;
-            
-            if (hb.weapon.type === 'radial') {
-                isHit = Math.hypot(e.x - hb.x, e.y - hb.y) < hb.weapon.range;
-            } 
-            else if (hb.weapon.type === 'linear') {
-                const hx = hb.x + hb.dirX * hb.weapon.range;
-                const hy = hb.y + hb.dirY * hb.weapon.range;
-                isHit = Math.hypot(e.x - hx, e.y - hy) < 30; // wider leniency for thrusts
-            }
-            else if (hb.weapon.type === 'projectile') {
-                isHit = Math.hypot(e.x - hb.x, e.y - hb.y) < 25;
-            }
-            else if (hb.weapon.type === 'arc') {
+
+            if (hb.type === 'arc') {
+                // Sweep angle from (faceAngle - arc/2) to (faceAngle + arc/2)
+                const currentAngle = hb.faceAngle - hb.weapon.arc / 2 + hb.weapon.arc * hb.swingProgress;
+                const bladeLen = hb.weapon.range;
+                // Blade tip position at current sweep angle
+                const tipX = hb.x + Math.cos(currentAngle) * bladeLen;
+                const tipY = hb.y + Math.sin(currentAngle) * bladeLen;
+                // Hit if enemy is within reach of the swept blade
                 const dist = Math.hypot(e.x - hb.x, e.y - hb.y);
                 const angle = Math.atan2(e.y - hb.y, e.x - hb.x);
-                const faceAngle = Math.atan2(hb.dirY, hb.dirX);
-                let diff = Math.abs(angle - faceAngle);
-                if (diff > Math.PI) diff = 2 * Math.PI - diff;
-                isHit = dist < hb.weapon.range && diff <= hb.weapon.arc/2;
+                let diff = angle - hb.faceAngle;
+                // normalise to [-π, π]
+                while (diff >  Math.PI) diff -= 2 * Math.PI;
+                while (diff < -Math.PI) diff += 2 * Math.PI;
+                isHit = dist < bladeLen && Math.abs(diff) <= hb.weapon.arc / 2 + 0.05;
+
+            } else if (hb.type === 'radial') {
+                // Full spin — hits once per activation
+                const dist = Math.hypot(e.x - hb.x, e.y - hb.y);
+                isHit = dist < hb.weapon.range;
+
+            } else if (hb.type === 'linear') {
+                // Hit anything near the shaft from player to tip
+                const reach = hb.weapon.range * 0.55;
+                const extP  = hb.swingProgress < 0.5 ? hb.swingProgress * 2 : (1 - hb.swingProgress) * 2;
+                const shaftLen = extP * reach;
+                if (shaftLen > 2) {
+                    // Point-to-segment distance: player → tip
+                    const ex = e.x - hb.x, ey = e.y - hb.y;
+                    const t  = Math.max(0, Math.min(1, (ex * hb.dirX + ey * hb.dirY) / shaftLen));
+                    const cx = hb.x + hb.dirX * shaftLen * t;
+                    const cy = hb.y + hb.dirY * shaftLen * t;
+                    isHit = Math.hypot(e.x - cx, e.y - cy) < 22;
+                }
+
+            } else if (hb.type === 'projectile') {
+                isHit = Math.hypot(e.x - hb.ballX, e.y - hb.ballY) < 20;
             }
-            
+
             if (isHit) {
                 hb.hitList.add(e);
-                const dmg = Math.max(1, Math.floor(state.player.str * hb.weapon.damage * (1 + Math.random()*0.2)));
+                const dmg = Math.max(1, Math.floor(state.player.str * hb.weapon.damage * (1 + Math.random() * 0.2)));
                 e.hp -= dmg;
-                e.flashTimer = 0.1;
-                e.iFrames = 0.1; // Prevent multihit from same swing
-                
-                e.x += hb.dirX * 15; e.y += hb.dirY * 15; 
+                e.flashTimer = 0.12;
+                e.iFrames = 0.12;
+                e.x += hb.dirX * 12; e.y += hb.dirY * 12;
                 spawnFloat(e.x, e.y, dmg, '#fff');
-                
+
                 if (e.hp <= 0) {
-                    const exp = Math.floor(e.xp * (1 + state.player.expBonus));
+                    const exp = Math.floor(e.xp * (1 + (state.player.expBonus || 0)));
                     state.player.exp += exp;
-                    spawnFloat(e.x, e.y-20, `+${exp}XP`, '#f1c40f');
+                    spawnFloat(e.x, e.y - 20, `+${exp}XP`, '#f1c40f');
                     e.dead = true;
-                    tryDropLoot(e.x, e.y, 0.15); // 15% drop chance from enemies
+                    tryDropLoot(e.x, e.y, 0.15);
                     state.callbacks.onExpGained();
                 }
             }
@@ -553,20 +632,120 @@ function draw(dt) {
     });
 
     activeHitboxes.forEach(hb => {
-        ctx.strokeStyle = '#fff'; ctx.lineWidth = 4;
-        ctx.beginPath();
-        if (hb.weapon.type === 'linear') {
+        ctx.save();
+        ctx.translate(hb.x, hb.y);
+
+        if (hb.type === 'arc') {
+            // Swinging blade rectangle rotating through the arc
+            const prog       = hb.swingProgress;
+            const sweepAngle = hb.faceAngle - hb.weapon.arc / 2 + hb.weapon.arc * prog;
+            const bladeLen   = hb.weapon.range;
+            const bladeW     = hb.weapon.id === 'star' ? 10 : 7; // morning star is chunkier
+
+            ctx.rotate(sweepAngle);
+
+            // Blade
+            ctx.fillStyle = hb.weapon.id === 'star' ? 'rgba(255,200,50,0.85)'
+                           : hb.weapon.id === 'axe'  ? 'rgba(180,200,220,0.85)'
+                           : 'rgba(200,220,255,0.85)';
+            ctx.fillRect(8, -bladeW / 2, bladeLen - 8, bladeW);
+
+            // Crossguard (Parierstange) — sword only
+            if (hb.weapon.id === 'sword') {
+                ctx.fillStyle = 'rgba(180,140,60,0.9)';
+                ctx.fillRect(5, -13, 6, 26); // wide crossguard
+            }
+
+            // Handle nub
+            ctx.fillStyle = 'rgba(100,70,40,0.9)';
+            ctx.fillRect(-4, -3, 14, 6);
+
+            // Blade edge highlight
+            ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(8, -bladeW / 2);
+            ctx.lineTo(bladeLen, -bladeW / 2);
+            ctx.stroke();
+
+        } else if (hb.type === 'radial') {
+            // Full 360° spinning sickle arc
+            const spinAngle = hb.swingProgress * Math.PI * 2;
+            const r = hb.weapon.range;
+            ctx.rotate(spinAngle);
+
+            // Spinning arc blade — short curved slice
+            ctx.strokeStyle = 'rgba(150,230,180,0.9)';
+            ctx.lineWidth = 5;
+            ctx.beginPath();
+            ctx.arc(0, 0, r * 0.7, -0.6, 0.6);
+            ctx.stroke();
+
+            // Inner glow ring (thinner)
+            ctx.strokeStyle = 'rgba(200,255,220,0.5)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(0, 0, r * 0.7, -1.0, 1.0);
+            ctx.stroke();
+
+            // Handle stub
+            ctx.fillStyle = 'rgba(100,70,40,0.8)';
+            ctx.fillRect(-3, -3, 14, 6);
+
+        } else if (hb.type === 'linear') {
+            // Spear thrust — a shaft that extends and retracts
+            const extP   = hb.swingProgress < 0.5 ? hb.swingProgress * 2 : (1 - hb.swingProgress) * 2;
+            const reach  = extP * hb.weapon.range * 0.55;
+            ctx.rotate(hb.faceAngle);
+
+            // Shaft
+            ctx.fillStyle = 'rgba(180,140,70,0.85)';
+            ctx.fillRect(0, -3, reach, 6);
+
+            // Spearhead triangle
+            if (reach > 8) {
+                ctx.fillStyle = 'rgba(210,230,255,0.95)';
+                ctx.beginPath();
+                ctx.moveTo(reach,       0);
+                ctx.lineTo(reach - 12, -5);
+                ctx.lineTo(reach - 12,  5);
+                ctx.closePath();
+                ctx.fill();
+                // edge highlight
+                ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(reach, 0);
+                ctx.lineTo(reach - 12, -5);
+                ctx.stroke();
+            }
+
+        } else if (hb.type === 'projectile') {
+            // Draw the chain line from player to ball
+            ctx.restore(); // use absolute coords for projectile
+            ctx.save();
+            ctx.strokeStyle = 'rgba(180,150,255,0.8)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
             ctx.moveTo(hb.x, hb.y);
-            ctx.lineTo(hb.x + hb.dirX * hb.currentRange, hb.y + hb.dirY * hb.currentRange);
-        } else if (hb.weapon.type === 'projectile') {
-            ctx.arc(hb.x, hb.y, 8, 0, Math.PI*2);
-        } else if (hb.weapon.type === 'radial') {
-            ctx.arc(hb.x, hb.y, hb.weapon.range, 0, Math.PI*2);
-        } else {
-            const angle = Math.atan2(hb.dirY, hb.dirX);
-            ctx.arc(hb.x, hb.y, hb.weapon.range, angle - hb.weapon.arc/2, angle + hb.weapon.arc/2);
+            ctx.lineTo(hb.ballX, hb.ballY);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Ball at tip
+            ctx.fillStyle = 'rgba(200,170,255,0.95)';
+            ctx.beginPath();
+            ctx.arc(hb.ballX, hb.ballY, 7, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+            ctx.restore();
+            return; // skip the outer ctx.restore() below
         }
-        ctx.stroke();
+
+        ctx.restore();
     });
 
     ctx.globalAlpha = state.player.invincibility > 0 && Math.floor(performance.now()/100)%2===0 ? 0.3 : 1;

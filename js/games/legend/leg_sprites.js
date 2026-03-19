@@ -214,7 +214,7 @@ function _drawShrine(ctx, px, py, ts) {
     _tileGrid(ctx, px, py, ts);
 }
 
-
+function _drawStump(ctx, px, py, ts) {
     // Floor base
     _fill(ctx, '#8fa068', px, py, ts, ts);
 
@@ -268,7 +268,7 @@ function _drawShrine(ctx, px, py, ts) {
     _tileGrid(ctx, px, py, ts);
 }
 
-
+function _drawRock(ctx, px, py, ts) {
     _fill(ctx, '#8fa068', px, py, ts, ts);
 
     const cx = px + ts / 2;
