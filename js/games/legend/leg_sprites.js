@@ -32,7 +32,7 @@ function _getCached(key, ts, paintFn) {
  */
 export function prewarmTileCache(ts) {
     _cache.clear();
-    const staticTypes = [TILE.FLOOR, TILE.WALL, TILE.TREE, TILE.GRASS, TILE.ROCK, TILE.PIT, TILE.POST];
+    const staticTypes = [TILE.FLOOR, TILE.WALL, TILE.TREE, TILE.GRASS, TILE.ROCK, TILE.PIT, TILE.POST, TILE.STUMP];
     staticTypes.forEach(t => _getCached(`${t}:0`, ts, (c, x, y, s) => _paint(c, t, x, y, s, false)));
     [TILE.STAIRS, TILE.CHEST].forEach(t => {
         _getCached(`${t}:0`, ts, (c, x, y, s) => _paint(c, t, x, y, s, false));
@@ -69,7 +69,7 @@ function _paint(ctx, tileType, px, py, ts, roomCleared) {
         case TILE.ROCK:   _drawRock(ctx, px, py, ts);                break;
         case TILE.PIT:    _drawPit(ctx, px, py, ts);                 break;
         case TILE.POST:   _drawPost(ctx, px, py, ts);                break;
-        case TILE.STAIRS: _drawStairs(ctx, px, py, ts, roomCleared); break;
+        case TILE.STUMP:  _drawStump(ctx, px, py, ts);               break;
         case TILE.CHEST:  _drawChest(ctx, px, py, ts, roomCleared);  break;
         default:          _drawFloor(ctx, px, py, ts);               break;
     }
@@ -156,7 +156,61 @@ function _drawTree(ctx, px, py, ts) {
     _tileGrid(ctx, px, py, ts);
 }
 
-function _drawRock(ctx, px, py, ts) {
+function _drawStump(ctx, px, py, ts) {
+    // Floor base
+    _fill(ctx, '#8fa068', px, py, ts, ts);
+
+    const cx  = px + ts / 2;
+    const cy  = py + ts / 2;
+
+    // Fallen trunk — a horizontal brown log
+    const logW = Math.round(ts * 0.72);
+    const logH = Math.round(ts * 0.22);
+    const logX = cx - logW / 2;
+    const logY = cy + ts * 0.05;
+
+    // Log body
+    _fill(ctx, '#795548', logX, logY, logW, logH);
+    // Bark highlights top edge
+    _fill(ctx, '#8d6e63', logX, logY, logW, Math.round(logH * 0.28));
+    // Bark shadow bottom edge
+    _fill(ctx, '#4e342e', logX, logY + Math.round(logH * 0.78), logW, Math.round(logH * 0.22));
+
+    // Left end-grain circle (cut face)
+    const er = Math.round(logH * 0.48);
+    ctx.fillStyle = '#a1887f';
+    ctx.beginPath();
+    ctx.ellipse(logX + er, logY + logH / 2, er, Math.round(er * 0.8), 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Inner ring
+    ctx.fillStyle = '#795548';
+    ctx.beginPath();
+    ctx.ellipse(logX + er, logY + logH / 2, Math.round(er * 0.55), Math.round(er * 0.45), 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Pith dot
+    ctx.fillStyle = '#6d4c41';
+    ctx.beginPath();
+    ctx.arc(logX + er, logY + logH / 2, Math.round(er * 0.2), 0, Math.PI * 2);
+    ctx.fill();
+
+    // Stump base (short, still rooted)
+    const stW = Math.round(ts * 0.20);
+    const stH = Math.round(ts * 0.18);
+    const stX = cx - stW / 2;
+    const stY = logY - stH;
+    _fill(ctx, '#5d4037', stX, stY, stW, stH);
+    _fill(ctx, '#6d4c41', stX, stY, stW, Math.round(stH * 0.35));
+
+    // A few wood-chip specks on the floor
+    ctx.fillStyle = '#8d6e63';
+    [[0.3, 0.82], [0.65, 0.78], [0.72, 0.88]].forEach(([fx, fy]) => {
+        ctx.fillRect(px + fx * ts, py + fy * ts, 3, 2);
+    });
+
+    _tileGrid(ctx, px, py, ts);
+}
+
+
     _fill(ctx, '#8fa068', px, py, ts, ts);
 
     const cx = px + ts / 2;

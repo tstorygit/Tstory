@@ -157,7 +157,7 @@ function updatePlayer(dt) {
             const tr = Math.floor(y / TILE_SIZE);
             if (tr < 0 || tr >= ROOM_ROWS || tc < 0 || tc >= ROOM_COLS) return true;
             const t = room.grid[tr][tc];
-            return t === TILE.FLOOR || t === TILE.STAIRS || t === TILE.CHEST || t === TILE.GRASS;
+            return t === TILE.FLOOR || t === TILE.STAIRS || t === TILE.CHEST || t === TILE.GRASS || t === TILE.STUMP;
         };
 
         // Check all four corners of the AABB for a given center position
@@ -283,9 +283,11 @@ function updatePlayer(dt) {
             if (pr >= 0 && pr < ROOM_ROWS && pc >= 0 && pc < ROOM_COLS) {
                 const targetTile = room.grid[pr][pc];
                 if (wpn.clear !== null && wpn.clear === targetTile) {
-                    room.grid[pr][pc] = TILE.FLOOR; 
+                    // Trees become stumps; other clearable tiles become floor
+                    room.grid[pr][pc] = targetTile === TILE.TREE ? TILE.STUMP : TILE.FLOOR;
+                    // Invalidate the room's baked canvas so the stump renders next frame
                     spawnFloat(px, py, 'BAM!', '#fff');
-                    tryDropLoot(px, py, 0.3); // 30% drop chance from obstacles
+                    tryDropLoot(px, py, 0.3);
                 } else if (wpn.grapple && targetTile === wpn.grapple) {
                     state.grappleTarget = {x: pc*TILE_SIZE + TILE_SIZE/2, y: pr*TILE_SIZE + TILE_SIZE/2};
                 }

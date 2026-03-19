@@ -5,7 +5,8 @@ export const ROOM_COLS = 13;
 export const ROOM_ROWS = 9;
 
 export const TILE = {
-    FLOOR: 0, WALL: 1, TREE: 2, GRASS: 3, ROCK: 4, PIT: 5, POST: 6, STAIRS: 7, CHEST: 8
+    FLOOR: 0, WALL: 1, TREE: 2, GRASS: 3, ROCK: 4, PIT: 5, POST: 6, STAIRS: 7, CHEST: 8,
+    STUMP: 9   // felled tree — walkable, purely cosmetic
 };
 
 export function generateStage(stageLevel) {
