@@ -202,12 +202,17 @@ export class VcUI {
         // after every rotation or resize that changes tileSize.
         if (this.tileSize > 0 && newTileSize !== this.tileSize) {
             const oldTs = this.tileSize;
+            console.log(`[VC RESIZE] tileSize changing ${oldTs} → ${newTileSize}. Reprojecting ${this.engine.structures.length} structures.`);
             for (const s of this.engine.structures) {
                 const c = Math.round((s.x - oldTs / 2) / oldTs);
                 const r = Math.round((s.y - oldTs / 2) / oldTs);
                 s.x = c * newTileSize + newTileSize / 2;
                 s.y = r * newTileSize + newTileSize / 2;
+                s.c = c; s.r = r;
+                console.log(`  [VC RESIZE] type=${s.type} c=${c} r=${r} → x=${s.x} y=${s.y}`);
             }
+        } else {
+            console.log(`[VC INITGRID] tileSize unchanged or first init: this.tileSize=${this.tileSize} newTileSize=${newTileSize}`);
         }
 
         this.tileSize = newTileSize;
@@ -1639,6 +1644,7 @@ export class VcUI {
 
             let div = existing.get(key);
             if (!div) {
+                console.log(`[VC RENDER] NEW div: type=${st.type} x=${st.x} y=${st.y} ts=${ts} → left=${st.x - ts/2} top=${st.y - ts/2} c=${st.c} r=${st.r}`);
                 div = document.createElement('div');
                 div.dataset.skey = key;
                 div.style.position = 'absolute';

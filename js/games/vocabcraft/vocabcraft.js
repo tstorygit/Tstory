@@ -1518,9 +1518,12 @@ function _autoSaveMidRun(engine, templateId, difficulty, gameMode, mapData) {
         // the coords can be reprojected to whatever tileSize the new session uses.
         structures: engine.structures.map(s => {
             const ts = engine.tileSize || 40;
+            const c = Math.round((s.x - ts / 2) / ts);
+            const r = Math.round((s.y - ts / 2) / ts);
+            console.log(`[VC SAVE] struct type=${s.type} x=${s.x} y=${s.y} ts=${ts} → c=${c} r=${r}`);
             return {
-                c:    Math.round((s.x - ts / 2) / ts),
-                r:    Math.round((s.y - ts / 2) / ts),
+                c,
+                r,
                 x:    s.x,
                 y:    s.y,
                 type: s.type,
@@ -1723,6 +1726,8 @@ function _resumeFromSave(snapshot) {
             ? { ...s.stats }
             : { manaLeeched: 0, poisonDealt: 0, slowApplied: 0, armorTorn: 0, critHits: 0, totalDmg: 0 }
     }));
+    console.log(`[VC RESTORE] ${_engine.structures.length} structures loaded from snapshot. engine.tileSize at this point=${_engine.tileSize}`);
+    _engine.structures.forEach((s,i) => console.log(`  [VC RESTORE] #${i} type=${s.type} c=${s.c} r=${s.r} x=${s.x} y=${s.y}`));
 
     // enemies/projectiles/spawnQueue are already [] from the constructor — correct for a between-waves restore.
 
@@ -1731,13 +1736,19 @@ function _resumeFromSave(snapshot) {
         // Reproject all structure pixel coords from their saved tile col/row (c, r),
         // discarding the stale x/y that were encoded with the old session's tileSize.
         const ts = _engine.tileSize;
+        console.log(`[VC REPROJECT] onReady fired. engine.tileSize=${ts}. Reprojecting ${_engine.structures.length} structures.`);
         if (ts > 0) {
             for (const s of _engine.structures) {
-                if (s.c !== undefined && s.r !== undefined) {
+                const hadCR = s.c !== undefined && s.r !== undefined;
+                const oldX = s.x, oldY = s.y;
+                if (hadCR) {
                     s.x = s.c * ts + ts / 2;
                     s.y = s.r * ts + ts / 2;
                 }
+                console.log(`  [VC REPROJECT] type=${s.type} c=${s.c} r=${s.r} hadCR=${hadCR} ${oldX},${oldY} → ${s.x},${s.y}`);
             }
+        } else {
+            console.warn('[VC REPROJECT] ts=0! Cannot reproject. engine.tileSize not set yet?');
         }
         _engine.speedMult = _speedMult;
         _screens.game.querySelector('#vc-btn-speed').textContent = `⚡${_speedMult}x`;
