@@ -1,17 +1,46 @@
 {
-  "waterCurrent":  12,
-  "waterMax":      20,
-  "waterUnit":     "Krüge",
-
-  "hoursWalked":   18,
-  "hoursTotal":    72,
+  "waterCurrent":  250,
+  "waterMax":      250,
+  "waterUnit":     "Liter",
   "hoursPerDay":   8,
-  "distanceLabel": "Durch die Khôm-Wüste",
 
-  "daysCurrent":   3,
-  "daysTotal":     9,
+  "stages": [
+    {
+      "name":          "Mherwed → Gebirgspass",
+      "distanceTotal": 72.14,
+      "hoursTotal":    27.39,
+      "done":          true
+    },
+    {
+      "name":              "Gebirgspass → Oase Hayabeth",
+      "distanceTotal":     36.07,
+      "hoursTotal":        19.24,
+      "done":              false,
+      "distanceTraveled":  0,
+      "hoursWalked":       0
+    },
+    {
+      "name":          "Oase Hayabeth → Oase Tarfui",
+      "distanceTotal": 140.04,
+      "hoursTotal":    74.69,
+      "done":          false
+    },
+    {
+      "name":          "Oase Tarfui → Oase Keft",
+      "distanceTotal": 119.33,
+      "hoursTotal":    63.65,
+      "done":          false
+    },
+    {
+      "name":          "Oase Keft → Oase Birscha",
+      "distanceTotal": 95.27,
+      "hoursTotal":    50.81,
+      "done":          false
+    }
+  ],
+
+  "distanceUnit":  "Meilen",
 
   "notes":         "Die Hitze steigt. Morgen früh droht ein Sandsturm — plant nur eine halbe Tagesreise ein.",
-
   "lastUpdated":   "2026-03-20"
 }

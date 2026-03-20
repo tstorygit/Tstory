@@ -1993,3 +1993,117 @@ select, textarea {
     color: var(--text-main);
     font-style: italic;
 }
+
+/* ── DSA: track section meta row ─────────────────────────────────────────── */
+.dsa-track-section { }
+.dsa-track-meta {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+.dsa-track-icon  { font-size: 14px; }
+.dsa-track-title { font-size: 13px; font-weight: 600; color: var(--text-main); flex: 1; }
+.dsa-track-reading { font-size: 13px; color: var(--primary-color); font-weight: 700; }
+
+/* ── DSA: distance fill (sandy gold) vs time fill (terracotta) ───────────── */
+.dsa-fill-dist { background: linear-gradient(90deg, #c9922a, #e8b84b); }
+.dsa-fill-time { background: linear-gradient(90deg, #8b4513, #c0692a); }
+
+/* ── DSA: card sub-title ─────────────────────────────────────────────────── */
+.dsa-card-sub {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-style: italic;
+    margin-left: auto;
+}
+
+/* ── DSA: day banner ─────────────────────────────────────────────────────── */
+.dsa-day-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 14px;
+    padding: 10px 14px;
+    background: color-mix(in srgb, var(--primary-color) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--primary-color) 25%, transparent);
+    border-radius: 10px;
+}
+.dsa-day-label { font-size: 14px; color: var(--text-muted); }
+.dsa-day-count { font-size: 22px; font-weight: 700; color: var(--primary-color); }
+
+/* ── DSA: active stage badge ─────────────────────────────────────────────── */
+.dsa-active-card {
+    border-color: var(--primary-color);
+    border-width: 2px;
+}
+.dsa-active-badge {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #fff;
+    background: var(--primary-color);
+    padding: 2px 8px;
+    border-radius: 99px;
+    margin-left: auto;
+}
+
+/* ── DSA: stage list ─────────────────────────────────────────────────────── */
+.dsa-stage-list { display: flex; flex-direction: column; gap: 2px; }
+
+.dsa-stage-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 9px 10px;
+    border-radius: 8px;
+}
+.dsa-stage-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+
+.dsa-stage-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+}
+.dsa-stage-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-main);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.dsa-stage-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+/* Done */
+.dsa-stage-done .dsa-stage-name { color: var(--text-muted); text-decoration: line-through; }
+
+/* Active */
+.dsa-stage-active {
+    background: color-mix(in srgb, var(--primary-color) 8%, transparent);
+}
+.dsa-stage-active .dsa-stage-name { color: var(--primary-color); }
+
+/* Upcoming */
+.dsa-stage-upcoming { opacity: 0.55; }
+
+/* Mini progress bar inside stage list */
+.dsa-stage-mini-bar {
+    height: 4px;
+    background: var(--border-color);
+    border-radius: 2px;
+    margin-top: 4px;
+    overflow: hidden;
+}
+.dsa-stage-mini-fill {
+    height: 100%;
+    background: var(--primary-color);
+    border-radius: 2px;
+    transition: width 1s ease;
+}
