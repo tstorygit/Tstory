@@ -376,7 +376,40 @@
         <section id="view-games" class="view">
             <header><h2 id="games-header-title">Mini Games</h2></header>
             <div id="games-list-screen" class="content-scroll"></div>
-            <!-- Game screens are created dynamically by games_ui.js — do not add them here -->
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!-- DSA TAB                                                      -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <section id="view-dsa" class="view">
+            <header>
+                <h2>DSA</h2>
+            </header>
+            <div class="content-scroll" id="dsa-content">
+
+                <!-- URL config panel -->
+                <div class="data-panel">
+                    <div class="data-panel-header">
+                        <span class="data-panel-icon">🔗</span>
+                        <div>
+                            <h3>Data Source</h3>
+                            <p class="data-panel-sub">Raw URL to the GM's JSON file on GitHub (or any public host).</p>
+                        </div>
+                    </div>
+                    <input type="url" id="dsa-data-url"
+                           placeholder="https://raw.githubusercontent.com/…/dsa-state.json"
+                           style="margin-bottom:8px;">
+                    <div style="display:flex; gap:8px;">
+                        <button class="primary-btn" id="btn-dsa-save-url" style="flex:1;">💾 Save &amp; Load</button>
+                        <button class="primary-btn" id="btn-dsa-refresh"  style="flex:1;">🔄 Refresh</button>
+                    </div>
+                    <div id="dsa-fetch-status" class="status-message" style="display:none;"></div>
+                </div>
+
+                <!-- Dynamic dashboard — filled by dsa_ui.js -->
+                <div id="dsa-dashboard"></div>
+
+            </div>
         </section>
 
     </main>
@@ -393,6 +426,7 @@
         <button class="nav-btn" data-target="view-trainer">Train</button>
         <button class="nav-btn" data-target="view-games">Games</button>
         <button class="nav-btn" data-target="view-settings">Settings</button>
+        <button class="nav-btn" data-target="view-dsa">DSA</button>
     </div>
 
     <div id="word-popup-overlay" class="hidden">
