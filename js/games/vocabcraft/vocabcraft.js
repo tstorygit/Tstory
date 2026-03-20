@@ -1712,6 +1712,8 @@ function _resumeFromSave(snapshot) {
 
     // Restore structures (towers/traps + gems). Add cooldown=0 so they fire immediately.
     _engine.structures = snapshot.structures.map(s => ({
+        c:        s.c,
+        r:        s.r,
         x:        s.x,
         y:        s.y,
         type:     s.type,
