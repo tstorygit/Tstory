@@ -191,7 +191,26 @@ export class VcUI {
 
         const tileByCols = Math.floor(availW / (cols + PAD_SIDES * 2));
         const tileByRows = Math.floor(availH / (rows + PAD_SIDES + PAD_BOT));
-        this.tileSize = Math.max(16, Math.min(TILE_MAX, tileByCols, tileByRows));
+        const newTileSize = Math.max(16, Math.min(TILE_MAX, tileByCols, tileByRows));
+
+        // If tileSize is changing, recompute all structure pixel coords NOW,
+        // before anything else uses them. Structures store x/y as pixel centers
+        // (x = c*ts + ts/2), so the tile's grid col/row can be recovered with
+        // round((x - oldTs/2) / oldTs) and then re-projected with newTs.
+        // Without this, _renderStructures positions divs with the new ts/2 offset
+        // but st.x still contains the old ts/2 — causing a persistent half-tile drift
+        // after every rotation or resize that changes tileSize.
+        if (this.tileSize > 0 && newTileSize !== this.tileSize) {
+            const oldTs = this.tileSize;
+            for (const s of this.engine.structures) {
+                const c = Math.round((s.x - oldTs / 2) / oldTs);
+                const r = Math.round((s.y - oldTs / 2) / oldTs);
+                s.x = c * newTileSize + newTileSize / 2;
+                s.y = r * newTileSize + newTileSize / 2;
+            }
+        }
+
+        this.tileSize = newTileSize;
 
         // Map container — centered, no scroll, bottom padding keeps exit clear
         this.mapEl.style.flex           = '1 1 0';
@@ -494,17 +513,12 @@ export class VcUI {
 
     initWaves() {
         this.topBar.waves.innerHTML = `
-            <div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex-shrink:0;">
-                <button id="vc-btn-start-wave" class="vc-icon-btn vc-wave-start-btn" title="Start next wave">▶</button>
-                <div id="vc-wave-countdown" style="font-size:9px;color:#7f8c8d;height:11px;line-height:11px;text-align:center;white-space:nowrap;"></div>
-            </div>
+            <button id="vc-btn-start-wave" class="vc-icon-btn vc-wave-start-btn" title="Start next wave">▶</button>
             <div id="vc-wave-icons" class="vc-wave-icons-container"></div>
         `;
 
         this.waveIconsContainer = this.topBar.waves.querySelector('#vc-wave-icons');
-        this._waveStartBtn      = this.topBar.waves.querySelector('#vc-btn-start-wave');
-        this._waveCountdownEl   = this.topBar.waves.querySelector('#vc-wave-countdown');
-        const startBtn = this._waveStartBtn;
+        const startBtn = this.topBar.waves.querySelector('#vc-btn-start-wave');
 
         startBtn.onclick = () => {
             if (this.engine.state.status === 'playing' && this.engine.state.wave < this.engine.state.maxWaves) {
@@ -1297,37 +1311,6 @@ export class VcUI {
         }
         const manaEl = this.topBar.mana?.parentElement?.parentElement;
         if (manaEl) manaEl.classList.toggle('vc-mana-danger', manaVal / poolCap < 0.15);
-
-        // ── Wave start button state ──────────────────────────────────────────
-        if (this._waveStartBtn) {
-            const st = engineState.state;
-            const queueLen   = engineState.spawnQueue?.length ?? 0;
-            const enemyCount = engineState.enemies?.length ?? 0;
-            const waveReady  = enemyCount === 0 && queueLen === 0
-                               && st.wave < st.maxWaves
-                               && engineState.state.status === 'playing';
-
-            this._waveStartBtn.classList.toggle('vc-wave-ready', waveReady);
-
-            // Countdown: show "⏳ 3.2s" when enemies are still spawning from queue
-            if (this._waveCountdownEl) {
-                if (queueLen > 0) {
-                    // Smallest delay in queue = time until next enemy arrives
-                    let minDelay = Infinity;
-                    for (const e of engineState.spawnQueue) {
-                        if (e.delay < minDelay) minDelay = e.delay;
-                    }
-                    const secs = Math.max(0, minDelay).toFixed(1);
-                    this._waveCountdownEl.textContent = `⏳ ${secs}s`;
-                    this._waveCountdownEl.style.color = '#f39c12';
-                } else if (waveReady) {
-                    this._waveCountdownEl.textContent = 'READY';
-                    this._waveCountdownEl.style.color = '#2ecc71';
-                } else {
-                    this._waveCountdownEl.textContent = '';
-                }
-            }
-        }
 
         const mana = Math.floor(engineState.state.mana);
         if (this._lastMana !== mana) {

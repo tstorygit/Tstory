@@ -1514,13 +1514,20 @@ function _autoSaveMidRun(engine, templateId, difficulty, gameMode, mapData) {
             _waveEnemyCount:   0
         },
         // Tower/trap positions and slotted gems — the core player investment.
-        structures: engine.structures.map(s => ({
-            x:    s.x,
-            y:    s.y,
-            type: s.type,
-            gem:  s.gem ? { color: s.gem.color, level: s.gem.level } : null,
-            stats: { ...s.stats }
-        })),
+        // We save tile grid col/row (c, r) alongside pixel x/y so that on load
+        // the coords can be reprojected to whatever tileSize the new session uses.
+        structures: engine.structures.map(s => {
+            const ts = engine.tileSize || 40;
+            return {
+                c:    Math.round((s.x - ts / 2) / ts),
+                r:    Math.round((s.y - ts / 2) / ts),
+                x:    s.x,
+                y:    s.y,
+                type: s.type,
+                gem:  s.gem ? { color: s.gem.color, level: s.gem.level } : null,
+                stats: { ...s.stats }
+            };
+        }),
         // Map layout (grid + paths). waypointSets are pixel-coord derived and
         // get recalculated by VcUI.initGrid(), so we don't need to save them.
         mapData: {
@@ -1718,6 +1725,18 @@ function _resumeFromSave(snapshot) {
     // enemies/projectiles/spawnQueue are already [] from the constructor — correct for a between-waves restore.
 
     ui = new VcUI(_screens.game, _engine, uiCallbacks, () => {
+        // VcUI.initGrid() has now run and set the real tileSize for this device/orientation.
+        // Reproject all structure pixel coords from their saved tile col/row (c, r),
+        // discarding the stale x/y that were encoded with the old session's tileSize.
+        const ts = _engine.tileSize;
+        if (ts > 0) {
+            for (const s of _engine.structures) {
+                if (s.c !== undefined && s.r !== undefined) {
+                    s.x = s.c * ts + ts / 2;
+                    s.y = s.r * ts + ts / 2;
+                }
+            }
+        }
         _engine.speedMult = _speedMult;
         _screens.game.querySelector('#vc-btn-speed').textContent = `⚡${_speedMult}x`;
         _engine.start();
