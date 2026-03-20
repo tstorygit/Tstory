@@ -1,0 +1,17 @@
+{
+  "waterCurrent":  12,
+  "waterMax":      20,
+  "waterUnit":     "Krüge",
+
+  "hoursWalked":   18,
+  "hoursTotal":    72,
+  "hoursPerDay":   8,
+  "distanceLabel": "Durch die Khôm-Wüste",
+
+  "daysCurrent":   3,
+  "daysTotal":     9,
+
+  "notes":         "Die Hitze steigt. Morgen früh droht ein Sandsturm — plant nur eine halbe Tagesreise ein.",
+
+  "lastUpdated":   "2026-03-20"
+}
