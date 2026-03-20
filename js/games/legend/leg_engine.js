@@ -41,7 +41,7 @@ export function initEngine(cvs, st, map) {
     const scale = Math.min(parent.clientWidth / canvas.width, parent.clientHeight / canvas.height);
     canvas.style.transform = `scale(${scale})`;
     
-    loadRoom(state.roomX, state.roomY);
+    loadRoom(state.roomX, state.roomY, true);
     lastTime = performance.now();
     rafId = requestAnimationFrame(loop);
 }
@@ -50,31 +50,56 @@ export function stopEngine() {
     cancelAnimationFrame(rafId);
 }
 
-function loadRoom(rx, ry) {
+function loadRoom(rx, ry, snapPlayer = false) {
     state.roomX = rx; state.roomY = ry;
     const room = mapData.rooms[ry][rx];
     activeEnemies = [];
     activeHitboxes = [];
     drops = [];
 
+    // On initial load (or rebirth/stage-start) place the player on a safe tile
+    if (snapPlayer) {
+        const [sx, sy] = _safeSpawnPos(room);
+        state.player.x = sx;
+        state.player.y = sy;
+    }
+
     const isStart = (rx === mapData.startRoom.x && ry === mapData.startRoom.y);
 
     if (!room.cleared && !isStart) {
-        // Ask legend.js to run the room-entry quiz, then call back with the right spawn function
         state.callbacks.onRoomEnter(room, () => _spawnRoom(room), () => _spawnRoomBuffed(room));
     }
-    // Start room and already-cleared rooms need no quiz — just show them
 }
 
 function _spawnRoom(room) {
-    if (room.isExit) {
+    if (room.isExit && state.stage % 5 === 0) {
+        // Boss fight every 5th stage only
         spawnEnemy(BOSSES[0], true);
     } else {
-        const count = 2 + Math.floor(Math.random() * 3);
+        // Exit rooms on non-boss stages get one extra enemy as a mini-challenge
+        const base  = room.isExit ? 3 : 2;
+        const count = base + Math.floor(Math.random() * 3);
         for (let i = 0; i < count; i++) {
             spawnEnemy(ENEMIES[Math.floor(Math.random() * ENEMIES.length)], false);
         }
     }
+}
+
+// Returns a random safe floor-tile centre position [px, py] in a room.
+// Guarantees the spawn tile is walkable so neither player nor enemy appears
+// inside a tree, rock, wall, or other collision tile.
+function _safeSpawnPos(room) {
+    const walkable = new Set([TILE.FLOOR, TILE.STAIRS, TILE.CHEST, TILE.GRASS, TILE.STUMP, TILE.SHRINE]);
+    const candidates = [];
+    for (let r = 1; r < ROOM_ROWS - 1; r++) {
+        for (let c = 1; c < ROOM_COLS - 1; c++) {
+            if (walkable.has(room.grid[r][c])) {
+                candidates.push([c * TILE_SIZE + TILE_SIZE / 2, r * TILE_SIZE + TILE_SIZE / 2]);
+            }
+        }
+    }
+    if (!candidates.length) return [canvas.width / 2, canvas.height / 2]; // fallback
+    return candidates[Math.floor(Math.random() * candidates.length)];
 }
 
 function _enemyHp(template, isBoss) {
@@ -85,30 +110,34 @@ function _enemyHp(template, isBoss) {
 }
 
 function _spawnRoomBuffed(room) {
-    const count = 2 + Math.floor(Math.random() * 3);
+    const isBossRoom = room.isExit && state.stage % 5 === 0;
+    const base  = room.isExit ? 3 : 2;
+    const count = isBossRoom ? 1 : base + Math.floor(Math.random() * 3);
     for (let i = 0; i < count; i++) {
-        const template = room.isExit ? BOSSES[0] : ENEMIES[Math.floor(Math.random() * ENEMIES.length)];
-        const isBoss = room.isExit;
-        const hp = _enemyHp(template, isBoss) * 1.4; // wrong-answer penalty
+        const template = isBossRoom ? BOSSES[0] : ENEMIES[Math.floor(Math.random() * ENEMIES.length)];
+        const hp = _enemyHp(template, isBossRoom) * 1.4;
+        const [sx, sy] = _safeSpawnPos(room);
         activeEnemies.push({
             ...template,
-            x: TILE_SIZE * 2 + Math.random() * (canvas.width - TILE_SIZE * 4),
-            y: TILE_SIZE * 2 + Math.random() * (canvas.height - TILE_SIZE * 4),
+            x: sx, y: sy,
             hp, maxHp: hp,
             speed: template.speed * 1.25,
-            isBoss, flashTimer: 0, iFrames: 0,
+            isBoss: isBossRoom, flashTimer: 0, iFrames: 0,
+            stunTimer: 0,
         });
     }
 }
 
 function spawnEnemy(template, isBoss) {
     const hp = _enemyHp(template, isBoss);
+    const room = mapData.rooms[state.roomY][state.roomX];
+    const [sx, sy] = _safeSpawnPos(room);
     activeEnemies.push({
         ...template,
-        x: TILE_SIZE * 2 + Math.random() * (canvas.width - TILE_SIZE*4),
-        y: TILE_SIZE * 2 + Math.random() * (canvas.height - TILE_SIZE*4),
+        x: sx, y: sy,
         hp, maxHp: hp,
-        isBoss, flashTimer: 0, iFrames: 0
+        isBoss, flashTimer: 0, iFrames: 0,
+        stunTimer: 0,
     });
 }
 
@@ -434,7 +463,8 @@ function tryDropLoot(x, y, chance) {
 function updateEnemies(dt) {
     activeEnemies.forEach(e => {
         if (e.flashTimer > 0) e.flashTimer -= dt;
-        if (e.iFrames > 0) e.iFrames -= dt;
+        if (e.iFrames    > 0) e.iFrames    -= dt;
+        if (e.stunTimer  > 0) { e.stunTimer -= dt; return; } // stunned — skip movement
         
         if (e.ai === 'chase' || e.ai === 'chase_fly') {
             const dx = state.player.x - e.x;
@@ -446,7 +476,7 @@ function updateEnemies(dt) {
             
             if (e.ai !== 'chase_fly') {
                 const room = mapData.rooms[state.roomY][state.roomX];
-                if (room.grid[Math.floor(ny/TILE_SIZE)][Math.floor(nx/TILE_SIZE)] !== TILE.FLOOR) {
+                if (room.grid[Math.floor(ny/TILE_SIZE)]?.[Math.floor(nx/TILE_SIZE)] !== TILE.FLOOR) {
                     nx = e.x; ny = e.y; 
                 }
             }
@@ -504,32 +534,33 @@ function updateHitboxes(dt) {
             let isHit = false;
 
             if (hb.type === 'arc') {
-                const OFFSET   = Math.PI / 12; // same 15° rightward shift as draw
-                const bladeLen = hb.weapon.id === 'sword' ? 24
-                               : hb.weapon.id === 'axe'   ? 27 : 30;
+                // OFFSET matches draw code: +15° rightward shift.
+                // Arc centre = faceAngle + OFFSET/2.
+                const OFFSET   = Math.PI / 12; // 15°
+                // bladeLen slightly larger than draw values to close visual gap
+                const bladeLen = hb.weapon.id === 'sword' ? 32
+                               : hb.weapon.id === 'axe'   ? 35 : 38;
                 const pivot = 8;
                 const pivX = hb.x + Math.cos(hb.faceAngle) * pivot;
                 const pivY = hb.y + Math.sin(hb.faceAngle) * pivot;
                 const dist  = Math.hypot(e.x - pivX, e.y - pivY);
                 const angle = Math.atan2(e.y - pivY, e.x - pivX);
-                // Collision window centre shifted +OFFSET/2 to the right
                 let diff = angle - (hb.faceAngle + OFFSET / 2);
                 while (diff >  Math.PI) diff -= 2 * Math.PI;
                 while (diff < -Math.PI) diff += 2 * Math.PI;
-                isHit = dist < bladeLen && Math.abs(diff) <= hb.weapon.arc / 2 + 0.08;
+                // +0.28 rad (~16°) extra on each side so the visual sweep and
+                // hitbox feel consistent even at the outermost swing frames
+                isHit = dist < bladeLen && Math.abs(diff) <= hb.weapon.arc / 2 + 0.28;
 
             } else if (hb.type === 'radial') {
-                // Full spin — hits once per activation
                 const dist = Math.hypot(e.x - hb.x, e.y - hb.y);
                 isHit = dist < hb.weapon.range;
 
             } else if (hb.type === 'linear') {
-                // Hit anything near the shaft from player to tip
                 const reach = hb.weapon.range * 0.55;
                 const extP  = hb.swingProgress < 0.5 ? hb.swingProgress * 2 : (1 - hb.swingProgress) * 2;
                 const shaftLen = extP * reach;
                 if (shaftLen > 2) {
-                    // Point-to-segment distance: player → tip
                     const ex = e.x - hb.x, ey = e.y - hb.y;
                     const t  = Math.max(0, Math.min(1, (ex * hb.dirX + ey * hb.dirY) / shaftLen));
                     const cx = hb.x + hb.dirX * shaftLen * t;
@@ -545,9 +576,23 @@ function updateHitboxes(dt) {
                 hb.hitList.add(e);
                 const dmg = Math.max(1, Math.floor(state.player.str * hb.weapon.damage * (1 + Math.random() * 0.2)));
                 e.hp -= dmg;
-                e.flashTimer = 0.12;
-                e.iFrames = 0.12;
-                e.x += hb.dirX * 12; e.y += hb.dirY * 12;
+                e.flashTimer = 0.15;
+                e.iFrames    = 0.15;
+
+                // Knockback distance — sword/arc weapons push hard so the player
+                // has breathing room; bosses get 60% knockback to still feel weighty
+                const kbBase = hb.weapon.id === 'sword' ? 60
+                             : hb.weapon.id === 'axe'   ? 50
+                             : hb.weapon.id === 'star'  ? 55
+                             : hb.weapon.id === 'spear' ? 45
+                             : 28;
+                const kbDist = e.isBoss ? kbBase * 0.6 : kbBase;
+                e.x += hb.dirX * kbDist;
+                e.y += hb.dirY * kbDist;
+
+                // Stun — enemy stops chasing for a short window after the hit
+                e.stunTimer = e.isBoss ? 0.25 : 0.45;
+
                 spawnFloat(e.x, e.y, dmg, '#fff');
 
                 if (e.hp <= 0) {
@@ -556,13 +601,17 @@ function updateHitboxes(dt) {
                     spawnFloat(e.x, e.y - 20, `+${exp}XP`, '#f1c40f');
                     e.dead = true;
                     tryDropLoot(e.x, e.y, 0.15);
+                    if (state.callbacks.onKill) state.callbacks.onKill(e.isBoss);
                     state.callbacks.onExpGained();
                 }
             }
         });
     }
     activeEnemies = activeEnemies.filter(e => !e.dead);
-    if (activeEnemies.length === 0) mapData.rooms[state.roomY][state.roomX].cleared = true;
+    if (activeEnemies.length === 0) {
+        mapData.rooms[state.roomY][state.roomX].cleared = true;
+        if (state.callbacks.onRoomCleared) state.callbacks.onRoomCleared();
+    }
 }
 
 function updateDrops() {
@@ -683,10 +732,10 @@ function draw(dt) {
             const startAngle = hb.faceAngle + hb.weapon.arc / 2 + OFFSET;
             const sweepAngle = startAngle - hb.weapon.arc * prog;
 
-            // ── Blade length: -20% vs previous values
-            const bladeLen = hb.weapon.id === 'sword' ? 24
-                           : hb.weapon.id === 'axe'   ? 27
-                           : 30; // star
+            // ── Blade length: matched to hitbox collision values
+            const bladeLen = hb.weapon.id === 'sword' ? 32
+                           : hb.weapon.id === 'axe'   ? 35
+                           : 38; // star
             const bladeW   = hb.weapon.id === 'star'  ? 10 : 7;
 
             ctx.rotate(sweepAngle);

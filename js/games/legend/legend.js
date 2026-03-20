@@ -6,12 +6,13 @@ import { showGameQuiz } from '../../game_vocab_mgr_ui.js';
 import { generateStage } from './leg_map.js';
 import { initEngine, stopEngine } from './leg_engine.js';
 import { initInput, cleanupInput } from './leg_input.js';
-import { initUI, updateHUD, setVocabMgr } from './leg_ui.js';
+import { initUI, updateHUD, setVocabMgr, showDeathScreen } from './leg_ui.js';
 import { PERKS } from './leg_entities.js';
 
 let _screens  = null;
 let _onExit   = null;
 let _vocabMgr = null;
+let _runStats = null; // reset each startGame()
 
 let gameState = {
     stage: 1,
@@ -57,6 +58,7 @@ export function init(screens, onExit) {
             if (gameState.player.potions > 0 && gameState.player.hp < gameState.player.maxHp) {
                 gameState.player.potions--;
                 gameState.player.hp = Math.min(gameState.player.maxHp, gameState.player.hp + 50);
+                _runStats.potionsUsed++;
                 updateHUD(gameState);
             }
         },
@@ -138,6 +140,16 @@ function startGame() {
     // Keep the UI's vocabMgr reference current (matters after rebirth/stage advance)
     setVocabMgr(_vocabMgr);
 
+    // Reset per-run stats
+    _runStats = {
+        startTime:    Date.now(),
+        kills:        0,
+        bossKills:    0,
+        damageTaken:  0,
+        roomsCleared: 0,
+        potionsUsed:  0,
+    };
+
     applyStats();
     gameState.player.hp = gameState.player.maxHp;
     gameState.player.mp = gameState.player.maxMp;
@@ -151,6 +163,13 @@ function startGame() {
         // ── Room entry quiz (Option A) ──────────────────────────────────────
         // Fires after the scroll completes for every uncleared non-start room.
         // The engine has already set up the empty room; we decide who spawns.
+        onRoomCleared: () => { _runStats.roomsCleared++; },
+
+        onKill: (isBoss) => {
+            _runStats.kills++;
+            if (isBoss) _runStats.bossKills++;
+        },
+
         onRoomEnter: (room, spawnFn, spawnBuffedFn) => {
             _quiz({
                 title:     '⚔️ Brace yourself!',
@@ -231,6 +250,7 @@ function startGame() {
         onTakeDamage: (dmg) => {
             gameState.player.hp -= dmg;
             gameState.player.invincibility = 1.0;
+            _runStats.damageTaken += dmg;
             checkDeath();
             updateHUD(gameState);
         },
@@ -347,11 +367,45 @@ function handleLootDrop(type, weaponId) {
 }
 
 function checkDeath() {
-    if (gameState.player.hp <= 0) {
-        stopEngine();
-        document.getElementById('leg-ap-gain').textContent = Math.floor(gameState.player.level / 10);
-        document.getElementById('leg-rebirth-overlay').style.display = 'flex';
-    }
+    if (gameState.player.hp > 0) return;
+
+    stopEngine();
+
+    const elapsed = Math.floor((Date.now() - _runStats.startTime) / 1000);
+    const vocabStats = _vocabMgr ? _vocabMgr.getStats() : null;
+    const apGain = Math.floor(gameState.player.level / 10);
+
+    showDeathScreen(
+        {
+            elapsed,
+            stage:       gameState.stage,
+            level:       gameState.player.level,
+            kills:       _runStats.kills,
+            bossKills:   _runStats.bossKills,
+            damageTaken: _runStats.damageTaken,
+            roomsCleared:_runStats.roomsCleared,
+            potionsUsed: _runStats.potionsUsed,
+            apGain,
+            vocabCorrect: vocabStats?.correct  ?? 0,
+            vocabWrong:   vocabStats?.wrong    ?? 0,
+            vocabCombo:   vocabStats?.highestCombo ?? 0,
+            vocabLearned: vocabStats?.totalLearned ?? 0,
+        },
+        gameState,
+        {
+            onRebirth: () => doRebirth(),
+            onExit:    () => {
+                cleanupInput();
+                if (_vocabMgr) {
+                    gameState._vocabState  = _vocabMgr.exportState();
+                    gameState._vocabConfig = _vocabMgr.config;
+                    if (!_vocabMgr.isGlobalSrs) _vocabMgr.exportToAppSrs(null, 'skip');
+                }
+                saveMeta();
+                _onExit();
+            },
+        }
+    );
 }
 
 function doRebirth() {

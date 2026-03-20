@@ -94,6 +94,9 @@ export function initUI(container, cbs, vocabMgr) {
                 <button id="leg-btn-cancel-rebirth" class="leg-btn" style="width:100%;margin-top:8px;">Cancel</button>
             </div>
         </div>
+
+        <div class="leg-overlay" id="leg-death-overlay" style="background:rgba(10,0,0,0.96); align-items:center; justify-content:center; display:none; overflow-y:auto;">
+        </div>
     `;
 
     dom = {
@@ -117,6 +120,7 @@ export function initUI(container, cbs, vocabMgr) {
         potionCount: container.querySelector('#leg-potion-count'),
         rebirthBtn: container.querySelector('#leg-btn-rebirth-check'),
         rebirthOverlay: container.querySelector('#leg-rebirth-overlay'),
+        deathOverlay: container.querySelector('#leg-death-overlay'),
         perkList: container.querySelector('#leg-perk-list'),
         exitBtn: container.querySelector('#leg-btn-exit'),
         weaponInfoBtn: container.querySelector('#leg-btn-weapon-info'),
@@ -186,6 +190,83 @@ export function updateHUD(state) {
     if (state.statPoints === 0 && dom.menuBtn.style.borderColor === 'rgb(231, 76, 60)') {
         dom.menuBtn.style.borderColor = '';
     }
+}
+
+/** Called by legend.js on player death. Shows full stats then rebirth/exit options. */
+export function showDeathScreen(stats, state, callbacks) {
+    const fmtTime = (s) => {
+        const m = Math.floor(s / 60).toString().padStart(2, '0');
+        const sec = (s % 60).toString().padStart(2, '0');
+        return `${m}:${sec}`;
+    };
+
+    const totalVocab = stats.vocabCorrect + stats.vocabWrong;
+    const accuracy   = totalVocab > 0
+        ? Math.round((stats.vocabCorrect / totalVocab) * 100) : '—';
+
+    const statRows = [
+        { icon: '⏱️', label: 'Time Survived',   value: fmtTime(stats.elapsed) },
+        { icon: '⚔️', label: 'Stage Reached',   value: stats.stage },
+        { icon: '🧝', label: 'Level',            value: stats.level },
+        { icon: '💀', label: 'Enemies Slain',    value: stats.kills },
+        { icon: '🐉', label: 'Bosses Defeated',  value: stats.bossKills },
+        { icon: '🏰', label: 'Rooms Cleared',    value: stats.roomsCleared },
+        { icon: '💥', label: 'Damage Taken',     value: stats.damageTaken },
+        { icon: '🧪', label: 'Potions Used',     value: stats.potionsUsed },
+        { icon: '✅', label: 'Correct Answers',  value: stats.vocabCorrect },
+        { icon: '❌', label: 'Wrong Answers',    value: stats.vocabWrong },
+        { icon: '🎯', label: 'Vocab Accuracy',   value: totalVocab > 0 ? `${accuracy}%` : '—' },
+        { icon: '⚡', label: 'Best Streak',      value: stats.vocabCombo },
+        { icon: '📖', label: 'Words Practiced',  value: stats.vocabLearned },
+    ];
+
+    dom.deathOverlay.innerHTML = `
+        <div style="width:100%;max-width:380px;padding:20px 16px 28px;display:flex;flex-direction:column;gap:14px;margin:auto;">
+            <div style="text-align:center;">
+                <div style="font-size:42px;margin-bottom:4px;">💀</div>
+                <div style="font-size:26px;font-weight:bold;color:#e74c3c;letter-spacing:3px;text-transform:uppercase;">Defeated</div>
+                <div style="font-size:11px;color:#7f8c8d;margin-top:4px;letter-spacing:1px;">Stage ${stats.stage} · Level ${stats.level}</div>
+            </div>
+
+            <div style="background:#1a1a2e;border:1px solid #2c3e50;border-radius:10px;overflow:hidden;">
+                ${statRows.map((r, i) => `
+                    <div style="display:flex;justify-content:space-between;align-items:center;
+                                padding:8px 12px;font-size:12px;
+                                background:${i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.03)'};
+                                border-bottom:1px solid rgba(255,255,255,0.05);">
+                        <span style="color:#95a5a6;">${r.icon} ${r.label}</span>
+                        <span style="font-weight:bold;color:#ecf0f1;">${r.value}</span>
+                    </div>
+                `).join('')}
+            </div>
+
+            ${stats.apGain > 0 ? `
+            <div style="background:rgba(241,196,15,0.08);border:1px solid rgba(241,196,15,0.3);
+                        border-radius:8px;padding:10px 14px;text-align:center;font-size:12px;color:#f1c40f;">
+                ✨ Rebirth will earn you <strong>+${stats.apGain} AP</strong> to spend on perks.
+            </div>` : ''}
+
+            <div style="display:flex;flex-direction:column;gap:8px;">
+                <button id="leg-death-rebirth" class="leg-btn leg-btn-primary" style="width:100%;padding:12px;font-size:13px;">
+                    ♻️ Rebirth &amp; Ascend (+${stats.apGain} AP)
+                </button>
+                <button id="leg-death-exit" class="leg-btn" style="width:100%;padding:10px;font-size:12px;">
+                    💾 Save &amp; Exit
+                </button>
+            </div>
+        </div>
+    `;
+
+    dom.deathOverlay.style.display = 'flex';
+
+    dom.deathOverlay.querySelector('#leg-death-rebirth').onclick = () => {
+        dom.deathOverlay.style.display = 'none';
+        callbacks.onRebirth();
+    };
+    dom.deathOverlay.querySelector('#leg-death-exit').onclick = () => {
+        dom.deathOverlay.style.display = 'none';
+        callbacks.onExit();
+    };
 }
 
 /** Called by legend.js after (re-)building the vocabMgr for a new run. */
