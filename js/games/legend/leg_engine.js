@@ -337,7 +337,7 @@ function updatePlayer(dt) {
         Math.hypot(state.player.x - (ROOM_COLS/2*TILE_SIZE), state.player.y - (ROOM_ROWS/2*TILE_SIZE)) < 30) {
         room.chestTriggered = true;
         room.hasChest = false;
-        room.grid[Math.floor(ROOM_ROWS/2)][Math.floor(ROOM_COLS/2)] = TILE.FLOOR;
+        _setTile(room, Math.floor(ROOM_ROWS/2), Math.floor(ROOM_COLS/2), TILE.FLOOR);
         const unowned = Object.keys(WEAPONS).filter(w => !state.unlockedWeapons.includes(w));
         state.callbacks.onChestOpen(unowned.length > 0 ? unowned[0] : null);
     }
@@ -350,7 +350,7 @@ function updatePlayer(dt) {
                     Math.hypot(state.player.x - (c * TILE_SIZE + TILE_SIZE/2),
                                state.player.y - (r * TILE_SIZE + TILE_SIZE/2)) < 28) {
                     room.hasShrine = false;
-                    room.grid[r][c] = TILE.FLOOR;
+                    _setTile(room, r, c, TILE.FLOOR);
                     state.callbacks.onShrineTouch();
                 }
             }
@@ -436,7 +436,7 @@ function updatePlayer(dt) {
             if (tr >= 0 && tr < ROOM_ROWS && tc >= 0 && tc < ROOM_COLS) {
                 const targetTile = room.grid[tr][tc];
                 if (wpn.clear !== null && wpn.clear === targetTile) {
-                    room.grid[tr][tc] = targetTile === TILE.TREE ? TILE.STUMP : TILE.FLOOR;
+                    _setTile(room, tr, tc, targetTile === TILE.TREE ? TILE.STUMP : TILE.FLOOR);
                     spawnFloat(tx, ty, 'BAM!', '#fff');
                     tryDropLoot(tx, ty, 0.3);
                 } else if (wpn.grapple && targetTile === wpn.grapple) {
@@ -579,19 +579,18 @@ function updateHitboxes(dt) {
                 e.flashTimer = 0.15;
                 e.iFrames    = 0.15;
 
-                // Knockback distance — sword/arc weapons push hard so the player
-                // has breathing room; bosses get 60% knockback to still feel weighty
-                const kbBase = hb.weapon.id === 'sword' ? 60
-                             : hb.weapon.id === 'axe'   ? 50
-                             : hb.weapon.id === 'star'  ? 55
-                             : hb.weapon.id === 'spear' ? 45
-                             : 28;
-                const kbDist = e.isBoss ? kbBase * 0.6 : kbBase;
+                // Knockback — halved from previous values
+                const kbBase = hb.weapon.id === 'sword' ? 16
+                             : hb.weapon.id === 'axe'   ? 13
+                             : hb.weapon.id === 'star'  ? 15
+                             : hb.weapon.id === 'spear' ? 12
+                             : 8;
+                const kbDist = e.isBoss ? kbBase * 0.5 : kbBase;
                 e.x += hb.dirX * kbDist;
                 e.y += hb.dirY * kbDist;
 
-                // Stun — enemy stops chasing for a short window after the hit
-                e.stunTimer = e.isBoss ? 0.25 : 0.45;
+                // Stun duration comes from the enemy's own stunTime field
+                e.stunTimer = e.stunTime ?? (e.isBoss ? 0.25 : 0.45);
 
                 spawnFloat(e.x, e.y, dmg, '#fff');
 
@@ -609,7 +608,11 @@ function updateHitboxes(dt) {
     }
     activeEnemies = activeEnemies.filter(e => !e.dead);
     if (activeEnemies.length === 0) {
-        mapData.rooms[state.roomY][state.roomX].cleared = true;
+        const room = mapData.rooms[state.roomY][state.roomX];
+        if (!room.cleared) {
+            room.cleared = true;
+            room.gridVersion = (room.gridVersion ?? 0) + 1; // bust cache for post-clear tile appearance
+        }
         if (state.callbacks.onRoomCleared) state.callbacks.onRoomCleared();
     }
 }
@@ -629,15 +632,16 @@ function spawnFloat(x, y, text, color) {
     floatingTexts.push({ x, y, text, color, life: 0.8 });
 }
 
-// ── Room canvas cache ─────────────────────────────────────────────────────────
 // Each room is baked to a full-size offscreen canvas once and re-used every
-// frame.  This reduces drawRoomTiles from 117 drawImage calls to 1 blit.
-// A room is re-baked when its `cleared` state changes (CHEST/STAIRS appearance).
-const _roomCanvas  = new WeakMap(); // room object → { canvas, clearedWhenBaked }
+// frame.  The cache is invalidated whenever room.gridVersion changes — that
+// counter is bumped every time any tile in room.grid is mutated (chest picked
+// up, tree chopped, shrine used, room cleared, etc.).
+const _roomCanvas = new WeakMap(); // room → { canvas, versionWhenBaked }
 
 function _getRoomCanvas(room) {
+    const v      = room.gridVersion ?? 0;
     const cached = _roomCanvas.get(room);
-    if (cached && cached.clearedWhenBaked === room.cleared) return cached.canvas;
+    if (cached && cached.versionWhenBaked === v) return cached.canvas;
 
     const oc  = document.createElement('canvas');
     oc.width  = canvas.width;
@@ -648,12 +652,17 @@ function _getRoomCanvas(room) {
             drawTile(octx, room.grid[r][c], c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE, room.cleared);
         }
     }
-    _roomCanvas.set(room, { canvas: oc, clearedWhenBaked: room.cleared });
+    _roomCanvas.set(room, { canvas: oc, versionWhenBaked: v });
     return oc;
 }
 
 
-// Draws both the old and new room tiles offset by the scroll progress, then
+// Mutate a tile and invalidate the room's canvas cache.
+// Always use this instead of writing room.grid[r][c] directly.
+function _setTile(room, r, c, tile) {
+    room.grid[r][c] = tile;
+    room.gridVersion = (room.gridVersion ?? 0) + 1;
+}
 // draws the player sprite on top (it moves in sync with the scroll).
 function drawTransition() {
     const { fromRoom, toRoom, dx, dy, progress } = transition;
@@ -740,32 +749,61 @@ function draw(dt) {
 
             ctx.rotate(sweepAngle);
 
-            // Blade body
-            ctx.fillStyle = hb.weapon.id === 'star' ? 'rgba(255,200,50,0.90)'
-                           : hb.weapon.id === 'axe'  ? 'rgba(180,200,220,0.88)'
-                           : 'rgba(200,220,255,0.88)';
-            ctx.fillRect(6, -bladeW / 2, bladeLen, bladeW);
+            if (hb.weapon.id === 'axe') {
+                // ── Battle Axe — wooden handle + crescent blade ───────────────
+                const handleLen = 28, bladeR = 14, bladeRi = 7;
+                const hx = 4 + handleLen;
 
-            // Crossguard / Parierstange — sword only, perpendicular to blade
-            if (hb.weapon.id === 'sword') {
-                ctx.fillStyle = 'rgba(200,160,60,0.95)';
-                ctx.fillRect(3, -11, 5, 22); // vertical bar across the grip
-                // Second shorter guard arm (decorative)
-                ctx.fillStyle = 'rgba(220,180,80,0.7)';
-                ctx.fillRect(7, -9, 3, 18);
+                // Handle
+                ctx.fillStyle = 'rgba(120,80,40,0.92)';
+                ctx.fillRect(4, -3, handleLen, 6);
+
+                // Crescent head (outer arc minus inner arc)
+                ctx.fillStyle = 'rgba(180,200,220,0.95)';
+                ctx.beginPath();
+                ctx.arc(hx, 0, bladeR,  -Math.PI * 0.65,  Math.PI * 0.65);
+                ctx.arc(hx + bladeR - bladeRi + 2, 0, bladeRi, Math.PI * 0.65, -Math.PI * 0.65, true);
+                ctx.closePath();
+                ctx.fill();
+
+                // Blade highlight
+                ctx.strokeStyle = 'rgba(220,240,255,0.75)';
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.arc(hx, 0, bladeR, -Math.PI * 0.6, Math.PI * 0.6);
+                ctx.stroke();
+
+                // Grip nub
+                ctx.fillStyle = 'rgba(80,50,20,0.9)';
+                ctx.fillRect(-5, -3, 10, 6);
+
+            } else {
+                // ── Sword / Morning Star — rectangular blade ──────────────────
+                const bLen = hb.weapon.id === 'sword' ? 32 : 38;
+                const bW   = hb.weapon.id === 'star'  ? 10 : 7;
+
+                ctx.fillStyle = hb.weapon.id === 'star'
+                    ? 'rgba(255,200,50,0.90)'
+                    : 'rgba(200,220,255,0.88)';
+                ctx.fillRect(6, -bW / 2, bLen, bW);
+
+                if (hb.weapon.id === 'sword') {
+                    ctx.fillStyle = 'rgba(200,160,60,0.95)';
+                    ctx.fillRect(3, -11, 5, 22);
+                    ctx.fillStyle = 'rgba(220,180,80,0.7)';
+                    ctx.fillRect(7, -9, 3, 18);
+                }
+
+                ctx.fillStyle = 'rgba(100,70,40,0.9)';
+                ctx.fillRect(-6, -3, 13, 6);
+
+                ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.moveTo(6, -bW / 2);
+                ctx.lineTo(6 + bLen, -bW / 2);
+                ctx.stroke();
             }
-
-            // Grip nub (behind pivot)
-            ctx.fillStyle = 'rgba(100,70,40,0.9)';
-            ctx.fillRect(-6, -3, 13, 6);
-
-            // Blade edge highlight
-            ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-            ctx.lineWidth = 1.5;
-            ctx.beginPath();
-            ctx.moveTo(6, -bladeW / 2);
-            ctx.lineTo(6 + bladeLen, -bladeW / 2);
-            ctx.stroke();
 
         } else if (hb.type === 'radial') {
             // Full 360° spinning sickle arc

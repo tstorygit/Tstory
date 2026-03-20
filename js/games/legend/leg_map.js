@@ -68,16 +68,15 @@ export function generateStage(stageLevel) {
         const dx = p.to.x-p.from.x, dy = p.to.y-p.from.y;
         const key = edgeKey(p.from.x,p.from.y,p.to.x,p.to.y);
         const pos = edgePos.get(key);
-        const isStart = (p.from.x===0&&p.from.y===0)||(p.to.x===0&&p.to.y===0);
-        const oneWay  = !isStart && Math.random()<0.35;
-        const openFrom = !oneWay || Math.random()<0.5;
-        const openTo   = !oneWay || !openFrom;
 
+        // Every spanning-tree path is always open on BOTH sides.
+        // One-way doors caused rooms to be reachable but have no matching exit,
+        // leaving the player stuck in a walled room with only the entry door.
         const fx=p.from.x, fy=p.from.y, tx=p.to.x, ty=p.to.y;
-        if (dx===1)  { if(openFrom){doorGrid[fy][fx].e=true;doorPosGrid[fy][fx].e=pos;} if(openTo){doorGrid[ty][tx].w=true;doorPosGrid[ty][tx].w=pos;} }
-        if (dx===-1) { if(openFrom){doorGrid[fy][fx].w=true;doorPosGrid[fy][fx].w=pos;} if(openTo){doorGrid[ty][tx].e=true;doorPosGrid[ty][tx].e=pos;} }
-        if (dy===1)  { if(openFrom){doorGrid[fy][fx].s=true;doorPosGrid[fy][fx].s=pos;} if(openTo){doorGrid[ty][tx].n=true;doorPosGrid[ty][tx].n=pos;} }
-        if (dy===-1) { if(openFrom){doorGrid[fy][fx].n=true;doorPosGrid[fy][fx].n=pos;} if(openTo){doorGrid[ty][tx].s=true;doorPosGrid[ty][tx].s=pos;} }
+        if (dx===1)  { doorGrid[fy][fx].e=true; doorPosGrid[fy][fx].e=pos; doorGrid[ty][tx].w=true; doorPosGrid[ty][tx].w=pos; }
+        if (dx===-1) { doorGrid[fy][fx].w=true; doorPosGrid[fy][fx].w=pos; doorGrid[ty][tx].e=true; doorPosGrid[ty][tx].e=pos; }
+        if (dy===1)  { doorGrid[fy][fx].s=true; doorPosGrid[fy][fx].s=pos; doorGrid[ty][tx].n=true; doorPosGrid[ty][tx].n=pos; }
+        if (dy===-1) { doorGrid[fy][fx].n=true; doorPosGrid[fy][fx].n=pos; doorGrid[ty][tx].s=true; doorPosGrid[ty][tx].s=pos; }
     });
 
     // 4. Find exit room
@@ -110,21 +109,56 @@ export function generateStage(stageLevel) {
             if (doors.w) _carveDoor(grid,'w',dpos.w);
             if (doors.e) _carveDoor(grid,'e',dpos.e);
 
-            // Sprinkle obstacles
-            for (let r=2; r<ROOM_ROWS-2; r++)
-                for (let c=2; c<ROOM_COLS-2; c++)
-                    if (Math.random()<0.2)
-                        grid[r][c]=[TILE.TREE,TILE.GRASS,TILE.ROCK,TILE.PIT][Math.floor(Math.random()*4)];
-
             // Base cross-corridor through centre
             for (let c=1; c<ROOM_COLS-1; c++) { grid[midR][c]=TILE.FLOOR; grid[midR-1][c]=TILE.FLOOR; }
             for (let r=1; r<ROOM_ROWS-1; r++) { grid[r][midC]=TILE.FLOOR; grid[r][midC-1]=TILE.FLOOR; }
 
-            // Clear a 2-wide path from each door to the cross
-            if (doors.n) for (let r=1; r<midR; r++)         { grid[r][dpos.n]=TILE.FLOOR; if(dpos.n>1) grid[r][dpos.n-1]=TILE.FLOOR; }
-            if (doors.s) for (let r=midR+1; r<ROOM_ROWS-1; r++) { grid[r][dpos.s]=TILE.FLOOR; if(dpos.s>1) grid[r][dpos.s-1]=TILE.FLOOR; }
-            if (doors.w) for (let c=1; c<midC; c++)         { grid[dpos.w][c]=TILE.FLOOR; if(dpos.w>1) grid[dpos.w-1][c]=TILE.FLOOR; }
-            if (doors.e) for (let c=midC+1; c<ROOM_COLS-1; c++) { grid[dpos.e][c]=TILE.FLOOR; if(dpos.e>1) grid[dpos.e-1][c]=TILE.FLOOR; }
+            // Clear guaranteed corridors from each door to the centre cross.
+            // We clear a 2-tile wide column/row from the door opening all the
+            // way to the cross, and then an extra horizontal/vertical jog at
+            // the cross level if the door column/row doesn't fall on the cross.
+            // This guarantees every door is always reachable.
+            if (doors.n) {
+                for (let r = 1; r <= midR; r++) {
+                    grid[r][dpos.n] = TILE.FLOOR;
+                    if (dpos.n + 1 < ROOM_COLS - 1) grid[r][dpos.n + 1] = TILE.FLOOR;
+                }
+                // Horizontal jog at mid row to reach the cross
+                const lo = Math.min(dpos.n, midC), hi = Math.max(dpos.n, midC + 1);
+                for (let c = lo; c <= hi; c++) grid[midR][c] = TILE.FLOOR;
+            }
+            if (doors.s) {
+                for (let r = midR; r < ROOM_ROWS - 1; r++) {
+                    grid[r][dpos.s] = TILE.FLOOR;
+                    if (dpos.s + 1 < ROOM_COLS - 1) grid[r][dpos.s + 1] = TILE.FLOOR;
+                }
+                const lo = Math.min(dpos.s, midC), hi = Math.max(dpos.s, midC + 1);
+                for (let c = lo; c <= hi; c++) grid[midR][c] = TILE.FLOOR;
+            }
+            if (doors.w) {
+                for (let c = 1; c <= midC; c++) {
+                    grid[dpos.w][c] = TILE.FLOOR;
+                    if (dpos.w + 1 < ROOM_ROWS - 1) grid[dpos.w + 1][c] = TILE.FLOOR;
+                }
+                // Vertical jog at mid col to reach the cross
+                const lo = Math.min(dpos.w, midR), hi = Math.max(dpos.w, midR + 1);
+                for (let r = lo; r <= hi; r++) grid[r][midC] = TILE.FLOOR;
+            }
+            if (doors.e) {
+                for (let c = midC; c < ROOM_COLS - 1; c++) {
+                    grid[dpos.e][c] = TILE.FLOOR;
+                    if (dpos.e + 1 < ROOM_ROWS - 1) grid[dpos.e + 1][c] = TILE.FLOOR;
+                }
+                const lo = Math.min(dpos.e, midR), hi = Math.max(dpos.e, midR + 1);
+                for (let r = lo; r <= hi; r++) grid[r][midC] = TILE.FLOOR;
+            }
+
+            // Sprinkle obstacles LAST — only on confirmed FLOOR tiles so doors,
+            // corridors, and the cross are never blocked.
+            for (let r=2; r<ROOM_ROWS-2; r++)
+                for (let c=2; c<ROOM_COLS-2; c++)
+                    if (grid[r][c] === TILE.FLOOR && Math.random()<0.18)
+                        grid[r][c]=[TILE.TREE,TILE.GRASS,TILE.ROCK,TILE.PIT][Math.floor(Math.random()*4)];
 
             // Grapple posts near pits
             for (let r=2; r<ROOM_ROWS-2; r++)

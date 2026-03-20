@@ -135,6 +135,19 @@ export function initUI(container, cbs, vocabMgr) {
     dom.menuBtn.onclick = () => { callbacks.onPause(); renderMenu(); dom.menuOverlay.style.display = 'flex'; };
     dom.closeBtn.onclick = () => { dom.menuOverlay.style.display = 'none'; callbacks.onResume(); };
 
+    // Tap the action button to cycle to the next unlocked weapon (wraps around).
+    // The actual attack is still triggered by tapping/dragging the canvas.
+    dom.btnAction.onclick = () => {
+        const state = callbacks.getState();
+        if (state.magicMode) { callbacks.onToggleMagic(); updateHUD(state); return; }
+        const order = Object.keys(WEAPONS); // ['sword','axe','sickle','spear','chain','star']
+        const unlocked = order.filter(id => state.unlockedWeapons.includes(id));
+        const idx = unlocked.indexOf(state.player.equippedWeapon);
+        const next = unlocked[(idx + 1) % unlocked.length];
+        callbacks.onEquipWeapon(next);
+        updateHUD(callbacks.getState());
+    };
+
     // ── Tab switching ──────────────────────────────────────────────────────────
     dom.menuTabs.forEach(tab => {
         tab.addEventListener('click', () => {
