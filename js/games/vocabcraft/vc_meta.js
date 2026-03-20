@@ -18,7 +18,7 @@ export const SKILL_DEFS = {
 
     // ── Gem combat masteries (UNCAPPED) ───────────────────────────────────────
     redMastery:      { name: "Ruby Mastery",       desc: "+1% Ruby damage per level.",                          max: Infinity, group: 'mastery' },
-    blueMastery:     { name: "Sapphire Mastery",   desc: "+2% Slow strength per level, +5% Slow duration per level.",                        max: Infinity, group: 'mastery' },
+    blueMastery:     { name: "Sapphire Mastery",   desc: "+5% Slow duration per level.",                        max: Infinity, group: 'mastery' },
     greenMastery:    { name: "Emerald Mastery",    desc: "+3% Poison DPS per level.",                           max: Infinity, group: 'mastery' },
     orangeMastery:   { name: "Topaz Mastery",      desc: "+4% mana leech per hit per level.",             max: Infinity, group: 'mastery' },
     yellowMastery:   { name: "Citrine Mastery",    desc: "+0.5% crit chance per level.",                        max: Infinity, group: 'mastery' },

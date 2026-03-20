@@ -235,6 +235,17 @@
     align-items: center;
     justify-content: center;
     box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+    transition: background 0.2s, box-shadow 0.2s;
+}
+.vc-wave-start-btn.vc-wave-ready {
+    background: #2ecc71 !important;
+    border-color: #27ae60 !important;
+    animation: waveReadyPulse 0.9s ease-in-out infinite;
+}
+@keyframes waveReadyPulse {
+    0%   { box-shadow: 0 0 0 0   rgba(46,204,113,0.85); }
+    50%  { box-shadow: 0 0 0 10px rgba(46,204,113,0); transform: scale(1.06); }
+    100% { box-shadow: 0 0 0 0   rgba(46,204,113,0); }
 }
 
 

@@ -2,7 +2,7 @@ import { mountVocabSelector, getBannedWords } from '../../vocab_selector.js';
 import * as srsDb from '../../srs_db.js';
 import { loadMeta, saveMeta, addXP, resetSkills, SKILL_DEFS, getDefaultSave,
          clearStage, highestDifficultyCleared, isStageCleared, isStageUnlocked,
-         getEffectiveSkills } from './vc_meta.js';
+         getEffectiveSkills, saveMidRun, loadMidRunSlots, deleteMidRunSlot } from './vc_meta.js';
 import { generateMap, getValidTemplates, getTemplateMinimap, TEMPLATES, getHexWorldLayout, HEX_TIER_COLORS } from './vc_mapgen.js';
 import { setVocabQueue, showCard } from './vc_vocab.js';
 import { VcEngine } from './vc_engine.js';
@@ -38,6 +38,7 @@ export function init(screens, onExit) {
                         <div class="vc-camp-xp" id="vc-camp-lvl">Lv. 1 (XP: 0/100)</div>
                     </div>
                     <div style="display:flex;gap:8px;align-items:center;">
+                        <button class="vc-btn" id="vc-btn-load-run" style="background:#2c3e50; border-color:#4a5568;">📂 Load</button>
                         <button class="vc-btn" id="vc-btn-grimoire" style="background:#f39c12; border-color:#d35400;">📖 Grimoire</button>
                         <button class="vc-icon-btn" id="vc-btn-settings" title="Settings" style="background:#2c3e50;border-color:#4a5568;font-size:18px;padding:4px 8px;min-width:0;line-height:1;">⚙️</button>
                         <button class="vc-icon-btn" id="vc-btn-howto-camp" title="How to Play" style="background:#2c3e50;border-color:#4a5568;font-size:18px;padding:4px 8px;min-width:0;line-height:1;">ℹ️</button>
@@ -97,6 +98,8 @@ export function init(screens, onExit) {
                 <div class="vc-skill-list" id="vc-skill-list"></div>
             </div>
         `;
+
+        _screens.game.querySelector('#vc-btn-load-run').onclick = () => _showLoadRunModal();
 
         _screens.game.querySelector('#vc-btn-grimoire').onclick = () => {
             _renderGrimoire();
@@ -1484,6 +1487,243 @@ function _renderGrimoire() {
     });
 }
 
+// ─── Mid-run autosave helpers ─────────────────────────────────────────────────
+
+/** Called after every wave-clear. Snapshots the run state and writes to localStorage. */
+function _autoSaveMidRun(engine, templateId, difficulty, gameMode, mapData) {
+    const snapshot = {
+        saveId:    `${templateId}:${difficulty}:${Date.now()}`,
+        timestamp: Date.now(),
+        templateId,
+        difficulty,
+        gameMode,
+        // Only the fields that are meaningful between waves (enemies/projectiles are gone).
+        state: {
+            mana:              engine.state.mana,
+            poolLevel:         engine.state.poolLevel,
+            poolCap:           engine.state.poolCap,
+            wave:              engine.state.wave,
+            maxWaves:          engine.state.maxWaves,
+            xpEarned:          engine.state.xpEarned,
+            combo:             0,
+            comboDecayTimer:   0,
+            _waveLeaked:       false,
+            _manaAtWaveStart:  engine.state.mana,
+            _waveStartTime:    0,
+            _earlyCallBonus:   0,
+            _waveEnemyCount:   0
+        },
+        // Tower/trap positions and slotted gems — the core player investment.
+        structures: engine.structures.map(s => ({
+            x:    s.x,
+            y:    s.y,
+            type: s.type,
+            gem:  s.gem ? { color: s.gem.color, level: s.gem.level } : null,
+            stats: { ...s.stats }
+        })),
+        // Map layout (grid + paths). waypointSets are pixel-coord derived and
+        // get recalculated by VcUI.initGrid(), so we don't need to save them.
+        mapData: {
+            grid:        mapData.grid,
+            paths:       mapData.paths,
+            cols:        mapData.cols,
+            rows:        mapData.rows,
+            templateId:  mapData.templateId,
+            wallEdges:   mapData.wallEdges || [],
+            usedFallback: mapData.usedFallback || false
+        }
+    };
+    saveMidRun(snapshot);
+    _showAutoSaveToast(engine.state.wave);
+}
+
+/** Brief non-blocking toast confirming an autosave was written. */
+function _showAutoSaveToast(wave) {
+    const toast = document.createElement('div');
+    toast.style.cssText = [
+        'position:fixed', 'bottom:72px', 'left:50%', 'transform:translateX(-50%)',
+        'background:#1a252f', 'color:#bdc3c7', 'font-size:12px',
+        'padding:5px 14px', 'border-radius:20px', 'z-index:9999',
+        'border:1px solid #2c3e50', 'pointer-events:none',
+        'opacity:0', 'transition:opacity 0.25s'
+    ].join(';');
+    toast.textContent = `💾 Run saved after wave ${wave}`;
+    document.body.appendChild(toast);
+    requestAnimationFrame(() => { toast.style.opacity = '1'; });
+    setTimeout(() => { toast.style.opacity = '0'; }, 1800);
+    setTimeout(() => { toast.remove(); }, 2100);
+}
+
+/** Shows the load-run modal with up to 5 autosave slots. */
+function _showLoadRunModal() {
+    const existing = document.getElementById('vc-load-run-modal');
+    if (existing) existing.remove();
+
+    const slots = loadMidRunSlots();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'vc-load-run-modal';
+    overlay.style.cssText = [
+        'position:fixed', 'inset:0', 'background:rgba(10,15,22,0.92)',
+        'z-index:600', 'display:flex', 'align-items:center', 'justify-content:center',
+        'padding:16px', 'font-family:inherit'
+    ].join(';');
+
+    // Click backdrop to close
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+    const card = document.createElement('div');
+    card.style.cssText = [
+        'background:#0f1620', 'border:1px solid #2c3e50', 'border-radius:14px',
+        'padding:18px 16px 14px', 'display:flex', 'flex-direction:column',
+        'gap:12px', 'width:100%', 'max-width:420px',
+        'max-height:85vh', 'overflow-y:auto'
+    ].join(';');
+
+    const title = document.createElement('div');
+    title.style.cssText = 'font-size:17px;font-weight:bold;color:#f1c40f;text-align:center;';
+    title.textContent = '📂 Load Saved Run';
+    card.appendChild(title);
+
+    if (slots.length === 0) {
+        const empty = document.createElement('div');
+        empty.style.cssText = 'color:#7f8c8d;font-size:13px;margin:4px 0;text-align:center;';
+        empty.textContent = 'No autosaves yet. Runs are saved automatically after each wave.';
+        card.appendChild(empty);
+    } else {
+        const list = document.createElement('div');
+        list.style.cssText = 'display:flex;flex-direction:column;gap:8px;';
+
+        slots.forEach((slot, idx) => {
+            const templateName = TEMPLATES.find(t => t.id === slot.templateId)?.name ?? slot.templateId;
+            const date = new Date(slot.timestamp);
+            const dateStr = `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+            const manaStr = Math.floor(slot.state.mana);
+            const gemCount = slot.structures.filter(s => s.gem).length;
+
+            const card = document.createElement('div');
+            card.style.cssText = [
+                'background:#1a2535', 'border:1px solid #2c3e50', 'border-radius:10px',
+                'padding:10px 12px', 'display:flex', 'align-items:center', 'gap:10px'
+            ].join(';');
+
+            const info = document.createElement('div');
+            info.style.cssText = 'flex:1;min-width:0;';
+            info.innerHTML = `
+                <div style="font-size:13px;font-weight:bold;color:#ecf0f1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                    ${templateName} · D${slot.difficulty} · ${slot.gameMode}
+                </div>
+                <div style="font-size:11px;color:#95a5a6;margin-top:2px;">
+                    Wave ${slot.state.wave}/${slot.state.maxWaves} &nbsp;·&nbsp;
+                    💧${manaStr} &nbsp;·&nbsp;
+                    💎${gemCount} gems &nbsp;·&nbsp;
+                    ${dateStr}
+                </div>
+            `;
+
+            const loadBtn = document.createElement('button');
+            loadBtn.className = 'vc-btn';
+            loadBtn.style.cssText = 'background:#27ae60;border-color:#1e8449;padding:5px 12px;font-size:12px;white-space:nowrap;';
+            loadBtn.textContent = '▶ Load';
+            loadBtn.onclick = () => {
+                overlay.remove();
+                _resumeFromSave(slot);
+            };
+
+            const delBtn = document.createElement('button');
+            delBtn.className = 'vc-icon-btn';
+            delBtn.style.cssText = 'background:#c0392b;border-color:#922b21;font-size:13px;padding:4px 8px;min-width:0;';
+            delBtn.title = 'Delete this save';
+            delBtn.textContent = '🗑';
+            delBtn.onclick = () => {
+                deleteMidRunSlot(idx);
+                overlay.remove();
+                _showLoadRunModal();
+            };
+
+            card.appendChild(info);
+            card.appendChild(loadBtn);
+            card.appendChild(delBtn);
+            list.appendChild(card);
+        });
+        card.appendChild(list);
+    }
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'vc-btn';
+    closeBtn.style.cssText = 'background:#2c3e50;border-color:#4a5568;width:100%;margin-top:4px;';
+    closeBtn.textContent = '✕ Close';
+    closeBtn.onclick = () => overlay.remove();
+    card.appendChild(closeBtn);
+
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+}
+
+/**
+ * Restore a run from an autosave snapshot.
+ * Creates a fresh engine with the saved map, then overwrites state + structures.
+ */
+function _resumeFromSave(snapshot) {
+    _activeTier = snapshot.difficulty;
+
+    _screens.game.querySelector('#vc-camp-layer').style.display = 'none';
+    _screens.game.querySelector('#vc-battle-layer').style.display = 'flex';
+
+    const mapData = snapshot.mapData;   // { grid, paths, cols, rows, templateId, wallEdges }
+
+    const uiCallbacks = {
+        showCard: (mode, onRes) => {
+            const overlay = document.getElementById('vc-vocab-modal');
+            showCard(mode, overlay, onRes);
+        }
+    };
+
+    let ui;
+    const effectiveMeta = { ..._meta, skills: getEffectiveSkills(_meta) };
+    _engine = new VcEngine(mapData, effectiveMeta, snapshot.difficulty, (eng, evts) => {
+        if (ui) ui.draw(eng, evts);
+        if (evts && evts.some(e => e.type === 'waveClear')) {
+            _autoSaveMidRun(eng, snapshot.templateId, snapshot.difficulty, snapshot.gameMode, mapData);
+        }
+    }, (isWin, xp) => {
+        addXP(_meta, xp);
+        if (ui) { ui.destroy(); ui = null; }
+        if (isWin) {
+            clearStage(_meta, snapshot.templateId, snapshot.difficulty);
+            alert(`${TEMPLATES.find(t => t.id === snapshot.templateId)?.name} D${snapshot.difficulty} Cleared! +${Math.floor(xp)} XP`);
+        } else {
+            alert(`Defeated! You salvaged +${Math.floor(xp)} XP`);
+        }
+        _showCamp();
+    }, snapshot.gameMode);
+
+    // ── Overwrite constructor defaults with saved state ──────────────────────
+    Object.assign(_engine.state, snapshot.state);
+    // Prevent _loopTick from immediately firing waveClear for the already-cleared wave.
+    _engine._lastClearedWave = snapshot.state.wave;
+
+    // Restore structures (towers/traps + gems). Add cooldown=0 so they fire immediately.
+    _engine.structures = snapshot.structures.map(s => ({
+        x:        s.x,
+        y:        s.y,
+        type:     s.type,
+        gem:      s.gem ? { ...s.gem } : null,
+        cooldown: 0,
+        stats:    s.stats
+            ? { ...s.stats }
+            : { manaLeeched: 0, poisonDealt: 0, slowApplied: 0, armorTorn: 0, critHits: 0, totalDmg: 0 }
+    }));
+
+    // enemies/projectiles/spawnQueue are already [] from the constructor — correct for a between-waves restore.
+
+    ui = new VcUI(_screens.game, _engine, uiCallbacks, () => {
+        _engine.speedMult = _speedMult;
+        _screens.game.querySelector('#vc-btn-speed').textContent = `⚡${_speedMult}x`;
+        _engine.start();
+    });
+}
+
 function _startBattle(templateId, difficulty, gameMode = 'hard') {
     _activeTier = difficulty;  // keep _activeTier for any legacy refs
 
@@ -1519,8 +1759,12 @@ function _startBattle(templateId, difficulty, gameMode = 'hard') {
     let ui;
     // Build a meta snapshot with active skill levels applied for this run
     const effectiveMeta = { ..._meta, skills: getEffectiveSkills(_meta) };
-    _engine = new VcEngine(mapData, effectiveMeta, difficulty, (eng, msg) => {
-        if (ui) ui.draw(eng, msg);
+    _engine = new VcEngine(mapData, effectiveMeta, difficulty, (eng, evts) => {
+        if (ui) ui.draw(eng, evts);
+        // Auto-save: wave just fully cleared (enemies=0, queue=0) — perfect checkpoint.
+        if (evts && evts.some(e => e.type === 'waveClear')) {
+            _autoSaveMidRun(eng, templateId, difficulty, gameMode, mapData);
+        }
     }, (isWin, xp) => {
         addXP(_meta, xp);
         if (ui) { ui.destroy(); ui = null; }

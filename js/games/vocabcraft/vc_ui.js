@@ -494,12 +494,17 @@ export class VcUI {
 
     initWaves() {
         this.topBar.waves.innerHTML = `
-            <button id="vc-btn-start-wave" class="vc-icon-btn vc-wave-start-btn" title="Start next wave">▶</button>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex-shrink:0;">
+                <button id="vc-btn-start-wave" class="vc-icon-btn vc-wave-start-btn" title="Start next wave">▶</button>
+                <div id="vc-wave-countdown" style="font-size:9px;color:#7f8c8d;height:11px;line-height:11px;text-align:center;white-space:nowrap;"></div>
+            </div>
             <div id="vc-wave-icons" class="vc-wave-icons-container"></div>
         `;
 
         this.waveIconsContainer = this.topBar.waves.querySelector('#vc-wave-icons');
-        const startBtn = this.topBar.waves.querySelector('#vc-btn-start-wave');
+        this._waveStartBtn      = this.topBar.waves.querySelector('#vc-btn-start-wave');
+        this._waveCountdownEl   = this.topBar.waves.querySelector('#vc-wave-countdown');
+        const startBtn = this._waveStartBtn;
 
         startBtn.onclick = () => {
             if (this.engine.state.status === 'playing' && this.engine.state.wave < this.engine.state.maxWaves) {
@@ -1292,6 +1297,37 @@ export class VcUI {
         }
         const manaEl = this.topBar.mana?.parentElement?.parentElement;
         if (manaEl) manaEl.classList.toggle('vc-mana-danger', manaVal / poolCap < 0.15);
+
+        // ── Wave start button state ──────────────────────────────────────────
+        if (this._waveStartBtn) {
+            const st = engineState.state;
+            const queueLen   = engineState.spawnQueue?.length ?? 0;
+            const enemyCount = engineState.enemies?.length ?? 0;
+            const waveReady  = enemyCount === 0 && queueLen === 0
+                               && st.wave < st.maxWaves
+                               && engineState.state.status === 'playing';
+
+            this._waveStartBtn.classList.toggle('vc-wave-ready', waveReady);
+
+            // Countdown: show "⏳ 3.2s" when enemies are still spawning from queue
+            if (this._waveCountdownEl) {
+                if (queueLen > 0) {
+                    // Smallest delay in queue = time until next enemy arrives
+                    let minDelay = Infinity;
+                    for (const e of engineState.spawnQueue) {
+                        if (e.delay < minDelay) minDelay = e.delay;
+                    }
+                    const secs = Math.max(0, minDelay).toFixed(1);
+                    this._waveCountdownEl.textContent = `⏳ ${secs}s`;
+                    this._waveCountdownEl.style.color = '#f39c12';
+                } else if (waveReady) {
+                    this._waveCountdownEl.textContent = 'READY';
+                    this._waveCountdownEl.style.color = '#2ecc71';
+                } else {
+                    this._waveCountdownEl.textContent = '';
+                }
+            }
+        }
 
         const mana = Math.floor(engineState.state.mana);
         if (this._lastMana !== mana) {

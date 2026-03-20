@@ -95,7 +95,7 @@ export function gemPoisonDps(gem, gemData) {
 }
 export function gemSlowAmount(gem, gemData) {
     // GCFW: G1=18% slow, both % and duration grow per grade. Skill only boosts duration.
-    return Math.min(0.92, gemData.baseSlow * Math.pow(1.36, gem.level - 1));
+    return Math.min(0.70, gemData.baseSlow * Math.pow(1.20, gem.level - 1));
 }
 export function gemManaDrain(gem, gemData) {
     return gemData.baseMana * Math.pow(1.38, gem.level - 1);
@@ -680,7 +680,7 @@ export class VcEngine {
                     // % slow scales with gem level. Mastery boosts duration only (GCFW Slowing skill).
                     const slow = gemSlowAmount(gem, gemData) * specialMult;
                     enemy.effects.slow = slow;
-                    const slowDur = 3 * Math.pow(1.3, gem.level - 1)
+                    const slowDur = 3 * Math.pow(1.28, gem.level - 1)
                         * (1 + (this.meta.skills.blueMastery || 0) * 0.05);
                     enemy.effects.slowTimer = slowDur;
                     enemy.effects.lastHit = 'slow';
