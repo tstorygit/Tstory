@@ -156,3 +156,28 @@ export function isStageUnlocked(meta, templateId, difficulty) {
     if (difficulty === 1) return true;
     return !!meta.clearedStages[`${templateId}:${difficulty - 1}`];
 }
+// ─── Mid-run autosave (last 5 slots) ────────────────────────────────────────
+const MID_RUN_KEY = 'vocabcraft_midrun';
+const MID_RUN_MAX = 5;
+
+/**
+ * Push a run snapshot to the front of the autosave ring (max 5 slots).
+ */
+export function saveMidRun(snapshot) {
+    let slots = [];
+    try { slots = JSON.parse(localStorage.getItem(MID_RUN_KEY) || '[]'); } catch {}
+    slots.unshift(snapshot);
+    localStorage.setItem(MID_RUN_KEY, JSON.stringify(slots.slice(0, MID_RUN_MAX)));
+}
+
+/** Returns the array of saved snapshots (newest first), or [] on error. */
+export function loadMidRunSlots() {
+    try { return JSON.parse(localStorage.getItem(MID_RUN_KEY) || '[]'); } catch { return []; }
+}
+
+/** Remove a single slot by index and persist the result. */
+export function deleteMidRunSlot(index) {
+    const slots = loadMidRunSlots();
+    slots.splice(index, 1);
+    localStorage.setItem(MID_RUN_KEY, JSON.stringify(slots));
+}
