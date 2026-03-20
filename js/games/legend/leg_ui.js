@@ -1,11 +1,14 @@
 // js/games/legend/leg_ui.js
 import { WEAPONS, PERKS } from './leg_entities.js';
+import { renderVocabSettings, poolSourceLabel } from '../../game_vocab_mgr_ui.js';
 
 let dom = {};
 let callbacks = null;
+let _vocabMgr = null;
 
-export function initUI(container, cbs) {
+export function initUI(container, cbs, vocabMgr) {
     callbacks = cbs;
+    _vocabMgr = vocabMgr;
     container.innerHTML = `
         <div class="leg-hud">
             <div class="leg-hud-col">
@@ -32,7 +35,11 @@ export function initUI(container, cbs) {
                 <h2 class="leg-menu-title">Camp Menu</h2>
                 <button id="leg-btn-close" class="leg-btn">✕</button>
             </div>
-            <div class="leg-menu-container">
+            <div id="leg-menu-tabs" style="display:flex;gap:6px;margin-bottom:8px;flex-shrink:0;">
+                <button class="leg-menu-tab leg-btn active" data-tab="main" style="flex:1;font-size:11px;">⚔️ Camp</button>
+                <button class="leg-menu-tab leg-btn" data-tab="vocab" style="flex:1;font-size:11px;">📚 Vocab</button>
+            </div>
+            <div id="leg-tab-main" class="leg-menu-container">
                 <div class="leg-menu-col">
                     <div class="leg-col-title" style="display:flex;align-items:center;justify-content:center;gap:6px;">
                         Weapons
@@ -58,6 +65,9 @@ export function initUI(container, cbs) {
                     <div id="leg-stat-pts-wrap" class="leg-stat-pts">Unspent Points: <span id="leg-stat-pts">0</span></div>
                     <div id="leg-stat-list" style="margin-top:8px;"></div>
                 </div>
+            </div>
+            <div id="leg-tab-vocab" style="display:none; flex:1; overflow-y:auto; padding:4px 2px;">
+                <div id="leg-vocab-settings-mount"></div>
             </div>
             <div style="display:flex; gap:8px; margin-top:10px; flex-shrink:0;">
                 <button id="leg-btn-rebirth-check" class="leg-btn" style="flex:1; background:#c0392b; border-color:#e74c3c;">Rebirth</button>
@@ -112,10 +122,26 @@ export function initUI(container, cbs) {
         weaponInfoBtn: container.querySelector('#leg-btn-weapon-info'),
         weaponInfoOverlay: container.querySelector('#leg-weapon-info-overlay'),
         weaponInfoBody: container.querySelector('#leg-weapon-info-body'),
+        tabMain: container.querySelector('#leg-tab-main'),
+        tabVocab: container.querySelector('#leg-tab-vocab'),
+        vocabMount: container.querySelector('#leg-vocab-settings-mount'),
+        menuTabs: container.querySelectorAll('.leg-menu-tab'),
     };
 
     dom.menuBtn.onclick = () => { callbacks.onPause(); renderMenu(); dom.menuOverlay.style.display = 'flex'; };
     dom.closeBtn.onclick = () => { dom.menuOverlay.style.display = 'none'; callbacks.onResume(); };
+
+    // ── Tab switching ──────────────────────────────────────────────────────────
+    dom.menuTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            dom.menuTabs.forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            const isVocab = tab.dataset.tab === 'vocab';
+            dom.tabMain.style.display  = isVocab ? 'none'  : '';
+            dom.tabVocab.style.display = isVocab ? 'block' : 'none';
+            if (isVocab) _renderVocabSettings();
+        });
+    });
     dom.exitBtn.onclick = () => { callbacks.onExitGame(); };
     
     dom.toggleMagic.onclick = () => {
@@ -160,6 +186,24 @@ export function updateHUD(state) {
     if (state.statPoints === 0 && dom.menuBtn.style.borderColor === 'rgb(231, 76, 60)') {
         dom.menuBtn.style.borderColor = '';
     }
+}
+
+/** Called by legend.js after (re-)building the vocabMgr for a new run. */
+export function setVocabMgr(mgr) {
+    _vocabMgr = mgr;
+}
+
+function _renderVocabSettings() {
+    if (!_vocabMgr) {
+        dom.vocabMount.innerHTML = '<p style="color:#7f8c8d;font-size:12px;padding:10px;">No vocabulary loaded yet.</p>';
+        return;
+    }
+    renderVocabSettings(
+        _vocabMgr,
+        dom.vocabMount,
+        (updatedConfig) => { callbacks.onVocabConfigSave(updatedConfig); },
+        _vocabMgr.getPoolSource()
+    );
 }
 
 function renderMenu() {

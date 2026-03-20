@@ -6,7 +6,7 @@ import { showGameQuiz } from '../../game_vocab_mgr_ui.js';
 import { generateStage } from './leg_map.js';
 import { initEngine, stopEngine } from './leg_engine.js';
 import { initInput, cleanupInput } from './leg_input.js';
-import { initUI, updateHUD } from './leg_ui.js';
+import { initUI, updateHUD, setVocabMgr } from './leg_ui.js';
 import { PERKS } from './leg_entities.js';
 
 let _screens  = null;
@@ -76,12 +76,19 @@ export function init(screens, onExit) {
                 saveMeta();
             }
         },
+        onVocabConfigSave: (updatedConfig) => {
+            // Merge the updated config back into the live manager and persist it.
+            // The manager already has the new values applied by renderVocabSettings;
+            // we just need to save them so they survive the next launch.
+            Object.assign(_vocabMgr.config, updatedConfig);
+            gameState._vocabConfig = { ...(_vocabMgr.config) };
+            saveMeta();
+        },
         onRebirth:   () => doRebirth(),
         onExitGame:  () => {
             stopEngine();
             cleanupInput();
             if (_vocabMgr) {
-                // Persist SM-2 state and config for next session
                 gameState._vocabState  = _vocabMgr.exportState();
                 gameState._vocabConfig = _vocabMgr.config;
                 if (!_vocabMgr.isGlobalSrs) _vocabMgr.exportToAppSrs(null, 'skip');
@@ -89,7 +96,7 @@ export function init(screens, onExit) {
             saveMeta();
             _onExit();
         },
-    });
+    }, _vocabMgr);
 
     initInput(_screens.game.querySelector('.leg-canvas-wrap'));
 }
@@ -111,12 +118,12 @@ export function launch() {
         const savedConfig = gameState._vocabConfig || GameVocabManager.defaultConfig();
         _vocabMgr = new GameVocabManager(savedConfig);
 
-        // Restore SM-2 progress from previous session (Local mode only)
         if (gameState._vocabState) _vocabMgr.importState(gameState._vocabState);
 
         _vocabMgr.setPool(queue, 'leg_banned');
-        _vocabMgr.seedInitialWords(5); // prime the SM-2 active set
+        _vocabMgr.seedInitialWords(5);
 
+        setVocabMgr(_vocabMgr);
         startGame();
     };
     sel.getActionsEl().appendChild(btn);
@@ -127,6 +134,9 @@ export function launch() {
 function startGame() {
     _screens.setup.style.display = 'none';
     _screens.game.style.display  = 'flex';
+
+    // Keep the UI's vocabMgr reference current (matters after rebirth/stage advance)
+    setVocabMgr(_vocabMgr);
 
     applyStats();
     gameState.player.hp = gameState.player.maxHp;

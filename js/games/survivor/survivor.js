@@ -32,8 +32,6 @@ let _meta          = null;
 
 // Raw vocab arrays (word, furi, trans objects from vocab selector or SRS db)
 let _vocabPool     = [];
-// 'srs' | 'custom' | 'mixed' — tracks what the current pool contains for display purposes
-let _poolSource    = 'srs';
 
 // The single GameVocabManager instance for the entire game session.
 // Re-created (or reset) before each run starts.
@@ -188,9 +186,10 @@ function _buildVocabMgr() {
         _vocabMgr.importState(_meta.vocabState);
     }
 
-    // Pass globalSrs:true when the pool contains SRS words (source is 'srs' or 'mixed').
-    // Pure custom deck words ('custom') use the local SM-2 engine only.
-    _vocabMgr.setPool(_vocabPool, 'surv_banned', { globalSrs: _poolSource !== 'custom' });
+    // Pass globalSrs:true when the pool contains SRS words.
+    // The manager derives its own poolSource from this — no external tracking needed.
+    const hasSrsWords = _vocabPool.some(w => w.deckId === 'srs');
+    _vocabMgr.setPool(_vocabPool, 'surv_banned', { globalSrs: hasSrsWords });
 
     // Seed initial words for auto mode only.
     // seedInitialWords() uses newWordBatchBootstrap as its default count — correct
@@ -216,9 +215,8 @@ export function launch() {
     // If the user has SRS words, default to their deck.
     // Otherwise open the vocab selector first.
     const srsWords = _loadSrsWords();
-    if (srsWords.length > 0 && _poolSource !== 'custom') {
+    if (srsWords.length > 0) {
         _vocabPool  = srsWords;
-        _poolSource = 'srs';
         _show('setup');
         showCamp();
     } else {
@@ -316,27 +314,21 @@ function showVocabSelector(fromSettings = false) {
         const customWords = queue.filter(w => w.deckId !== 'srs');
 
         if (srsWords.length > 0 && customWords.length > 0) {
-            // Mixed: SRS + at least one custom deck
-            _poolSource = 'mixed';
-            _vocabPool  = queue.map(w => ({
+            _vocabPool = queue.map(w => ({
                 word:   w.word,
                 furi:   w.furi  || w.word,
                 trans:  w.trans || '—',
-                deckId: w.deckId,   // preserve 'srs' tag so GVM routes correctly
+                deckId: w.deckId,
             }));
         } else if (srsWords.length > 0) {
-            // SRS only — same as the default SRS path
-            _poolSource = 'srs';
-            _vocabPool  = srsWords.map(w => ({
+            _vocabPool = srsWords.map(w => ({
                 word:   w.word,
                 furi:   w.furi  || w.word,
                 trans:  w.trans || '—',
                 deckId: 'srs',
             }));
         } else {
-            // Pure custom deck
-            _poolSource = 'custom';
-            _vocabPool  = customWords.map(w => ({
+            _vocabPool = customWords.map(w => ({
                 word:   w.word,
                 furi:   w.furi  || w.word,
                 trans:  w.trans || '—',
@@ -366,10 +358,8 @@ function showVocabSelector(fromSettings = false) {
         backBtn.onclick = () => {
             const srsWords = _loadSrsWords();
             if (srsWords.length > 0) {
-                // User has SRS words now (maybe added some) — default to SRS
-                _poolSource = 'srs';
-                _vocabPool  = srsWords;
-                _vocabMgr   = null;
+                _vocabPool = srsWords;
+                _vocabMgr  = null;
                 showCamp();
             } else {
                 _onExitGlobal();
@@ -654,9 +644,8 @@ function _showSettings() {
 
     const render = () => {
         const muted = Audio.isMuted();
-        const cfg   = _meta.vocabConfig;
-
-        const sourceLabel = poolSourceLabel(_poolSource);
+        const mgr   = _getOrCreateVocabMgr();
+        const sourceLabel = poolSourceLabel(mgr.getPoolSource());
 
         overlay.innerHTML = `
             <div class="surv-settings-inner">
@@ -737,20 +726,15 @@ function _showSettings() {
             showVocabSelector(true); // fromSettings=true → back button returns here
         };
 
-        // Vocab settings panel — delegated entirely to game_vocab_mgr_ui.
-        // Survivor passes _poolSource so the panel knows what to grey out
-        // without needing to inspect manager internals.
         renderVocabSettings(
-            _getOrCreateVocabMgr(),
+            mgr,
             overlay.querySelector('#surv-vocab-settings-mount'),
             (updatedConfig) => {
-                // renderVocabSettings passes the full updated config — just assign it.
-                // No field enumeration needed; new GVM fields appear here automatically.
                 Object.assign(_meta.vocabConfig, updatedConfig);
                 saveMeta();
                 _vocabMgr = null;
             },
-            _poolSource
+            mgr.getPoolSource()
         );
 
         // Reset shrine
@@ -775,9 +759,8 @@ function _showSettings() {
         overlay.querySelector('#surv-settings-reset-all').onclick = () => {
             if (!confirm('Reset EVERYTHING? Souls, characters, shrine upgrades, statistics — all wiped.')) return;
             localStorage.removeItem('surv_meta');
-            _meta       = null;
-            _poolSource = 'srs';
-            _vocabMgr   = null;
+            _meta     = null;
+            _vocabMgr = null;
             overlay.remove();
             launch();
         };

@@ -226,6 +226,23 @@ export class GameVocabManager {
         return this.config.mode;
     }
 
+    /**
+     * Returns the pool source as a canonical string derived from the manager's
+     * own state after setPool() is called.  Games should call this instead of
+     * tracking their own _poolSource variable.
+     *
+     * 'srs'    — pool contains only Global SRS words (isGlobalSrs=true, no custom words)
+     * 'mixed'  — pool contains SRS words AND custom deck words
+     * 'custom' — pool contains only custom deck words (local SM-2 engine)
+     *
+     * @returns {'srs'|'mixed'|'custom'}
+     */
+    getPoolSource() {
+        if (this.isGlobalSrs && this._hasCustomWords) return 'mixed';
+        if (this.isGlobalSrs) return 'srs';
+        return 'custom';
+    }
+
     // ─── CORE LOOP ───────────────────────────────────────────────────────────
 
     /**
