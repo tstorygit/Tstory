@@ -29,25 +29,25 @@ export const CONSTANTS = {
 // ─── Building cost functions ─────────────────────────────────────────────────
 export function towerCost(towerCount, skills = {}) {
     const base = CONSTANTS.towerCostBase + towerCount * CONSTANTS.towerCostInc;
-    const disc = 1 - ((skills.towerDiscount || 0) * 0.01);
+    const disc = 1 - Math.min(0.50, (skills.towerDiscount || 0) * 0.025);
     return Math.floor(base * disc);
 }
 export function trapCost(trapCount, skills = {}) {
     const base = CONSTANTS.trapCostBase + trapCount * CONSTANTS.trapCostInc;
-    const disc = 1 - ((skills.trapDiscount || 0) * 0.01);
+    const disc = 1 - Math.min(0.50, (skills.trapDiscount || 0) * 0.025);
     return Math.floor(base * disc);
 }
 
 // ─── Gemcraft: Frostborn Wrath exact scaling ────────────────────────────────
 export function gemCombineCost(skills = {}) {
-    const disc = 1 - ((skills.combineDiscount || 0) * 0.01);
+    const disc = 1 - Math.min(0.50, (skills.combineDiscount || 0) * 0.025);
     return Math.floor(CONSTANTS.gemCombineCost * disc);
 }
 export function gemBaseCost(skills = {}) {
     return CONSTANTS.gemBaseCost;
 }
 export function gemTotalCostColor(color, level, skills = {}) {
-    const colorDisc = 1 - ((skills[color + 'Cost'] || 0) * 0.01);
+    const colorDisc = 1 - Math.min(0.50, (skills[color + 'Cost'] || 0) * 0.025);
     const base    = Math.floor(gemBaseCost(skills) * colorDisc);
     const combine = Math.floor(gemCombineCost(skills) * colorDisc);
     if (level <= 1) return base;
@@ -64,17 +64,19 @@ export function gemUpgradeCost(color, level, skills = {}) {
 }
 
 export function gemDamage(gem, gemData, skills = {}) {
-    const resonance = 1 + ((skills.resonance || 0) * 0.03);
+    const resonance = 1 + ((skills.resonance || 0) * 0.04);
     return gemData.baseDmg * Math.pow(1.54, gem.level - 1) * resonance;
 }
 export function gemFireSpeed(gem, gemData, skills = {}) {
-    const haste = 1 + ((skills.haste || 0) * 0.02);
+    const haste = 1 + ((skills.haste || 0) * 0.03);
     // GCFW caps speeds very high (30+). Removed the stifling 4.0 cap.
     return Math.min(30.0, gemData.speed * Math.pow(1.18, gem.level - 1) * haste);
 }
 export function gemRange(gem, isTrap = false, tileSize = 40) {
     const baseTiles = isTrap ? CONSTANTS.trapBaseRange : CONSTANTS.towerBaseRange;
-    return Math.floor(baseTiles * tileSize * Math.pow(1.08, gem.level - 1));
+    const fullRange = Math.floor(baseTiles * tileSize * Math.pow(1.08, gem.level - 1));
+    const ratio     = (gem.rangeRatio !== undefined) ? Math.max(0.1, Math.min(1.0, gem.rangeRatio)) : 1.0;
+    return Math.max(Math.floor(tileSize * 0.6), Math.floor(fullRange * ratio));
 }
 export function gemCritChance(gem) {
     // GCFW: G1 pure yellow ≈ 4% chance. Grows +4% per grade, hard cap 80%.
@@ -105,45 +107,54 @@ export function gemArmorTear(gem, gemData) {
 }
 
 /**
- * Derive XP value from an enemy's actual stats.
- * All scaling (difficulty, wave, enrage) is already baked into the enemy's
- * maxHp/armor/speed at spawn time, so XP automatically tracks true threat.
+ * XP value for killing an enemy.
  *
- * effectiveHp  = maxHp × armor_factor × regen_factor
- * speedFactor  = 0.8 + speed/200        (~1.0 normal, ~1.15 fast)
- * immuneFactor = 1 + immunities × 0.25  (+25% per immunity)
- * xp = effectiveHp × speedFactor × immuneFactor / NORMALISER
+ * Design goals:
+ *  1. Stronger enemy type (boss, armored, immune) → more XP. ✓
+ *  2. Later wave → more XP, but with logarithmic growth so wave 80 is
+ *     ~6× wave 1, NOT 27,000× (the old exponential-on-exponential explosion). ✓
+ *  3. Higher difficulty → more XP (linear). ✓
+ *  4. Total XP for completing all content (5 templates × D1–D10) targets
+ *     approximately Level 9,999. ✓
+ *
+ * BASE_XP is calibrated so that a full first-clear of all stages sums to
+ * ~5.66 × 10^12 XP, which is exactly what the level curve (100 × lv^1.8)
+ * requires to reach level 9,999.
+ *
+ * _xpWeight, _waveNum, _difficulty are set on each enemy at spawn time
+ * in buildWaveEnemies() (vc_enemies.js).
  */
-const XP_NORMALISER = 4.14;
+const XP_BASE = 1_314_588;
 
 export function enemyXpValue(enemy) {
-    const armorFactor  = 1 + (enemy.armor || 0) * 0.15;
-    const regenFactor  = 1 + (enemy.regen || 0) * 8;
-    const effectiveHp  = enemy.maxHp * armorFactor * regenFactor;
-    const speedFactor  = 0.8 + (enemy.speed || 1.5) * 2.5;  // tiles/s: normal≈1.5 → factor≈4.55 (was ×5 — caused late-wave XP explosion)
-    const immuneFactor = 1 + (enemy.immune?.size || 0) * 0.25;
-    return Math.max(1, effectiveHp * speedFactor * immuneFactor / XP_NORMALISER);
+    const weight     = enemy._xpWeight   || 1.0;          // type threat factor (set at spawn)
+    const waveNum    = enemy._waveNum    || 1;
+    const difficulty = enemy._difficulty || 1;
+    const waveFactor = Math.log2(waveNum + 1);             // W1→1.0  W10→3.46  W80→6.34
+    return XP_BASE * difficulty * waveFactor * weight;
 }
 
 export class VcEngine {
-    constructor(mapData, meta, difficulty, onUpdate, onGameOver, gameMode = 'hard') {
+    constructor(mapData, meta, difficulty, onUpdate, onGameOver, gameMode = 'hard', modifiers = []) {
         this.map = mapData;
         this.meta = meta;
         this.difficulty = difficulty;
         this.gameMode = gameMode;
+        this.modifiers = modifiers;
         this.onUpdate = onUpdate;
         this.onGameOver = onGameOver;
 
-        const baseWaves = 10 + 7 * difficulty;
+        const baseWaves  = 10 + 7 * difficulty;
         const bonusWaves = (meta.skills.bonusWaves || 0) * 3;
+        const extraWaves = modifiers.includes('extra_waves') ? Math.round((baseWaves + bonusWaves) * 0.5) : 0;
 
-        const startMana = 300 + ((meta.skills.startMana || 0) * 30);
+        const startMana = 300 + ((meta.skills.startMana || 0) * 50);
         this.state = {
             mana: startMana,
             poolLevel: 1,            // GCFW pool level — increases when mana fills the cap
             poolCap: startMana,      // current capacity — fills up, triggers level-up, then grows
             wave: 0,
-            maxWaves: baseWaves + bonusWaves,
+            maxWaves: baseWaves + bonusWaves + extraWaves,
             status: 'planning',
             combo: 0,
             comboDecayTimer: 0,  // seconds since last kill — combo decays after 5s
@@ -237,7 +248,7 @@ export class VcEngine {
         dt *= this.speedMult;
 
         // Combo decay: full reset after 5s with no kill
-        const comboWindow = 5;
+        const comboWindow = 5 + (this.meta.skills.comboKeep || 0) * 1.5;
         this.state.comboDecayWindow = comboWindow;
         if (this.state.combo > 0) {
             this.state.comboDecayTimer += dt;
@@ -255,7 +266,7 @@ export class VcEngine {
         this.updateProjectiles(dt);
 
         // Kill-based combo: 1 + log(combo)/divisor. scholarGrace reduces the divisor (stronger bonus).
-        const comboDivisor = Math.max(1, 5 - (this.meta.skills.scholarGrace || 0) * 0.1);
+        const comboDivisor = Math.max(1, 5 - (this.meta.skills.scholarGrace || 0) * 0.075);
         this.buffs.dmgMult = this.state.combo > 0
             ? 1 + Math.log(this.state.combo) / comboDivisor
             : 1.0;
@@ -342,7 +353,7 @@ export class VcEngine {
 
         const entries = buildWaveEnemies(
             this.state.wave, this.difficulty, isBossWave, isEnraged,
-            this.map.waypointSets, this.gameMode, this.state.loop, enrageLevel
+            this.map.waypointSets, this.gameMode, this.state.loop, enrageLevel, this.modifiers
         );
 
         const waveOffset = this._nextSpawnDelay || 0;
@@ -444,11 +455,14 @@ export class VcEngine {
                 this.state.mana += 10 * (e.rewardMult || 1) * (this.buffs.poolMult || 1);
                 this.state.xpEarned += enemyXpValue(e);
                 this.state.combo++;
-                this.state.comboDecayTimer = 0;  // reset decay on kill
+                this.state.comboDecayTimer = 0;
+                // no_combo modifier: combo resets every 3 kills instead of on leak
+                if (this.modifiers.includes('no_combo') && this.state.combo % 3 === 0) {
+                    this.state.combo = 0;
+                }
                 // Splitter: on death spawn 2 fast children
                 if (e.onDeath === 'split') {
                     const fastDef = ENEMY_TYPES['fast'];
-                    const waypoints = this.map.waypointSets[e.pathIdx ?? 0] || this.map.waypointSets[0];
                     for (let s = 0; s < 2; s++) {
                         const child = {
                             delay: 0, typeId: 'fast', isBoss: false,
@@ -463,10 +477,36 @@ export class VcEngine {
                         };
                         child.id = Math.random().toString(36).substr(2, 9);
                         this.enemies.push(child);
-                        this.enemyById.set(child.id, child); // Fix #2: register child
+                        this.enemyById.set(child.id, child);
                     }
                 }
-                this.enemyById.delete(e.id); // Fix #2: deregister dead enemy
+                // split_mini: modifier-driven mini split (2 copies at 30% HP, same type)
+                if (e.onDeath === 'split_mini') {
+                    for (let s = 0; s < 2; s++) {
+                        const mini = {
+                            delay: 0, typeId: e.typeId, isBoss: false,
+                            emoji: e.emoji, label: e.label + ' (mini)',
+                            hp: e.maxHp * 0.3, maxHp: e.maxHp * 0.3,
+                            armor: Math.floor((e.armor || 0) * 0.5),
+                            speed: (e.baseSpeed || e.speed) * 1.1,
+                            baseSpeed: (e.baseSpeed || e.speed) * 1.1,
+                            regen: e.regen || 0, immune: new Set(e.immune),
+                            onDeath: null,  // minis don't re-split
+                            manaLeachMult: e.manaLeachMult || 1,
+                            berserk: false, spawnsSwarm: false, swarmSpawnTimer: 0,
+                            pathIdx: e.pathIdx ?? 0,
+                            x: e.x, y: e.y, wpIdx: e.wpIdx,
+                            _xpWeight: (e._xpWeight || 1) * 0.25,  // minis give 25% XP each
+                            _waveNum: e._waveNum || 1,
+                            _difficulty: e._difficulty || 1,
+                            effects: { slow:0, slowTimer:0, poison:0, poisonTimer:0, poisonTick:0, lastHit:'', flashTimer:0, flashColor:'' }
+                        };
+                        mini.id = Math.random().toString(36).substr(2, 9);
+                        this.enemies.push(mini);
+                        this.enemyById.set(mini.id, mini);
+                    }
+                }
+                this.enemyById.delete(e.id);
                 this.enemies.splice(i, 1);
                 continue;
             }
@@ -488,6 +528,7 @@ export class VcEngine {
                 e.maxHp  *= 1.3;
                 e.speed  *= 1.1;
                 e.hp      = e.maxHp;  // full heal on re-entry
+                if (e._maxShield) e._shield = e._maxShield * 1.3; // shield also grows on re-entry
                 e.x       = waypoints[0].x;
                 e.y       = waypoints[0].y;
                 e.wpIdx   = 1;
@@ -598,7 +639,7 @@ export class VcEngine {
                 if (targets.length > 0) {
                     targets.forEach(t => this.applyGemEffect(t, st.gem, gemData, true, st));
                     // GCFW Trap Fire Rate: +200% Base (3x faster than towers) + Skills
-                    const trapFireMult = 2.0 + ((this.meta.skills.trapSpecialty || 0) * 0.02);
+                    const trapFireMult = 2.0 + ((this.meta.skills.trapSpecialty || 0) * 0.015);
                     st.cooldown = 1 / (gemFireSpeed(st.gem, gemData, this.meta.skills) * trapFireMult);
                 }
             }
@@ -648,12 +689,12 @@ export class VcEngine {
 
         if (isTrap) { 
             // GCFW Trap Multipliers: 20% Damage, 2.5x Specials
-            const trapDmgMult = 0.20 + ((this.meta.skills.trapSpecialty || 0) * 0.01);
-            specialMult = 1.5 + ((this.meta.skills.trapSpecialty || 0) * 0.05);
+            const trapDmgMult = 0.20 + ((this.meta.skills.trapSpecialty || 0) * 0.015);
+            specialMult = 1.5 + ((this.meta.skills.trapSpecialty || 0) * 0.075);
             dmg = Math.max(1, dmg * trapDmgMult);
         }
 
-        if (gem.color === 'red') dmg *= (1 + (this.meta.skills.redMastery || 0) * 0.01);
+        if (gem.color === 'red') dmg *= (1 + (this.meta.skills.redMastery || 0) * 0.02);
         dmg *= this.buffs.dmgMult * (this.buffs.poolMult || 1);
 
         // Cursed: 90% damage reduction from non-purple gems
@@ -670,7 +711,7 @@ export class VcEngine {
 
         switch (gemData.type) {
             case 'crit': {
-                const baseChance = gemCritChance(gem) + ((this.meta.skills.yellowMastery || 0) * 0.005);
+                const baseChance = gemCritChance(gem) + ((this.meta.skills.yellowMastery || 0) * 0.01);
                 const chance = Math.min(0.9, baseChance);
                 if (Math.random() < chance) { finalDmg *= gemCritMult(gem); isCrit = true; }
                 break;
@@ -681,7 +722,7 @@ export class VcEngine {
                     const slow = gemSlowAmount(gem, gemData) * specialMult;
                     enemy.effects.slow = slow;
                     const slowDur = 3 * Math.pow(1.28, gem.level - 1)
-                        * (1 + (this.meta.skills.blueMastery || 0) * 0.05);
+                        * (1 + (this.meta.skills.blueMastery || 0) * 0.10);
                     enemy.effects.slowTimer = slowDur;
                     enemy.effects.lastHit = 'slow';
                     if (source?.stats) source.stats.slowApplied++;
@@ -691,7 +732,7 @@ export class VcEngine {
             case 'poison': {
                 if (!enemy.immune.has('poison')) {
                     let pDmg = gemPoisonDps(gem, gemData) * specialMult;
-                    if (gem.color === 'green') pDmg *= (1 + (this.meta.skills.greenMastery || 0) * 0.03);
+                    if (gem.color === 'green') pDmg *= (1 + (this.meta.skills.greenMastery || 0) * 0.05);
                     enemy.effects.poison = pDmg;
                     enemy.effects.poisonTimer = 5.0;
                     enemy.effects.poisonTick = 1.0;
@@ -702,14 +743,14 @@ export class VcEngine {
             }
             case 'mana': {
                 let mana = gemManaDrain(gem, gemData) * specialMult * (this.buffs.poolMult || 1);
-                if (gem.color === 'orange') mana *= 1 + (this.meta.skills.orangeMastery || 0) * 0.04;
+                if (gem.color === 'orange') mana *= 1 + (this.meta.skills.orangeMastery || 0) * 0.06;
                 this.state.mana += mana;
                 if (source?.stats) source.stats.manaLeeched += mana;
                 break;
             }
             case 'armor': {
                 let tear = gemArmorTear(gem, gemData) * specialMult;
-                if (gem.color === 'purple') tear *= 1 + (this.meta.skills.purpleMastery || 0) * 0.04;
+                if (gem.color === 'purple') tear *= 1 + (this.meta.skills.purpleMastery || 0) * 0.06;
                 enemy.armor = Math.max(0, enemy.armor - tear);
                 enemy.effects.flashTimer = 0.18;
                 enemy.effects.flashColor = 'purple';
@@ -724,6 +765,19 @@ export class VcEngine {
             enemy.effects.flashColor = 'crit';
         }
         if (source?.stats) source.stats.totalDmg += Math.floor(finalDmg);
+
+        // Shields absorb damage before HP. Armor still applies (shield is a pure HP buffer).
+        // Poison bypasses shields (it's already applied directly to HP in updateEnemies).
+        if (enemy._shield > 0) {
+            const shieldDmg = Math.min(enemy._shield, finalDmg);
+            enemy._shield -= shieldDmg;
+            finalDmg      -= shieldDmg;
+            enemy.effects.flashTimer = 0.18;
+            enemy.effects.flashColor = 'shield';
+            if (this._tickEvents.length < 64) {
+                this._tickEvents.push({ type: 'shieldDmg', x: enemy.x, y: enemy.y, amt: Math.floor(shieldDmg) });
+            }
+        }
 
         enemy.hp -= finalDmg;
         // Batch fix: queue dmg float instead of calling draw() immediately.

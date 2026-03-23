@@ -1046,25 +1046,111 @@ export class VcUI {
         const btnRow = document.createElement('div');
         btnRow.className = 'vc-stat-panel-btns';
 
-        const upBtn = document.createElement('button');
-        upBtn.className = 'vc-btn';
-        upBtn.textContent = `▲ Lv.${lvl+1} (${cost} 💧)`;
-        upBtn.disabled = mana < cost;
-        upBtn.dataset.manaCost = cost;
-        // Perf fix 8: register in cache so _refreshBottomBarButtons needs no DOM query
-        if (!this._costButtons) this._costButtons = [];
-        this._costButtons.push({ btn: upBtn, cost });
-        upBtn.onclick = () => this.handleVocabAction(cost, () => {
-            structRef.gem.level++;
-            this._structuresDirty = true;
-            this.selectTile(this.selectedTile.r, this.selectedTile.c, this.selectedTile.type);
-        });
-        btnRow.appendChild(upBtn);
+        // ── Upgrade slider ────────────────────────────────────────────────────
+        // Find highest level affordable above current
+        let maxAffordUpgrade = lvl;
+        for (let tl = lvl + 1; tl <= 40; tl++) {
+            const tc = gemUpgradeCost(gem.color, tl - 1, this.engine.meta.skills);
+            if (this.engine.state.mana >= tc) maxAffordUpgrade = tl; else break;
+        }
 
+        if (maxAffordUpgrade > lvl) {
+            const upgradeWrap = document.createElement('div');
+            upgradeWrap.style.cssText = 'display:flex;flex-direction:column;gap:3px;width:100%;padding:2px 0;';
+
+            const upgradeHeader = document.createElement('div');
+            upgradeHeader.style.cssText = 'display:flex;justify-content:space-between;align-items:center;font-size:11px;';
+            const upCostInit = gemUpgradeCost(gem.color, maxAffordUpgrade - 1, this.engine.meta.skills);
+            upgradeHeader.innerHTML = `<span style="color:#bdc3c7;">▲ Upgrade to:</span><span id="vc-up-label" style="color:#f1c40f;font-weight:bold;">Lv.${maxAffordUpgrade} (${upCostInit} 💧)</span>`;
+
+            const upgradeSlider = document.createElement('input');
+            upgradeSlider.type  = 'range';
+            upgradeSlider.min   = lvl + 1;
+            upgradeSlider.max   = maxAffordUpgrade;
+            upgradeSlider.value = maxAffordUpgrade;
+            upgradeSlider.style.cssText = 'width:100%;accent-color:#f1c40f;cursor:pointer;';
+
+            const upBtn = document.createElement('button');
+            upBtn.className = 'vc-btn';
+            upBtn.style.width = '100%';
+            upBtn.textContent = `▲ Upgrade → Lv.${maxAffordUpgrade} (${upCostInit} 💧)`;
+            upBtn.dataset.manaCost = upCostInit;
+            if (!this._costButtons) this._costButtons = [];
+            this._costButtons.push({ btn: upBtn, cost: upCostInit });
+
+            upgradeSlider.oninput = () => {
+                const targetLv = parseInt(upgradeSlider.value, 10);
+                const upgCost  = gemUpgradeCost(gem.color, targetLv - 1, this.engine.meta.skills);
+                const lbl = upgradeWrap.querySelector('#vc-up-label');
+                if (lbl) lbl.textContent = `Lv.${targetLv} (${upgCost} 💧)`;
+                upBtn.textContent = `▲ Upgrade → Lv.${targetLv} (${upgCost} 💧)`;
+                upBtn.dataset.manaCost = upgCost;
+                upBtn.disabled = this.engine.state.mana < upgCost;
+            };
+
+            upBtn.onclick = () => {
+                const targetLv = parseInt(upgradeSlider.value, 10);
+                const upgCost  = gemUpgradeCost(gem.color, targetLv - 1, this.engine.meta.skills);
+                this.handleVocabAction(upgCost, () => {
+                    structRef.gem.level = targetLv;
+                    this._structuresDirty = true;
+                    this.selectTile(this.selectedTile.r, this.selectedTile.c, this.selectedTile.type);
+                });
+            };
+
+            upgradeWrap.appendChild(upgradeHeader);
+            upgradeWrap.appendChild(upgradeSlider);
+            upgradeWrap.appendChild(upBtn);
+            btnRow.appendChild(upgradeWrap);
+        } else {
+            // Can't afford any upgrade — show disabled button
+            const upBtn = document.createElement('button');
+            upBtn.className = 'vc-btn';
+            upBtn.textContent = `▲ Lv.${lvl+1} (${cost} 💧)`;
+            upBtn.disabled = true;
+            upBtn.dataset.manaCost = cost;
+            if (!this._costButtons) this._costButtons = [];
+            this._costButtons.push({ btn: upBtn, cost });
+            btnRow.appendChild(upBtn);
+        }
+
+        // ── Range slider ──────────────────────────────────────────────────────
+        const currentRatio = gem.rangeRatio !== undefined ? gem.rangeRatio : 1.0;
+        const rangeWrap    = document.createElement('div');
+        rangeWrap.style.cssText = 'display:flex;flex-direction:column;gap:3px;width:100%;padding:2px 0;';
+
+        const rangeHeader = document.createElement('div');
+        rangeHeader.style.cssText = 'display:flex;justify-content:space-between;align-items:center;font-size:11px;';
+        rangeHeader.innerHTML = `
+            <span style="color:#bdc3c7;">🏹 Range:</span>
+            <span id="vc-range-label" style="color:#3498db;font-weight:bold;">${Math.round(currentRatio * 100)}% (${gemRange(gem, isTrap, this.tileSize)}px)</span>`;
+
+        const rangeSlider = document.createElement('input');
+        rangeSlider.type  = 'range';
+        rangeSlider.min   = 10;
+        rangeSlider.max   = 100;
+        rangeSlider.step  = 5;
+        rangeSlider.value = Math.round(currentRatio * 100);
+        rangeSlider.style.cssText = 'width:100%;accent-color:#3498db;cursor:pointer;';
+
+        rangeSlider.oninput = () => {
+            const ratio    = parseInt(rangeSlider.value, 10) / 100;
+            gem.rangeRatio = ratio;
+            const px       = gemRange(gem, isTrap, this.tileSize);
+            const lbl      = rangeWrap.querySelector('#vc-range-label');
+            if (lbl) lbl.textContent = `${Math.round(ratio * 100)}% (${px}px)`;
+            // Immediately refresh range indicator ring without full re-render
+            this._structuresDirty = true;
+        };
+
+        rangeWrap.appendChild(rangeHeader);
+        rangeWrap.appendChild(rangeSlider);
+        btnRow.appendChild(rangeWrap);
+
+        // ── Remove button ─────────────────────────────────────────────────────
         const sellBtn = document.createElement('button');
         sellBtn.className = 'vc-btn';
-        sellBtn.style.background = '#7f8c8d';
-        sellBtn.style.borderColor = '#636e72';
+        sellBtn.style.cssText = 'background:#7f8c8d;border-color:#636e72;width:100%;';
         sellBtn.textContent = '✕ Remove';
         sellBtn.onclick = () => {
             structRef.gem = null;
@@ -1420,6 +1506,7 @@ export class VcUI {
                 // Throttled secondary cache: HP, armor, status, flash
                 if (refreshSecondary || e._cHp === undefined) {
                     e._cHp     = Math.max(0, Math.min(1, e.hp / e.maxHp));
+                    e._cShield = (e._maxShield > 0) ? Math.max(0, Math.min(1, e._shield / e._maxShield)) : 0;
                     e._cArmor  = e.armor > 0.5 ? Math.round(e.armor) : 0;
                     e._cSlow   = fx.slow > 0;
                     e._cPoison = fx.poison > 0;
@@ -1462,6 +1549,25 @@ export class VcUI {
                               : e.typeId === 'ghost'   ? '#9b59b6'
                               : e.typeId === 'swarm'   ? '#f39c12'
                               : '#2ecc71';
+
+                // Flash tint — shield flash is gold
+                if (e._cFlash === 'shield') {
+                    ctx.fillStyle = 'rgba(255,215,0,0.35)';
+                    ctx.fillRect(x - ts * 0.38, y - ts * 0.38, ts * 0.76, ts * 0.76);
+                }
+
+                // Shield bar (drawn above HP bar when present)
+                if (e._cShield > 0) {
+                    const shBarY = barY - barH - 2;
+                    ctx.fillStyle = '#111';
+                    ctx.fillRect(barX - 1, shBarY - 1, barW + 2, barH + 2);
+                    ctx.fillStyle = '#f1c40f';
+                    ctx.fillRect(barX, shBarY, barW * e._cShield, barH);
+                    // Subtle gold shimmer stripe
+                    ctx.fillStyle = 'rgba(255,255,200,0.35)';
+                    ctx.fillRect(barX, shBarY, barW * e._cShield * 0.4, barH);
+                }
+
                 ctx.fillStyle = '#222';
                 ctx.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
                 ctx.fillStyle = hpColor;
@@ -1521,6 +1627,17 @@ export class VcUI {
             fl.textContent = eventMsg.amt;
             this.gridEl.appendChild(fl);
             setTimeout(() => fl.remove(), 800);
+        } else if (eventMsg?.type === 'shieldDmg') {
+            // Gold shield-damage float — slightly offset upward so it doesn't overlap the HP float
+            const fl = document.createElement('div');
+            fl.className = 'vc-float';
+            fl.style.left = eventMsg.x + 'px';
+            fl.style.top  = (eventMsg.y - 14) + 'px';
+            fl.style.color = '#f1c40f';
+            fl.style.textShadow = '0 0 6px #f39c12';
+            fl.textContent = '🛡️' + eventMsg.amt;
+            this.gridEl.appendChild(fl);
+            setTimeout(() => fl.remove(), 700);
         } else if (eventMsg?.type === 'poolLevelUp') {
             const bar = this.topBar.manaBar;
             if (bar) {

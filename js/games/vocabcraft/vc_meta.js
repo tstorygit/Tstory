@@ -2,36 +2,89 @@ const SAVE_KEY = 'vocabcraft_save';
 
 // All skills use triangular SP costs (Level N costs N SP).
 export const SKILL_DEFS = {
-    // ── Economy (CAPPED) ──────────────────────────────────────────────────────
-    startMana:       { name: "Arcane Reserves",    desc: "+30 starting mana per level. Base is 300 (matches GCFW).",                        max: 50, group: 'economy' },
-    towerDiscount:   { name: "Mason's Art",        desc: "-1% Tower build cost per level (max 50%).",           max: 50, group: 'economy' },
-    trapDiscount:    { name: "Trap Smith",         desc: "-1% Trap build cost per level (max 50%).",            max: 50, group: 'economy' },
-    combineDiscount: { name: "Arcane Fusion",      desc: "-1% gem combine fee per level (max 50%).",            max: 50, group: 'economy' },
+    // ── Economy (CAPPED at 20 — max effect same as before, 2.5× per level) ──
+    startMana:       { name: "Arcane Reserves",    desc: "+50 starting mana per level (max 20 = +1000). Base is 300.",               max: 20, group: 'economy' },
+    towerDiscount:   { name: "Mason's Art",        desc: "-2.5% Tower build cost per level (max 20 = -50%).",                        max: 20, group: 'economy' },
+    trapDiscount:    { name: "Trap Smith",         desc: "-2.5% Trap build cost per level (max 20 = -50%).",                         max: 20, group: 'economy' },
+    combineDiscount: { name: "Arcane Fusion",      desc: "-2.5% gem combine fee per level (max 20 = -50%).",                         max: 20, group: 'economy' },
 
-    // ── Gem forging costs (1%/lv, compounds through upgrades) (CAPPED) ───────
-    redCost:         { name: "Ruby Forging",       desc: "-1% Ruby base & combine cost per level (max 50%).",   max: 50, group: 'gems' },
-    blueCost:        { name: "Sapphire Forging",   desc: "-1% Sapphire base & combine cost per level (max 50%).",max: 50, group: 'gems' },
-    greenCost:       { name: "Emerald Forging",    desc: "-1% Emerald base & combine cost per level (max 50%).", max: 50, group: 'gems' },
-    orangeCost:      { name: "Topaz Forging",      desc: "-1% Topaz base & combine cost per level (max 50%).",   max: 50, group: 'gems' },
-    yellowCost:      { name: "Citrine Forging",    desc: "-1% Citrine base & combine cost per level (max 50%).", max: 50, group: 'gems' },
-    purpleCost:      { name: "Amethyst Forging",   desc: "-1% Amethyst base & combine cost per level (max 50%).",max: 50, group: 'gems' },
+    // ── Gem forging costs (2.5%/lv, compounds through upgrades) (CAPPED) ────
+    redCost:         { name: "Ruby Forging",       desc: "-2.5% Ruby base & combine cost per level (max 20 = -50%).",                max: 20, group: 'gems' },
+    blueCost:        { name: "Sapphire Forging",   desc: "-2.5% Sapphire base & combine cost per level (max 20 = -50%).",            max: 20, group: 'gems' },
+    greenCost:       { name: "Emerald Forging",    desc: "-2.5% Emerald base & combine cost per level (max 20 = -50%).",             max: 20, group: 'gems' },
+    orangeCost:      { name: "Topaz Forging",      desc: "-2.5% Topaz base & combine cost per level (max 20 = -50%).",               max: 20, group: 'gems' },
+    yellowCost:      { name: "Citrine Forging",    desc: "-2.5% Citrine base & combine cost per level (max 20 = -50%).",             max: 20, group: 'gems' },
+    purpleCost:      { name: "Amethyst Forging",   desc: "-2.5% Amethyst base & combine cost per level (max 20 = -50%).",            max: 20, group: 'gems' },
 
-    // ── Gem combat masteries (UNCAPPED) ───────────────────────────────────────
-    redMastery:      { name: "Ruby Mastery",       desc: "+1% Ruby damage per level.",                          max: Infinity, group: 'mastery' },
-    blueMastery:     { name: "Sapphire Mastery",   desc: "+5% Slow duration per level.",                        max: Infinity, group: 'mastery' },
-    greenMastery:    { name: "Emerald Mastery",    desc: "+3% Poison DPS per level.",                           max: Infinity, group: 'mastery' },
-    orangeMastery:   { name: "Topaz Mastery",      desc: "+4% mana leech per hit per level.",             max: Infinity, group: 'mastery' },
-    yellowMastery:   { name: "Citrine Mastery",    desc: "+0.5% crit chance per level.",                        max: Infinity, group: 'mastery' },
-    purpleMastery:   { name: "Amethyst Mastery",   desc: "+4% armor tear per hit per level.",             max: Infinity, group: 'mastery' },
+    // ── Gem combat masteries (UNCAPPED — ~30 levels for a full build) ────────
+    redMastery:      { name: "Ruby Mastery",       desc: "+2% Ruby damage per level.",                                               max: Infinity, group: 'mastery' },
+    blueMastery:     { name: "Sapphire Mastery",   desc: "+10% Slow duration per level.",                                            max: Infinity, group: 'mastery' },
+    greenMastery:    { name: "Emerald Mastery",    desc: "+5% Poison DPS per level.",                                                max: Infinity, group: 'mastery' },
+    orangeMastery:   { name: "Topaz Mastery",      desc: "+6% mana leech per hit per level.",                                        max: Infinity, group: 'mastery' },
+    yellowMastery:   { name: "Citrine Mastery",    desc: "+1% crit chance per level.",                                               max: Infinity, group: 'mastery' },
+    purpleMastery:   { name: "Amethyst Mastery",   desc: "+6% armor tear per hit per level.",                                        max: Infinity, group: 'mastery' },
 
     // ── Utility (UNCAPPED except Haste) ───────────────────────────────────────
-    trapSpecialty:   { name: "Trap Specialization",desc: "Traps shoot 1% faster, deal +1% base dmg, and have +0.1 special multiplier per level.", max: Infinity, group: 'utility' },
-    resonance:       { name: "Resonance",          desc: "+3% global damage per level.",                        max: Infinity, group: 'utility' },
-    haste:           { name: "Haste",              desc: "+2% global firing speed per level.",                  max: 50,       group: 'utility' },
-    scholarGrace:    { name: "Scholar's Grace",    desc: "+0.5% combo damage coefficient per level. Base: ×(1 + log(kills) × 10%).",  max: Infinity, group: 'utility' },
-    comboKeep:       { name: "Combo Mastery",       desc: "+1s combo window per level. Base window: 5s before combo starts to decay.",     max: Infinity, group: 'utility' },
-    bonusWaves:      { name: "Arcane Endurance",   desc: "+3 waves per level. More enemies = more XP.",          max: Infinity, group: 'utility' }
+    trapSpecialty:   { name: "Trap Specialization",desc: "Traps shoot 1.5% faster, deal +1.5% base dmg, and have +0.075 special multiplier per level.", max: Infinity, group: 'utility' },
+    resonance:       { name: "Resonance",          desc: "+4% global damage per level.",                                             max: Infinity, group: 'utility' },
+    haste:           { name: "Haste",              desc: "+3% global firing speed per level (max 20 = +60%).",                       max: 20,       group: 'utility' },
+    scholarGrace:    { name: "Scholar's Grace",    desc: "+0.75% combo damage coefficient per level. Base: ×(1 + log(kills) × 20%).", max: Infinity, group: 'utility' },
+    comboKeep:       { name: "Combo Mastery",       desc: "+1.5s combo window per level. Base window: 5s before combo starts to decay.", max: Infinity, group: 'utility' },
+    bonusWaves:      { name: "Arcane Endurance",   desc: "+3 waves per level. More enemies = more XP.",                              max: Infinity, group: 'utility' }
 };
+
+/**
+ * Maximum XP a stage at `difficulty` can ever award (first full clear).
+ * Calibrated so clearing all 5 templates × D1–D10 once → Level ~9,999.
+ * Formula: 2.543e9 × 1.8^(difficulty-1)
+ *
+ * Repeat-clear rule: player only earns XP above their previous best for
+ * that stage (stored in meta.stageXPEarned[templateId:difficulty]).
+ */
+/**
+ * Optional run modifiers — player picks 0–5 before starting.
+ * Each makes the run harder in a specific way and adds an XP bonus.
+ * Bonuses stack additively, capped at 3.0× base budget.
+ *
+ * Tier 1 (+20–25%): moderate difficulty increase, good for first repeats
+ * Tier 2 (+30–35%): significant mechanical challenge
+ * Tier 3 (+40–45%): punishing — requires strong builds to survive
+ */
+export const RUN_MODIFIERS = [
+    // ── Tier 1: +20–25% ──────────────────────────────────────────────────────
+    { id: 'fast',        name: 'Haste',           emoji: '💨', desc: 'All enemies move 40% faster. Coverage gaps become lethal.',                                         xpBonus: 0.20 },
+    { id: 'regen',       name: 'Regenerating',    emoji: '💚', desc: 'All enemies regenerate 3% max HP/s. Burst damage essential — poison won\'t keep up.',               xpBonus: 0.20 },
+    { id: 'no_poison',   name: 'Toxic Resistant', emoji: '🧪', desc: 'All enemies are immune to Poison. Emerald gems become useless — adapt your loadout.',               xpBonus: 0.20 },
+    { id: 'berserker',   name: 'Frenzied',        emoji: '🔥', desc: 'All enemies gain the Berserker trait: speed triples as HP drops. Never let them get low.',          xpBonus: 0.25 },
+    { id: 'armored',     name: 'Ironhide',        emoji: '⚔️', desc: 'All enemies gain +4 bonus armor. Purple gems become essential.',                                    xpBonus: 0.25 },
+    { id: 'splitter',    name: 'Splitter Horde',  emoji: '🔱', desc: 'Enemies split into 2 weaker copies on death. Effectively doubles enemy count.',                     xpBonus: 0.25 },
+
+    // ── Tier 2: +30–35% ──────────────────────────────────────────────────────
+    { id: 'ghost',       name: 'Ethereal',        emoji: '👻', desc: 'All enemies immune to Slow and Poison. Only direct damage works.',                                   xpBonus: 0.30 },
+    { id: 'density',     name: 'Dense Waves',     emoji: '🐝', desc: '+50% enemies per wave. Overwhelms single-target towers.',                                            xpBonus: 0.30 },
+    { id: 'shields',     name: 'Shielded',        emoji: '🛡️', desc: 'Every enemy spawns with a shield equal to 40% of its HP before armor takes damage.',                xpBonus: 0.30 },
+    { id: 'no_combo',    name: 'Anti-Combo',      emoji: '💔', desc: 'Your combo counter resets every 3 kills instead of on leak. Sustained DPS beats burst.',             xpBonus: 0.30 },
+    { id: 'giant_waves', name: 'Colossus Wave',   emoji: '🗿', desc: 'All enemies spawn with double HP. Armor and speed unchanged — just more to chew through.',           xpBonus: 0.35 },
+    { id: 'mana_drain',  name: 'Mana Vampires',   emoji: '💸', desc: 'All enemies drain 2× mana if they reach your base. One leak can end a run.',                        xpBonus: 0.35 },
+
+    // ── Tier 3: +40–45% ──────────────────────────────────────────────────────
+    { id: 'extra_waves', name: 'Extended Siege',  emoji: '🌊', desc: '+50% more waves. More enemies, more mana income — but you need gems to survive that long.',          xpBonus: 0.40 },
+    { id: 'swarm_all',   name: 'Swarm Mode',      emoji: '🐜', desc: 'Every enemy spawns in groups of 3 (swarm trait). Wave sizes triple — towers melt.',                  xpBonus: 0.40 },
+    { id: 'multipath',   name: 'Flanking',        emoji: '🗺️', desc: 'Enemies split across ALL paths simultaneously instead of being assigned one. No path is safe.',     xpBonus: 0.40 },
+    { id: 'cursed_all',  name: 'Cursed Legion',   emoji: '💀', desc: 'All enemies resist 90% damage from non-Amethyst gems. Only Purple can harm them effectively.',       xpBonus: 0.45 },
+];
+
+/** Additive XP multiplier for a set of active modifier IDs. No cap — all 16 = 5.9× */
+export function combinedXpMult(modifierIds) {
+    const bonus = RUN_MODIFIERS
+        .filter(m => modifierIds.includes(m.id))
+        .reduce((sum, m) => sum + m.xpBonus, 0);
+    return 1.0 + bonus;
+}
+
+export function getStageXPBudget(difficulty) {
+    return Math.round(2.543e9 * Math.pow(1.8, difficulty - 1));
+}
 
 export function getDefaultSave() {
     return {
@@ -45,13 +98,12 @@ export function getDefaultSave() {
             orangeMastery: 0, yellowMastery: 0, purpleMastery: 0,
             trapSpecialty: 0, resonance: 0, haste: 0, scholarGrace: 0, comboKeep: 0, bonusWaves: 0
         },
-        // Per-run active level — can be set to any value 0..skills[key].
-        // Skills not listed here always use their full purchased level.
         activeSkills: {
             bonusWaves: 0, startMana: 0, resonance: 0, haste: 0,
             scholarGrace: 0, comboKeep: 0, trapSpecialty: 0
         },
-        clearedStages: {}
+        clearedStages: {},
+        stageXPEarned: {}   // maps "templateId:difficulty" → best XP earned so far
     };
 }
 
@@ -76,13 +128,39 @@ export function loadMeta() {
         }
         delete parsed.highestTierCleared;
 
+        // Clamp capped skills that were over-invested in old saves (max was 50, now 20).
+        // Refund excess SP so the player isn't penalised.
+        const CAPPED_SKILLS = ['startMana','towerDiscount','trapDiscount','combineDiscount',
+                               'redCost','blueCost','greenCost','orangeCost','yellowCost','purpleCost','haste'];
+        if (parsed.skills) {
+            let refunded = 0;
+            for (const key of CAPPED_SKILLS) {
+                const def = SKILL_DEFS[key];
+                if (!def || def.max === Infinity) continue;
+                const current = parsed.skills[key] || 0;
+                if (current > def.max) {
+                    // Refund SP for levels above the new cap: triangular(current) - triangular(newMax)
+                    const excess = current - def.max;
+                    // SP cost for levels (newMax+1) through current = sum_{i=newMax+1}^{current} i
+                    // = triangular(current) - triangular(newMax)
+                    const refund = (current * (current + 1) / 2) - (def.max * (def.max + 1) / 2);
+                    refunded += refund;
+                    parsed.skills[key] = def.max;
+                }
+            }
+            if (refunded > 0) {
+                parsed.sp = (parsed.sp || 0) + refunded;
+            }
+        }
+
         const def = getDefaultSave();
         return {
             ...def,
             ...parsed,
             skills: { ...def.skills, ...parsed.skills },
             activeSkills: { ...def.activeSkills, ...(parsed.activeSkills || {}) },
-            clearedStages: { ...(parsed.clearedStages || {}) }
+            clearedStages: { ...(parsed.clearedStages || {}) },
+            stageXPEarned: { ...(parsed.stageXPEarned || {}) }
         };
     } catch {
         return getDefaultSave();
@@ -134,6 +212,33 @@ export function getEffectiveSkills(meta) {
 export function clearStage(meta, templateId, difficulty) {
     meta.clearedStages[`${templateId}:${difficulty}`] = true;
     saveMeta(meta);
+}
+
+/**
+ * GemCraft-style repeat-clear XP gate.
+ * Returns the XP to actually award (new XP above the player's previous best),
+ * and updates stageXPEarned so future runs can't re-earn the same XP.
+ *
+ * xpMult (default 1.0) is the run modifier multiplier — picking harder modifiers
+ * raises the effective cap up to 2× the base budget, letting skilled players earn
+ * more XP on repeat runs by opting into harder conditions.
+ *
+ * First clear (no mods): full base budget awarded.
+ * Repeat at same score: 0 XP.
+ * Repeat with mods (higher cap): only the improvement above previous best is awarded.
+ */
+export function recordStageXP(meta, templateId, difficulty, xpEarned, xpMult = 1.0) {
+    const key         = `${templateId}:${difficulty}`;
+    const baseBudget  = getStageXPBudget(difficulty);
+    const effectiveCap = Math.round(baseBudget * Math.max(1.0, xpMult));
+    const cappedEarned = Math.min(xpEarned, effectiveCap);
+    const prevBest     = meta.stageXPEarned[key] || 0;
+    const toAward      = Math.max(0, cappedEarned - prevBest);
+    if (cappedEarned > prevBest) {
+        meta.stageXPEarned[key] = cappedEarned;
+        saveMeta(meta);
+    }
+    return toAward;
 }
 
 /** Highest difficulty cleared on ANY template — drives template unlock gates. */

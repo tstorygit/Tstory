@@ -190,6 +190,22 @@ export const ENEMY_TYPES = {
     }
 };
 
+/**
+ * Threat weight for a given enemy type definition.
+ * Used by enemyXpValue() in vc_engine — captures how hard a type is
+ * WITHOUT using wave-scaled HP (which caused the exponential XP explosion).
+ */
+export function enemyTypeWeight(typeDef) {
+    return typeDef.hpMult
+         * typeDef.spawnCount
+         * (1 + (typeDef.armorBonus || 0) / 8)
+         * (1 + (typeDef.immune?.length || 0) * 0.3)
+         * (typeDef.regen > 0 ? 1.2 : 1)
+         * (typeDef.berserk ? 1.15 : 1)
+         * (typeDef.spawnsSwarm ? 1.4 : 1)
+         * (typeDef.manaLeachMult > 1 ? typeDef.manaLeachMult * 0.5 : 1);
+}
+
 // Which enemy types can appear each wave — based on difficulty (1-10)
 function wavePool(waveNum, difficulty) {
     const pool = ['normal'];
@@ -247,7 +263,7 @@ function pickWaveComposition(totalSlots, waveNum, difficulty) {
  * @param {boolean} isEnraged
  * @param {Array<Array<{x,y}>>} waypointSets  one array per path (pixel coords)
  */
-export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, waypointSets, gameMode = 'hard', loop = 1, enrageLevel = 1) {
+export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, waypointSets, gameMode = 'hard', loop = 1, enrageLevel = 1, modifiers = []) {
     // Game mode multipliers applied to ALL enemies (including boss)
     // hard: baseline (×1.0 hp, ×1.0 speed)
     // normal: half hp
@@ -266,7 +282,7 @@ export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, way
         const armor = Math.max(0, Math.floor((waveNum - 2) / 2) + Math.floor((difficulty - 1) / 2)) + 3;
         const bossEnrageMult = isEnraged ? (1 + enrageLevel * 0.1) : 1;
         const hp = hpBase * bossEnrageMult * modeHpMult * loopMult;
-        return [{
+        const bossEntry = {
             delay: 0,
             typeId: 'boss',
             isBoss: true,
@@ -278,11 +294,23 @@ export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, way
             immune: [],
             pathIdx: 0,
             x: spawn.x, y: spawn.y, wpIdx: 1,
+            _xpWeight: 4.0 * 1.3,   // boss: ×4 HP, regen
+            _waveNum: waveNum,
+            _difficulty: difficulty,
             effects: { slow: 0, slowTimer: 0, poison: 0, poisonTimer: 0, poisonTick: 0, lastHit: '', flashTimer: 0, flashColor: '' }
-        }];
+        };
+        if (modifiers.includes('shields'))    { bossEntry._shield = hp * 0.4; bossEntry._maxShield = hp * 0.4; }
+        if (modifiers.includes('fast'))        { bossEntry.speed *= 1.4; }
+        if (modifiers.includes('armored'))     { bossEntry.armor += 4; }
+        if (modifiers.includes('ghost'))       { bossEntry.immune.push('slow', 'poison'); }
+        if (modifiers.includes('no_poison'))   { if (!bossEntry.immune.includes('poison')) bossEntry.immune.push('poison'); }
+        if (modifiers.includes('giant_waves')) { bossEntry.hp *= 2; bossEntry.maxHp *= 2; if (bossEntry._maxShield) { bossEntry._maxShield *= 2; bossEntry._shield *= 2; } }
+        if (modifiers.includes('mana_drain'))  { bossEntry.manaLeachMult = 2; }
+        if (modifiers.includes('cursed_all'))  { bossEntry.immune.push('dmg_nonpurple'); }
+        return [bossEntry];
     }
 
-    const slots       = 4 + Math.floor(waveNum * 1.2) + Math.floor(difficulty / 2);
+    const slots       = Math.round((4 + Math.floor(waveNum * 1.2) + Math.floor(difficulty / 2)) * (modifiers.includes('density') ? 1.5 : 1));
     const composition = pickWaveComposition(slots, waveNum, difficulty);
 
     let hpBase = 18 * GLOBAL_SCALE * diffMult * Math.pow(1.15, waveNum);
@@ -303,7 +331,7 @@ export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, way
             const hp      = hpBase * typeDef.hpMult * enrageMult * modeHpMult * loopMult;
             const armor   = Math.max(0, baseArmor + typeDef.armorBonus) + (isEnraged ? Math.ceil(enrageLevel / 3) : 0);
 
-            enemies.push({
+            const baseEnemy = {
                 delay: spawnIdx * 0.7,
                 typeId,
                 isBoss: false,
@@ -322,11 +350,81 @@ export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, way
                 swarmSpawnTimer: typeDef.spawnsSwarm ? 3.0 : 0,
                 pathIdx,
                 x: spawn.x, y: spawn.y, wpIdx: 1,
+                _xpWeight: enemyTypeWeight(typeDef),
+                _waveNum: waveNum,
+                _difficulty: difficulty,
                 effects: { slow: 0, slowTimer: 0, poison: 0, poisonTimer: 0, poisonTick: 0, lastHit: '', flashTimer: 0, flashColor: '' }
-            });
+            };
+
+            // ── Apply run modifiers ──────────────────────────────────────────
+            if (modifiers.includes('shields')) {
+                baseEnemy._shield    = hp * 0.4;
+                baseEnemy._maxShield = hp * 0.4;
+            }
+            if (modifiers.includes('regen')) {
+                baseEnemy.regen = Math.max(baseEnemy.regen, 0.03);
+            }
+            if (modifiers.includes('fast')) {
+                baseEnemy.speed     *= 1.4;
+                baseEnemy.baseSpeed *= 1.4;
+            }
+            if (modifiers.includes('armored')) {
+                baseEnemy.armor += 4;
+            }
+            if (modifiers.includes('ghost')) {
+                if (!baseEnemy.immune.includes('slow'))   baseEnemy.immune.push('slow');
+                if (!baseEnemy.immune.includes('poison')) baseEnemy.immune.push('poison');
+            }
+            if (modifiers.includes('no_poison')) {
+                if (!baseEnemy.immune.includes('poison')) baseEnemy.immune.push('poison');
+            }
+            if (modifiers.includes('splitter') && typeId !== 'splitter') {
+                baseEnemy.onDeath = 'split_mini';
+            }
+            if (modifiers.includes('berserker')) {
+                baseEnemy.berserk = true;
+                if (!baseEnemy.baseSpeed) baseEnemy.baseSpeed = baseEnemy.speed;
+            }
+            if (modifiers.includes('giant_waves')) {
+                baseEnemy.hp    *= 2;
+                baseEnemy.maxHp *= 2;
+                // Refresh shield size too if shields also active
+                if (baseEnemy._maxShield) { baseEnemy._maxShield *= 2; baseEnemy._shield *= 2; }
+            }
+            if (modifiers.includes('mana_drain')) {
+                baseEnemy.manaLeachMult = (baseEnemy.manaLeachMult || 1) * 2;
+            }
+            if (modifiers.includes('swarm_all') && typeId !== 'swarm') {
+                // Override spawnCount behaviour: mark for triple-spawn
+                baseEnemy._swarmAll = true;
+            }
+            if (modifiers.includes('multipath')) {
+                // Assign path round-robin across ALL paths (already handled by pathIdx % numPaths)
+                // but override to spread more aggressively: cycle faster
+                baseEnemy.pathIdx = spawnIdx % numPaths;
+            }
+            if (modifiers.includes('cursed_all')) {
+                if (!baseEnemy.immune.includes('dmg_nonpurple')) baseEnemy.immune.push('dmg_nonpurple');
+            }
+
+            enemies.push(baseEnemy);
             spawnIdx++;
         }
     });
+
+    // swarm_all: triple every enemy (add 2 extra copies of each marked enemy)
+    if (modifiers.includes('swarm_all')) {
+        const origLen = enemies.length;
+        for (let i = 0; i < origLen; i++) {
+            const src = enemies[i];
+            if (!src._swarmAll) continue;
+            for (let c = 0; c < 2; c++) {
+                const clone = { ...src, effects: { ...src.effects }, immune: [...src.immune] };
+                clone.delay += (c + 1) * 0.25;
+                enemies.push(clone);
+            }
+        }
+    }
 
     return enemies;
 }
