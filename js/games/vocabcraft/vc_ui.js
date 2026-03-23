@@ -1047,32 +1047,38 @@ export class VcUI {
         btnRow.className = 'vc-stat-panel-btns';
 
         // ── Upgrade slider ────────────────────────────────────────────────────
-        // Find highest level affordable above current
         let maxAffordUpgrade = lvl;
         for (let tl = lvl + 1; tl <= 40; tl++) {
-            const tc = gemUpgradeCost(gem.color, tl - 1, this.engine.meta.skills);
-            if (this.engine.state.mana >= tc) maxAffordUpgrade = tl; else break;
+            if (this.engine.state.mana >= gemUpgradeCost(gem.color, tl - 1, this.engine.meta.skills))
+                maxAffordUpgrade = tl;
+            else break;
         }
 
         if (maxAffordUpgrade > lvl) {
             const upgradeWrap = document.createElement('div');
-            upgradeWrap.style.cssText = 'display:flex;flex-direction:column;gap:3px;width:100%;padding:2px 0;';
+            upgradeWrap.className = 'vc-slider-row';
 
             const upgradeHeader = document.createElement('div');
-            upgradeHeader.style.cssText = 'display:flex;justify-content:space-between;align-items:center;font-size:11px;';
+            upgradeHeader.className = 'vc-slider-row-header';
+            const upLbl = document.createElement('span');
+            upLbl.style.color = '#bdc3c7';
+            upLbl.textContent = '▲ Upgrade to:';
+            const upVal = document.createElement('span');
+            upVal.style.cssText = 'color:#f1c40f;font-weight:bold;';
             const upCostInit = gemUpgradeCost(gem.color, maxAffordUpgrade - 1, this.engine.meta.skills);
-            upgradeHeader.innerHTML = `<span style="color:#bdc3c7;">▲ Upgrade to:</span><span id="vc-up-label" style="color:#f1c40f;font-weight:bold;">Lv.${maxAffordUpgrade} (${upCostInit} 💧)</span>`;
+            upVal.textContent = `Lv.${maxAffordUpgrade} (${upCostInit} 💧)`;
+            upgradeHeader.appendChild(upLbl);
+            upgradeHeader.appendChild(upVal);
 
             const upgradeSlider = document.createElement('input');
             upgradeSlider.type  = 'range';
             upgradeSlider.min   = lvl + 1;
             upgradeSlider.max   = maxAffordUpgrade;
             upgradeSlider.value = maxAffordUpgrade;
-            upgradeSlider.style.cssText = 'width:100%;accent-color:#f1c40f;cursor:pointer;';
+            upgradeSlider.style.accentColor = '#f1c40f';
 
             const upBtn = document.createElement('button');
             upBtn.className = 'vc-btn';
-            upBtn.style.width = '100%';
             upBtn.textContent = `▲ Upgrade → Lv.${maxAffordUpgrade} (${upCostInit} 💧)`;
             upBtn.dataset.manaCost = upCostInit;
             if (!this._costButtons) this._costButtons = [];
@@ -1081,8 +1087,7 @@ export class VcUI {
             upgradeSlider.oninput = () => {
                 const targetLv = parseInt(upgradeSlider.value, 10);
                 const upgCost  = gemUpgradeCost(gem.color, targetLv - 1, this.engine.meta.skills);
-                const lbl = upgradeWrap.querySelector('#vc-up-label');
-                if (lbl) lbl.textContent = `Lv.${targetLv} (${upgCost} 💧)`;
+                upVal.textContent = `Lv.${targetLv} (${upgCost} 💧)`;
                 upBtn.textContent = `▲ Upgrade → Lv.${targetLv} (${upgCost} 💧)`;
                 upBtn.dataset.manaCost = upgCost;
                 upBtn.disabled = this.engine.state.mana < upgCost;
@@ -1103,7 +1108,6 @@ export class VcUI {
             upgradeWrap.appendChild(upBtn);
             btnRow.appendChild(upgradeWrap);
         } else {
-            // Can't afford any upgrade — show disabled button
             const upBtn = document.createElement('button');
             upBtn.className = 'vc-btn';
             upBtn.textContent = `▲ Lv.${lvl+1} (${cost} 💧)`;
@@ -1116,14 +1120,20 @@ export class VcUI {
 
         // ── Range slider ──────────────────────────────────────────────────────
         const currentRatio = gem.rangeRatio !== undefined ? gem.rangeRatio : 1.0;
-        const rangeWrap    = document.createElement('div');
-        rangeWrap.style.cssText = 'display:flex;flex-direction:column;gap:3px;width:100%;padding:2px 0;';
+
+        const rangeWrap = document.createElement('div');
+        rangeWrap.className = 'vc-slider-row';
 
         const rangeHeader = document.createElement('div');
-        rangeHeader.style.cssText = 'display:flex;justify-content:space-between;align-items:center;font-size:11px;';
-        rangeHeader.innerHTML = `
-            <span style="color:#bdc3c7;">🏹 Range:</span>
-            <span id="vc-range-label" style="color:#3498db;font-weight:bold;">${Math.round(currentRatio * 100)}% (${gemRange(gem, isTrap, this.tileSize)}px)</span>`;
+        rangeHeader.className = 'vc-slider-row-header';
+        const rangeLbl = document.createElement('span');
+        rangeLbl.style.color = '#bdc3c7';
+        rangeLbl.textContent = '🏹 Range:';
+        const rangeVal = document.createElement('span');
+        rangeVal.style.cssText = 'color:#3498db;font-weight:bold;';
+        rangeVal.textContent = `${Math.round(currentRatio * 100)}% (${gemRange(gem, isTrap, this.tileSize)}px)`;
+        rangeHeader.appendChild(rangeLbl);
+        rangeHeader.appendChild(rangeVal);
 
         const rangeSlider = document.createElement('input');
         rangeSlider.type  = 'range';
@@ -1131,15 +1141,12 @@ export class VcUI {
         rangeSlider.max   = 100;
         rangeSlider.step  = 5;
         rangeSlider.value = Math.round(currentRatio * 100);
-        rangeSlider.style.cssText = 'width:100%;accent-color:#3498db;cursor:pointer;';
+        rangeSlider.style.accentColor = '#3498db';
 
         rangeSlider.oninput = () => {
             const ratio    = parseInt(rangeSlider.value, 10) / 100;
             gem.rangeRatio = ratio;
-            const px       = gemRange(gem, isTrap, this.tileSize);
-            const lbl      = rangeWrap.querySelector('#vc-range-label');
-            if (lbl) lbl.textContent = `${Math.round(ratio * 100)}% (${px}px)`;
-            // Immediately refresh range indicator ring without full re-render
+            rangeVal.textContent = `${Math.round(ratio * 100)}% (${gemRange(gem, isTrap, this.tileSize)}px)`;
             this._structuresDirty = true;
         };
 
@@ -1150,7 +1157,7 @@ export class VcUI {
         // ── Remove button ─────────────────────────────────────────────────────
         const sellBtn = document.createElement('button');
         sellBtn.className = 'vc-btn';
-        sellBtn.style.cssText = 'background:#7f8c8d;border-color:#636e72;width:100%;';
+        sellBtn.style.cssText = 'background:#7f8c8d;border-color:#636e72;';
         sellBtn.textContent = '✕ Remove';
         sellBtn.onclick = () => {
             structRef.gem = null;

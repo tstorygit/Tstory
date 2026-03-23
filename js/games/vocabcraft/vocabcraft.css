@@ -754,10 +754,29 @@
 }
 .vc-stat-panel-btns {
     display: flex;
+    flex-direction: column;
     gap: 6px;
     width: 100%;
 }
-.vc-stat-panel-btns .vc-btn { flex: 1; padding: 4px 6px; font-size: 12px; min-width: 0; }
+.vc-stat-panel-btns .vc-btn { width: 100%; padding: 6px 8px; font-size: 12px; }
+.vc-slider-row {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    width: 100%;
+    padding: 2px 0;
+}
+.vc-slider-row-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+}
+.vc-slider-row input[type=range] {
+    width: 100%;
+    cursor: pointer;
+    height: 18px;
+}
 
 /* --- Enemy selected ring & glow --- */
 .vc-enemy-selected-ring {
