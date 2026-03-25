@@ -1248,6 +1248,79 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
         });
     }
 
+    // ── Run Modifiers (setup screen) ─────────────────────────────────────────
+    let _activeModifiers = [];
+    const modSection = document.createElement('div');
+    modSection.style.cssText = 'margin-top:8px;border:1px solid #2c4a66;border-radius:7px;overflow:hidden;';
+
+    const modTierDefs = [
+        { label: 'Tier 1', lo: 0.20, hi: 0.25, color: '#f1c40f' },
+        { label: 'Tier 2', lo: 0.29, hi: 0.35, color: '#e67e22' },
+        { label: 'Tier 3', lo: 0.39, hi: 0.50, color: '#e74c3c' },
+    ];
+
+    let modBodyOpen = false;
+    const modHeader = document.createElement('div');
+    modHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:8px 11px;cursor:pointer;user-select:none;background:#152030;';
+    modHeader.innerHTML = `
+        <div style="font-size:11px;font-weight:bold;color:#f39c12;text-transform:uppercase;letter-spacing:1px;">⚡ Run Modifiers <span id="vc-setup-mod-count" style="color:#f1c40f;">(none selected — 1.0× XP)</span></div>
+        <div id="vc-setup-mod-chevron" style="font-size:11px;color:#7fb3d3;transition:transform 0.2s;">▶</div>
+    `;
+
+    const modBody = document.createElement('div');
+    modBody.style.cssText = 'display:none;padding:8px 10px 10px;background:#0f1c28;';
+    modBody.innerHTML = modTierDefs.map(tier => {
+        const mods = RUN_MODIFIERS.filter(m => m.xpBonus >= tier.lo && m.xpBonus <= tier.hi);
+        return `<div style="margin-bottom:8px;">
+            <div style="font-size:9px;font-weight:bold;color:${tier.color};text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">${tier.label} (+${Math.round(tier.lo*100)}–${Math.round(tier.hi*100)}% XP)</div>
+            <div style="display:flex;flex-direction:column;gap:3px;">
+                ${mods.map(m => `
+                    <label id="vc-setup-mod-row-${m.id}" style="display:flex;align-items:flex-start;gap:8px;padding:6px 8px;background:#1a252f;border:1.5px solid #2c4a66;border-radius:6px;cursor:pointer;transition:border-color 0.15s,background 0.15s;">
+                        <input type="checkbox" data-setup-mod-id="${m.id}" style="margin-top:2px;flex-shrink:0;">
+                        <div style="flex:1;min-width:0;">
+                            <div style="font-size:11px;font-weight:bold;color:#ecf0f1;">${m.emoji} ${m.name} <span style="color:${tier.color};font-size:10px;">+${Math.round(m.xpBonus*100)}%</span></div>
+                            <div style="font-size:10px;color:#95a5a6;line-height:1.3;">${m.desc}</div>
+                        </div>
+                    </label>`).join('')}
+            </div>
+        </div>`;
+    }).join('');
+
+    function _updateSetupModUI() {
+        const checks = modBody.querySelectorAll('[data-setup-mod-id]');
+        _activeModifiers = [...checks].filter(c => c.checked).map(c => c.dataset.setupModId);
+        const mult = combinedXpMult(_activeModifiers);
+        const countEl = modHeader.querySelector('#vc-setup-mod-count');
+        const tierColor = mult >= 4.0 ? '#e74c3c' : mult >= 2.5 ? '#e67e22' : '#f1c40f';
+        if (_activeModifiers.length === 0) {
+            countEl.textContent = '(none selected — 1.0× XP)';
+            countEl.style.color = '#f1c40f';
+        } else {
+            countEl.textContent = `(${_activeModifiers.length} active — ${mult.toFixed(2)}× XP)`;
+            countEl.style.color = tierColor;
+        }
+        modBody.querySelectorAll('[id^="vc-setup-mod-row-"]').forEach(row => {
+            const cb = row.querySelector('input[type=checkbox]');
+            const active = cb?.checked;
+            row.style.borderColor = active ? '#f39c12' : '#2c4a66';
+            row.style.background  = active ? '#1f3040' : '#1a252f';
+        });
+    }
+
+    modBody.querySelectorAll('[data-setup-mod-id]').forEach(cb => {
+        cb.addEventListener('change', _updateSetupModUI);
+    });
+
+    modHeader.addEventListener('click', () => {
+        modBodyOpen = !modBodyOpen;
+        modBody.style.display = modBodyOpen ? 'block' : 'none';
+        modHeader.querySelector('#vc-setup-mod-chevron').style.transform = modBodyOpen ? 'rotate(90deg)' : '';
+    });
+
+    modSection.appendChild(modHeader);
+    modSection.appendChild(modBody);
+    body.appendChild(modSection);
+
     renderDots();
     renderWavePreview();
 
@@ -1261,7 +1334,7 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
         const unlockedActual = isStageUnlocked(_meta, tpl.id, selectedD);
         if (!unlockedActual && !_debugUnlockAll) return;
         overlay.remove();
-        _startBattle(tpl.id, selectedD, _gameMode);
+        _startBattle(tpl.id, selectedD, _gameMode, _activeModifiers);
     };
 
     backBar.querySelector('#vc-hex-close').onclick = () => overlay.remove();
