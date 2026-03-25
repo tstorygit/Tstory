@@ -38,6 +38,12 @@ export function initEngine(cvs, st, map) {
     canvas.height = ROOM_ROWS * TILE_SIZE;
     prewarmTileCache(TILE_SIZE);
     
+    // Pre-clear the start room — it never gets enemies, so mark it up-front
+    // so the cleared/spawned guards never misfire on it.
+    const startR = map.rooms[map.startRoom.y][map.startRoom.x];
+    startR.cleared = true;
+    startR.spawned = true;
+
     const scale = Math.min(parent.clientWidth / canvas.width, parent.clientHeight / canvas.height);
     canvas.style.transform = `scale(${scale})`;
     
@@ -50,12 +56,19 @@ export function stopEngine() {
     cancelAnimationFrame(rafId);
 }
 
+// When non-null, the main loop will fire onRoomEnter on the next unpaused frame.
+// Using a deferred flag instead of calling onRoomEnter directly from loadRoom
+// prevents quizzes from being swallowed (isPaused guard) or double-fired
+// (transition loop bypasses isPaused).
+let pendingRoomEnter = null; // { room, spawnFn, spawnBuffedFn }
+
 function loadRoom(rx, ry, snapPlayer = false) {
     state.roomX = rx; state.roomY = ry;
     const room = mapData.rooms[ry][rx];
     activeEnemies = [];
     activeHitboxes = [];
     drops = [];
+    pendingRoomEnter = null; // cancel any stale pending from previous room
 
     // On initial load (or rebirth/stage-start) place the player on a safe tile
     if (snapPlayer) {
@@ -67,11 +80,17 @@ function loadRoom(rx, ry, snapPlayer = false) {
     const isStart = (rx === mapData.startRoom.x && ry === mapData.startRoom.y);
 
     if (!room.cleared && !isStart) {
-        state.callbacks.onRoomEnter(room, () => _spawnRoom(room), () => _spawnRoomBuffed(room));
+        // Defer — fired from the main loop once the game is unpaused
+        pendingRoomEnter = {
+            room,
+            spawnFn:       () => _spawnRoom(room),
+            spawnBuffedFn: () => _spawnRoomBuffed(room),
+        };
     }
 }
 
 function _spawnRoom(room) {
+    room.spawned = true; // mark so the cleared-check knows enemies were expected
     if (room.isExit && state.stage % 5 === 0) {
         // Boss fight every 5th stage only
         spawnEnemy(BOSSES[0], true);
@@ -110,6 +129,7 @@ function _enemyHp(template, isBoss) {
 }
 
 function _spawnRoomBuffed(room) {
+    room.spawned = true; // mark so the cleared-check knows enemies were expected
     const isBossRoom = room.isExit && state.stage % 5 === 0;
     const base  = room.isExit ? 3 : 2;
     const count = isBossRoom ? 1 : base + Math.floor(Math.random() * 3);
@@ -168,6 +188,17 @@ function loop(time) {
     }
 
     if (state.isPaused) { lastTime = time; rafId = requestAnimationFrame(loop); return; }
+
+    // Fire deferred room-enter quiz now that we are guaranteed to be unpaused
+    // and outside any transition. This prevents the quiz from being swallowed
+    // by the isPaused guard or double-fired during a scroll animation.
+    if (pendingRoomEnter) {
+        const { room, spawnFn, spawnBuffedFn } = pendingRoomEnter;
+        pendingRoomEnter = null;
+        state.callbacks.onRoomEnter(room, spawnFn, spawnBuffedFn);
+        rafId = requestAnimationFrame(loop);
+        return; // let the quiz render before processing another frame
+    }
 
     updatePlayer(dt);
     updateEnemies(dt);
@@ -338,11 +369,8 @@ function updatePlayer(dt) {
         room.chestTriggered = true;
         room.hasChest = false;
         _setTile(room, Math.floor(ROOM_ROWS/2), Math.floor(ROOM_COLS/2), TILE.FLOOR);
-        const UNLOCK_ORDER = ['axe', 'sickle', 'chain', 'spear', 'star'];
-        // Always give the next weapon the player is missing, in priority order.
-        // This guarantees the axe (tree-clearer) arrives before weapons that need it.
-        const nextWeapon = UNLOCK_ORDER.find(w => !state.unlockedWeapons.includes(w)) || null;
-        state.callbacks.onChestOpen(nextWeapon);
+        const unowned = Object.keys(WEAPONS).filter(w => !state.unlockedWeapons.includes(w));
+        state.callbacks.onChestOpen(unowned.length > 0 ? unowned[0] : null);
     }
 
     // Shrine — optional quiz, single use
@@ -479,14 +507,9 @@ function updateEnemies(dt) {
             
             if (e.ai !== 'chase_fly') {
                 const room = mapData.rooms[state.roomY][state.roomX];
-                const tc = Math.floor(nx/TILE_SIZE), tr = Math.floor(ny/TILE_SIZE);
-                const tile = room.grid[tr]?.[tc];
-                // Enemies are blocked only by hard walls — they walk over stumps,
-                // grass, shrines, etc. so they never freeze mid-room.
-                const blocked = tile === TILE.WALL || tile === TILE.ROCK ||
-                                tile === TILE.TREE  || tile === TILE.PIT  ||
-                                tile === TILE.POST  || tile === undefined;
-                if (blocked) { nx = e.x; ny = e.y; }
+                if (room.grid[Math.floor(ny/TILE_SIZE)]?.[Math.floor(nx/TILE_SIZE)] !== TILE.FLOOR) {
+                    nx = e.x; ny = e.y; 
+                }
             }
             e.x = nx; e.y = ny;
         } else if (e.ai === 'wander') {
@@ -617,11 +640,14 @@ function updateHitboxes(dt) {
     activeEnemies = activeEnemies.filter(e => !e.dead);
     if (activeEnemies.length === 0) {
         const room = mapData.rooms[state.roomY][state.roomX];
-        if (!room.cleared) {
+        // Only mark cleared if enemies were actually spawned — prevents an empty
+        // room (quiz was pending / still paused) from auto-clearing and triggering
+        // the stairs before the player has fought anything.
+        if (!room.cleared && room.spawned) {
             room.cleared = true;
             room.gridVersion = (room.gridVersion ?? 0) + 1; // bust cache for post-clear tile appearance
         }
-        if (state.callbacks.onRoomCleared) state.callbacks.onRoomCleared();
+        if (room.cleared && state.callbacks.onRoomCleared) state.callbacks.onRoomCleared();
     }
 }
 

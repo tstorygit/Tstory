@@ -163,7 +163,11 @@ function startGame() {
         // ── Room entry quiz (Option A) ──────────────────────────────────────
         // Fires after the scroll completes for every uncleared non-start room.
         // The engine has already set up the empty room; we decide who spawns.
-        onRoomCleared: () => { _runStats.roomsCleared++; },
+        onRoomCleared: () => {
+            // engine only fires this after room.cleared transitions false→true,
+            // so counting here is safe against double-fires
+            _runStats.roomsCleared++;
+        },
 
         onKill: (isBoss) => {
             _runStats.kills++;

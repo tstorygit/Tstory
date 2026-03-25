@@ -1,7 +1,19 @@
 import { GEMS, CONSTANTS, gemTotalCostColor, gemUpgradeCost, gemDamage, gemFireSpeed, gemRange, gemCritChance, gemCritMult, gemPoisonDps, gemSlowAmount, gemManaDrain, gemArmorTear } from './vc_engine.js';
 import { TILE_PATH, TILE_GRASS, getWaypointsForPaths } from './vc_mapgen.js';
 
-export class VcUI {
+/** Format any number >9999 as compact string: 1.2M, 3.4B, 1.2T etc. */
+export function fmtN(n) {
+    if (typeof n !== 'number' || !isFinite(n)) return String(n);
+    const a = Math.abs(n);
+    const s = n < 0 ? '-' : '';
+    if (a >= 1e12) return s + (a / 1e12).toFixed(1) + 'T';
+    if (a >= 1e9)  return s + (a / 1e9).toFixed(1)  + 'B';
+    if (a >= 1e6)  return s + (a / 1e6).toFixed(1)  + 'M';
+    if (a >= 1e4)  return s + (a / 1e3).toFixed(0)  + 'K';
+    if (a >= 1e3)  return s + (a / 1e3).toFixed(1)  + 'K';
+    return s + String(Math.round(a));
+}
+
     constructor(container, engine, vocabCallbacks, onReady) {
         this.container = container;
         this.engine = engine;
@@ -718,8 +730,7 @@ export class VcUI {
         this._costButtons = []; // Perf fix 8: reset cached button list — rebuilt below
         if (this.topBar?.mana) {
             const m = Math.floor(this.engine.state.mana);
-            const abbr = m >= 1e9 ? (m/1e9).toFixed(1)+'B' : m >= 1e6 ? (m/1e6).toFixed(1)+'M' : m >= 1e4 ? (m/1e3).toFixed(0)+'K' : m >= 1e3 ? (m/1e3).toFixed(1)+'K' : String(m);
-            this.topBar.mana.textContent = abbr;
+            this.topBar.mana.textContent = fmtN(m);
         }
         const st = this.selectedTile;
         if (!st) {
@@ -761,7 +772,7 @@ export class VcUI {
         if (!st.structRef) {
             if (st.type === TILE_GRASS) {
                 const tCost = this.engine.getBuildCost('tower');
-                this.createBtn(`🏰 Tower (${tCost})`, mana >= tCost, tCost, () => {
+                this.createBtn(`🏰 Tower (${fmtN(tCost)})`, mana >= tCost, tCost, () => {
                     if (this.engine.addStructure(st.x, st.y, 'tower')) {
                         const s = this.engine.structures.find(s => s.x === st.x && s.y === st.y);
                         if (s) { s.r = st.r; s.c = st.c; }
@@ -771,7 +782,7 @@ export class VcUI {
                 });
             } else if (st.type === TILE_PATH) {
                 const pCost = this.engine.getBuildCost('trap');
-                this.createBtn(`⚙️ Trap (${pCost})`, mana >= pCost, pCost, () => {
+                this.createBtn(`⚙️ Trap (${fmtN(pCost)})`, mana >= pCost, pCost, () => {
                     if (this.engine.addStructure(st.x, st.y, 'trap')) {
                         const s = this.engine.structures.find(s => s.x === st.x && s.y === st.y);
                         if (s) { s.r = st.r; s.c = st.c; }
@@ -823,7 +834,7 @@ export class VcUI {
         const updatePriceLabel = () => {
             const cost = gemTotalCostColor(selectedColor, selectedLevel, skills);
             const canAfford = this.engine.state.mana >= cost;
-            priceLabel.textContent = `${GEMS[selectedColor].label} Lv.${selectedLevel} — ${cost} 💧`;
+            priceLabel.textContent = `${GEMS[selectedColor].label} Lv.${selectedLevel} — ${fmtN(cost)} 💧`;
             priceLabel.style.color = canAfford ? '#2ecc71' : '#e74c3c';
             confirmBtn.disabled = !canAfford;
             confirmBtn.dataset.manaCost = cost;
@@ -937,14 +948,14 @@ export class VcUI {
         const baseDmgVal  = Math.max(1, Math.floor(gemDamage(gem, gemDef, this.engine.meta.skills) * trapDmgMult));
         const finalDmgVal = Math.max(1, Math.floor(dmg * trapDmgMult));
         const isBoosted   = poolMult > 1.001 || comboMult > 1.001;
-        const tooltipParts = [`${baseDmgVal} base`];
+        const tooltipParts = [`${fmtN(baseDmgVal)} base`];
         if (poolMult  > 1.001) tooltipParts.push(`×${poolMult.toFixed(2)} pool (P${this.engine.state.poolLevel})`);
         if (comboMult > 1.001) tooltipParts.push(`×${comboMult.toFixed(2)} combo`);
         const dmgTooltip  = tooltipParts.join(' ');
         const trapSuffix  = isTrap ? ' <span style="opacity:0.6;font-size:10px;">(Trap)</span>' : '';
         const dmgNumHtml  = isBoosted
-            ? `<span style="color:#2ecc71;font-weight:bold;">${finalDmgVal}</span>`
-            : `${finalDmgVal}`;
+            ? `<span style="color:#2ecc71;font-weight:bold;">${fmtN(finalDmgVal)}</span>`
+            : `${fmtN(finalDmgVal)}`;
         const dmgDisplay  = dmgNumHtml +
             `<span data-dmg-tooltip="${dmgTooltip}" style="cursor:pointer;margin-left:4px;font-size:11px;opacity:0.7;">ℹ️</span>` +
             trapSuffix;
@@ -958,7 +969,7 @@ export class VcUI {
             { icon: '🏹', label: 'Range',   val: range + 'px' },
             { icon: '⚡', label: 'Fire',    val: (speed * trapFireMult).toFixed(2) + '/s' },
             { icon: '⚔️', label: 'Damage',  val: dmgDisplay },
-            { icon: '🔝', label: 'Max hit', val: maxHitVal },
+            { icon: '🔝', label: 'Max hit', val: fmtN(maxHitVal) },
         ];
 
         switch (gemDef.type) {
@@ -982,16 +993,16 @@ export class VcUI {
         const sts = structRef.stats || { manaLeeched: 0, poisonDealt: 0, slowApplied: 0, armorTorn: 0, critHits: 0, totalDmg: 0 };
         let specialStatHtml = '';
         
-        specialStatHtml += `<div class="vc-stat-panel-row"><span>🎯 Total Dmg</span><span id="vc-live-totalDmg">${Math.floor(sts.totalDmg)}</span></div>`;
+        specialStatHtml += `<div class="vc-stat-panel-row"><span>🎯 Total Dmg</span><span id="vc-live-totalDmg">${fmtN(Math.floor(sts.totalDmg))}</span></div>`;
 
         if (gemDef.type === 'mana') {
-            specialStatHtml += `<div class="vc-stat-panel-row"><span>💧 Mana leeched</span><span id="vc-live-manaLeeched">${Math.floor(sts.manaLeeched)}</span></div>`;
+            specialStatHtml += `<div class="vc-stat-panel-row"><span>💧 Mana leeched</span><span id="vc-live-manaLeeched">${fmtN(Math.floor(sts.manaLeeched))}</span></div>`;
         } else if (gemDef.type === 'slow') {
             specialStatHtml += `<div class="vc-stat-panel-row"><span>❄️ Enemies slowed</span><span id="vc-live-slowApplied">${sts.slowApplied}</span></div>`;
         } else if (gemDef.type === 'poison') {
-            specialStatHtml += `<div class="vc-stat-panel-row"><span>☠️ Poison dmg dealt</span><span id="vc-live-poisonDealt">${Math.floor(sts.poisonDealt)}</span></div>`;
+            specialStatHtml += `<div class="vc-stat-panel-row"><span>☠️ Poison dmg dealt</span><span id="vc-live-poisonDealt">${fmtN(Math.floor(sts.poisonDealt))}</span></div>`;
         } else if (gemDef.type === 'armor') {
-            specialStatHtml += `<div class="vc-stat-panel-row"><span>🛡️ Armor torn off</span><span id="vc-live-armorTorn">${sts.armorTorn.toFixed(1)}</span></div>`;
+            specialStatHtml += `<div class="vc-stat-panel-row"><span>🛡️ Armor torn off</span><span id="vc-live-armorTorn">${fmtN(sts.armorTorn)}</span></div>`;
         } else if (gemDef.type === 'crit') {
             specialStatHtml += `<div class="vc-stat-panel-row"><span>💥 Critical hits</span><span id="vc-live-critHits">${sts.critHits}</span></div>`;
         }
@@ -1012,7 +1023,7 @@ export class VcUI {
                 ${specialStatHtml}
             </div>
             <div class="vc-stat-panel-next">
-                Lv.${lvl+1}: ⚔️${Math.max(1, Math.floor(nextDmg*trapDmgMult))} ⚡${(nextSpeed*trapFireMult).toFixed(1)}/s 🏹${nextRange}px
+                Lv.${lvl+1}: ⚔️${fmtN(Math.max(1, Math.floor(nextDmg*trapDmgMult)))} ⚡${(nextSpeed*trapFireMult).toFixed(1)}/s 🏹${nextRange}px
             </div>
         `;
         this.bottomBar.appendChild(panel);
@@ -1079,7 +1090,7 @@ export class VcUI {
 
             const upBtn = document.createElement('button');
             upBtn.className = 'vc-btn';
-            upBtn.textContent = `▲ Upgrade → Lv.${maxAffordUpgrade} (${upCostInit} 💧)`;
+            upBtn.textContent = `▲ Upgrade → Lv.${maxAffordUpgrade} (${fmtN(upCostInit)} 💧)`;
             upBtn.dataset.manaCost = upCostInit;
             if (!this._costButtons) this._costButtons = [];
             this._costButtons.push({ btn: upBtn, cost: upCostInit });
@@ -1088,7 +1099,7 @@ export class VcUI {
                 const targetLv = parseInt(upgradeSlider.value, 10);
                 const upgCost  = gemUpgradeCost(gem.color, targetLv - 1, this.engine.meta.skills);
                 upVal.textContent = `Lv.${targetLv} (${upgCost} 💧)`;
-                upBtn.textContent = `▲ Upgrade → Lv.${targetLv} (${upgCost} 💧)`;
+                upBtn.textContent = `▲ Upgrade → Lv.${targetLv} (${fmtN(upgCost)} 💧)`;
                 upBtn.dataset.manaCost = upgCost;
                 upBtn.disabled = this.engine.state.mana < upgCost;
             };
@@ -1110,7 +1121,7 @@ export class VcUI {
         } else {
             const upBtn = document.createElement('button');
             upBtn.className = 'vc-btn';
-            upBtn.textContent = `▲ Lv.${lvl+1} (${cost} 💧)`;
+            upBtn.textContent = `▲ Lv.${lvl+1} (${fmtN(cost)} 💧)`;
             upBtn.disabled = true;
             upBtn.dataset.manaCost = cost;
             if (!this._costButtons) this._costButtons = [];
@@ -1236,7 +1247,7 @@ export class VcUI {
                 <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;">
                     <div style="background:#2c3e50;border-radius:8px;padding:10px 16px;text-align:center;min-width:80px;">
                         <div style="font-size:10px;color:#7f8c8d;">Cost</div>
-                        <div style="font-size:14px;font-weight:bold;color:${canAfford?'#f1c40f':'#e74c3c'};">${cost>=1e6?(cost/1e6).toFixed(1)+'M':cost>=1e3?(cost/1e3).toFixed(1)+'K':cost}💧</div>
+                        <div style="font-size:14px;font-weight:bold;color:${canAfford?'#f1c40f':'#e74c3c'};">${fmtN(cost)}💧</div>
                     </div>
                     <div style="background:#2c3e50;border-radius:8px;padding:10px 16px;text-align:center;min-width:80px;">
                         <div style="font-size:10px;color:#7f8c8d;">HP ×</div>
@@ -1248,7 +1259,7 @@ export class VcUI {
                     </div>
                     <div style="background:#2c3e50;border-radius:8px;padding:10px 16px;text-align:center;min-width:80px;">
                         <div style="font-size:10px;color:#7f8c8d;">Your mana</div>
-                        <div style="font-size:14px;font-weight:bold;color:${canAfford?'#2ecc71':'#e74c3c'};">${Math.floor(this.engine.state.mana)>=1e6?(Math.floor(this.engine.state.mana)/1e6).toFixed(1)+'M':Math.floor(this.engine.state.mana)>=1e3?(Math.floor(this.engine.state.mana)/1e3).toFixed(1)+'K':Math.floor(this.engine.state.mana)}💧</div>
+                        <div style="font-size:14px;font-weight:bold;color:${canAfford?'#2ecc71':'#e74c3c'};">${fmtN(Math.floor(this.engine.state.mana))}💧</div>
                     </div>
                 </div>
 
@@ -1352,21 +1363,12 @@ export class VcUI {
             }
         }
 
-        // Abbreviate large numbers so the topbar never wraps: 1234 → 1.2K, 1234567 → 1.2M
-        const _abbr = (n) => {
-            if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
-            if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
-            if (n >= 1e4) return (n / 1e3).toFixed(0) + 'K';   // 10K+ → no decimal
-            if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
-            return String(n);
-        };
-
         const manaVal  = Math.max(0, Math.floor(engineState.state.mana));
         const poolCap  = engineState.state.poolCap  || manaVal || 1;
         const poolLevel= engineState.state.poolLevel || 1;
         // Bar shows mana vs poolCap — fills up to level-up, meaningful at all times
         const manaPct  = Math.max(0, Math.min(100, (manaVal / poolCap) * 100));
-        this.topBar.mana.textContent = _abbr(manaVal);
+        this.topBar.mana.textContent = fmtN(manaVal);
         if (this.topBar.manaBar) {
             this.topBar.manaBar.style.width = manaPct + '%';
             // Colour: danger red when low absolute mana, otherwise gold→green as pool fills
@@ -1380,7 +1382,7 @@ export class VcUI {
             this.topBar.poolLevel.textContent = poolLevel;
         }
         if (this.topBar.poolCap) {
-            this.topBar.poolCap.textContent = _abbr(poolCap);
+            this.topBar.poolCap.textContent = fmtN(poolCap);
         }
         // Combo display: "COMBO / 1000 (×2.38)"
         const combo = engineState.state.combo || 0;
@@ -1420,19 +1422,19 @@ export class VcUI {
         if (this.selectedTile?.structRef?.stats) {
             const sts = this.selectedTile.structRef.stats;
             const s_dmg = this.bottomBar.querySelector('#vc-live-totalDmg');
-            if (s_dmg) s_dmg.textContent = Math.floor(sts.totalDmg);
+            if (s_dmg) s_dmg.textContent = fmtN(Math.floor(sts.totalDmg));
             
             const s_mana = this.bottomBar.querySelector('#vc-live-manaLeeched');
-            if (s_mana) s_mana.textContent = Math.floor(sts.manaLeeched);
+            if (s_mana) s_mana.textContent = fmtN(Math.floor(sts.manaLeeched));
             
             const s_slow = this.bottomBar.querySelector('#vc-live-slowApplied');
             if (s_slow) s_slow.textContent = sts.slowApplied;
             
             const s_pois = this.bottomBar.querySelector('#vc-live-poisonDealt');
-            if (s_pois) s_pois.textContent = Math.floor(sts.poisonDealt);
+            if (s_pois) s_pois.textContent = fmtN(Math.floor(sts.poisonDealt));
             
             const s_arm = this.bottomBar.querySelector('#vc-live-armorTorn');
-            if (s_arm) s_arm.textContent = sts.armorTorn.toFixed(1);
+            if (s_arm) s_arm.textContent = fmtN(sts.armorTorn);
             
             const s_crit = this.bottomBar.querySelector('#vc-live-critHits');
             if (s_crit) s_crit.textContent = sts.critHits;
@@ -1631,7 +1633,7 @@ export class VcUI {
             fl.style.left = eventMsg.x + 'px';
             fl.style.top = eventMsg.y + 'px';
             fl.style.color = GEMS[eventMsg.color]?.color ?? '#fff';
-            fl.textContent = eventMsg.amt;
+            fl.textContent = fmtN(eventMsg.amt);
             this.gridEl.appendChild(fl);
             setTimeout(() => fl.remove(), 800);
         } else if (eventMsg?.type === 'shieldDmg') {
@@ -1642,7 +1644,7 @@ export class VcUI {
             fl.style.top  = (eventMsg.y - 14) + 'px';
             fl.style.color = '#f1c40f';
             fl.style.textShadow = '0 0 6px #f39c12';
-            fl.textContent = '🛡️' + eventMsg.amt;
+            fl.textContent = '🛡️' + fmtN(eventMsg.amt);
             this.gridEl.appendChild(fl);
             setTimeout(() => fl.remove(), 700);
         } else if (eventMsg?.type === 'poolLevelUp') {
@@ -1665,21 +1667,21 @@ export class VcUI {
             fl.style.top  = (eventMsg.y || 50) + 'px';
             fl.style.color = '#e74c3c';
             fl.style.fontSize = '14px';
-            fl.textContent = '-' + eventMsg.amt + '💧';
+            fl.textContent = '-' + fmtN(eventMsg.amt) + '💧';
             this.gridEl.appendChild(fl);
             setTimeout(() => fl.remove(), 900);
         } else if (eventMsg?.type === 'waveClear') {
             const fl = document.createElement('div');
             fl.className = 'vc-float';
             fl.style.cssText = 'left:50%;top:30px;transform:translateX(-50%);font-size:15px;color:#f1c40f;text-shadow:0 0 8px #f39c12,1px 1px 0 #000;';
-            fl.textContent = `✨ Perfect Wave +${eventMsg.bonus} XP`;
+            fl.textContent = `✨ Perfect Wave +${fmtN(eventMsg.bonus)} XP`;
             this.gridEl.appendChild(fl);
             setTimeout(() => fl.remove(), 1200);
         } else if (eventMsg?.type === 'earlyCall') {
             const fl = document.createElement('div');
             fl.className = 'vc-float';
             fl.style.cssText = 'left:50%;top:48px;transform:translateX(-50%);font-size:14px;color:#2ecc71;text-shadow:0 0 8px #27ae60,1px 1px 0 #000;white-space:nowrap;';
-            fl.textContent = `⚡ Early Call +${eventMsg.bonus} 💧`;
+            fl.textContent = `⚡ Early Call +${fmtN(eventMsg.bonus)} 💧`;
             this.gridEl.appendChild(fl);
             setTimeout(() => fl.remove(), 1400);
         }

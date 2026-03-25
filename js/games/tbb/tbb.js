@@ -7,7 +7,8 @@ import { spawnEnemy }         from './tbb_enemies.js';
 import { getFloorData }       from './tbb_floors.js';
 import { PERK_DEFS, REBIRTH_MIN_LEVEL, REBIRTH_AP_DIVIDER,
          totalApSpent, canSpendAp, computePerkBonuses, calcRebirthAp } from './tbb_ascension.js';
-import { handlePlayerAttack, handlePlayerDefense, actionExp,
+import { getAttackMultiplier, handleWrongAnswerRetaliation,
+         handlePlayerDefense, actionExp,
          timeAdjustExp, applyExpBonuses, expToNextLevel,
          generateMcOptions } from './tbb_battle.js';
 
@@ -102,21 +103,26 @@ function _initGameState() {
     _g = Object.assign({}, sv, {
         // Session state (not persisted)
         currentHp:            0,
-        enemy:                null,
+        enemy:                null,   // kept for SRS/exp helpers that reference _g.enemy
         enemyHp:              0,
-        currentFloor:         sv.maxUnlockedFloor,  // start at highest unlocked floor, like Dart
+        currentFloor:         sv.maxUnlockedFloor,
         enemiesOnFloorKilled: 0,
-        phase:                'idle',  // idle|player_attack|player_defense|summary|game_over|floor_action
+        phase:                'idle',
         narration:            'Entering the dungeon…',
         attackType:           'slash',
-        // challenge
+        // ── Group battle state ──────────────────────────────────────────
+        enemyGroup:           [],    // array of 4 enemy objects with .trans + .dead
+        selectedGroupIdx:     null,  // which card the player has targeted
+        groupTargetWord:      null,  // vocab word for this group encounter
+        groupIsDrill:         false,
+        // ── legacy challenge (kept for _prepareChallenge compat) ────────
         challengeWord:        null,
         isDrill:              false,
         mcOptions:            [],
         correctIdx:           -1,
         answerDisabled:       false,
-        answerTimeLeft:       1.0, // fraction 0-1
-        combo:                0,   // consecutive correct answers
+        answerTimeLeft:       1.0,
+        combo:                0,
         // derived (computed)
         playerHp:0, playerAtk:0, playerDef:0, playerSpd:0, answerSecs:0, expToNext:0, _pb:null,
         // ui helpers
@@ -209,16 +215,71 @@ let _timerElapsedMs = 0;       // ms consumed before current resume
 let _timerStartMs   = 0;       // wall-clock time of last resume
 
 function _spawnEnemyAndBegin() {
-    _g.enemy   = spawnEnemy(_g.currentFloor);
-    _g.enemyHp = _g.enemy.maxHp;
-    _g.enemiesOnFloorKilled = 0;
-    const playerFirst = _g.playerSpd >= _g.enemy.spd;
-    _g.phase = playerFirst ? 'player_attack' : 'player_defense';
+    // ── Spawn a group of 4 enemies of the same template ──────────────────
+    // Use the same floor-tier logic: pick one template, clone 4× with hp variance
+    const templateEnemy = spawnEnemy(_g.currentFloor);
+    _g.enemy   = templateEnemy;  // keep for legacy helpers
+    _g.enemyHp = templateEnemy.maxHp;
 
-    _g.narration = `${_g.enemy.emoji} ${_g.enemy.name} appears! (Lv.${_g.enemy.level})`;
-    _prepareChallenge();
+    _g.enemyGroup = [0,1,2,3].map(() => {
+        const e = spawnEnemy(_g.currentFloor);
+        // Force same name/emoji as template so the group looks coherent
+        return {
+            ...e,
+            name:   templateEnemy.name,
+            emoji:  templateEnemy.emoji,
+            weakTo: templateEnemy.weakTo,
+            resists:templateEnemy.resists,
+            maxHp:  templateEnemy.maxHp,
+            currentHp: templateEnemy.maxHp,
+            dead:   false,
+            trans:  null,   // assigned below
+        };
+    });
+
+    // ── Pick vocab word and assign translations ───────────────────────────
+    _prepareGroupVocab();
+
+    _g.selectedGroupIdx = null;
+    _g.answerDisabled   = false;
+    _g.phase            = 'player_attack';
+    _g.narration        = `${templateEnemy.emoji} ${templateEnemy.name} ×4 appear! (Lv.${templateEnemy.level}) Strike the correct meaning!`;
+
     _renderAll();
     _updateComboDisplay();
+}
+
+function _prepareGroupVocab() {
+    if (!_vocabQueue.length) return;
+
+    // Pick a word (same SRS logic as before)
+    const globalSrsData = srsDb.getAllWords();
+    const now = new Date();
+    let dueCandidates = [], notDueCandidates = [];
+    _vocabQueue.forEach(w => {
+        const entry = globalSrsData[w.word];
+        if (!entry || !entry.dueDate || new Date(entry.dueDate) <= now) dueCandidates.push(w);
+        else notDueCandidates.push({ wordObj: w, lastUpdated: new Date(entry.lastUpdated).getTime() });
+    });
+
+    let word = null, isDrill = false;
+    if (dueCandidates.length > 0) {
+        word = dueCandidates[Math.floor(Math.random() * dueCandidates.length)];
+    } else if (notDueCandidates.length > 0) {
+        notDueCandidates.sort((a, b) => a.lastUpdated - b.lastUpdated);
+        const topN = notDueCandidates.slice(0, 5);
+        word = topN[Math.floor(Math.random() * topN.length)].wordObj;
+        isDrill = true;
+    } else {
+        word = _vocabQueue[Math.floor(Math.random() * _vocabQueue.length)];
+    }
+
+    _g.groupTargetWord = word;
+    _g.groupIsDrill    = isDrill;
+
+    // Generate 4 MC options: 1 correct + 3 distractors, shuffle across 4 cards
+    const opts = generateMcOptions(word, _vocabQueue); // returns 4 items [correct, ...distractors] shuffled
+    _g.enemyGroup.forEach((e, i) => { e.trans = opts[i] ?? `Option ${i+1}`; });
 }
 
 function _showFloorLandingOverlay(onDismiss) {
@@ -512,7 +573,7 @@ function _startAnswerTimer() {
         if (_g.answerTimeLeft <= 0) {
             clearInterval(_timerInterval);
             _timerInterval = null;
-            _onAnswer(-1, true); // timeout
+            // Group battle has no timeout penalty — timer is kept for perk compat only
         }
     }, 80);
 }
@@ -536,113 +597,122 @@ function _stopTimer() {
     _timerElapsedMs = 0;
 }
 
-// ─── Answer Handling ──────────────────────────────────────────────────────────
-function _onAnswer(idx, timedOut = false) {
-    if (_g.answerDisabled) return;
+// ─── Group Battle: select target card ─────────────────────────────────────────
+function _selectGroupEnemy(idx) {
+    if (_g.answerDisabled || _g.phase !== 'player_attack') return;
+    if (_g.enemyGroup[idx]?.dead) return;
+    _g.selectedGroupIdx = idx;
+    _renderGroupCards();
+    _updateMultBadges();
+}
+
+// ─── Group Battle: fire attack (called by type buttons) ───────────────────────
+function _onGroupAttack(rawType) {
+    if (_g.answerDisabled || _g.phase !== 'player_attack') return;
+    if (_g.selectedGroupIdx === null) {
+        _g.narration = 'Select an enemy first!';
+        _updateNarration();
+        return;
+    }
+
     _g.answerDisabled = true;
     _stopTimer();
 
-    const isCorrect = !timedOut && idx === _g.correctIdx;
-    const timeFrac  = timedOut ? 0 : _g.answerTimeLeft;
-    const word      = _g.challengeWord;
-    const enemy     = _g.enemy;
+    const idx        = _g.selectedGroupIdx;
+    const targetCard = _g.enemyGroup[idx];
+    const word       = _g.groupTargetWord;
+    const resolvedType = rawType === 'wild'
+        ? ['slash','pierce','magic'][Math.floor(Math.random() * 3)]
+        : rawType;
+    _g.attackType = resolvedType;
 
-    // Centralized SRS grading logic handles drill vs due safely
-    srsDb.gradeWordInGame({
-        word: word.word,
-        furi: word.furi,
-        translation: word.trans
-    }, isCorrect ? 2 : 0, true);
+    const isCorrect = targetCard.trans === word.trans;
+    const timeFrac  = _g.answerTimeLeft;
 
-    // Highlight buttons
-    _markMcButtons(idx, isCorrect);
+    // SRS grading
+    srsDb.gradeWordInGame({ word: word.word, furi: word.furi, translation: word.trans }, isCorrect ? 2 : 0, true);
 
-    // Combo tracking
-    if (isCorrect) {
-        _g.combo++;
-    } else {
-        _g.combo = 0;
-    }
+    // Combo
+    if (isCorrect) _g.combo++; else _g.combo = 0;
     const comboMult = _g.combo > 1 ? (1 + 0.2 * Math.log2(_g.combo)) : 1.0;
     _updateComboDisplay();
 
-    if (_g.phase === 'player_attack') {
-        const { dmg, narration, feedback } = handlePlayerAttack(_g, word, isCorrect, _g.attackType);
-        _g.enemy.hp = undefined; // enemy hp tracked separately
-        _g.enemyHp  = Math.max(0, _g.enemyHp - dmg);
-        _g.narration = narration;
-        _g.combatFeedback = feedback;
-        _spawnFloatEnemy(`-${dmg}`, '#e74c3c');
+    if (isCorrect) {
+        // ── Correct: EXP scaled by type matchup via getAttackMultiplier ─────
+        const { mult, feedback } = getAttackMultiplier(targetCard, resolvedType, _g._pb);
+        // weaknessAmpBonus already baked into mult from getAttackMultiplier
+        const expMult = mult;
 
-        let rawExp = actionExp(enemy.expYield, isCorrect);
-        rawExp = timeAdjustExp(rawExp, timeFrac);
-        rawExp = Math.round(rawExp * comboMult);
-        _addExp(applyExpBonuses(rawExp, _g._pb.additiveExpPct, _g._pb.multExpPct));
+        let rawExp = actionExp(targetCard.expYield, true);
+        rawExp     = timeAdjustExp(rawExp, 1.0); // no timer — always full value
+        rawExp     = Math.round(rawExp * comboMult * expMult);
+        const gained = applyExpBonuses(rawExp, _g._pb.additiveExpPct, _g._pb.multExpPct);
+
+        targetCard.dead      = true;
+        targetCard.currentHp = 0;
+        _g.enemyHp           = 0;
+
+        const wildNote = rawType === 'wild' ? ` (Wild → ${resolvedType})` : '';
+        if (feedback === 'weakness') _g.narration = `⚡ Weakness!${wildNote} "${targetCard.trans}" correct! EXP ×${mult.toFixed(2)}`;
+        else if (feedback === 'resist') _g.narration = `🛡 Resisted${wildNote}, but correct. "${targetCard.trans}" — EXP ×0.5`;
+        else if (feedback === 'crit')   _g.narration = `💥 Critical${wildNote}! "${targetCard.trans}" — EXP ×${mult.toFixed(1)}`;
+        else                            _g.narration = `✓ Correct${wildNote}! "${targetCard.trans}" — ${targetCard.name} defeated.`;
+
+        _g.totalEnemiesDefeated++;
+        _g.enemiesOnFloorKilled++;
+
+        _addExp(gained);
+        _spawnFloatEnemy(`+${gained} EXP`,
+            feedback === 'weakness' ? '#d4a847' :
+            feedback === 'crit'     ? '#9b6fff' :
+            feedback === 'resist'   ? '#e07070' : '#3dba6f');
+        _renderGroupCards();
+        _updateHpBars();
+        _updateNarration();
+        _updateMultBadges();
+
+        // Floor unlock check
+        const unlocked = _g.enemiesOnFloorKilled >= ENEMIES_PER_FLOOR_UNLOCK
+            && _g.currentFloor === _g.maxUnlockedFloor
+            && _g.maxUnlockedFloor < MAX_FLOORS - 1;
+        if (unlocked) {
+            _g.maxUnlockedFloor++;
+            _g.narration += `  🗺️ Floor ${_g.maxUnlockedFloor} unlocked!`;
+            _updateNarration();
+        }
+        _writeSave();
+
+        setTimeout(() => {
+            _g.selectedGroupIdx = null;
+            _g.answerDisabled   = false;
+            _spawnEnemyAndBegin();
+        }, 1100);
+
     } else {
-        const { dmg, narration, feedback } = handlePlayerDefense(_g, isCorrect);
-        _g.currentHp   = Math.max(0, _g.currentHp - dmg);
-        _g.narration   = narration;
-        _g.combatFeedback = feedback;
+        // ── Wrong: targeted enemy retaliates ─────────────────────────────
+        const { dmg, narration } = handleWrongAnswerRetaliation(_g, targetCard);
+        _g.currentHp = Math.max(0, _g.currentHp - dmg);
+
+        const wildNote = rawType === 'wild' ? ` (Wild → ${resolvedType})` : '';
+        _g.narration = `✗ "${targetCard.trans}" is wrong!${wildNote} ${narration}`;
+
         _spawnFloatPlayer(`-${dmg}`, '#e74c3c');
+        _renderGroupCards();
+        _updateHpBars();
+        _updateNarration();
 
-        let rawExp = actionExp(enemy.expYield, isCorrect);
-        rawExp = timeAdjustExp(rawExp, timeFrac);
-        rawExp = Math.round(rawExp * comboMult);
-        _addExp(applyExpBonuses(rawExp, _g._pb.additiveExpPct, _g._pb.multExpPct));
-    }
-
-    // Redraw HP bars instantly
-    _updateHpBars();
-    _updateNarration();
-    _updateStats();
-
-    // Stop timer immediately if this action ends the fight (no countdown during victory pause)
-    const fightOver = (_g.phase === 'player_attack' && _g.enemyHp <= 0)
-                   || (_g.phase === 'player_defense' && _g.currentHp <= 0);
-    if (fightOver) _stopTimer();
-
-    // Advance after short pause
-    setTimeout(() => _advanceTurn(), 1200);
-}
-
-function _advanceTurn() {
-    const phase = _g.phase;
-
-    if (phase === 'player_attack') {
-        if (_g.enemyHp <= 0) {
-            _handleEnemyDefeated();
-        } else {
-            _g.phase = 'player_defense';
-            _prepareChallenge();
-            _renderChallenge();
-            _renderAll();
-        }
-    } else { // player_defense
-        if (_g.currentHp <= 0) {
-            _handlePlayerDefeated();
-        } else {
-            _g.phase = 'player_attack';
-            _prepareChallenge();
-            _renderChallenge();
-            _renderAll();
-        }
+        setTimeout(() => {
+            if (_g.currentHp <= 0) { _handlePlayerDefeated(); return; }
+            _g.selectedGroupIdx = null;
+            _g.answerDisabled   = false;
+            _renderGroupCards();
+            _updateMultBadges();
+        }, 600);
     }
 }
 
 function _handleEnemyDefeated() {
-    _g.totalEnemiesDefeated++;
-    _g.enemiesOnFloorKilled++;
-    _addExp(applyExpBonuses(_g.enemy.expYield, _g._pb.additiveExpPct, _g._pb.multExpPct));
-
-    const unlocked = _g.enemiesOnFloorKilled >= ENEMIES_PER_FLOOR_UNLOCK
-        && _g.currentFloor === _g.maxUnlockedFloor
-        && _g.maxUnlockedFloor < MAX_FLOORS - 1;
-
-    if (unlocked) {
-        _g.maxUnlockedFloor++;
-        _g.narration += `\n🗺️ New floor unlocked: ${_g.maxUnlockedFloor}!`;
-    }
-
+    // Kept for compatibility — group system handles wins inline in _onGroupAttack.
     _writeSave();
     _g.phase = 'summary';
     _renderSummaryOverlay();
@@ -684,82 +754,65 @@ function _buildGameDOM() {
     root.className = 'tbb-root';
 
     root.innerHTML = `
-    <div class="tbb-header">
-        <span class="tbb-floor-label">Floor <span id="tbb-floor">0</span> <button class="tbb-explore-btn" id="tbb-explore-btn" title="Explore Floor">🗺️</button></span>
-        <span class="tbb-narration" id="tbb-narration">—</span>
+    <!-- ── PLAYER STATS TOP BAR ─────────────────────────────────────── -->
+    <div class="tbb-statsbar">
+        <div class="tbb-player-sprite">🧙</div>
+        <div class="tbb-stats-block">
+            <div class="tbb-stats-row1">
+                <span class="tbb-hero-name" id="tbb-plvl">LV.1</span>
+                <span class="tbb-hp-label">HP</span>
+                <span class="tbb-hp-nums" id="tbb-player-hp-label">60 / 60</span>
+            </div>
+            <div class="tbb-bar-wrap"><div class="tbb-bar tbb-hp-bar" id="tbb-player-hp-bar" style="width:100%"></div></div>
+            <div class="tbb-bar-wrap tbb-exp-wrap"><div class="tbb-bar tbb-exp-bar" id="tbb-exp-bar" style="width:0%"></div></div>
+        </div>
+        <div class="tbb-stats-right">
+            <span class="tbb-floor-badge">Floor <span id="tbb-floor">0</span> <button class="tbb-explore-btn" id="tbb-explore-btn" title="Explore">🗺️</button></span>
+            <span class="tbb-stat-pip" id="tbb-exp-label">EXP 0</span>
+            <span class="tbb-stat-pip" id="tbb-atk-pill">ATK 15</span>
+            <span class="tbb-lvlup-notif" id="tbb-lvlup">▲ LEVEL UP!</span>
+        </div>
         <button class="tbb-menu-btn" id="tbb-menu-btn">☰</button>
-    </div>
-
-    <div class="tbb-status-row">
-        <!-- Player (LEFT) -->
-        <div class="tbb-combatant tbb-player-side">
-            <div class="tbb-combatant-name">
-                <span>🧙 Player</span>
-                <span class="tbb-lvl-badge" id="tbb-plvl">Lv.1</span>
-                <span class="tbb-lvlup-notif" id="tbb-lvlup">▲ LEVEL UP!</span>
-            </div>
-            <div class="tbb-bar-wrap">
-                <div class="tbb-bar tbb-hp-bar" id="tbb-player-hp-bar" style="width:100%"></div>
-            </div>
-            <div class="tbb-bar-label" id="tbb-player-hp-label">60 / 60 HP</div>
-            <div class="tbb-bar-wrap tbb-exp-wrap">
-                <div class="tbb-bar tbb-exp-bar" id="tbb-exp-bar" style="width:0%"></div>
-            </div>
-            <div class="tbb-bar-label tbb-exp-label" id="tbb-exp-label">0 / 100 EXP</div>
-            <div class="tbb-float-anchor" id="tbb-float-player"></div>
-        </div>
-
-        <!-- VS -->
-        <div class="tbb-vs">⚔️</div>
-
-        <!-- Enemy (RIGHT) -->
-        <div class="tbb-combatant tbb-enemy-side">
-            <div class="tbb-combatant-name tbb-enemy-name-row">
-                <span class="tbb-lvl-badge" id="tbb-elvl">Lv.?</span>
-                <span id="tbb-enemy-name">—</span>
-            </div>
-            <div class="tbb-bar-wrap">
-                <div class="tbb-bar tbb-enemy-hp-bar" id="tbb-enemy-hp-bar" style="width:100%"></div>
-            </div>
-            <div class="tbb-bar-label tbb-right-align" id="tbb-enemy-hp-label">— HP</div>
-            <div class="tbb-enemy-emoji" id="tbb-enemy-emoji">❓</div>
-            <div class="tbb-float-anchor" id="tbb-float-enemy"></div>
-        </div>
-    </div>
-
-    <div class="tbb-phase-label" id="tbb-phase-label">⚔️ Your Attack</div>
-    <div class="tbb-combo-display" id="tbb-combo-display" style="display:none"></div>
-
-    <div class="tbb-challenge-area">
-        <div class="tbb-word-display" id="tbb-word-display">
-            <div class="tbb-status-dot" id="tbb-status-dot"></div>
-            <div class="tbb-word-furi" id="tbb-word-furi"></div>
-            <div class="tbb-word-kanji" id="tbb-word-kanji">—</div>
-        </div>
-        <div class="tbb-timer-wrap">
-            <div class="tbb-timer-bar" id="tbb-timer-bar"></div>
-        </div>
-        <div class="tbb-mc-grid" id="tbb-mc-grid">
-            <button class="tbb-mc-btn" data-idx="0"></button>
-            <button class="tbb-mc-btn" data-idx="1"></button>
-            <button class="tbb-mc-btn" data-idx="2"></button>
-            <button class="tbb-mc-btn" data-idx="3"></button>
-        </div>
-    </div>
-
-    <div class="tbb-footer">
-        <div class="tbb-attack-types" id="tbb-attack-types">
-            <button class="tbb-atk-btn active" data-type="slash" title="Slash">🗡</button>
-            <button class="tbb-atk-btn" data-type="pierce" title="Pierce">🏹</button>
-            <button class="tbb-atk-btn" data-type="magic" title="Magic">✨</button>
-        </div>
-        <div class="tbb-stat-pills" id="tbb-stat-pills">
-            <span class="tbb-pill tbb-atk-pill" id="tbb-atk-pill">ATK 15</span>
-            <span class="tbb-pill tbb-def-pill" id="tbb-def-pill">DEF 5</span>
-            <span class="tbb-pill tbb-spd-pill" id="tbb-spd-pill">SPD 10</span>
-        </div>
         <button class="tbb-stats-btn" id="tbb-stats-btn" title="Stats">📊</button>
     </div>
+
+    <!-- ── TARGET WORD BANNER ────────────────────────────────────────── -->
+    <div class="tbb-target-banner">
+        <div class="tbb-target-tag" id="tbb-target-tag">TARGET WORD</div>
+        <div class="tbb-target-jp" id="tbb-word-kanji">—</div>
+        <div class="tbb-target-meta">
+            <span class="tbb-word-furi" id="tbb-word-furi"></span>
+            <span class="tbb-status-dot" id="tbb-status-dot"></span>
+        </div>
+    </div>
+
+    <!-- ── NARRATION ─────────────────────────────────────────────────── -->
+    <div class="tbb-narration-wrap">
+        <div class="tbb-narration" id="tbb-narration">—</div>
+    </div>
+
+    <!-- ── COMBO ─────────────────────────────────────────────────────── -->
+    <div class="tbb-combo-display" id="tbb-combo-display" style="display:none"></div>
+
+    <!-- ── ENEMY CARD GRID ───────────────────────────────────────────── -->
+    <div class="tbb-battlefield" id="tbb-battlefield">
+        <div class="tbb-ecard" id="tbb-ec0" data-idx="0"></div>
+        <div class="tbb-ecard" id="tbb-ec1" data-idx="1"></div>
+        <div class="tbb-ecard" id="tbb-ec2" data-idx="2"></div>
+        <div class="tbb-ecard" id="tbb-ec3" data-idx="3"></div>
+    </div>
+
+    <!-- ── ATTACK TYPE FOOTER ────────────────────────────────────────── -->
+    <div class="tbb-footer">
+        <button class="tbb-atk-btn tbb-type-slash" id="tbb-bt-slash"  data-type="slash"  onclick="">⚔ SLASH<span  class="tbb-atk-sub">ATK type</span><span class="tbb-mult-badge" id="tbb-mb-slash"></span></button>
+        <button class="tbb-atk-btn tbb-type-pierce" id="tbb-bt-pierce" data-type="pierce" onclick="">🗡 PIERCE<span class="tbb-atk-sub">ATK type</span><span class="tbb-mult-badge" id="tbb-mb-pierce"></span></button>
+        <button class="tbb-atk-btn tbb-type-magic"  id="tbb-bt-magic"  data-type="magic"  onclick="">✦ MAGIC<span  class="tbb-atk-sub">ATK type</span><span class="tbb-mult-badge" id="tbb-mb-magic"></span></button>
+        <button class="tbb-atk-btn tbb-type-wild"   id="tbb-bt-wild"   data-type="wild"   onclick="">? WILD<span   class="tbb-atk-sub">random</span><span class="tbb-mult-badge" id="tbb-mb-wild">×??</span></button>
+    </div>
+
+    <!-- ── FLOAT ANCHORS ─────────────────────────────────────────────── -->
+    <div class="tbb-float-anchor" id="tbb-float-player" style="position:absolute;top:10px;left:20px;pointer-events:none;height:0"></div>
+    <div class="tbb-float-anchor" id="tbb-float-enemy"  style="position:absolute;top:40%;left:50%;pointer-events:none;height:0"></div>
 
     <div class="tbb-overlay" id="tbb-overlay" style="display:none"></div>
     `;
@@ -768,52 +821,38 @@ function _buildGameDOM() {
     _dom = {
         floor:        root.querySelector('#tbb-floor'),
         narration:    root.querySelector('#tbb-narration'),
-        phaseLabel:   root.querySelector('#tbb-phase-label'),
         playerHpBar:  root.querySelector('#tbb-player-hp-bar'),
         playerHpLbl:  root.querySelector('#tbb-player-hp-label'),
         expBar:       root.querySelector('#tbb-exp-bar'),
         expLbl:       root.querySelector('#tbb-exp-label'),
         plvl:         root.querySelector('#tbb-plvl'),
         lvlup:        root.querySelector('#tbb-lvlup'),
-        enemyHpBar:   root.querySelector('#tbb-enemy-hp-bar'),
-        enemyHpLbl:   root.querySelector('#tbb-enemy-hp-label'),
-        enemyName:    root.querySelector('#tbb-enemy-name'),
-        enemyEmoji:   root.querySelector('#tbb-enemy-emoji'),
-        elvl:         root.querySelector('#tbb-elvl'),
         wordFuri:     root.querySelector('#tbb-word-furi'),
         wordKanji:    root.querySelector('#tbb-word-kanji'),
         statusDot:    root.querySelector('#tbb-status-dot'),
-        timerBar:     root.querySelector('#tbb-timer-bar'),
-        mcGrid:       root.querySelector('#tbb-mc-grid'),
-        mcBtns:       root.querySelectorAll('.tbb-mc-btn'),
-        atkBtns:      root.querySelectorAll('.tbb-atk-btn'),
+        targetTag:    root.querySelector('#tbb-target-tag'),
         atkPill:      root.querySelector('#tbb-atk-pill'),
-        defPill:      root.querySelector('#tbb-def-pill'),
-        spdPill:      root.querySelector('#tbb-spd-pill'),
         floatPlayer:  root.querySelector('#tbb-float-player'),
         floatEnemy:   root.querySelector('#tbb-float-enemy'),
         overlay:      root.querySelector('#tbb-overlay'),
         comboDisplay: root.querySelector('#tbb-combo-display'),
+        ecards:       root.querySelectorAll('.tbb-ecard'),
+        atkBtns:      root.querySelectorAll('.tbb-atk-btn'),
     };
 
-    // Wire MC buttons
-    _dom.mcBtns.forEach(btn => {
-        btn.addEventListener('click', () => _onAnswer(parseInt(btn.dataset.idx)));
+    // Wire enemy cards
+    _dom.ecards.forEach(card => {
+        card.addEventListener('click', () => _selectGroupEnemy(parseInt(card.dataset.idx)));
     });
 
-    // Wire attack type buttons
+    // Wire attack type buttons — instant fire
     _dom.atkBtns.forEach(btn => {
-        btn.addEventListener('click', () => {
-            _g.attackType = btn.dataset.type;
-            _dom.atkBtns.forEach(b => b.classList.toggle('active', b === btn));
-        });
+        btn.addEventListener('click', () => _onGroupAttack(btn.dataset.type));
     });
 
-    // Stats panel
+    // Header buttons
     root.querySelector('#tbb-stats-btn').addEventListener('click', _showStatsPanel);
     root.querySelector('#tbb-menu-btn').addEventListener('click', _showMenuOverlay);
-
-    // Explore / floor description button
     root.querySelector('#tbb-explore-btn').addEventListener('click', () => {
         _pauseAnswerTimer();
         _showFloorLandingOverlay(() => { _resumeAnswerTimer(); });
@@ -824,10 +863,7 @@ function _buildGameDOM() {
 function _updateComboDisplay() {
     if (!_dom.comboDisplay) return;
     const combo = _g.combo;
-    if (combo < 2) {
-        _dom.comboDisplay.style.display = 'none';
-        return;
-    }
+    if (combo < 2) { _dom.comboDisplay.style.display = 'none'; return; }
     const bonusPct = Math.round((0.2 * Math.log2(combo)) * 100);
     const cls = combo >= 10 ? 'tbb-combo-hot' : combo >= 5 ? 'tbb-combo-warm' : 'tbb-combo-cool';
     _dom.comboDisplay.className = `tbb-combo-display ${cls}`;
@@ -840,86 +876,95 @@ function _renderAll() {
     _updateExpBar();
     _updateStats();
     _updateNarration();
-    _renderChallenge();
+    _renderGroupCards();
+    _renderTargetWord();
+    _updateMultBadges();
+}
+
+function _renderTargetWord() {
+    const w = _g.groupTargetWord;
+    if (!w) return;
+    _dom.wordKanji.textContent = w.word;
+    _dom.wordFuri.textContent  = (w.furi && w.furi !== w.word) ? w.furi : '';
+    if (_g.groupIsDrill) {
+        _dom.statusDot.className = 'tbb-status-dot drill';
+        _dom.statusDot.title = 'Free Drill';
+    } else {
+        _dom.statusDot.className = 'tbb-status-dot due';
+        _dom.statusDot.title = 'Scheduled Review';
+    }
+}
+
+function _renderGroupCards() {
+    if (!_g.enemyGroup.length) return;
+    _dom.ecards.forEach((card, i) => {
+        const e   = _g.enemyGroup[i];
+        const sel = _g.selectedGroupIdx === i && !e.dead;
+        const hpPct = Math.max(0, Math.round(e.currentHp / e.maxHp * 100));
+        const hpCol = hpPct > 50 ? 'var(--tbb-hp-green)' : hpPct > 25 ? 'var(--tbb-hp-yellow)' : 'var(--tbb-hp-red)';
+        card.className = 'tbb-ecard' + (e.dead ? ' dead' : '') + (sel ? ' sel' : '');
+        card.innerHTML = `
+            <div class="tbb-ec-cursor">${sel ? '▼' : ''}</div>
+            <div class="tbb-ec-icon">${e.emoji}</div>
+            <div class="tbb-ec-info">
+                <div class="tbb-ec-name">${e.name}</div>
+                <div class="tbb-ec-hpbg"><div class="tbb-ec-hpfill" style="width:${hpPct}%;background:${hpCol}"></div></div>
+            </div>
+            <div class="tbb-ec-trans">${e.trans}</div>`;
+    });
+}
+
+function _updateMultBadges() {
+    const TYPES = ['slash','pierce','magic'];
+    const sel = _g.selectedGroupIdx;
+    if (sel === null || !_g.enemyGroup[sel]) {
+        TYPES.forEach(t => {
+            const b = document.getElementById('tbb-mb-'+t);
+            if (b) { b.textContent = ''; b.className = 'tbb-mult-badge'; }
+        });
+        return;
+    }
+    const e = _g.enemyGroup[sel];
+    TYPES.forEach(t => {
+        const b = document.getElementById('tbb-mb-'+t);
+        if (!b) return;
+        if (t === e.weakTo)  { b.textContent = '×1.75'; b.className = 'tbb-mult-badge tbb-mult-weak'; }
+        else if (t === e.resists) { b.textContent = '×0.5'; b.className = 'tbb-mult-badge tbb-mult-res'; }
+        else                 { b.textContent = '×1.0';  b.className = 'tbb-mult-badge tbb-mult-norm'; }
+    });
 }
 
 function _updateHpBars() {
-    const pFrac = _g.currentHp / _g.playerHp;
+    const pFrac = _g.playerHp > 0 ? _g.currentHp / _g.playerHp : 0;
     _dom.playerHpBar.style.width = (pFrac * 100).toFixed(1) + '%';
     _dom.playerHpBar.style.background = pFrac > 0.5 ? 'var(--tbb-hp-green)' : pFrac > 0.25 ? 'var(--tbb-hp-yellow)' : 'var(--tbb-hp-red)';
-    _dom.playerHpLbl.textContent = `${_g.currentHp} / ${_g.playerHp} HP`;
-
-    if (_g.enemy) {
-        const eFrac = _g.enemyHp / _g.enemy.maxHp;
-        _dom.enemyHpBar.style.width = (eFrac * 100).toFixed(1) + '%';
-        _dom.enemyHpBar.style.background = eFrac > 0.5 ? 'var(--tbb-hp-green)' : eFrac > 0.25 ? 'var(--tbb-hp-yellow)' : 'var(--tbb-hp-red)';
-        _dom.enemyHpLbl.textContent = `${_g.enemyHp} / ${_g.enemy.maxHp} HP`;
-        _dom.enemyName.textContent  = _g.enemy.name;
-        _dom.enemyEmoji.textContent = _g.enemy.emoji;
-        _dom.elvl.textContent       = `Lv.${_g.enemy.level}`;
-    }
+    _dom.playerHpLbl.textContent = `${_g.currentHp} / ${_g.playerHp}`;
     _dom.floor.textContent = _g.currentFloor;
 }
 
 function _updateExpBar() {
     const frac = _g.expToNext > 0 ? _g.playerCurrentExp / _g.expToNext : 0;
     _dom.expBar.style.width = (frac * 100).toFixed(1) + '%';
-    _dom.expLbl.textContent = `${_g.playerCurrentExp} / ${_g.expToNext} EXP`;
-    _dom.plvl.textContent   = `Lv.${_g.playerLevel}`;
+    _dom.expLbl.textContent = `EXP ${_g.playerCurrentExp}/${_g.expToNext}`;
+    _dom.plvl.textContent   = `LV.${_g.playerLevel}`;
     _dom.lvlup.style.opacity = _g.showLvlUp ? '1' : '0';
 }
 
 function _updateStats() {
     _dom.atkPill.textContent = `ATK ${_g.playerAtk}`;
-    _dom.defPill.textContent = `DEF ${_g.playerDef}`;
-    _dom.spdPill.textContent = `SPD ${_g.playerSpd}`;
     if (_g.statPointsToAllocate > 0) {
-        _dom.atkPill.dataset.points = _g.statPointsToAllocate;
-        _dom.atkPill.title = `${_g.statPointsToAllocate} stat point(s) available! Click 📊 to allocate.`;
+        _dom.atkPill.title = `${_g.statPointsToAllocate} stat point(s) available!`;
     }
 }
 
 function _updateNarration() {
     _dom.narration.textContent = _g.narration || '—';
-    const phase = _g.phase;
-    if (phase === 'player_attack')  { _dom.phaseLabel.textContent = '⚔️ Attack Phase'; _dom.phaseLabel.className = 'tbb-phase-label tbb-phase-attack'; }
-    else if (phase === 'player_defense') { _dom.phaseLabel.textContent = '🛡 Defend Phase'; _dom.phaseLabel.className = 'tbb-phase-label tbb-phase-defend'; }
-    else { _dom.phaseLabel.textContent = ''; _dom.phaseLabel.className = 'tbb-phase-label'; }
 }
 
-function _renderChallenge() {
-    if (!_g.challengeWord) return;
-    _dom.wordFuri.textContent  = _g.challengeWord.furi !== _g.challengeWord.word ? _g.challengeWord.furi : '';
-    _dom.wordKanji.textContent = _g.challengeWord.word;
-    
-    // Update Dot
-    if (_g.isDrill) {
-        _dom.statusDot.className = 'tbb-status-dot drill';
-        _dom.statusDot.title = 'Free Drill (Not Due)';
-    } else {
-        _dom.statusDot.className = 'tbb-status-dot due';
-        _dom.statusDot.title = 'Scheduled Review';
-    }
-
-    _dom.mcBtns.forEach((btn, i) => {
-        btn.textContent  = _g.mcOptions[i] ?? '—';
-        btn.className    = 'tbb-mc-btn';
-        btn.disabled     = false;
-    });
-}
-
-function _markMcButtons(chosenIdx, isCorrect) {
-    _dom.mcBtns.forEach((btn, i) => {
-        btn.disabled = true;
-        if (i === _g.correctIdx) btn.classList.add('tbb-mc-correct');
-        else if (i === chosenIdx && !isCorrect) btn.classList.add('tbb-mc-wrong');
-    });
-}
-
-function _updateTimerBar() {
-    _dom.timerBar.style.width = (_g.answerTimeLeft * 100).toFixed(1) + '%';
-    _dom.timerBar.style.background = _g.answerTimeLeft > 0.5 ? 'var(--tbb-timer-ok)' : _g.answerTimeLeft > 0.25 ? 'var(--tbb-timer-warn)' : 'var(--tbb-timer-crit)';
-}
+// Stubs for legacy callers that may still exist in overlay code
+function _renderChallenge() { _renderGroupCards(); _renderTargetWord(); }
+function _updateTimerBar()   { /* timer removed in group battle */ }
+function _markMcButtons()    { /* MC buttons removed in group battle */ }
 
 // ─── Floating Numbers ─────────────────────────────────────────────────────────
 function _spawnFloat(anchor, text, color) {
@@ -1244,22 +1289,25 @@ function _injectStyles() {
     const s = document.createElement('style');
     s.id = 'tbb-styles';
     s.textContent = `
-/* ── TBB Variables ─────────────────────────────────────────────────────── */
+/* ── Variables ──────────────────────────────────────────────────────────── */
 .tbb-root {
-    --tbb-bg:         #1a1a2e;
-    --tbb-surface:    #16213e;
-    --tbb-card:       #0f3460;
-    --tbb-accent:     #e94560;
-    --tbb-accent2:    #f5a623;
-    --tbb-text:       #eaeaea;
-    --tbb-muted:      #8888aa;
-    --tbb-hp-green:   #27ae60;
-    --tbb-hp-yellow:  #f39c12;
-    --tbb-hp-red:     #e74c3c;
-    --tbb-timer-ok:   #27ae60;
-    --tbb-timer-warn: #f39c12;
-    --tbb-timer-crit: #e74c3c;
-    --tbb-border:     rgba(255,255,255,0.08);
+    --tbb-bg:       #0c0d12;
+    --tbb-surface:  #13151e;
+    --tbb-card:     #1c1f2e;
+    --tbb-card2:    #12141c;
+    --tbb-border:   rgba(255,255,255,0.08);
+    --tbb-border2:  rgba(255,255,255,0.14);
+    --tbb-accent:   #e94560;
+    --tbb-gold:     #d4a847;
+    --tbb-gold2:    #f0cc6e;
+    --tbb-silver:   #8090a8;
+    --tbb-text:     #e0ddd5;
+    --tbb-muted:    #7a8a9a;
+    --tbb-green:    #3dba6f;
+    --tbb-purple:   #9b6fff;
+    --tbb-hp-green:  #27ae60;
+    --tbb-hp-yellow: #f39c12;
+    --tbb-hp-red:    #e74c3c;
     font-family: 'Segoe UI', system-ui, sans-serif;
     background: var(--tbb-bg);
     color: var(--tbb-text);
@@ -1271,478 +1319,252 @@ function _injectStyles() {
     user-select: none;
 }
 
-/* ── Header ─────────────────────────────────────────────────────────────── */
-.tbb-header {
+/* ── Stats top bar ───────────────────────────────────────────────────────── */
+.tbb-statsbar {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 8px 12px;
+    padding: 8px 10px;
     background: var(--tbb-surface);
-    border-bottom: 1px solid var(--tbb-border);
-    min-height: 42px;
+    border-bottom: 2px solid var(--tbb-card);
     flex-shrink: 0;
 }
-.tbb-floor-label {
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--tbb-accent2);
-    white-space: nowrap;
-    background: rgba(245,166,35,0.12);
-    padding: 3px 8px;
-    border-radius: 20px;
+.tbb-player-sprite { font-size: 24px; line-height: 1; flex-shrink: 0; }
+.tbb-stats-block   { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.tbb-stats-row1    { display: flex; justify-content: space-between; align-items: baseline; }
+.tbb-hero-name     { font-family: 'Courier New', monospace; font-size: 9px; font-weight: 700; color: var(--tbb-gold); letter-spacing: .5px; }
+.tbb-hp-label      { font-family: 'Courier New', monospace; font-size: 8px; color: var(--tbb-silver); }
+.tbb-hp-nums       { font-family: 'Courier New', monospace; font-size: 8px; color: var(--tbb-green); }
+.tbb-bar-wrap      { height: 8px; background: rgba(255,255,255,0.07); border-radius: 3px; overflow: hidden; }
+.tbb-exp-wrap      { height: 3px; margin-top: 2px; }
+.tbb-bar           { height: 100%; border-radius: 3px; transition: width .35s ease, background .35s ease; }
+.tbb-hp-bar        { background: var(--tbb-hp-green); }
+.tbb-exp-bar       { background: var(--tbb-purple); }
+.tbb-stats-right   { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
+.tbb-floor-badge   { font-family: 'Courier New', monospace; font-size: 8px; color: var(--tbb-gold); background: rgba(212,168,71,0.12); padding: 2px 6px; border-radius: 10px; white-space: nowrap; }
+.tbb-stat-pip      { font-family: 'Courier New', monospace; font-size: 8px; color: var(--tbb-silver); }
+.tbb-lvlup-notif   { font-size: 9px; font-weight: 900; color: #f1c40f; opacity: 0; transition: opacity .3s; text-shadow: 0 0 6px #f1c40f; }
+.tbb-menu-btn, .tbb-stats-btn {
+    background: none; border: 1px solid var(--tbb-border); border-radius: 6px;
+    color: var(--tbb-text); padding: 4px 8px; cursor: pointer; font-size: 13px;
+    flex-shrink: 0;
 }
-.tbb-narration {
-    flex: 1;
-    font-size: 12px;
-    color: var(--tbb-muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.tbb-menu-btn {
-    background: none;
-    border: 1px solid var(--tbb-border);
-    border-radius: 6px;
-    color: var(--tbb-text);
-    padding: 4px 9px;
-    cursor: pointer;
-    font-size: 14px;
+.tbb-explore-btn {
+    background: none; border: 1px solid var(--tbb-border); border-radius: 4px;
+    padding: 1px 4px; font-size: 11px; cursor: pointer; color: var(--tbb-text);
+    margin-left: 2px; transition: background .15s;
 }
 
-/* ── Status Row ─────────────────────────────────────────────────────────── */
-.tbb-status-row {
-    display: flex;
-    gap: 10px;
-    padding: 10px 12px 6px;
+/* ── Target word banner ──────────────────────────────────────────────────── */
+.tbb-target-banner {
     background: var(--tbb-surface);
-    border-bottom: 1px solid var(--tbb-border);
+    border-bottom: 1px solid var(--tbb-card);
+    border-left: 3px solid var(--tbb-gold);
+    padding: 8px 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
     flex-shrink: 0;
-    align-items: flex-start;
 }
-.tbb-combatant {
+.tbb-target-tag  { font-family: 'Courier New', monospace; font-size: 7px; color: var(--tbb-gold); letter-spacing: .5px; white-space: nowrap; line-height: 1.5; }
+.tbb-target-jp   { font-size: 28px; font-weight: 700; letter-spacing: 3px; color: #fff; flex: 1; text-align: center; line-height: 1; }
+.tbb-target-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; white-space: nowrap; }
+.tbb-word-furi   { font-size: 11px; color: var(--tbb-silver); font-style: italic; }
+.tbb-status-dot  { width: 8px; height: 8px; border-radius: 50%; }
+.tbb-status-dot.due   { background: #2ecc71; box-shadow: 0 0 4px #2ecc71; }
+.tbb-status-dot.drill { background: linear-gradient(135deg,#ff0080,#ff8c00,#40e0d0,#9b59b6); box-shadow: 0 0 4px rgba(255,255,255,.4); }
+
+/* ── Narration ───────────────────────────────────────────────────────────── */
+.tbb-narration-wrap { padding: 6px 12px 4px; flex-shrink: 0; }
+.tbb-narration {
+    font-size: 12px; color: var(--tbb-muted); font-style: italic;
+    background: var(--tbb-card); border-left: 2px solid var(--tbb-card);
+    border-radius: 5px; padding: 7px 10px; line-height: 1.55;
+    transition: border-left-color .25s;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ── Combo ───────────────────────────────────────────────────────────────── */
+.tbb-combo-display {
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 900; letter-spacing: .05em;
+    padding: 2px 10px; border-radius: 20px;
+    margin: 0 12px 2px; flex-shrink: 0;
+}
+.tbb-combo-cool { background: rgba(245,166,35,.18); color: #f5a623; border: 1px solid rgba(245,166,35,.4); }
+.tbb-combo-warm { background: rgba(230,126,34,.20); color: #e67e22; border: 1px solid rgba(230,126,34,.5); }
+.tbb-combo-hot  { background: rgba(231,76,60,.22);  color: #e74c3c; border: 1px solid rgba(231,76,60,.5); }
+
+/* ── Battlefield (4 enemy cards) ─────────────────────────────────────────── */
+.tbb-battlefield {
     flex: 1;
     display: flex;
+    justify-content: center;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 10px 10px 6px;
+    overflow: hidden;
+}
+.tbb-ecard {
+    flex: 1;
+    max-width: 110px;
+    min-width: 70px;
+    background: var(--tbb-card);
+    border: 2px solid var(--tbb-border2);
+    border-radius: 10px;
+    display: flex;
     flex-direction: column;
-    gap: 3px;
+    cursor: pointer;
+    overflow: hidden;
+    transition: border-color .15s, transform .15s, box-shadow .15s;
     position: relative;
 }
-.tbb-vs {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 18px;
-    padding-top: 8px;
-    flex-shrink: 0;
+.tbb-ecard:hover:not(.dead)  { border-color: var(--tbb-gold); transform: translateY(-4px); box-shadow: 0 6px 18px rgba(0,0,0,.5); }
+.tbb-ecard.sel               { border-color: var(--tbb-green); transform: translateY(-6px); box-shadow: 0 8px 22px rgba(61,186,111,.3); }
+.tbb-ecard.dead              { opacity: .15; cursor: default; filter: grayscale(1); transform: none !important; pointer-events: none; }
+.tbb-ec-cursor { height: 16px; display: flex; justify-content: center; align-items: flex-end; font-size: 8px; color: var(--tbb-green); animation: tbbArrBob .5s ease-in-out infinite alternate; font-family: 'Courier New', monospace; }
+@keyframes tbbArrBob { from { transform: translateY(0); } to { transform: translateY(-3px); } }
+.tbb-ec-icon {
+    background: var(--tbb-card2);
+    border-bottom: 1px solid var(--tbb-border);
+    display: flex; align-items: center; justify-content: center;
+    padding: 10px 0 8px; font-size: 34px; line-height: 1;
 }
-.tbb-combatant-name {
-    font-size: 12px;
-    font-weight: 700;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-}
-.tbb-enemy-name-row {
-    justify-content: flex-end;
-}
-.tbb-lvl-badge {
-    background: var(--tbb-card);
-    border: 1px solid var(--tbb-border);
-    border-radius: 10px;
-    font-size: 10px;
-    padding: 1px 6px;
-    color: var(--tbb-accent2);
-    white-space: nowrap;
-}
-.tbb-lvlup-notif {
-    font-size: 10px;
-    font-weight: 900;
-    color: #f1c40f;
-    opacity: 0;
-    transition: opacity 0.3s;
-    text-shadow: 0 0 6px #f1c40f;
-    animation: tbbPulse 0.6s infinite alternate;
-}
-.tbb-bar-wrap {
-    height: 8px;
-    background: rgba(255,255,255,0.08);
-    border-radius: 4px;
-    overflow: hidden;
-}
-.tbb-exp-wrap {
-    height: 4px;
-    margin-top: 1px;
-}
-.tbb-bar {
-    height: 100%;
-    border-radius: 4px;
-    transition: width 0.35s ease, background 0.35s ease;
-}
-.tbb-exp-bar { background: #3498db; }
-.tbb-bar-label {
-    font-size: 10px;
-    color: var(--tbb-muted);
-    line-height: 1;
-}
-.tbb-exp-label { color: #3498db; font-size: 9px; }
-.tbb-right-align { text-align: right; }
-.tbb-enemy-emoji {
-    font-size: 28px;
-    text-align: right;
-    line-height: 1;
-    margin-top: 2px;
-}
-.tbb-float-anchor {
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    pointer-events: none;
-    height: 0;
-}
-
-/* ── Phase Label ────────────────────────────────────────────────────────── */
-.tbb-phase-label {
-    text-align: center;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    padding: 4px 0;
-    flex-shrink: 0;
-}
-.tbb-phase-attack  { color: var(--tbb-accent); }
-.tbb-phase-defend  { color: #3498db; }
-
-/* ── Challenge Area ─────────────────────────────────────────────────────── */
-.tbb-challenge-area {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 10px 14px;
-    gap: 10px;
-    overflow: hidden;
-}
-.tbb-word-display {
-    text-align: center;
-    background: var(--tbb-surface);
-    border: 1px solid var(--tbb-border);
-    border-radius: 14px;
-    padding: 12px 24px;
-    width: 100%;
-    max-width: 340px;
-}
-.tbb-word-furi  { font-size: 13px; color: var(--tbb-muted); min-height: 16px; }
-.tbb-word-kanji { font-size: 30px; font-weight: 900; line-height: 1.2; }
-
-.tbb-status-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    margin: 0 auto 6px;
-}
-.tbb-status-dot.due {
-    background-color: #2ecc71;
-    box-shadow: 0 0 5px #2ecc71;
-}
-.tbb-status-dot.drill {
-    background: linear-gradient(135deg, #ff0080, #ff8c00, #40e0d0, #00aaff, #9b59b6);
-    box-shadow: 0 0 5px rgba(255,255,255,0.5);
-}
-
-/* ── Timer ──────────────────────────────────────────────────────────────── */
-.tbb-timer-wrap {
-    width: 100%;
-    max-width: 340px;
-    height: 6px;
-    background: rgba(255,255,255,0.08);
-    border-radius: 3px;
-    overflow: hidden;
-}
-.tbb-timer-bar {
-    height: 100%;
-    border-radius: 3px;
-    transition: width 0.08s linear, background 0.3s;
-    width: 100%;
-}
-
-/* ── MC Grid (2×2) ──────────────────────────────────────────────────────── */
-.tbb-mc-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    width: 100%;
-    max-width: 340px;
-}
-.tbb-mc-btn {
-    background: var(--tbb-surface);
-    border: 2px solid var(--tbb-border);
-    border-radius: 10px;
-    padding: 12px 8px;
-    color: var(--tbb-text);
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.1s, border-color 0.1s, transform 0.08s;
-    text-align: center;
-    line-height: 1.3;
+.tbb-ec-info { padding: 5px 6px 5px; display: flex; flex-direction: column; gap: 3px; }
+.tbb-ec-name { font-family: 'Courier New', monospace; font-size: 5px; color: var(--tbb-silver); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: .3px; }
+.tbb-ec-hpbg { height: 3px; background: #180808; border-radius: 2px; overflow: hidden; border: 1px solid #2e1010; }
+.tbb-ec-hpfill { height: 100%; border-radius: 2px; transition: width .3s ease; }
+.tbb-ec-trans {
+    border-top: 1px solid var(--tbb-border);
+    background: var(--tbb-card2);
+    padding: 6px 5px;
+    font-size: 12px; font-weight: 600; color: #c8c2b2;
+    text-align: center; line-height: 1.25;
     word-break: break-word;
 }
-.tbb-mc-btn:active:not(:disabled) { transform: scale(0.96); }
-.tbb-mc-btn:hover:not(:disabled)  { border-color: var(--tbb-accent); background: var(--tbb-card); }
-.tbb-mc-correct { background: #1a5c34 !important; border-color: #27ae60 !important; color: #2ecc71 !important; }
-.tbb-mc-wrong   { background: #5c1a1a !important; border-color: var(--tbb-accent) !important; color: var(--tbb-accent) !important; }
+.tbb-ecard.sel .tbb-ec-trans { color: var(--tbb-gold2); }
 
-/* ── Footer ─────────────────────────────────────────────────────────────── */
+/* ── Footer — 4 attack type buttons ─────────────────────────────────────── */
 .tbb-footer {
     display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
+    gap: 6px;
+    padding: 8px 10px;
     background: var(--tbb-surface);
-    border-top: 1px solid var(--tbb-border);
+    border-top: 2px solid var(--tbb-card);
     flex-shrink: 0;
-}
-.tbb-attack-types {
-    display: flex;
-    gap: 4px;
 }
 .tbb-atk-btn {
-    background: var(--tbb-card);
-    border: 2px solid var(--tbb-border);
-    border-radius: 8px;
-    padding: 5px 10px;
-    font-size: 16px;
-    cursor: pointer;
-    transition: border-color 0.15s;
-    color: var(--tbb-text);
-}
-.tbb-atk-btn.active { border-color: var(--tbb-accent); box-shadow: 0 0 8px rgba(233,69,96,0.4); }
-.tbb-stat-pills {
     flex: 1;
-    display: flex;
-    gap: 5px;
-    flex-wrap: wrap;
-    justify-content: center;
-}
-.tbb-pill {
-    font-size: 10px;
-    font-weight: 700;
-    border-radius: 20px;
-    padding: 3px 8px;
+    padding: 8px 4px 6px;
+    border: 1.5px solid var(--tbb-border2);
     background: var(--tbb-card);
-    border: 1px solid var(--tbb-border);
-}
-.tbb-atk-pill { color: var(--tbb-accent); }
-.tbb-def-pill { color: #3498db; }
-.tbb-spd-pill { color: var(--tbb-accent2); }
-.tbb-stats-btn {
-    background: none;
-    border: 1px solid var(--tbb-border);
-    border-radius: 8px;
-    padding: 5px 10px;
-    font-size: 16px;
-    cursor: pointer;
-    color: var(--tbb-text);
-    transition: background 0.15s;
-}
-.tbb-stats-btn:hover { background: var(--tbb-card); }
-
-/* ── Overlay & Dialog ───────────────────────────────────────────────────── */
-.tbb-overlay {
-    position: absolute;
-    inset: 0;
-    background: rgba(0,0,0,0.7);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 100;
-    padding: 16px;
-}
-.tbb-dialog {
-    background: var(--tbb-surface);
-    border: 1px solid var(--tbb-border);
-    border-radius: 16px;
-    width: 100%;
-    max-width: 340px;
-    padding: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    box-shadow: 0 16px 48px rgba(0,0,0,0.5);
-    max-height: 80vh;
-    overflow-y: auto;
-}
-.tbb-dialog-title {
-    font-size: 16px;
-    font-weight: 900;
-    color: var(--tbb-accent2);
-    letter-spacing: 0.03em;
-}
-.tbb-dialog-body {
-    font-size: 13px;
-    line-height: 1.6;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    color: var(--tbb-text);
-}
-.tbb-dialog-body p { margin: 0; }
-.tbb-dialog-actions {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-.tbb-dialog-btn {
-    padding: 10px 16px;
-    border-radius: 10px;
-    border: 1px solid var(--tbb-border);
-    background: var(--tbb-card);
-    color: var(--tbb-text);
-    font-size: 13px;
-    font-weight: 700;
-    cursor: pointer;
-    transition: background 0.15s;
-    text-align: center;
-}
-.tbb-dialog-btn:hover { background: rgba(255,255,255,0.08); }
-.tbb-dialog-btn-primary { background: var(--tbb-accent); border-color: var(--tbb-accent); }
-.tbb-dialog-btn-primary:hover { background: #c73652; }
-.tbb-dialog-btn-secondary { background: var(--tbb-card); border-color: var(--tbb-border); opacity: 0.7; }
-.tbb-dialog-btn:disabled { opacity: 0.5; cursor: default; }
-.tbb-rebirth-btn { background: #6c3483; border-color: #8e44ad; }
-.tbb-rebirth-btn:hover { background: #8e44ad; }
-.tbb-respec-btn  { background: rgba(255,255,255,0.04); }
-
-/* ── Floor Dialog ────────────────────────────────────────────────────────── */
-.tbb-floor-dialog { max-width: 380px; gap: 12px; }
-.tbb-floor-desc {
-    font-size: 13px;
-    line-height: 1.7;
-    color: var(--tbb-muted);
-    border-left: 3px solid var(--tbb-accent2);
-    padding-left: 10px;
-    margin: 0;
-    font-style: italic;
-}
-.tbb-floor-repeat {
-    font-size: 12px;
-    color: #7f8c8d;
-    background: rgba(255,255,255,0.04);
+    color: var(--tbb-silver);
+    font-family: 'Courier New', monospace;
+    font-size: 7px;
     border-radius: 6px;
-    padding: 8px 10px;
-    margin: 0;
-}
-.tbb-floor-result {
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--tbb-accent2);
-    background: rgba(245,166,35,0.12);
-    border-radius: 8px;
-    padding: 10px 12px;
-    text-align: center;
-}
-
-/* ── Stats Panel ────────────────────────────────────────────────────────── */
-.tbb-stats-dialog { max-width: 320px; }
-.tbb-stat-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 5px 0;
-    border-bottom: 1px solid var(--tbb-border);
-    font-size: 13px;
-}
-.tbb-stat-row:last-of-type { border-bottom: none; }
-.tbb-stat-name { flex: 1; color: var(--tbb-muted); }
-.tbb-stat-val  { font-weight: 800; color: var(--tbb-text); min-width: 36px; text-align: right; margin-right: 8px; }
-.tbb-alloc-btn {
-    background: var(--tbb-accent);
-    border: none;
-    border-radius: 6px;
-    color: white;
-    font-size: 12px;
-    font-weight: 800;
-    padding: 3px 9px;
     cursor: pointer;
+    transition: all .12s;
+    letter-spacing: .3px;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    line-height: 1.8;
 }
-.tbb-alloc-placeholder { width: 34px; }
-.tbb-hr { border: none; border-top: 1px solid var(--tbb-border); margin: 4px 0; }
+.tbb-atk-btn:hover  { border-color: var(--tbb-silver); color: var(--tbb-text); transform: scale(1.04); }
+.tbb-atk-btn:active { transform: scale(.96); }
+.tbb-type-slash  { border-color: #a03030; color: #e07070; background: #140a0a; }
+.tbb-type-pierce { border-color: #a06020; color: #e09050; background: #140e08; }
+.tbb-type-magic  { border-color: #5a40a0; color: #a080e0; background: #100c18; }
+.tbb-type-wild   { border-color: #907020; color: var(--tbb-gold); background: #141008; }
+.tbb-atk-btn:hover.tbb-type-slash  { border-color: #e07070; }
+.tbb-atk-btn:hover.tbb-type-pierce { border-color: #e09050; }
+.tbb-atk-btn:hover.tbb-type-magic  { border-color: #a080e0; }
+.tbb-atk-btn:hover.tbb-type-wild   { border-color: var(--tbb-gold2); }
+.tbb-atk-sub  { font-size: 5px; color: var(--tbb-silver); letter-spacing: 0; }
+.tbb-mult-badge { font-size: 6px; padding: 1px 4px; border-radius: 3px; font-family: 'Courier New', monospace; }
+.tbb-mult-weak { background: #1a1408; color: var(--tbb-gold); }
+.tbb-mult-res  { background: #120808; color: #e07070; }
+.tbb-mult-norm { background: #081408; color: var(--tbb-green); }
 
-/* ── Perk List ──────────────────────────────────────────────────────────── */
-.tbb-perk-list { max-height: 50vh; overflow-y: auto; gap: 8px; }
-.tbb-perk-row {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 8px;
-    background: var(--tbb-card);
-    border-radius: 8px;
-    border: 1px solid var(--tbb-border);
-    font-size: 12px;
-    line-height: 1.5;
-}
-.tbb-perk-locked { opacity: 0.45; }
-.tbb-perk-info { flex: 1; }
-
-/* ── Misc ───────────────────────────────────────────────────────────────── */
-.tbb-muted   { color: var(--tbb-muted); font-size: 12px; }
-.tbb-red     { color: var(--tbb-accent); }
-.tbb-unlocked { color: #2ecc71; font-weight: 700; }
-.tbb-rebirth-info { color: #9b59b6; font-weight: 700; }
-.tbb-combo-display {
-    align-items: center;
-    justify-content: center;
-    font-size: 12px;
-    font-weight: 900;
-    letter-spacing: 0.05em;
-    padding: 3px 10px;
-    border-radius: 20px;
-    margin: 0 12px 4px;
-    animation: tbbPulse 0.4s ease-out;
-    flex-shrink: 0;
-}
-.tbb-combo-cool { background: rgba(245,166,35,0.18); color: #f5a623; border: 1px solid rgba(245,166,35,0.4); }
-.tbb-combo-warm { background: rgba(230,126,34,0.20); color: #e67e22; border: 1px solid rgba(230,126,34,0.5); }
-.tbb-combo-hot  { background: rgba(231,76,60,0.22);  color: #e74c3c; border: 1px solid rgba(231,76,60,0.5); }
-
-.tbb-explore-btn {
-    background: none;
-    border: 1px solid var(--tbb-border);
-    border-radius: 6px;
-    padding: 1px 6px;
-    font-size: 13px;
-    cursor: pointer;
-    color: var(--tbb-text);
-    vertical-align: middle;
-    margin-left: 4px;
-    transition: background 0.15s;
-}
-.tbb-explore-btn:hover { background: var(--tbb-card); }
-.tbb-floor-selector { display:flex; align-items:center; gap:8px; font-size:12px; margin-top:6px; }
-.tbb-floor-selector input { flex:1; }
-
-/* ── Float Numbers ──────────────────────────────────────────────────────── */
+/* ── Float numbers ───────────────────────────────────────────────────────── */
 .tbb-float {
-    position: absolute;
-    top: 0; left: 50%;
+    position: absolute; top: 0; left: 50%;
     transform: translateX(-50%);
-    font-size: 14px;
-    font-weight: 900;
+    font-size: 13px; font-weight: 900;
     pointer-events: none;
-    animation: tbbFloat 0.9s forwards ease-out;
-    text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+    animation: tbbFloat .9s forwards ease-out;
+    text-shadow: 0 1px 3px rgba(0,0,0,.6);
     white-space: nowrap;
 }
-
-/* ── Animations ─────────────────────────────────────────────────────────── */
 @keyframes tbbFloat {
     0%   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
     100% { opacity: 0; transform: translateX(-50%) translateY(-44px) scale(1.15); }
 }
-@keyframes tbbPulse {
-    0%   { transform: scale(1); }
-    100% { transform: scale(1.1); }
+
+/* ── Overlay & Dialog ────────────────────────────────────────────────────── */
+.tbb-overlay {
+    position: absolute; inset: 0;
+    background: rgba(0,0,0,.75);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100; padding: 16px;
 }
+.tbb-dialog {
+    background: var(--tbb-surface);
+    border: 1px solid var(--tbb-border2);
+    border-radius: 16px;
+    width: 100%; max-width: 340px;
+    padding: 20px;
+    display: flex; flex-direction: column; gap: 12px;
+    box-shadow: 0 16px 48px rgba(0,0,0,.5);
+    max-height: 80vh; overflow-y: auto;
+}
+.tbb-dialog-title { font-size: 15px; font-weight: 900; color: var(--tbb-gold); letter-spacing: .03em; }
+.tbb-dialog-body  { font-size: 13px; line-height: 1.6; display: flex; flex-direction: column; gap: 6px; color: var(--tbb-text); }
+.tbb-dialog-body p { margin: 0; }
+.tbb-dialog-actions { display: flex; flex-direction: column; gap: 8px; }
+.tbb-dialog-btn {
+    padding: 10px 16px; border-radius: 10px;
+    border: 1px solid var(--tbb-border2); background: var(--tbb-card);
+    color: var(--tbb-text); font-size: 13px; font-weight: 700;
+    cursor: pointer; transition: background .15s; text-align: center;
+}
+.tbb-dialog-btn:hover { background: rgba(255,255,255,.08); }
+.tbb-dialog-btn-primary { background: var(--tbb-accent); border-color: var(--tbb-accent); }
+.tbb-dialog-btn-primary:hover { background: #c73652; }
+.tbb-dialog-btn-secondary { opacity: .7; }
+.tbb-dialog-btn:disabled { opacity: .5; cursor: default; }
+.tbb-rebirth-btn { background: #6c3483; border-color: #8e44ad; }
+.tbb-rebirth-btn:hover { background: #8e44ad; }
+.tbb-respec-btn  { background: rgba(255,255,255,.04); }
+
+/* ── Floor Dialog ────────────────────────────────────────────────────────── */
+.tbb-floor-dialog { max-width: 380px; gap: 12px; }
+.tbb-floor-desc  { font-size: 13px; line-height: 1.7; color: var(--tbb-muted); border-left: 3px solid var(--tbb-gold); padding-left: 10px; font-style: italic; }
+.tbb-floor-repeat { font-size: 12px; color: #7f8c8d; background: rgba(255,255,255,.04); border-radius: 6px; padding: 8px 10px; }
+.tbb-floor-result { font-size: 13px; font-weight: 700; color: var(--tbb-gold); background: rgba(212,168,71,.1); border-radius: 8px; padding: 10px 12px; text-align: center; }
+
+/* ── Stats Panel ─────────────────────────────────────────────────────────── */
+.tbb-stats-dialog { max-width: 320px; }
+.tbb-stat-row    { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid var(--tbb-border); font-size: 13px; }
+.tbb-stat-row:last-of-type { border-bottom: none; }
+.tbb-stat-name   { flex: 1; color: var(--tbb-muted); }
+.tbb-stat-val    { font-weight: 800; color: var(--tbb-text); min-width: 36px; text-align: right; margin-right: 8px; }
+.tbb-alloc-btn   { background: var(--tbb-accent); border: none; border-radius: 6px; color: white; font-size: 12px; font-weight: 800; padding: 3px 9px; cursor: pointer; }
+.tbb-alloc-placeholder { width: 34px; }
+.tbb-hr { border: none; border-top: 1px solid var(--tbb-border); margin: 4px 0; }
+
+/* ── Perk List ───────────────────────────────────────────────────────────── */
+.tbb-perk-list { max-height: 50vh; overflow-y: auto; gap: 8px; }
+.tbb-perk-row  { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 8px; background: var(--tbb-card); border-radius: 8px; border: 1px solid var(--tbb-border); font-size: 12px; line-height: 1.5; }
+.tbb-perk-locked { opacity: .45; }
+.tbb-perk-info { flex: 1; }
+
+/* ── Misc ────────────────────────────────────────────────────────────────── */
+.tbb-muted        { color: var(--tbb-muted); font-size: 12px; }
+.tbb-red          { color: var(--tbb-accent); }
+.tbb-unlocked     { color: #2ecc71; font-weight: 700; }
+.tbb-rebirth-info { color: #9b59b6; font-weight: 700; }
+.tbb-floor-selector { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-top: 6px; }
+.tbb-floor-selector input { flex: 1; }
+@keyframes tbbPulse { 0% { transform: scale(1); } 100% { transform: scale(1.1); } }
 `;
     document.head.appendChild(s);
 }

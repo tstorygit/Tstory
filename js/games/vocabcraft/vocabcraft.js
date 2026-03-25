@@ -7,7 +7,7 @@ import { loadMeta, saveMeta, addXP, resetSkills, SKILL_DEFS, getDefaultSave,
 import { generateMap, getValidTemplates, getTemplateMinimap, TEMPLATES, getHexWorldLayout, HEX_TIER_COLORS } from './vc_mapgen.js';
 import { setVocabQueue, showCard } from './vc_vocab.js';
 import { VcEngine } from './vc_engine.js';
-import { VcUI } from './vc_ui.js';
+import { VcUI, fmtN } from './vc_ui.js';
 import { getWavePreview } from './vc_enemies.js';
 
 let _screens = null;
@@ -1015,7 +1015,7 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
         }
     }
     diffSection.appendChild(dotsWrap);
-    body.appendChild(diffSection);
+    // diffSection appended after xpPanel below
 
     // ── XP Progress Panel ────────────────────────────────────────────────────
     // Shows all difficulties with budget / earned / remaining at a glance,
@@ -1036,8 +1036,7 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
     let xpPanelOpen = false;
 
     function renderXpPanel() {
-        const fmt = n => n >= 1e9 ? (n/1e9).toFixed(1)+'B' : n >= 1e6 ? (n/1e6).toFixed(0)+'M' : n >= 1e3 ? (n/1e3).toFixed(0)+'K' : Math.round(n).toString();
-        const earned = _meta.stageXPEarned || {};
+                const earned = _meta.stageXPEarned || {};
 
         // Summary line: total earned vs total possible across all difficulties
         let totalEarned = 0, totalBudget = 0;
@@ -1064,9 +1063,9 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
 
         let html = `
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-                <div style="font-size:11px;color:#bdc3c7;">Total: <span style="color:#f1c40f;font-weight:bold;">${fmt(totalEarned)}</span> / ${fmt(totalBudget)} XP</div>
+                <div style="font-size:11px;color:#bdc3c7;">Total: <span style="color:#f1c40f;font-weight:bold;">${fmtN(totalEarned)}</span> / ${fmtN(totalBudget)} XP</div>
                 ${bestRepeatD > 0 && bestRepeatRemaining > 0
-                    ? `<div style="font-size:10px;background:#1a3a1a;border:1px solid #2ecc71;border-radius:4px;padding:2px 7px;color:#2ecc71;">▶ Best repeat: D${bestRepeatD} (+${fmt(bestRepeatRemaining)})</div>`
+                    ? `<div style="font-size:10px;background:#1a3a1a;border:1px solid #2ecc71;border-radius:4px;padding:2px 7px;color:#2ecc71;">▶ Best repeat: D${bestRepeatD} (+${fmtN(bestRepeatRemaining)})</div>`
                     : `<div style="font-size:10px;color:#95a5a6;">All maxed ✓</div>`}
             </div>
             <div style="display:grid;grid-template-columns:28px 1fr 64px 54px;gap:3px 6px;align-items:center;font-size:10px;color:#95a5a6;padding-bottom:4px;border-bottom:1px solid #1e3a50;margin-bottom:5px;">
@@ -1105,8 +1104,8 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
                     <div style="height:7px;background:#1a252f;border-radius:3px;overflow:hidden;">
                         <div style="width:${pct.toFixed(1)}%;height:100%;background:${barColor};border-radius:3px;transition:width 0.3s;"></div>
                     </div>
-                    <div style="text-align:right;color:${isMaxed ? '#2ecc71' : '#ecf0f1'};">${best > 0 ? fmt(best) : '—'}</div>
-                    <div style="text-align:right;color:${remaining > 0 ? '#f39c12' : '#2ecc71'};">${remaining > 0 ? '+'+fmt(remaining) : '✓'}</div>
+                    <div style="text-align:right;color:${isMaxed ? '#2ecc71' : '#ecf0f1'};">${best > 0 ? fmtN(best) : '—'}</div>
+                    <div style="text-align:right;color:${remaining > 0 ? '#f39c12' : '#2ecc71'};">${remaining > 0 ? '+'+fmtN(remaining) : '✓'}</div>
                 </div>`;
         }
         html += '</div>';  // close inner
@@ -1136,10 +1135,11 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
     xpPanel.appendChild(xpPanelHeader);
     xpPanel.appendChild(xpPanelBody);
     body.appendChild(xpPanel);
+    body.appendChild(diffSection);  // difficulty dots come after XP panel
 
     // ── Wave preview (updates when difficulty changes) ───────────────────────
     const waveSection = document.createElement('div');
-    body.appendChild(waveSection);
+    // waveSection appended after modSection below
 
     function renderWavePreview() {
         const waves   = 10 + 7 * selectedD + (getEffectiveSkills(_meta).bonusWaves || 0) * 3;
@@ -1149,10 +1149,9 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
         const xpBudgetDisplay = (() => {
             const budget  = getStageXPBudget(selectedD);
             const prevBest = (_meta.stageXPEarned || {})[`${tpl.id}:${selectedD}`] || 0;
-            const fmt = n => n >= 1e9 ? (n/1e9).toFixed(1)+'B' : n >= 1e6 ? (n/1e6).toFixed(0)+'M' : n.toLocaleString();
-            if (prevBest >= budget) return `💰 ${fmt(budget)} XP ✓`;
-            if (prevBest > 0) return `💰 ${fmt(prevBest)} / ${fmt(budget)} XP`;
-            return `💰 Up to ${fmt(budget)} XP`;
+                        if (prevBest >= budget) return `💰 ${fmtN(budget)} XP ✓`;
+            if (prevBest > 0) return `💰 ${fmtN(prevBest)} / ${fmtN(budget)} XP`;
+            return `💰 Up to ${fmtN(budget)} XP`;
         })();
 
         const preview = getWavePreview(waves, selectedD);
@@ -1172,9 +1171,9 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
                 : `<div style="font-size:13px;line-height:1.3;letter-spacing:1px;margin:2px 0;">${w.types.map(t=>t.emoji).join('')}</div>`;
             const hps = w.types.map(t=>t.hp);
             const lo = Math.min(...hps), hi = Math.max(...hps);
-            const hpLine = `<div style="font-size:9px;color:${isBoss?'#f39c12':'#aac8e0'};">❤️ ${lo===hi?lo:lo+'–'+hi}</div>`;
+            const hpLine = `<div style="font-size:9px;color:${isBoss?'#f39c12':'#aac8e0'};">❤️ ${lo===hi?fmtN(lo):fmtN(lo)+'–'+fmtN(hi)}</div>`;
             const armorVal = Math.max(...w.types.map(t=>t.armor));
-            const flags = [armorVal>0?`🛡️${armorVal}`:null, w.types.some(t=>t.immune.length)?'🚫':null, w.types.some(t=>t.regen>0)?'💚':null].filter(Boolean).join(' ');
+            const flags = [armorVal>0?`🛡️${fmtN(armorVal)}`:null, w.types.some(t=>t.immune.length)?'🚫':null, w.types.some(t=>t.regen>0)?'💚':null].filter(Boolean).join(' ');
             return `<div data-wcard="${w.wave}" style="flex-shrink:0;width:60px;min-height:95px;background:${cardBg};border:1px solid ${cardBdr};border-radius:7px;padding:4px 2px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:1px;text-align:center;">
                 <div style="font-size:10px;font-weight:bold;color:${numClr};">W${w.wave}${isBoss?' 🔥':''}</div>
                 ${emojis}
@@ -1194,7 +1193,7 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
                     <div style="font-size:11px;font-weight:bold;color:#ecf0f1;">${t.label}${immBadge}${regenBadge}</div>
                     <div style="font-size:10px;color:#95a5a6;line-height:1.3;">${t.desc}</div>
                 </div>
-                <div style="text-align:right;white-space:nowrap;font-size:10px;color:#7fb3d3;">❤️${t.hp}<br>🛡️${t.armor}</div>
+                <div style="text-align:right;white-space:nowrap;font-size:10px;color:#7fb3d3;">❤️${fmtN(t.hp)}<br>🛡️${fmtN(t.armor)}</div>
             </div>`;
         }).join('');
 
@@ -1261,7 +1260,7 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
 
     let modBodyOpen = false;
     const modHeader = document.createElement('div');
-    modHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:8px 11px;cursor:pointer;user-select:none;background:#152030;';
+    modHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:8px 11px;cursor:pointer;user-select:none;background:#152030;border-radius:7px;';
     modHeader.innerHTML = `
         <div style="font-size:11px;font-weight:bold;color:#f39c12;text-transform:uppercase;letter-spacing:1px;">⚡ Run Modifiers <span id="vc-setup-mod-count" style="color:#f1c40f;">(none selected — 1.0× XP)</span></div>
         <div id="vc-setup-mod-chevron" style="font-size:11px;color:#7fb3d3;transition:transform 0.2s;">▶</div>
@@ -1314,12 +1313,14 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
     modHeader.addEventListener('click', () => {
         modBodyOpen = !modBodyOpen;
         modBody.style.display = modBodyOpen ? 'block' : 'none';
+        modHeader.style.borderRadius = modBodyOpen ? '7px 7px 0 0' : '7px';
         modHeader.querySelector('#vc-setup-mod-chevron').style.transform = modBodyOpen ? 'rotate(90deg)' : '';
     });
 
     modSection.appendChild(modHeader);
     modSection.appendChild(modBody);
     body.appendChild(modSection);
+    body.appendChild(waveSection);  // wave preview + enemy types last
 
     renderDots();
     renderWavePreview();
@@ -1368,10 +1369,9 @@ function _confirmAndStartBattle(templateId, difficulty) {
     const xpBadge = (() => {
         const budget   = getStageXPBudget(difficulty);
         const prevBest = (_meta.stageXPEarned || {})[`${templateId}:${difficulty}`] || 0;
-        const fmt = n => n >= 1e9 ? (n/1e9).toFixed(1)+'B' : n >= 1e6 ? (n/1e6).toFixed(0)+'M' : n.toLocaleString();
-        if (prevBest >= budget) return `💰 ${fmt(budget)} XP ✓ (maxed)`;
-        if (prevBest > 0)       return `💰 ${fmt(prevBest)} / ${fmt(budget)} XP`;
-        return `💰 Up to ${fmt(budget)} XP`;
+                if (prevBest >= budget) return `💰 ${fmtN(budget)} XP ✓ (maxed)`;
+        if (prevBest > 0)       return `💰 ${fmtN(prevBest)} / ${fmtN(budget)} XP`;
+        return `💰 Up to ${fmtN(budget)} XP`;
     })();
 
     // ── Wave preview data ────────────────────────────────────────────────────
@@ -1571,11 +1571,10 @@ function _confirmAndStartBattle(templateId, difficulty) {
         const budget   = getStageXPBudget(difficulty);
         const prevBest = (_meta.stageXPEarned || {})[`${templateId}:${difficulty}`] || 0;
         const effCap   = Math.round(budget * mult);
-        const fmt = n => n >= 1e9 ? (n/1e9).toFixed(1)+'B' : n >= 1e6 ? (n/1e6).toFixed(0)+'M' : n.toLocaleString();
-        let badge;
-        if (prevBest >= effCap)      badge = `💰 ${fmt(effCap)} XP ✓`;
-        else if (prevBest > 0)       badge = `💰 ${fmt(prevBest)} / ${fmt(effCap)} XP`;
-        else                         badge = `💰 Up to ${fmt(effCap)} XP`;
+                let badge;
+        if (prevBest >= effCap)      badge = `💰 ${fmtN(effCap)} XP ✓`;
+        else if (prevBest > 0)       badge = `💰 ${fmtN(prevBest)} / ${fmtN(effCap)} XP`;
+        else                         badge = `💰 Up to ${fmtN(effCap)} XP`;
         xpBadgeEl.textContent = badge;
     }
 
@@ -2011,9 +2010,9 @@ function _resumeFromSave(snapshot) {
         if (isWin) {
             clearStage(_meta, snapshot.templateId, snapshot.difficulty);
             const repeatNote = awardedXP === 0 ? ' (already maxed)' : '';
-            alert(`${TEMPLATES.find(t => t.id === snapshot.templateId)?.name} D${snapshot.difficulty} Cleared! +${Math.floor(awardedXP)} XP${repeatNote}`);
+            alert(`${TEMPLATES.find(t => t.id === snapshot.templateId)?.name} D${snapshot.difficulty} Cleared! +${fmtN(Math.floor(awardedXP))} XP${repeatNote}`);
         } else {
-            alert(`Defeated! You salvaged +${Math.floor(awardedXP)} XP`);
+            alert(`Defeated! You salvaged +${fmtN(Math.floor(awardedXP))} XP`);
         }
         _showCamp();
     }, snapshot.gameMode);
@@ -2116,9 +2115,9 @@ function _startBattle(templateId, difficulty, gameMode = 'hard', modifiers = [])
         if (isWin) {
             clearStage(_meta, templateId, difficulty);
             const repeatNote = awardedXP === 0 ? ' (already maxed — try harder modifiers!)' : '';
-            alert(`${TEMPLATES.find(t=>t.id===templateId)?.name} D${difficulty} Cleared!${modNote} +${Math.floor(awardedXP)} XP${repeatNote}`);
+            alert(`${TEMPLATES.find(t=>t.id===templateId)?.name} D${difficulty} Cleared!${modNote} +${fmtN(Math.floor(awardedXP))} XP${repeatNote}`);
         } else {
-            alert(`Defeated!${modNote} You salvaged +${Math.floor(awardedXP)} XP`);
+            alert(`Defeated!${modNote} You salvaged +${fmtN(Math.floor(awardedXP))} XP`);
         }
         _showCamp();
     }, gameMode, modifiers);
