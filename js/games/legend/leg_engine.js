@@ -338,8 +338,11 @@ function updatePlayer(dt) {
         room.chestTriggered = true;
         room.hasChest = false;
         _setTile(room, Math.floor(ROOM_ROWS/2), Math.floor(ROOM_COLS/2), TILE.FLOOR);
-        const unowned = Object.keys(WEAPONS).filter(w => !state.unlockedWeapons.includes(w));
-        state.callbacks.onChestOpen(unowned.length > 0 ? unowned[0] : null);
+        const UNLOCK_ORDER = ['axe', 'sickle', 'chain', 'spear', 'star'];
+        // Always give the next weapon the player is missing, in priority order.
+        // This guarantees the axe (tree-clearer) arrives before weapons that need it.
+        const nextWeapon = UNLOCK_ORDER.find(w => !state.unlockedWeapons.includes(w)) || null;
+        state.callbacks.onChestOpen(nextWeapon);
     }
 
     // Shrine — optional quiz, single use
@@ -476,9 +479,14 @@ function updateEnemies(dt) {
             
             if (e.ai !== 'chase_fly') {
                 const room = mapData.rooms[state.roomY][state.roomX];
-                if (room.grid[Math.floor(ny/TILE_SIZE)]?.[Math.floor(nx/TILE_SIZE)] !== TILE.FLOOR) {
-                    nx = e.x; ny = e.y; 
-                }
+                const tc = Math.floor(nx/TILE_SIZE), tr = Math.floor(ny/TILE_SIZE);
+                const tile = room.grid[tr]?.[tc];
+                // Enemies are blocked only by hard walls — they walk over stumps,
+                // grass, shrines, etc. so they never freeze mid-room.
+                const blocked = tile === TILE.WALL || tile === TILE.ROCK ||
+                                tile === TILE.TREE  || tile === TILE.PIT  ||
+                                tile === TILE.POST  || tile === undefined;
+                if (blocked) { nx = e.x; ny = e.y; }
             }
             e.x = nx; e.y = ny;
         } else if (e.ai === 'wander') {

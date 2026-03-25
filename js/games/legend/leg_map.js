@@ -155,10 +155,25 @@ export function generateStage(stageLevel) {
 
             // Sprinkle obstacles LAST — only on confirmed FLOOR tiles so doors,
             // corridors, and the cross are never blocked.
-            for (let r=2; r<ROOM_ROWS-2; r++)
-                for (let c=2; c<ROOM_COLS-2; c++)
-                    if (grid[r][c] === TILE.FLOOR && Math.random()<0.18)
-                        grid[r][c]=[TILE.TREE,TILE.GRASS,TILE.ROCK,TILE.PIT][Math.floor(Math.random()*4)];
+            // SANITY: we exclude the 3×3 area around the centre tile so stairs/
+            // chest are always freely reachable regardless of weapon loadout.
+            // Also: start room (0,0) never gets obstacles — it's always a safe spawn.
+            const isStartRoom = (rx === 0 && ry === 0);
+            if (!isStartRoom) {
+                for (let r=2; r<ROOM_ROWS-2; r++)
+                    for (let c=2; c<ROOM_COLS-2; c++) {
+                        const nearCenter = Math.abs(r-midR)<=1 && Math.abs(c-midC)<=1;
+                        if (nearCenter) continue; // always keep centre approach clear
+                        if (grid[r][c] === TILE.FLOOR && Math.random()<0.18) {
+                            // On stage 1 avoid trees (need axe to clear) so early
+                            // game isn't gated behind an unearned weapon unlock.
+                            const pool = stageLevel <= 2
+                                ? [TILE.GRASS, TILE.ROCK, TILE.PIT, TILE.GRASS] // no TREE
+                                : [TILE.TREE, TILE.GRASS, TILE.ROCK, TILE.PIT];
+                            grid[r][c] = pool[Math.floor(Math.random()*pool.length)];
+                        }
+                    }
+            }
 
             // Grapple posts near pits
             for (let r=2; r<ROOM_ROWS-2; r++)
