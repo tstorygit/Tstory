@@ -1251,7 +1251,7 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
     // ── Run Modifiers (setup screen) ─────────────────────────────────────────
     let _activeModifiers = [];
     const modSection = document.createElement('div');
-    modSection.style.cssText = 'margin-top:8px;border:1px solid #2c4a66;border-radius:7px;overflow:hidden;';
+    modSection.style.cssText = 'border:1px solid #2c4a66;border-radius:7px;background:#0f1c28;';
 
     const modTierDefs = [
         { label: 'Tier 1', lo: 0.20, hi: 0.25, color: '#f1c40f' },
@@ -1268,7 +1268,7 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
     `;
 
     const modBody = document.createElement('div');
-    modBody.style.cssText = 'display:none;padding:8px 10px 10px;background:#0f1c28;';
+    modBody.style.cssText = 'display:none;padding:8px 10px 10px;background:#0f1c28;border-top:1px solid #2c4a66;border-radius:0 0 7px 7px;';
     modBody.innerHTML = modTierDefs.map(tier => {
         const mods = RUN_MODIFIERS.filter(m => m.xpBonus >= tier.lo && m.xpBonus <= tier.hi);
         return `<div style="margin-bottom:8px;">
