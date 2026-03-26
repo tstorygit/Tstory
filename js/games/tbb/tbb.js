@@ -299,8 +299,6 @@ function _prepareGroupVocab() {
     _g.enemyGroup.forEach((e, i) => { e.trans = opts[i] ?? `Option ${i+1}`; });
 }
 
-}
-
 /**
  * Attrition mode: reassign MC options only among the surviving cards.
  * Dead cards keep their .trans but their slot is visually greyed out.
