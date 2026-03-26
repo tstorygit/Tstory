@@ -377,34 +377,21 @@ function updatePlayer(dt) {
     // Stairs > Chest > Shrine > Attack. Only one action fires per tap.
     const tapped = consumeTap();
 
-    // Exit Stairs — quiz gate before descending.
-    // Requires a deliberate tap so walking nearby doesn't accidentally trigger it.
+    // Exit Stairs — walk into them to trigger the descent quiz.
     if (room.isExit && room.cleared && !room.stairsTriggered &&
         Math.hypot(state.player.x - (ROOM_COLS/2*TILE_SIZE), state.player.y - (ROOM_ROWS/2*TILE_SIZE)) < 30) {
-        if (!room._stairsHintShown) {
-            room._stairsHintShown = true;
-            spawnFloat(ROOM_COLS/2*TILE_SIZE, ROOM_ROWS/2*TILE_SIZE - 30, '👆 Tap to descend', '#f1c40f');
-        }
-        if (tapped) {
-            room.stairsTriggered = true;
-            state.callbacks.onStairsReached(() => { room.stairsTriggered = false; });
-        }
+        room.stairsTriggered = true;
+        state.callbacks.onStairsReached(() => { room.stairsTriggered = false; });
     }
 
-    // Chest — tap to open, consistent with stairs.
+    // Chest — walk into it to open (no tap needed, proximity is enough).
     else if (room.hasChest && room.cleared && !room.chestTriggered &&
         Math.hypot(state.player.x - (ROOM_COLS/2*TILE_SIZE), state.player.y - (ROOM_ROWS/2*TILE_SIZE)) < 30) {
-        if (!room._chestHintShown) {
-            room._chestHintShown = true;
-            spawnFloat(ROOM_COLS/2*TILE_SIZE, ROOM_ROWS/2*TILE_SIZE - 30, '👆 Tap to open', '#f1c40f');
-        }
-        if (tapped) {
-            room.chestTriggered = true;
-            room.hasChest = false;
-            _setTile(room, Math.floor(ROOM_ROWS/2), Math.floor(ROOM_COLS/2), TILE.FLOOR);
-            const unowned = Object.keys(WEAPONS).filter(w => !state.unlockedWeapons.includes(w));
-            state.callbacks.onChestOpen(unowned.length > 0 ? unowned[0] : null);
-        }
+        room.chestTriggered = true;
+        room.hasChest = false;
+        _setTile(room, Math.floor(ROOM_ROWS/2), Math.floor(ROOM_COLS/2), TILE.FLOOR);
+        const unowned = Object.keys(WEAPONS).filter(w => !state.unlockedWeapons.includes(w));
+        state.callbacks.onChestOpen(unowned.length > 0 ? unowned[0] : null);
     }
 
     // Shrine — walk-into trigger (no tap needed, proximity is sufficient)
