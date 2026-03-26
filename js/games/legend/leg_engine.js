@@ -469,27 +469,51 @@ function _doAttack() {
             });
         }
 
-        // Map Obstacle Interaction — scan multiple distances so close-range
-        // or wide-arc swings still register.
-        const maxReach = wpn.type === 'linear' ? wpn.range * 0.55 : TILE_SIZE * 2.5;
-        const PROBE_STEPS = 6;
-        let clearedObstacle = false;
-        for (let s = 1; s <= PROBE_STEPS && !clearedObstacle; s++) {
-            const reach = (s / PROBE_STEPS) * maxReach;
-            const tx = state.player.x + state.player.dirX * reach;
-            const ty = state.player.y + state.player.dirY * reach;
-            const tr = Math.floor(ty / TILE_SIZE);
-            const tc = Math.floor(tx / TILE_SIZE);
-            if (tr >= 0 && tr < ROOM_ROWS && tc >= 0 && tc < ROOM_COLS) {
-                const targetTile = room.grid[tr][tc];
-                if (wpn.clear !== null && wpn.clear === targetTile) {
-                    _setTile(room, tr, tc, targetTile === TILE.TREE ? TILE.STUMP : TILE.FLOOR);
-                    spawnFloat(tx, ty, 'BAM!', '#fff');
-                    tryDropLoot(tx, ty, 0.3);
-                    clearedObstacle = true;
-                } else if (wpn.grapple && targetTile === wpn.grapple) {
-                    state.grappleTarget = { x: tc * TILE_SIZE + TILE_SIZE / 2, y: tr * TILE_SIZE + TILE_SIZE / 2 };
-                    clearedObstacle = true;
+        // Map Obstacle Interaction
+        if (wpn.clear !== null || wpn.grapple) {
+            if (wpn.type === 'radial') {
+                // Sickle spins 360° — check every tile within its radius,
+                // not just the one in facing direction.
+                const radiusTiles = Math.ceil(wpn.range / TILE_SIZE);
+                const pr = Math.floor(state.player.y / TILE_SIZE);
+                const pc = Math.floor(state.player.x / TILE_SIZE);
+                for (let dr = -radiusTiles; dr <= radiusTiles; dr++) {
+                    for (let dc = -radiusTiles; dc <= radiusTiles; dc++) {
+                        const tr = pr + dr, tc = pc + dc;
+                        if (tr < 0 || tr >= ROOM_ROWS || tc < 0 || tc >= ROOM_COLS) continue;
+                        const tileCX = tc * TILE_SIZE + TILE_SIZE / 2;
+                        const tileCY = tr * TILE_SIZE + TILE_SIZE / 2;
+                        if (Math.hypot(tileCX - state.player.x, tileCY - state.player.y) > wpn.range) continue;
+                        if (room.grid[tr][tc] === wpn.clear) {
+                            _setTile(room, tr, tc, TILE.FLOOR);
+                            spawnFloat(tileCX, tileCY, 'BAM!', '#fff');
+                            tryDropLoot(tileCX, tileCY, 0.3);
+                        }
+                    }
+                }
+            } else {
+                // Directional ray scan for arc, linear, projectile weapons.
+                const maxReach = wpn.type === 'linear' ? wpn.range * 0.55 : TILE_SIZE * 2.5;
+                const PROBE_STEPS = 6;
+                let clearedObstacle = false;
+                for (let s = 1; s <= PROBE_STEPS && !clearedObstacle; s++) {
+                    const reach = (s / PROBE_STEPS) * maxReach;
+                    const tx = state.player.x + state.player.dirX * reach;
+                    const ty = state.player.y + state.player.dirY * reach;
+                    const tr = Math.floor(ty / TILE_SIZE);
+                    const tc = Math.floor(tx / TILE_SIZE);
+                    if (tr >= 0 && tr < ROOM_ROWS && tc >= 0 && tc < ROOM_COLS) {
+                        const targetTile = room.grid[tr][tc];
+                        if (wpn.clear !== null && wpn.clear === targetTile) {
+                            _setTile(room, tr, tc, targetTile === TILE.TREE ? TILE.STUMP : TILE.FLOOR);
+                            spawnFloat(tx, ty, 'BAM!', '#fff');
+                            tryDropLoot(tx, ty, 0.3);
+                            clearedObstacle = true;
+                        } else if (wpn.grapple && targetTile === wpn.grapple) {
+                            state.grappleTarget = { x: tc * TILE_SIZE + TILE_SIZE / 2, y: tr * TILE_SIZE + TILE_SIZE / 2 };
+                            clearedObstacle = true;
+                        }
+                    }
                 }
             }
         }
@@ -693,9 +717,33 @@ function updateHitboxes(dt) {
 }
 
 function updateDrops() {
-    for(let i=drops.length-1; i>=0; i--) {
+    for (let i = drops.length - 1; i >= 0; i--) {
         const d = drops[i];
-        if (Math.hypot(state.player.x - d.x, state.player.y - d.y) < 25) {
+        // Collect if the player walks near the drop…
+        let collected = Math.hypot(state.player.x - d.x, state.player.y - d.y) < 25;
+        // …or if any active hitbox sweeps over it (lets player collect items
+        // that landed on impassable tiles by attacking toward them).
+        if (!collected) {
+            for (const hb of activeHitboxes) {
+                let inHitbox = false;
+                if (hb.type === 'radial') {
+                    inHitbox = Math.hypot(d.x - hb.x, d.y - hb.y) < hb.weapon.range;
+                } else if (hb.type === 'arc') {
+                    const dist = Math.hypot(d.x - hb.x, d.y - hb.y);
+                    const angle = Math.atan2(d.y - hb.y, d.x - hb.x);
+                    let diff = angle - hb.faceAngle;
+                    while (diff >  Math.PI) diff -= 2 * Math.PI;
+                    while (diff < -Math.PI) diff += 2 * Math.PI;
+                    inHitbox = dist < hb.weapon.range && Math.abs(diff) <= hb.weapon.arc / 2 + 0.3;
+                } else if (hb.type === 'linear') {
+                    inHitbox = Math.hypot(d.x - hb.tipX, d.y - hb.tipY) < 20;
+                } else if (hb.type === 'projectile') {
+                    inHitbox = Math.hypot(d.x - hb.ballX, d.y - hb.ballY) < 20;
+                }
+                if (inHitbox) { collected = true; break; }
+            }
+        }
+        if (collected) {
             state.callbacks.onItemFound(d.type, d.weaponId);
             spawnFloat(d.x, d.y, '+Item', '#3498db');
             drops.splice(i, 1);
@@ -795,6 +843,22 @@ function draw(dt) {
         ctx.globalAlpha = e.flashTimer > 0 ? 0.5 : 1;
         ctx.fillText(e.emoji, e.x, e.y);
         ctx.globalAlpha = 1;
+
+        // HP bar — always visible, wider and taller for bosses
+        const barW  = e.isBoss ? 56 : 28;
+        const barH  = e.isBoss ? 6  : 4;
+        const barX  = e.x - barW / 2;
+        const barY  = e.y - (e.isBoss ? 34 : 22);
+        const pct   = Math.max(0, e.hp / e.maxHp);
+        // background
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
+        // red empty portion
+        ctx.fillStyle = '#5a0a0a';
+        ctx.fillRect(barX, barY, barW, barH);
+        // green filled portion — turns yellow below 50%, red below 25%
+        ctx.fillStyle = pct > 0.5 ? '#2ecc71' : pct > 0.25 ? '#f1c40f' : '#e74c3c';
+        ctx.fillRect(barX, barY, Math.round(barW * pct), barH);
     });
 
     activeHitboxes.forEach(hb => {

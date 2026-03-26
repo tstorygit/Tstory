@@ -887,12 +887,9 @@ function _buildGameDOM() {
 
     <!-- ── TARGET WORD BANNER ────────────────────────────────────────── -->
     <div class="tbb-target-banner">
-        <div class="tbb-target-tag" id="tbb-target-tag">TARGET WORD</div>
         <div class="tbb-target-jp" id="tbb-word-kanji">—</div>
-        <div class="tbb-target-meta">
-            <span class="tbb-word-furi" id="tbb-word-furi"></span>
-            <span class="tbb-status-dot" id="tbb-status-dot"></span>
-        </div>
+        <div class="tbb-word-furi" id="tbb-word-furi"></div>
+        <span class="tbb-status-dot" id="tbb-status-dot"></span>
     </div>
 
     <!-- ── NARRATION ─────────────────────────────────────────────────── -->
@@ -1474,15 +1471,16 @@ function _injectStyles() {
     border-left: 0.2em solid var(--tbb-gold);
     padding: 0.5em 0.9em;
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 0.6em;
+    justify-content: center;
+    gap: 0.15em;
     flex-shrink: 0;
+    position: relative;
 }
-.tbb-target-tag  { font-family: 'Courier New', monospace; font-size: 0.6em; color: var(--tbb-gold); letter-spacing: .05em; white-space: nowrap; line-height: 1.5; }
-.tbb-target-jp   { font-size: 2em; font-weight: 700; letter-spacing: .2em; color: #fff; flex: 1; text-align: center; line-height: 1; }
-.tbb-target-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 0.2em; white-space: nowrap; }
-.tbb-word-furi   { font-size: 0.8em; color: var(--tbb-silver); font-style: italic; }
-.tbb-status-dot  { width: 0.55em; height: 0.55em; border-radius: 50%; }
+.tbb-target-jp   { font-size: 2em; font-weight: 700; letter-spacing: .2em; color: #fff; text-align: center; line-height: 1; }
+.tbb-word-furi   { font-size: 0.8em; color: var(--tbb-silver); font-style: italic; text-align: center; min-height: 1em; }
+.tbb-status-dot  { position: absolute; top: 0.4em; right: 0.6em; width: 0.55em; height: 0.55em; border-radius: 50%; }
 .tbb-status-dot.due   { background: #2ecc71; box-shadow: 0 0 0.3em #2ecc71; }
 .tbb-status-dot.drill { background: linear-gradient(135deg,#ff0080,#ff8c00,#40e0d0,#9b59b6); box-shadow: 0 0 0.3em rgba(255,255,255,.4); }
 
