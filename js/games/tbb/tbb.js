@@ -1400,9 +1400,9 @@ function _injectStyles() {
     flex: 1;
     display: flex;
     justify-content: center;
-    align-items: flex-end;
+    align-items: stretch;
     gap: 8px;
-    padding: 10px 10px 6px;
+    padding: 8px 10px 6px;
     overflow: hidden;
 }
 .tbb-ecard {
@@ -1431,7 +1431,7 @@ function _injectStyles() {
     padding: 10px 0 8px; font-size: 34px; line-height: 1;
 }
 .tbb-ec-info { padding: 5px 6px 5px; display: flex; flex-direction: column; gap: 3px; }
-.tbb-ec-name { font-family: 'Courier New', monospace; font-size: 5px; color: var(--tbb-silver); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: .3px; }
+.tbb-ec-name { font-family: 'Courier New', monospace; font-size: 10px; color: var(--tbb-silver); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: .3px; }
 .tbb-ec-hpbg { height: 3px; background: #180808; border-radius: 2px; overflow: hidden; border: 1px solid #2e1010; }
 .tbb-ec-hpfill { height: 100%; border-radius: 2px; transition: width .3s ease; }
 .tbb-ec-trans {
