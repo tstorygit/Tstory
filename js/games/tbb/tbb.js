@@ -98,10 +98,11 @@ function _computeDerivedStats() {
     _g.expToNext  = expToNextLevel(_g.playerLevel);
 }
 
-function _initGameState() {
+function _initGameState(battleMode = 'attrition') {
     const sv = _loadSave();
     _g = Object.assign({}, sv, {
         // Session state (not persisted)
+        battleMode:           battleMode,   // 'attrition' | 'endless'
         currentHp:            0,
         enemy:                null,   // kept for SRS/exp helpers that reference _g.enemy
         enemyHp:              0,
@@ -181,6 +182,21 @@ function _renderSetup() {
 
     const actions = _selector.getActionsEl();
 
+    // ── Battle mode selector ──────────────────────────────────────────────
+    const modeWrap = document.createElement('div');
+    modeWrap.style.cssText = 'margin-top:10px;display:flex;flex-direction:column;gap:6px;';
+    modeWrap.innerHTML = `
+        <div style="font-size:0.85em;font-weight:700;color:#8090a8;letter-spacing:.04em;">BATTLE MODE</div>
+        <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:0.85em;">
+            <input type="radio" name="tbb-mode" value="attrition" checked style="margin-top:3px;flex-shrink:0;">
+            <span><strong>Attrition</strong> — 4 enemies, defeat them one by one. New vocab drawn from survivors until the last one falls.</span>
+        </label>
+        <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:0.85em;">
+            <input type="radio" name="tbb-mode" value="endless" style="margin-top:3px;flex-shrink:0;">
+            <span><strong>Endless</strong> — 4 enemies always. A new enemy spawns immediately when one is defeated.</span>
+        </label>`;
+    actions.appendChild(modeWrap);
+
     const startBtn = document.createElement('button');
     startBtn.className   = 'primary-btn';
     startBtn.style.marginTop = '8px';
@@ -202,7 +218,8 @@ async function _startGame() {
     if (!queue.length) return;
 
     _vocabQueue = queue.map(w => ({ word: w.word, furi: w.furi || w.word, trans: w.trans || '—' }));
-    _initGameState();
+    const modeRadio = _screens.setup.querySelector('input[name="tbb-mode"]:checked');
+    _initGameState(modeRadio?.value ?? 'attrition');
 
     _show('game');
     _buildGameDOM();
@@ -280,6 +297,63 @@ function _prepareGroupVocab() {
     // Generate 4 MC options: 1 correct + 3 distractors, shuffle across 4 cards
     const opts = generateMcOptions(word, _vocabQueue); // returns 4 items [correct, ...distractors] shuffled
     _g.enemyGroup.forEach((e, i) => { e.trans = opts[i] ?? `Option ${i+1}`; });
+}
+
+}
+
+/**
+ * Attrition mode: reassign MC options only among the surviving cards.
+ * Dead cards keep their .trans but their slot is visually greyed out.
+ * @param {number[]} aliveIndices - indices of non-dead cards
+ */
+function _prepareGroupVocabAmong(aliveIndices) {
+    if (!_vocabQueue.length) return;
+
+    // Pick a new target word
+    const globalSrsData = srsDb.getAllWords();
+    const now = new Date();
+    let dueCandidates = [], notDueCandidates = [];
+    _vocabQueue.forEach(w => {
+        const entry = globalSrsData[w.word];
+        if (!entry || !entry.dueDate || new Date(entry.dueDate) <= now) dueCandidates.push(w);
+        else notDueCandidates.push({ wordObj: w, lastUpdated: new Date(entry.lastUpdated).getTime() });
+    });
+
+    let word = null, isDrill = false;
+    if (dueCandidates.length > 0) {
+        word = dueCandidates[Math.floor(Math.random() * dueCandidates.length)];
+    } else if (notDueCandidates.length > 0) {
+        notDueCandidates.sort((a, b) => a.lastUpdated - b.lastUpdated);
+        const topN = notDueCandidates.slice(0, 5);
+        word = topN[Math.floor(Math.random() * topN.length)].wordObj;
+        isDrill = true;
+    } else {
+        word = _vocabQueue[Math.floor(Math.random() * _vocabQueue.length)];
+    }
+
+    _g.groupTargetWord = word;
+    _g.groupIsDrill    = isDrill;
+
+    // Generate exactly as many options as there are survivors (max 4)
+    const n = aliveIndices.length;
+    const correct = word.trans;
+    const pool = _vocabQueue
+        .filter(w => w.word !== word.word && w.trans !== correct)
+        .map(w => w.trans);
+    for (let i = pool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    const opts = [correct, ...pool.slice(0, n - 1)];
+    while (opts.length < n) opts.push(`Option ${opts.length + 1}`);
+    for (let i = opts.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [opts[i], opts[j]] = [opts[j], opts[i]];
+    }
+
+    aliveIndices.forEach((cardIdx, optIdx) => {
+        _g.enemyGroup[cardIdx].trans = opts[optIdx];
+    });
 }
 
 function _showFloorLandingOverlay(onDismiss) {
@@ -685,7 +759,44 @@ function _onGroupAttack(rawType) {
         setTimeout(() => {
             _g.selectedGroupIdx = null;
             _g.answerDisabled   = false;
-            _spawnEnemyAndBegin();
+
+            if (_g.battleMode === 'endless') {
+                // ── Endless: replace the dead slot with a fresh enemy ─────
+                const fresh = spawnEnemy(_g.currentFloor);
+                _g.enemyGroup[idx] = {
+                    ...fresh,
+                    currentHp: fresh.maxHp,
+                    dead:      false,
+                    trans:     null,
+                };
+                // Redistribute all 4 MC options across the (now full) group
+                _prepareGroupVocab();
+                const aliveCount = _g.enemyGroup.filter(e => !e.dead).length;
+                _g.narration = `${fresh.emoji} ${fresh.name} joins the fray! (${aliveCount} remain)`;
+                _renderAll();
+                _updateComboDisplay();
+            } else {
+                // ── Attrition: check survivors ────────────────────────────
+                const aliveIndices = _g.enemyGroup
+                    .map((e, i) => e.dead ? null : i)
+                    .filter(i => i !== null);
+
+                if (aliveIndices.length === 0) {
+                    // All 4 dead — full encounter clear, spawn new wave
+                    _spawnEnemyAndBegin();
+                } else {
+                    // Redistribute MC options only among the living cards
+                    _prepareGroupVocabAmong(aliveIndices);
+                    const lastName = _g.enemyGroup[aliveIndices[0]].name;
+                    _g.narration = aliveIndices.length === 1
+                        ? `⚔️ One ${lastName} remains — finish it!`
+                        : `${aliveIndices.length} enemies remain — strike the correct meaning!`;
+                    _renderGroupCards();
+                    _renderTargetWord();
+                    _updateMultBadges();
+                    _updateNarration();
+                }
+            }
         }, 1100);
 
     } else {
