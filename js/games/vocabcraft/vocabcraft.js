@@ -969,7 +969,7 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
 
     // ── Scrollable body ──────────────────────────────────────────────────────
     const body = document.createElement('div');
-    body.style.cssText = 'flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px 14px 24px;display:flex;flex-direction:column;gap:10px;min-height:0;';
+    body.style.cssText = 'flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px 14px 24px;display:flex;flex-direction:column;gap:10px;min-height:0;align-items:stretch;';
     overlay.appendChild(body);
 
     // ── Difficulty selector ──────────────────────────────────────────────────
@@ -980,6 +980,7 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
     })();
 
     const diffSection = document.createElement('div');
+    diffSection.style.flexShrink = '0';
     diffSection.innerHTML = `<div style="font-size:10px;font-weight:bold;color:#f1c40f;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">⚔️ Select Difficulty</div>`;
     const dotsWrap = document.createElement('div');
     dotsWrap.style.cssText = 'display:flex;gap:5px;flex-wrap:wrap;';
@@ -1021,7 +1022,7 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
     // Shows all difficulties with budget / earned / remaining at a glance,
     // so the player can immediately see which stage is worth repeating.
     const xpPanel = document.createElement('div');
-    xpPanel.style.cssText = 'background:#111d27;border:1px solid #2c4a66;border-radius:8px;overflow:hidden;';
+    xpPanel.style.cssText = 'background:#111d27;border:1px solid #2c4a66;border-radius:8px;overflow:hidden;flex-shrink:0;';
 
     const xpPanelHeader = document.createElement('div');
     xpPanelHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:7px 11px;cursor:pointer;user-select:none;background:#152030;';
@@ -1139,6 +1140,7 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
 
     // ── Wave preview (updates when difficulty changes) ───────────────────────
     const waveSection = document.createElement('div');
+    waveSection.style.flexShrink = '0';
     // waveSection appended after modSection below
 
     function renderWavePreview() {
@@ -1250,7 +1252,7 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
     // ── Run Modifiers (setup screen) ─────────────────────────────────────────
     let _activeModifiers = [];
     const modSection = document.createElement('div');
-    modSection.style.cssText = 'border:1px solid #2c4a66;border-radius:7px;background:#0f1c28;';
+    modSection.style.cssText = 'border:1px solid #2c4a66;border-radius:7px;background:#0f1c28;flex-shrink:0;';
 
     const modTierDefs = [
         { label: 'Tier 1', lo: 0.20, hi: 0.25, color: '#f1c40f' },
@@ -1320,6 +1322,11 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
     modSection.appendChild(modHeader);
     modSection.appendChild(modBody);
     body.appendChild(modSection);
+
+    const modWaveSep = document.createElement('div');
+    modWaveSep.style.cssText = 'height:2px;background:#2ecc71;border-radius:1px;opacity:0.5;flex-shrink:0;';
+    body.appendChild(modWaveSep);
+
     body.appendChild(waveSection);  // wave preview + enemy types last
 
     renderDots();

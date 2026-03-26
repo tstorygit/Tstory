@@ -14,6 +14,7 @@ export function fmtN(n) {
     return s + String(Math.round(a));
 }
 
+export class VcUI {
     constructor(container, engine, vocabCallbacks, onReady) {
         this.container = container;
         this.engine = engine;
@@ -531,11 +532,13 @@ export function fmtN(n) {
     initWaves() {
         this.topBar.waves.innerHTML = `
             <button id="vc-btn-start-wave" class="vc-icon-btn vc-wave-start-btn" title="Start next wave">▶</button>
+            <button id="vc-btn-enrage-wave" class="vc-icon-btn" title="Enrage next wave" style="background:#7d1a1a;border-color:#c0392b;font-size:16px;padding:3px 6px;min-width:0;">😡</button>
             <div id="vc-wave-icons" class="vc-wave-icons-container"></div>
         `;
 
         this.waveIconsContainer = this.topBar.waves.querySelector('#vc-wave-icons');
         const startBtn = this.topBar.waves.querySelector('#vc-btn-start-wave');
+        const enrageBtn = this.topBar.waves.querySelector('#vc-btn-enrage-wave');
 
         startBtn.onclick = () => {
             if (this.engine.state.status === 'playing' && this.engine.state.wave < this.engine.state.maxWaves) {
@@ -545,6 +548,17 @@ export function fmtN(n) {
                 const wIdx = this.engine.state.wave - 1;
                 if (icons[wIdx]) { icons[wIdx].classList.remove('active'); icons[wIdx].classList.add('done'); }
                 this.activateNextWaveIcon(this.engine.state.wave);
+            }
+        };
+
+        enrageBtn.onclick = () => {
+            if (this.engine.state.status === 'playing' && this.engine.state.wave < this.engine.state.maxWaves) {
+                const wIdx = this.engine.state.wave;
+                const icon = this.waveIconsContainer.children[wIdx];
+                if (icon) {
+                    this.engine.pause();
+                    this._showEnrageScreen(icon, wIdx);
+                }
             }
         };
 
@@ -1279,11 +1293,6 @@ export function fmtN(n) {
 
             screen.querySelector('#vc-enrage-cancel').onclick = () => {
                 screen.remove();
-                // Spawn wave without enrage
-                this.engine.spawnWave(false);
-                this._flashPathTiles();
-                icon.classList.remove('active'); icon.classList.add('done');
-                this.activateNextWaveIcon(waveIdx + 1);
                 this.engine.resume();
             };
 
