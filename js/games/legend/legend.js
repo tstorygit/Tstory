@@ -19,7 +19,7 @@ let gameState = {
     roomX: 0, roomY: 0,
     player: {
         x: 100, y: 100,
-        dirX: 0, dirY: 1,
+        dirX: 1, dirY: 0,
         level: 1, exp: 0, nextExp: 15,
         hp: 100, maxHp: 100, mp: 50, maxMp: 50,
         str: 5, def: 5, agi: 5, wis: 5,

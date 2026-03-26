@@ -26,27 +26,40 @@ let transition = null;
 //   playerEndX,   playerEndY,            // landing pos in the new room
 // }
 
+let _resizeHandler = null; // kept so stopEngine can remove it
+
+function _fitCanvas() {
+    if (!canvas) return;
+    const parent = canvas.parentElement;
+    if (!parent) return;
+    const scale = Math.min(parent.clientWidth / canvas.width, parent.clientHeight / canvas.height);
+    canvas.style.transform = `scale(${scale})`;
+}
+
 export function initEngine(cvs, st, map) {
     canvas = cvs;
     ctx = canvas.getContext('2d');
     state = st;
     mapData = map;
     transition = null;
-    
-    const parent = canvas.parentElement;
-    canvas.width = ROOM_COLS * TILE_SIZE;
+
+    canvas.width  = ROOM_COLS * TILE_SIZE;
     canvas.height = ROOM_ROWS * TILE_SIZE;
     prewarmTileCache(TILE_SIZE);
-    
+
     // Pre-clear the start room — it never gets enemies, so mark it up-front
     // so the cleared/spawned guards never misfire on it.
     const startR = map.rooms[map.startRoom.y][map.startRoom.x];
     startR.cleared = true;
     startR.spawned = true;
 
-    const scale = Math.min(parent.clientWidth / canvas.width, parent.clientHeight / canvas.height);
-    canvas.style.transform = `scale(${scale})`;
-    
+    _fitCanvas();
+
+    // Re-scale whenever the window or device orientation changes.
+    if (_resizeHandler) window.removeEventListener('resize', _resizeHandler);
+    _resizeHandler = () => _fitCanvas();
+    window.addEventListener('resize', _resizeHandler);
+
     loadRoom(state.roomX, state.roomY, true);
     lastTime = performance.now();
     rafId = requestAnimationFrame(loop);
@@ -54,6 +67,10 @@ export function initEngine(cvs, st, map) {
 
 export function stopEngine() {
     cancelAnimationFrame(rafId);
+    if (_resizeHandler) {
+        window.removeEventListener('resize', _resizeHandler);
+        _resizeHandler = null;
+    }
 }
 
 // When non-null, the main loop will fire onRoomEnter on the next unpaused frame.
@@ -356,25 +373,42 @@ function updatePlayer(dt) {
 
     const room = mapData.rooms[state.roomY][state.roomX];
 
-    // Exit Stairs — quiz gate before descending (guard against repeated triggers)
+    // ── Tap dispatch — consume once and route by priority ────────────────────
+    // Stairs > Chest > Shrine > Attack. Only one action fires per tap.
+    const tapped = consumeTap();
+
+    // Exit Stairs — quiz gate before descending.
+    // Requires a deliberate tap so walking nearby doesn't accidentally trigger it.
     if (room.isExit && room.cleared && !room.stairsTriggered &&
         Math.hypot(state.player.x - (ROOM_COLS/2*TILE_SIZE), state.player.y - (ROOM_ROWS/2*TILE_SIZE)) < 30) {
-        room.stairsTriggered = true;
-        state.callbacks.onStairsReached(() => { room.stairsTriggered = false; });
+        if (!room._stairsHintShown) {
+            room._stairsHintShown = true;
+            spawnFloat(ROOM_COLS/2*TILE_SIZE, ROOM_ROWS/2*TILE_SIZE - 30, '👆 Tap to descend', '#f1c40f');
+        }
+        if (tapped) {
+            room.stairsTriggered = true;
+            state.callbacks.onStairsReached(() => { room.stairsTriggered = false; });
+        }
     }
 
-    // Chest — quiz gate before opening (guard against double-trigger)
-    if (room.hasChest && room.cleared && !room.chestTriggered &&
+    // Chest — tap to open, consistent with stairs.
+    else if (room.hasChest && room.cleared && !room.chestTriggered &&
         Math.hypot(state.player.x - (ROOM_COLS/2*TILE_SIZE), state.player.y - (ROOM_ROWS/2*TILE_SIZE)) < 30) {
-        room.chestTriggered = true;
-        room.hasChest = false;
-        _setTile(room, Math.floor(ROOM_ROWS/2), Math.floor(ROOM_COLS/2), TILE.FLOOR);
-        const unowned = Object.keys(WEAPONS).filter(w => !state.unlockedWeapons.includes(w));
-        state.callbacks.onChestOpen(unowned.length > 0 ? unowned[0] : null);
+        if (!room._chestHintShown) {
+            room._chestHintShown = true;
+            spawnFloat(ROOM_COLS/2*TILE_SIZE, ROOM_ROWS/2*TILE_SIZE - 30, '👆 Tap to open', '#f1c40f');
+        }
+        if (tapped) {
+            room.chestTriggered = true;
+            room.hasChest = false;
+            _setTile(room, Math.floor(ROOM_ROWS/2), Math.floor(ROOM_COLS/2), TILE.FLOOR);
+            const unowned = Object.keys(WEAPONS).filter(w => !state.unlockedWeapons.includes(w));
+            state.callbacks.onChestOpen(unowned.length > 0 ? unowned[0] : null);
+        }
     }
 
-    // Shrine — optional quiz, single use
-    if (room.hasShrine) {
+    // Shrine — walk-into trigger (no tap needed, proximity is sufficient)
+    else if (room.hasShrine) {
         for (let r = 1; r < ROOM_ROWS - 1; r++) {
             for (let c = 1; c < ROOM_COLS - 1; c++) {
                 if (room.grid[r][c] === TILE.SHRINE &&
@@ -386,92 +420,89 @@ function updatePlayer(dt) {
                 }
             }
         }
+        // Shrine did not consume the tap — fall through to attack below
+        if (tapped && state.player.attackTimer <= 0) { _doAttack(); }
     }
 
-    // Attack / Magic
-    if (consumeTap() && state.player.attackTimer <= 0) {
-        if (state.magicMode) {
-            if (state.player.mp >= 10 && state.player.hp < state.player.maxHp) {
-                state.player.mp -= 10;
-                state.player.hp = Math.min(state.player.maxHp, state.player.hp + 30 + state.player.wis * 5);
-                spawnFloat(state.player.x, state.player.y - 20, '✨ HEAL', '#2ecc71');
-                state.callbacks.onUIUpdate();
-            }
-        } else {
-            const wpn = WEAPONS[state.player.equippedWeapon];
-            state.player.attackTimer = 0.35;
+    // Attack / Magic — only fires if no interactive object was in range
+    else if (tapped && state.player.attackTimer <= 0) {
+        _doAttack();
+    }
+}
 
-            const faceAngle = Math.atan2(state.player.dirY, state.player.dirX);
+function _doAttack() {
+    const room = mapData.rooms[state.roomY][state.roomX];
+    if (state.magicMode) {
+        if (state.player.mp >= 10 && state.player.hp < state.player.maxHp) {
+            state.player.mp -= 10;
+            state.player.hp = Math.min(state.player.maxHp, state.player.hp + 30 + state.player.wis * 5);
+            spawnFloat(state.player.x, state.player.y - 20, '✨ HEAL', '#2ecc71');
+            state.callbacks.onUIUpdate();
+        }
+    } else {
+        const wpn = WEAPONS[state.player.equippedWeapon];
+        state.player.attackTimer = 0.35;
 
-            if (wpn.type === 'arc') {
-                // Swing rectangle through a 90° arc
-                // startAngle = faceAngle - 45°, endAngle = faceAngle + 45°
-                activeHitboxes.push({
-                    x: state.player.x, y: state.player.y,
-                    dirX: state.player.dirX, dirY: state.player.dirY,
-                    faceAngle,
-                    weapon: wpn,
-                    life: 0.22, duration: 0.22,
-                    hitList: new Set(),
-                    // swingAngle goes from -arc/2 to +arc/2 over life
-                    swingProgress: 0,
-                    type: 'arc',
-                });
-            } else if (wpn.type === 'radial') {
-                activeHitboxes.push({
-                    x: state.player.x, y: state.player.y,
-                    dirX: state.player.dirX, dirY: state.player.dirY,
-                    faceAngle,
-                    weapon: wpn,
-                    life: 0.3, duration: 0.3,
-                    hitList: new Set(),
-                    swingProgress: 0,
-                    type: 'radial',
-                });
-            } else if (wpn.type === 'linear') {
-                // Thrust — shoots out then retracts
-                activeHitboxes.push({
-                    x: state.player.x, y: state.player.y,
-                    dirX: state.player.dirX, dirY: state.player.dirY,
-                    faceAngle,
-                    weapon: wpn,
-                    life: 0.25, duration: 0.25,
-                    hitList: new Set(),
-                    type: 'linear',
-                    // tip position updated each frame
-                    tipX: state.player.x, tipY: state.player.y,
-                });
-            } else if (wpn.type === 'projectile') {
-                activeHitboxes.push({
-                    x: state.player.x, y: state.player.y,
-                    dirX: state.player.dirX, dirY: state.player.dirY,
-                    faceAngle,
-                    weapon: wpn,
-                    life: 0.5, duration: 0.5,
-                    hitList: new Set(),
-                    type: 'projectile',
-                    ballX: state.player.x, ballY: state.player.y,
-                    currentRange: 0,
-                });
-            }
+        const faceAngle = Math.atan2(state.player.dirY, state.player.dirX);
 
-            // Map Obstacle Interaction — check tile in facing direction
-            const reach = wpn.type === 'radial' ? TILE_SIZE * 1.5
-                        : wpn.type === 'linear'  ? wpn.range * 0.55
-                        : TILE_SIZE * 1.5;
+        if (wpn.type === 'arc') {
+            activeHitboxes.push({
+                x: state.player.x, y: state.player.y,
+                dirX: state.player.dirX, dirY: state.player.dirY,
+                faceAngle, weapon: wpn,
+                life: 0.22, duration: 0.22,
+                hitList: new Set(), swingProgress: 0, type: 'arc',
+            });
+        } else if (wpn.type === 'radial') {
+            activeHitboxes.push({
+                x: state.player.x, y: state.player.y,
+                dirX: state.player.dirX, dirY: state.player.dirY,
+                faceAngle, weapon: wpn,
+                life: 0.3, duration: 0.3,
+                hitList: new Set(), swingProgress: 0, type: 'radial',
+            });
+        } else if (wpn.type === 'linear') {
+            activeHitboxes.push({
+                x: state.player.x, y: state.player.y,
+                dirX: state.player.dirX, dirY: state.player.dirY,
+                faceAngle, weapon: wpn,
+                life: 0.25, duration: 0.25,
+                hitList: new Set(), type: 'linear',
+                tipX: state.player.x, tipY: state.player.y,
+            });
+        } else if (wpn.type === 'projectile') {
+            activeHitboxes.push({
+                x: state.player.x, y: state.player.y,
+                dirX: state.player.dirX, dirY: state.player.dirY,
+                faceAngle, weapon: wpn,
+                life: 0.5, duration: 0.5,
+                hitList: new Set(), type: 'projectile',
+                ballX: state.player.x, ballY: state.player.y,
+                currentRange: 0,
+            });
+        }
+
+        // Map Obstacle Interaction — scan multiple distances so close-range
+        // or wide-arc swings still register.
+        const maxReach = wpn.type === 'linear' ? wpn.range * 0.55 : TILE_SIZE * 2.5;
+        const PROBE_STEPS = 6;
+        let clearedObstacle = false;
+        for (let s = 1; s <= PROBE_STEPS && !clearedObstacle; s++) {
+            const reach = (s / PROBE_STEPS) * maxReach;
             const tx = state.player.x + state.player.dirX * reach;
             const ty = state.player.y + state.player.dirY * reach;
             const tr = Math.floor(ty / TILE_SIZE);
             const tc = Math.floor(tx / TILE_SIZE);
-
             if (tr >= 0 && tr < ROOM_ROWS && tc >= 0 && tc < ROOM_COLS) {
                 const targetTile = room.grid[tr][tc];
                 if (wpn.clear !== null && wpn.clear === targetTile) {
                     _setTile(room, tr, tc, targetTile === TILE.TREE ? TILE.STUMP : TILE.FLOOR);
                     spawnFloat(tx, ty, 'BAM!', '#fff');
                     tryDropLoot(tx, ty, 0.3);
+                    clearedObstacle = true;
                 } else if (wpn.grapple && targetTile === wpn.grapple) {
-                    state.grappleTarget = {x: tc*TILE_SIZE + TILE_SIZE/2, y: tr*TILE_SIZE + TILE_SIZE/2};
+                    state.grappleTarget = { x: tc * TILE_SIZE + TILE_SIZE / 2, y: tr * TILE_SIZE + TILE_SIZE / 2 };
+                    clearedObstacle = true;
                 }
             }
         }
@@ -501,14 +532,36 @@ function updateEnemies(dt) {
             const dx = state.player.x - e.x;
             const dy = state.player.y - e.y;
             const dist = Math.hypot(dx, dy) || 1;
-            
+
             let nx = e.x + (dx/dist) * e.speed * dt;
             let ny = e.y + (dy/dist) * e.speed * dt;
-            
+
             if (e.ai !== 'chase_fly') {
                 const room = mapData.rooms[state.roomY][state.roomX];
-                if (room.grid[Math.floor(ny/TILE_SIZE)]?.[Math.floor(nx/TILE_SIZE)] !== TILE.FLOOR) {
-                    nx = e.x; ny = e.y; 
+                // Use a small AABB (R=8px) and allow all walkable tiles — not
+                // just FLOOR — so enemies don't freeze on grass/stumps or clip
+                // through walls when only the centre pixel is tested.
+                const ER = 8;
+                const enemyWalkable = (x, y) => {
+                    const tc = Math.floor(x / TILE_SIZE);
+                    const tr = Math.floor(y / TILE_SIZE);
+                    if (tr < 0 || tr >= ROOM_ROWS || tc < 0 || tc >= ROOM_COLS) return false;
+                    const t = room.grid[tr][tc];
+                    return t === TILE.FLOOR || t === TILE.GRASS || t === TILE.STUMP ||
+                           t === TILE.STAIRS || t === TILE.CHEST || t === TILE.SHRINE;
+                };
+                const enemyCanMove = (x, y) =>
+                    enemyWalkable(x - ER, y - ER) && enemyWalkable(x + ER, y - ER) &&
+                    enemyWalkable(x - ER, y + ER) && enemyWalkable(x + ER, y + ER);
+
+                if (enemyCanMove(nx, ny)) {
+                    // full move OK
+                } else if (enemyCanMove(nx, e.y)) {
+                    ny = e.y; // slide X only
+                } else if (enemyCanMove(e.x, ny)) {
+                    nx = e.x; // slide Y only
+                } else {
+                    nx = e.x; ny = e.y; // fully blocked
                 }
             }
             e.x = nx; e.y = ny;
@@ -646,8 +699,9 @@ function updateHitboxes(dt) {
         if (!room.cleared && room.spawned) {
             room.cleared = true;
             room.gridVersion = (room.gridVersion ?? 0) + 1; // bust cache for post-clear tile appearance
+            // Fire onRoomCleared exactly once, right here when cleared flips true.
+            if (state.callbacks.onRoomCleared) state.callbacks.onRoomCleared();
         }
-        if (room.cleared && state.callbacks.onRoomCleared) state.callbacks.onRoomCleared();
     }
 }
 
@@ -663,7 +717,9 @@ function updateDrops() {
 }
 
 function spawnFloat(x, y, text, color) {
-    floatingTexts.push({ x, y, text, color, life: 0.8 });
+    // life starts at 1.0 — the render loop decrements by dt/0.8 each frame
+    // so the text drifts upward over exactly 0.8 s and then is filtered out.
+    floatingTexts.push({ x, y, text, color, life: 1.0 });
 }
 
 // Each room is baked to a full-size offscreen canvas once and re-used every

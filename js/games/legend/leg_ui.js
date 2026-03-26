@@ -26,6 +26,7 @@ export function initUI(container, cbs, vocabMgr) {
             </div>
             <div class="leg-hud-right">
                 <button id="leg-btn-action" class="leg-btn" style="font-size:14px; padding:4px 8px;">🗡️</button>
+                <button id="leg-btn-world-legend" class="leg-btn" style="font-size:11px; padding:5px 7px;" title="World Legend">?</button>
                 <button id="leg-btn-menu" class="leg-btn" style="border-color:#f1c40f;">☰</button>
             </div>
         </div>
@@ -72,6 +73,16 @@ export function initUI(container, cbs, vocabMgr) {
             <div style="display:flex; gap:8px; margin-top:10px; flex-shrink:0;">
                 <button id="leg-btn-rebirth-check" class="leg-btn" style="flex:1; background:#c0392b; border-color:#e74c3c;">Rebirth</button>
                 <button id="leg-btn-exit" class="leg-btn" style="flex:1;">Save & Exit</button>
+            </div>
+        </div>
+
+        <div class="leg-overlay" id="leg-world-legend-overlay" style="align-items:center;justify-content:center;z-index:200;">
+            <div style="background:#1e2d3d;border:2px solid #3498db;border-radius:12px;padding:18px 20px;width:100%;max-width:360px;max-height:85vh;overflow-y:auto;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+                    <span style="color:#3498db;font-weight:bold;font-size:14px;letter-spacing:1px;">🗺️ WORLD LEGEND</span>
+                    <button id="leg-btn-world-legend-close" class="leg-btn" style="padding:2px 8px;">✕</button>
+                </div>
+                <div id="leg-world-legend-body" style="display:flex;flex-direction:column;gap:8px;"></div>
             </div>
         </div>
 
@@ -126,6 +137,9 @@ export function initUI(container, cbs, vocabMgr) {
         weaponInfoBtn: container.querySelector('#leg-btn-weapon-info'),
         weaponInfoOverlay: container.querySelector('#leg-weapon-info-overlay'),
         weaponInfoBody: container.querySelector('#leg-weapon-info-body'),
+        worldLegendBtn: container.querySelector('#leg-btn-world-legend'),
+        worldLegendOverlay: container.querySelector('#leg-world-legend-overlay'),
+        worldLegendBody: container.querySelector('#leg-world-legend-body'),
         tabMain: container.querySelector('#leg-tab-main'),
         tabVocab: container.querySelector('#leg-tab-vocab'),
         vocabMount: container.querySelector('#leg-vocab-settings-mount'),
@@ -184,6 +198,14 @@ export function initUI(container, cbs, vocabMgr) {
     };
     container.querySelector('#leg-btn-weapon-info-close').onclick = () => {
         dom.weaponInfoOverlay.style.display = 'none';
+    };
+
+    dom.worldLegendBtn.onclick = () => {
+        _renderWorldLegend(dom.worldLegendBody);
+        dom.worldLegendOverlay.style.display = 'flex';
+    };
+    container.querySelector('#leg-btn-world-legend-close').onclick = () => {
+        dom.worldLegendOverlay.style.display = 'none';
     };
 }
 
@@ -366,6 +388,74 @@ function renderPerks(state) {
     dom.perkList.querySelectorAll('button.leg-btn').forEach(btn => {
         btn.onclick = () => { callbacks.onBuyPerk(btn.dataset.perk); renderPerks(callbacks.getState()); };
     });
+}
+
+// ── World Legend popup ────────────────────────────────────────────────────────
+
+const _WORLD_LEGEND = [
+    {
+        tile: '⬛', label: 'Pit',
+        color: '#e74c3c',
+        desc: 'Bottomless void — instant death if you fall in.',
+        interact: 'Walk around it. Use the Chain ⛓️ to fire at a nearby Post and zip across.',
+    },
+    {
+        tile: '🌲', label: 'Tree',
+        color: '#27ae60',
+        desc: 'Blocks your path completely.',
+        interact: 'Equip the Axe 🪓 and swing at it to chop it into a walkable stump.',
+    },
+    {
+        tile: '🍃', label: 'Tall Grass',
+        color: '#2ecc71',
+        desc: 'Slows movement and hides drops.',
+        interact: 'Equip the Sickle 🌙 and spin through it to clear a patch.',
+    },
+    {
+        tile: '🪨', label: 'Rock',
+        color: '#95a5a6',
+        desc: 'A heavy boulder blocking the way.',
+        interact: 'Equip the Morning Star ☄️ and swing to smash it to pieces.',
+    },
+    {
+        tile: '🟣', label: 'Grapple Post',
+        color: '#9b59b6',
+        desc: 'A purple post anchored near pits.',
+        interact: 'Equip the Chain ⛓️, face the post, and tap to launch the hook — you\'ll be pulled across instantly.',
+    },
+    {
+        tile: '⬇️', label: 'Stairs',
+        color: '#f1c40f',
+        desc: 'Exit to the next floor. Only active after all enemies are defeated.',
+        interact: 'Walk up to the glowing steps and TAP to descend. You\'ll get a vocab quiz first.',
+    },
+    {
+        tile: '📦', label: 'Chest',
+        color: '#e67e22',
+        desc: 'Contains a weapon or potion reward.',
+        interact: 'Clear the room, walk to the centre, and TAP. Answer the quiz correctly to claim the prize.',
+    },
+    {
+        tile: '🔮', label: 'Shrine',
+        color: '#8e44ad',
+        desc: 'A one-time blessing shrine.',
+        interact: 'Walk into it to trigger a bonus quiz. Correct answer: full MP + 3 seconds of invincibility.',
+    },
+];
+
+function _renderWorldLegend(container) {
+    container.innerHTML = _WORLD_LEGEND.map(entry => `
+        <div style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.10);border-radius:8px;padding:10px 12px;">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+                <span style="font-size:24px;line-height:1;min-width:30px;text-align:center;">${entry.tile}</span>
+                <span style="font-weight:bold;font-size:13px;color:${entry.color};">${entry.label}</span>
+            </div>
+            <div style="font-size:11px;color:#bdc3c7;margin-bottom:5px;">${entry.desc}</div>
+            <div style="font-size:10px;color:#7f8c8d;background:rgba(0,0,0,0.25);border-radius:5px;padding:5px 8px;line-height:1.5;">
+                <span style="color:#95a5a6;font-weight:bold;">HOW: </span>${entry.interact}
+            </div>
+        </div>
+    `).join('');
 }
 
 // ── Weapon guide popup ────────────────────────────────────────────────────────

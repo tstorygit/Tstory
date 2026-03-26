@@ -25,6 +25,7 @@
 .leg-btn-magic { background: #8e44ad; border-color: #9b59b6; }
 .leg-btn-primary { background: #f1c40f; border-color: #f39c12; color: #000; }
 .leg-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.leg-btn-worldlegend { border-color: #3498db; color: #3498db; }
 
 /* ── Canvas ── */
 .leg-canvas-wrap {
