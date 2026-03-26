@@ -1205,6 +1205,15 @@ function _learnNewWord() {
     _updateUI();
 }
 
+/** Fisher-Yates in-place shuffle */
+function _shuffleArray(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+}
+
 function _updateSRSQueue() {
     const now    = _gameNow();
     const _activeIds = new Set(_vocabQueue.map(v => v.id));
@@ -1215,6 +1224,30 @@ function _updateSRSQueue() {
     } else {
         // Normal dojo: exclude leeches, only due items
         _pendingReviews = _g.srs.filter(s => _activeIds.has(s.id) && !_isLeech(s) && s.nextReview <= now);
+    }
+
+    // Shuffle the due subset so the same vocab never appears in a fixed order
+    // across sessions (default: on). The current card keeps its slot until answered.
+    if (_getCfg('shuffleDue', true) && _pendingReviews.length > 1) {
+        const currentId = _g.currentCardId;
+        if (currentId) {
+            // Keep the card already on screen at the front; shuffle the rest
+            const idx = _pendingReviews.findIndex(s => s.id === currentId);
+            if (idx > 0) {
+                const [current] = _pendingReviews.splice(idx, 1);
+                _shuffleArray(_pendingReviews);
+                _pendingReviews.unshift(current);
+            } else if (idx === 0) {
+                // Current card is already first — shuffle the tail only
+                const tail = _pendingReviews.slice(1);
+                _shuffleArray(tail);
+                _pendingReviews = [_pendingReviews[0], ...tail];
+            } else {
+                _shuffleArray(_pendingReviews);
+            }
+        } else {
+            _shuffleArray(_pendingReviews);
+        }
     }
 
     const pendingEl  = _screens.game?.querySelector('.nk-pending-count');
@@ -1603,6 +1636,14 @@ function _initGameDOM() {
                             <button class="nk-learn-btn" style="padding:5px 14px; font-size:12px;" id="nk-cfg-interval-save">Save</button>
                         </div>
                     </div>
+                    <div>
+                        <label style="font-size:13px; font-weight:bold; display:block; margin-bottom:4px;">🔀 Shuffle Due Cards</label>
+                        <div style="font-size:11px; color:#888; margin-bottom:6px;">Randomise the order of due cards each round so the same words never appear in a fixed sequence (default: on). Turn off only if you prefer strict insertion order.</div>
+                        <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+                            <input type="checkbox" id="nk-cfg-shuffle" style="width:18px;height:18px;cursor:pointer;">
+                            <span style="font-size:13px; font-weight:bold;" id="nk-cfg-shuffle-label">On</span>
+                        </label>
+                    </div>
                     <div id="nk-cfg-status" style="font-size:12px; color:var(--nk-success); min-height:18px;"></div>
                 </div>
             </div>
@@ -1751,6 +1792,18 @@ function _initGameDOM() {
     if (easeIn)     easeIn.value     = _getCfg('ease',     1.5);
     if (intervalIn) intervalIn.value = _getCfg('interval', 8);
     if (leechIn)    leechIn.value    = _getCfg('leechThreshold', 20);
+
+    const shuffleIn    = el.querySelector('#nk-cfg-shuffle');
+    const shuffleLabel = el.querySelector('#nk-cfg-shuffle-label');
+    if (shuffleIn) {
+        shuffleIn.checked = _getCfg('shuffleDue', true);
+        if (shuffleLabel) shuffleLabel.textContent = shuffleIn.checked ? 'On' : 'Off';
+        shuffleIn.addEventListener('change', () => {
+            const cfg = _loadCfg(); cfg.shuffleDue = shuffleIn.checked; _saveCfg(cfg);
+            if (shuffleLabel) shuffleLabel.textContent = shuffleIn.checked ? 'On' : 'Off';
+            cfgStatus(shuffleIn.checked ? '✓ Due cards will be shuffled each round' : '✓ Due cards will appear in fixed order');
+        });
+    }
 
     el.querySelector('#nk-cfg-starter-save')?.addEventListener('click', () => {
         const v = parseInt(el.querySelector('#nk-cfg-starter').value);
