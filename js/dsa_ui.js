@@ -170,6 +170,13 @@ export function initDSA() {
         return;
     }
 
+    // Grundstruktur injizieren (damit die User-HTML sauber bleibt)
+    rootEl.innerHTML = `
+        <div class="dsa-wrapper">
+            <div id="dsa-internal-status" class="dsa-status-message"></div>
+            <div id="dsa-content-area"></div>
+        </div>
+    `;
 
     document.getElementById('dsa-internal-btn-refresh')
         .addEventListener('click', () => fetchAndRender(true));
