@@ -40,10 +40,10 @@
     }
   ],
   "currentEvent": {
-    "trigger": "Aufziehender Sandsturm",
-    "notes": "Die Hitze steigt. Morgen früh droht ein Sandsturm — plant nur eine halbe Tagesreise ein.",
-    "effect": 0.5,
-    "waterModifier": 1.2
+    "trigger": "Ihr betretet die Wüste",
+    "notes": "Ihr habt erstmalig Kontakt mir der Wüste und müsst euch daran gewöhnen. Die Hitze steigt. ",
+    "effect": 0.9,
+    "waterModifier": 1.0
   },
   "lastUpdated": "2026-03-27"
 }
