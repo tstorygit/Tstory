@@ -1,46 +1,49 @@
 {
-  "waterCurrent":  250,
-  "waterMax":      250,
-  "waterUnit":     "Liter",
-  "hoursPerDay":   8,
-
-  "stages": [
+  "waterCurrent": 250,
+  "waterMax": 250,
+  "waterUnit": "Liter",
+  "distanceUnit": "Meilen",
+  "hoursPerDay": 8,
+  "groupSize": 7,
+  "stages":[
     {
-      "name":          "Mherwed → Gebirgspass",
+      "name": "Mherwed → Gebirgspass",
       "distanceTotal": 72.14,
-      "hoursTotal":    27.39,
-      "done":          true
+      "hoursTotal": 27.39,
+      "done": true
     },
     {
-      "name":              "Gebirgspass → Oase Hayabeth",
-      "distanceTotal":     36.07,
-      "hoursTotal":        19.24,
-      "done":              false,
-      "distanceTraveled":  0,
-      "hoursWalked":       0
+      "name": "Gebirgspass → Oase Hayabeth",
+      "distanceTotal": 36.07,
+      "hoursTotal": 19.24,
+      "done": false,
+      "distanceTraveled": 0,
+      "hoursWalked": 0
     },
     {
-      "name":          "Oase Hayabeth → Oase Tarfui",
+      "name": "Oase Hayabeth → Oase Tarfui",
       "distanceTotal": 140.04,
-      "hoursTotal":    74.69,
-      "done":          false
+      "hoursTotal": 74.69,
+      "done": false
     },
     {
-      "name":          "Oase Tarfui → Oase Keft",
+      "name": "Oase Tarfui → Oase Keft",
       "distanceTotal": 119.33,
-      "hoursTotal":    63.65,
-      "done":          false
+      "hoursTotal": 63.65,
+      "done": false
     },
     {
-      "name":          "Oase Keft → Oase Birscha",
+      "name": "Oase Keft → Oase Birscha",
       "distanceTotal": 95.27,
-      "hoursTotal":    50.81,
-      "done":          false
+      "hoursTotal": 50.81,
+      "done": false
     }
   ],
-
-  "distanceUnit":  "Meilen",
-
-  "notes":         "Die Hitze steigt. Morgen früh droht ein Sandsturm — plant nur eine halbe Tagesreise ein.",
-  "lastUpdated":   "2026-03-20"
+  "currentEvent": {
+    "trigger": "Aufziehender Sandsturm",
+    "notes": "Die Hitze steigt. Morgen früh droht ein Sandsturm — plant nur eine halbe Tagesreise ein.",
+    "effect": 0.5,
+    "waterModifier": 1.2
+  },
+  "lastUpdated": "2026-03-27"
 }
