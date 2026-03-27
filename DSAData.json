@@ -1,5 +1,5 @@
 {
-  "waterCurrent": 250,
+  "waterCurrent": 208,
   "waterMax": 250,
   "waterUnit": "Liter",
   "distanceUnit": "Meilen",
@@ -40,10 +40,10 @@
     }
   ],
   "currentEvent": {
-    "trigger": "Ihr betretet die Wüste",
-    "notes": "Ihr habt erstmalig Kontakt mir der Wüste und müsst euch daran gewöhnen. Die Hitze steigt. ",
-    "effect": 0.9,
-    "waterModifier": 1.0
+    "trigger": "Der zweite Tag in der Wüste",
+    "notes": "Die Hitze steigt. Ihr seid überfordert von der Hitze und habt Schwierigkeiten euch an die Umgebung zu gewöhnen, ihr benötigt mehr Wasser! ",
+    "effect": 0.8,
+    "waterModifier": 1.4
   },
   "lastUpdated": "2026-03-27"
 }
