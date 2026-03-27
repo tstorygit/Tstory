@@ -1,5 +1,5 @@
 {
-  "waterCurrent": 208,
+  "waterCurrent": 159,
   "waterMax": 250,
   "waterUnit": "Liter",
   "distanceUnit": "Meilen",
@@ -17,8 +17,8 @@
       "distanceTotal": 36.07,
       "hoursTotal": 19.24,
       "done": false,
-      "distanceTraveled": 13.4,
-      "hoursWalked": 7
+      "distanceTraveled": 22.9,
+      "hoursWalked": 12.6
     },
     {
       "name": "Oase Hayabeth → Oase Tarfui",
@@ -39,11 +39,12 @@
       "done": false
     }
   ],
-  "currentEvent": {
-    "trigger": "Der zweite Tag in der Wüste",
-    "notes": "Die Hitze steigt. Ihr seid überfordert von der Hitze und habt Schwierigkeiten euch an die Umgebung zu gewöhnen, ihr benötigt mehr Wasser! ",
-    "effect": 0.8,
-    "waterModifier": 1.4
-  },
+"currentEvent": {
+    "trigger": "Wanderdüne",
+    "notes": "Eine gewaltige, neu aufgeworfene Düne blockiert den direkten Weg. Der beschwerliche Umweg kostet wertvolle Zeit.",
+    "effect": 0.7,
+    "waterModifier": 1.0
+  }
+,
   "lastUpdated": "2026-03-27"
 }
