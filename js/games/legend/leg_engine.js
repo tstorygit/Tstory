@@ -285,6 +285,69 @@ function updatePlayer(dt) {
             state.player.y = ny;         // slide along Y
         }
         // else: fully blocked, don't move
+
+        // Track last valid (non-pit, walkable) position for pit rescue
+        const cx = Math.floor(state.player.x / TILE_SIZE);
+        const cy = Math.floor(state.player.y / TILE_SIZE);
+        if (cy >= 0 && cy < ROOM_ROWS && cx >= 0 && cx < ROOM_COLS) {
+            const curTile = room.grid[cy][cx];
+            if (curTile === TILE.FLOOR || curTile === TILE.GRASS || curTile === TILE.STUMP ||
+                curTile === TILE.STAIRS || curTile === TILE.CHEST || curTile === TILE.SHRINE) {
+                state.player.lastValidX = state.player.x;
+                state.player.lastValidY = state.player.y;
+            }
+        }
+    }
+
+    // ── PIT pull mechanic (Zelda-style) ────────────────────────────────────
+    // When the player is near a pit, they get pulled toward its centre.
+    // If they reach the middle they take damage and snap back to safety.
+    // The grapple hook / being airborne while grappling bypasses the pull.
+    if (!state.grappleTarget) {
+        const room = mapData.rooms[state.roomY][state.roomX];
+        const PIT_PULL_RADIUS = TILE_SIZE * 0.85;  // px — outer pull starts here
+        const PIT_FALL_RADIUS = TILE_SIZE * 0.22;  // px — fall/damage threshold
+        const PIT_PULL_STRENGTH = 180;              // px/s pull speed
+
+        // Find the nearest pit tile centre
+        const pc = Math.floor(state.player.x / TILE_SIZE);
+        const pr = Math.floor(state.player.y / TILE_SIZE);
+        let nearestPitDist = Infinity, nearestPitX = 0, nearestPitY = 0;
+        for (let dr = -1; dr <= 1; dr++) {
+            for (let dc = -1; dc <= 1; dc++) {
+                const tr = pr + dr, tc = pc + dc;
+                if (tr < 0 || tr >= ROOM_ROWS || tc < 0 || tc >= ROOM_COLS) continue;
+                if (room.grid[tr][tc] !== TILE.PIT) continue;
+                const pitCX = tc * TILE_SIZE + TILE_SIZE / 2;
+                const pitCY = tr * TILE_SIZE + TILE_SIZE / 2;
+                const d = Math.hypot(state.player.x - pitCX, state.player.y - pitCY);
+                if (d < nearestPitDist) {
+                    nearestPitDist = d; nearestPitX = pitCX; nearestPitY = pitCY;
+                }
+            }
+        }
+
+        if (nearestPitDist < PIT_PULL_RADIUS) {
+            if (nearestPitDist < PIT_FALL_RADIUS) {
+                // Fell in — deal damage and teleport back to last valid position
+                const fallDmg = Math.max(5, Math.floor(state.player.maxHp * 0.15));
+                if (state.player.invincibility <= 0) {
+                    state.callbacks.onTakeDamage(fallDmg, null);
+                }
+                // Snap back to last valid position (before the pit edge)
+                state.player.x = state.player.lastValidX ?? (canvas.width / 2);
+                state.player.y = state.player.lastValidY ?? (canvas.height / 2);
+                state.player.invincibility = Math.max(state.player.invincibility, 1.2);
+            } else {
+                // Gradually pull toward the pit centre
+                const pullFactor = 1 - (nearestPitDist / PIT_PULL_RADIUS); // 0→1 as you approach
+                const dx = nearestPitX - state.player.x;
+                const dy = nearestPitY - state.player.y;
+                const dist = nearestPitDist || 1;
+                state.player.x += (dx / dist) * PIT_PULL_STRENGTH * pullFactor * dt;
+                state.player.y += (dy / dist) * PIT_PULL_STRENGTH * pullFactor * dt;
+            }
+        }
     }
 
     // ── Zelda-style scrolling room transitions ────────────────────────────────
@@ -377,16 +440,22 @@ function updatePlayer(dt) {
     // Stairs > Chest > Shrine > Attack. Only one action fires per tap.
     const tapped = consumeTap();
 
+    // Find actual stairs tile position (it's always at midR/midC but let's be exact)
+    const stairsMidC = Math.floor(ROOM_COLS / 2) * TILE_SIZE + TILE_SIZE / 2;
+    const stairsMidR = Math.floor(ROOM_ROWS / 2) * TILE_SIZE + TILE_SIZE / 2;
+
     // Exit Stairs — walk into them to trigger the descent quiz.
+    // room.cleared is set when all enemies are dead. Also handle the edge case
+    // where a room was spawned but enemies died off-screen or quiz was skipped.
     if (room.isExit && room.cleared && !room.stairsTriggered &&
-        Math.hypot(state.player.x - (ROOM_COLS/2*TILE_SIZE), state.player.y - (ROOM_ROWS/2*TILE_SIZE)) < 30) {
+        Math.hypot(state.player.x - stairsMidC, state.player.y - stairsMidR) < 40) {
         room.stairsTriggered = true;
         state.callbacks.onStairsReached(() => { room.stairsTriggered = false; });
     }
 
     // Chest — walk into it to open (no tap needed, proximity is enough).
     else if (room.hasChest && room.cleared && !room.chestTriggered &&
-        Math.hypot(state.player.x - (ROOM_COLS/2*TILE_SIZE), state.player.y - (ROOM_ROWS/2*TILE_SIZE)) < 30) {
+        Math.hypot(state.player.x - stairsMidC, state.player.y - stairsMidR) < 40) {
         room.chestTriggered = true;
         room.hasChest = false;
         _setTile(room, Math.floor(ROOM_ROWS/2), Math.floor(ROOM_COLS/2), TILE.FLOOR);
@@ -400,7 +469,7 @@ function updatePlayer(dt) {
             for (let c = 1; c < ROOM_COLS - 1; c++) {
                 if (room.grid[r][c] === TILE.SHRINE &&
                     Math.hypot(state.player.x - (c * TILE_SIZE + TILE_SIZE/2),
-                               state.player.y - (r * TILE_SIZE + TILE_SIZE/2)) < 28) {
+                               state.player.y - (r * TILE_SIZE + TILE_SIZE/2)) < 32) {
                     room.hasShrine = false;
                     _setTile(room, r, c, TILE.FLOOR);
                     state.callbacks.onShrineTouch();
@@ -510,7 +579,28 @@ function _doAttack() {
                             tryDropLoot(tx, ty, 0.3);
                             clearedObstacle = true;
                         } else if (wpn.grapple && targetTile === wpn.grapple) {
-                            state.grappleTarget = { x: tc * TILE_SIZE + TILE_SIZE / 2, y: tr * TILE_SIZE + TILE_SIZE / 2 };
+                            // Land on a walkable tile ADJACENT to the post, not the post itself.
+                            // Pick the neighbour closest to the player to feel natural.
+                            const walkableNeighbours = [{dr:-1,dc:0},{dr:1,dc:0},{dr:0,dc:-1},{dr:0,dc:1}]
+                                .filter(({dr,dc}) => {
+                                    const nr=tr+dr, nc=tc+dc;
+                                    if (nr<0||nr>=ROOM_ROWS||nc<0||nc>=ROOM_COLS) return false;
+                                    const t2 = room.grid[nr][nc];
+                                    return t2===TILE.FLOOR||t2===TILE.GRASS||t2===TILE.STUMP;
+                                })
+                                .map(({dr,dc}) => ({
+                                    x: (tc+dc)*TILE_SIZE+TILE_SIZE/2,
+                                    y: (tr+dr)*TILE_SIZE+TILE_SIZE/2,
+                                    dist: Math.hypot((tc+dc)*TILE_SIZE+TILE_SIZE/2 - state.player.x,
+                                                     (tr+dr)*TILE_SIZE+TILE_SIZE/2 - state.player.y),
+                                }))
+                                .sort((a,b) => a.dist - b.dist);
+                            if (walkableNeighbours.length > 0) {
+                                state.grappleTarget = { x: walkableNeighbours[0].x, y: walkableNeighbours[0].y };
+                            } else {
+                                // Fallback: pull toward post (shouldn't happen after map sanity pass)
+                                state.grappleTarget = { x: tc * TILE_SIZE + TILE_SIZE / 2, y: tr * TILE_SIZE + TILE_SIZE / 2 };
+                            }
                             clearedObstacle = true;
                         }
                     }
@@ -704,9 +794,11 @@ function updateHitboxes(dt) {
     activeEnemies = activeEnemies.filter(e => !e.dead);
     if (activeEnemies.length === 0) {
         const room = mapData.rooms[state.roomY][state.roomX];
-        // Only mark cleared if enemies were actually spawned — prevents an empty
-        // room (quiz was pending / still paused) from auto-clearing and triggering
-        // the stairs before the player has fought anything.
+        // Mark room cleared if:
+        // 1. Enemies were spawned and are all dead (normal case), OR
+        // 2. The room was already marked spawned (pendingRoomEnter resolved) but
+        //    all enemies died before this frame's check ran.
+        // We do NOT auto-clear unspawned rooms — those still need the quiz to fire.
         if (!room.cleared && room.spawned) {
             room.cleared = true;
             room.gridVersion = (room.gridVersion ?? 0) + 1; // bust cache for post-clear tile appearance

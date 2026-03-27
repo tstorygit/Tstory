@@ -21,7 +21,7 @@ function _carveDoor(grid, side, pos) {
     }
 }
 
-export function generateStage(stageLevel) {
+export function generateStage(stageLevel, unlockedWeapons = []) {
     // Stage 1→2×2  3→3×2  5→3×3  7→4×3  9→4×4  11→5×4  13+→5×5
     const cols = Math.min(5, 2 + Math.floor((stageLevel - 1) / 2));
     const rows = Math.min(5, 2 + Math.floor(stageLevel / 2));
@@ -153,32 +153,140 @@ export function generateStage(stageLevel) {
                 for (let r = lo; r <= hi; r++) grid[r][midC] = TILE.FLOOR;
             }
 
-            // Sprinkle obstacles LAST — only on confirmed FLOOR tiles so doors,
-            // corridors, and the cross are never blocked.
-            // SANITY: we exclude the 3×3 area around the centre tile so stairs/
-            // chest are always freely reachable regardless of weapon loadout.
-            // Also: start room (0,0) never gets obstacles — it's always a safe spawn.
+            // ── Obstacle placement ───────────────────────────────────────────
+            // Pits are placed as deliberate CHOKEPOINTS: a row/column of pits
+            // spans part of the room width, with a POST anchored on the FAR side
+            // within chain range (≤4 tiles). The player can either go around the
+            // gap-ends or fire the chain to leap across — never randomly stuck.
+            //
+            // Passive obstacles (trees, grass, rocks) fill the remaining space
+            // without blocking the guaranteed corridors or the centre approach.
+
             const isStartRoom = (rx === 0 && ry === 0);
+
+            // ── 1. Pit chokepoints (only when player has the chain) ──────────
+            // Pits are hard blockers — the chain is the ONLY way across.
+            // We only place them when the player has already unlocked the chain,
+            // so the puzzle is never impossible.
+            const playerHasChain = unlockedWeapons.includes('chain');
+
+            if (!isStartRoom && playerHasChain) {
+                // Decide how many chokepoints this room gets.
+                // More later weapons unlocked = player is experienced = more pits allowed.
+                const weaponCount = unlockedWeapons.length; // sword=1, +axe=2, +chain=3, ...
+                const maxChokepoints = weaponCount >= 5 ? 2 : 1;
+                const chopCount = Math.random() < 0.45 ? maxChokepoints : (Math.random() < 0.45 ? 1 : 0);
+
+                // Helper: is a tile safe to turn into a pit?
+                // Must be FLOOR, not near the room centre (3×3 safe zone), not
+                // within 1 tile of any door opening, and not inside the guaranteed
+                // corridor columns/rows that were already carved.
+                const doorCols = new Set();
+                const doorRows = new Set();
+                if (doors.n) { doorCols.add(dpos.n); doorCols.add(dpos.n+1); }
+                if (doors.s) { doorCols.add(dpos.s); doorCols.add(dpos.s+1); }
+                if (doors.w) { doorRows.add(dpos.w); doorRows.add(dpos.w+1); }
+                if (doors.e) { doorRows.add(dpos.e); doorRows.add(dpos.e+1); }
+
+                const safeToPit = (r, c) => {
+                    if (grid[r][c] !== TILE.FLOOR) return false;
+                    if (r <= 1 || r >= ROOM_ROWS-2 || c <= 1 || c >= ROOM_COLS-2) return false;
+                    if (Math.abs(r-midR) <= 1 && Math.abs(c-midC) <= 1) return false; // centre safe zone
+                    if (doorCols.has(c) || doorRows.has(r)) return false; // door corridors
+                    // Don't block the 2-wide cross corridors
+                    if (r === midR || r === midR-1) return false;
+                    if (c === midC || c === midC-1) return false;
+                    return true;
+                };
+
+                for (let cp = 0; cp < chopCount; cp++) {
+                    // Pick orientation randomly: H = horizontal pit strip, V = vertical
+                    const horizontal = Math.random() < 0.5;
+
+                    if (horizontal) {
+                        // Horizontal strip: one row of pits, spanning midC±(2..4) tiles,
+                        // placed above or below centre. One end is left open (floor) so
+                        // the player can walk around. POST placed 1 tile above/below the
+                        // strip on the FAR side, within chain range.
+                        const stripR = (Math.random() < 0.5)
+                            ? randInt(2, midR - 2)        // above centre
+                            : randInt(midR + 2, ROOM_ROWS-3); // below centre
+                        const halfSpan = randInt(2, 4);
+                        const stripCLo = Math.max(2, midC - halfSpan);
+                        const stripCHi = Math.min(ROOM_COLS-3, midC + halfSpan);
+
+                        // The "gap" end lets the player walk around — choose left or right
+                        const gapEnd = Math.random() < 0.5 ? 'left' : 'right';
+                        // Gap is 1 tile wide at the chosen end; rest becomes pit
+                        const pitLo = gapEnd === 'left'  ? stripCLo + 1 : stripCLo;
+                        const pitHi = gapEnd === 'right' ? stripCHi - 1 : stripCHi;
+
+                        // Verify all candidate tiles are placeable
+                        let allSafe = true;
+                        for (let c = pitLo; c <= pitHi; c++) {
+                            if (!safeToPit(stripR, c)) { allSafe = false; break; }
+                        }
+                        if (!allSafe) continue;
+
+                        // Stamp pits
+                        for (let c = pitLo; c <= pitHi; c++) grid[stripR][c] = TILE.PIT;
+
+                        // Place POST on the far side floor, centred on the strip,
+                        // so chain range (≤ 4 tiles = 160px, chain.range=180px) reaches it.
+                        const postC = Math.floor((pitLo + pitHi) / 2);
+                        const postR = (stripR <= midR) ? stripR - 1 : stripR + 1;
+                        if (postR >= 1 && postR <= ROOM_ROWS-2 && grid[postR][postC] === TILE.FLOOR) {
+                            grid[postR][postC] = TILE.POST;
+                        }
+
+                    } else {
+                        // Vertical strip: one column of pits, spanning midR±(2..3) rows.
+                        const stripC = (Math.random() < 0.5)
+                            ? randInt(2, midC - 2)
+                            : randInt(midC + 2, ROOM_COLS-3);
+                        const halfSpan = randInt(2, 3);
+                        const stripRLo = Math.max(2, midR - halfSpan);
+                        const stripRHi = Math.min(ROOM_ROWS-3, midR + halfSpan);
+
+                        const gapEnd = Math.random() < 0.5 ? 'top' : 'bottom';
+                        const pitLo  = gapEnd === 'top'    ? stripRLo + 1 : stripRLo;
+                        const pitHi  = gapEnd === 'bottom' ? stripRHi - 1 : stripRHi;
+
+                        let allSafe = true;
+                        for (let r = pitLo; r <= pitHi; r++) {
+                            if (!safeToPit(r, stripC)) { allSafe = false; break; }
+                        }
+                        if (!allSafe) continue;
+
+                        for (let r = pitLo; r <= pitHi; r++) grid[r][stripC] = TILE.PIT;
+
+                        const postR = Math.floor((pitLo + pitHi) / 2);
+                        const postC = (stripC <= midC) ? stripC - 1 : stripC + 1;
+                        if (postC >= 1 && postC <= ROOM_COLS-2 && grid[postR][postC] === TILE.FLOOR) {
+                            grid[postR][postC] = TILE.POST;
+                        }
+                    }
+                }
+            }
+
+            // ── 2. Passive obstacles (trees, grass, rocks) ───────────────────
+            // Never placed on top of PITs/POSTs, never block carved corridors,
+            // never block the centre safe zone.
             if (!isStartRoom) {
-                for (let r=2; r<ROOM_ROWS-2; r++)
+                for (let r=2; r<ROOM_ROWS-2; r++) {
                     for (let c=2; c<ROOM_COLS-2; c++) {
                         const nearCenter = Math.abs(r-midR)<=1 && Math.abs(c-midC)<=1;
-                        if (nearCenter) continue; // always keep centre approach clear
-                        if (grid[r][c] === TILE.FLOOR && Math.random()<0.18) {
-                            // On stage 1 avoid trees (need axe to clear) so early
-                            // game isn't gated behind an unearned weapon unlock.
+                        if (nearCenter) continue;
+                        if (grid[r][c] !== TILE.FLOOR) continue; // don't overwrite pits/posts
+                        if (Math.random() < 0.16) {
                             const pool = stageLevel <= 2
-                                ? [TILE.GRASS, TILE.ROCK, TILE.PIT, TILE.GRASS] // no TREE
-                                : [TILE.TREE, TILE.GRASS, TILE.ROCK, TILE.PIT];
+                                ? [TILE.GRASS, TILE.ROCK, TILE.GRASS, TILE.ROCK] // no TREE on stage 1-2
+                                : [TILE.TREE, TILE.GRASS, TILE.ROCK, TILE.GRASS];
                             grid[r][c] = pool[Math.floor(Math.random()*pool.length)];
                         }
                     }
+                }
             }
-
-            // Grapple posts near pits
-            for (let r=2; r<ROOM_ROWS-2; r++)
-                for (let c=2; c<ROOM_COLS-2; c++)
-                    if (grid[r][c]===TILE.PIT && Math.random()<0.2) grid[r][c]=TILE.POST;
 
             const isExit   = (rx===endRoom.x && ry===endRoom.y);
             const hasChest  = (!isExit && Math.random()<0.2);

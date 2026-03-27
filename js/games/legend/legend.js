@@ -154,7 +154,7 @@ function startGame() {
     gameState.player.hp = gameState.player.maxHp;
     gameState.player.mp = gameState.player.maxMp;
 
-    const map = generateStage(gameState.stage);
+    const map = generateStage(gameState.stage, gameState.unlockedWeapons);
     initEngine(_screens.game.querySelector('#leg-canvas'), gameState, map);
 
     gameState.callbacks = {
