@@ -1,6 +1,6 @@
 {
-  "waterCurrent": 124,
-  "waterMax": 250,
+  "waterCurrent": 300,
+  "waterMax": 300,
   "waterUnit": "Liter",
   "distanceUnit": "Meilen",
   "hoursPerDay": 8,
@@ -16,15 +16,15 @@
       "name": "Gebirgspass → Oase Hayabeth",
       "distanceTotal": 36.07,
       "hoursTotal": 19.24,
-      "done": false,
-      "distanceTraveled": 30.9,
-      "hoursWalked": 18.0
+      "done": true
     },
     {
       "name": "Oase Hayabeth → Oase Tarfui",
       "distanceTotal": 140.04,
       "hoursTotal": 74.69,
-      "done": false
+      "done": false,      
+      "distanceTraveled": 0,
+      "hoursWalked": 0
     },
     {
       "name": "Oase Tarfui → Oase Keft",
@@ -40,8 +40,8 @@
     }
   ],
 "currentEvent": {
-    "trigger": "Oase Hayabeth",
-    "notes": "...",
+    "trigger": "Auf nach Tafui",
+    "notes": "Und Tabi auf dem Hexenbesen. Ramil ist uncomfortable...",
     "effect": 1.0,
     "waterModifier": 1.0
   }
