@@ -1,5 +1,5 @@
 {
-  "waterCurrent": 159,
+  "waterCurrent": 124,
   "waterMax": 250,
   "waterUnit": "Liter",
   "distanceUnit": "Meilen",
@@ -17,8 +17,8 @@
       "distanceTotal": 36.07,
       "hoursTotal": 19.24,
       "done": false,
-      "distanceTraveled": 22.9,
-      "hoursWalked": 12.6
+      "distanceTraveled": 30.9,
+      "hoursWalked": 18.0
     },
     {
       "name": "Oase Hayabeth → Oase Tarfui",
@@ -40,9 +40,9 @@
     }
   ],
 "currentEvent": {
-    "trigger": "Wanderdüne",
-    "notes": "Eine gewaltige, neu aufgeworfene Düne blockiert den direkten Weg. Der beschwerliche Umweg kostet wertvolle Zeit.",
-    "effect": 0.7,
+    "trigger": "Oase Hayabeth",
+    "notes": "...",
+    "effect": 1.0,
     "waterModifier": 1.0
   }
 ,
