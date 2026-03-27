@@ -369,12 +369,12 @@ function _drawPost(ctx, px, py, ts) {
 function _drawStairs(ctx, px, py, ts, active) {
     _fill(ctx, '#8fa068', px, py, ts, ts);
 
-    const margin = Math.round(ts * 0.10);
+    const margin = Math.round(ts * 0.08);
     const totalW = ts - margin * 2;
     const stepH  = Math.round((ts - margin * 2) / 3);
 
     if (!active) {
-        // Draw recognisable steps but desaturated/dimmed — locked behind clearing room
+        // Inactive — grey/brown steps, clearly present but not usable yet
         const dimColors = ['#7a7040', '#6b6236', '#5c552e'];
         for (let i = 0; i < 3; i++) {
             const inset = i * Math.round(totalW / 6);
@@ -386,14 +386,33 @@ function _drawStairs(ctx, px, py, ts, active) {
         return;
     }
 
-    // Active — gold steps
+    // Active — bright gold steps with glow and a clear ▼ arrow
+    ctx.fillStyle = 'rgba(241,196,15,0.22)';
+    ctx.fillRect(px + 1, py + 1, ts - 2, ts - 2);
+
     const stepColors = ['#f1c40f', '#d4ac0d', '#b7950b'];
     for (let i = 0; i < 3; i++) {
         const inset = i * Math.round(totalW / 6);
         const sy    = py + margin + i * stepH;
         _fill(ctx, stepColors[i], px + margin + inset, sy, totalW - inset * 2, stepH - 1);
+        ctx.fillStyle = 'rgba(255,255,255,0.35)';
+        ctx.fillRect(px + margin + inset, sy, totalW - inset * 2, 2);
     }
     _stroke(ctx, '#f39c12', 2, px + margin - 1, py + margin - 1, totalW + 2, stepH * 3 + 2);
+
+    // ▼ tap-to-descend arrow in top-right corner
+    const ax = px + ts - 10, ay = py + 6;
+    ctx.fillStyle = '#fff700';
+    ctx.beginPath();
+    ctx.moveTo(ax - 5, ay);
+    ctx.lineTo(ax + 5, ay);
+    ctx.lineTo(ax,     ay + 7);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#b7950b';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
     _tileGrid(ctx, px, py, ts);
 }
 

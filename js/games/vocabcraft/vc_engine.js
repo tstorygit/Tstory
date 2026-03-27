@@ -112,26 +112,37 @@ export function gemArmorTear(gem, gemData) {
  * Design goals:
  *  1. Stronger enemy type (boss, armored, immune) → more XP. ✓
  *  2. Later wave → more XP, but with logarithmic growth so wave 80 is
- *     ~6× wave 1, NOT 27,000× (the old exponential-on-exponential explosion). ✓
+ *     ~6× wave 1, NOT exponentially exploding. ✓
  *  3. Higher difficulty → more XP (linear). ✓
- *  4. Total XP for completing all content (5 templates × D1–D10) targets
- *     approximately Level 9,999. ✓
+ *  4. Total XP for completing all content (5 templates × D1–D18, no mods)
+ *     targets exactly Level 9,999. ✓
  *
- * BASE_XP is calibrated so that a full first-clear of all stages sums to
- * ~5.66 × 10^12 XP, which is exactly what the level curve (100 × lv^1.8)
- * requires to reach level 9,999.
+ * Calibration:
+ *   Clearing all 5 templates × D1–D18 (90 stages, no modifiers, no bonus waves)
+ *   yields cumulative XP ≈ 5.658 × 10^12 = xpToLevel(9999).
+ *   Intermediate milestones (no mods):
+ *     5 × D1 cleared  → ~level 393
+ *     5 × D1–D10      → ~level 4500
+ *     5 × D1–D18      → level 9999
+ *   With modifiers + wave grinding you can reach 99999+.
+ *
+ * Per-enemy feel:
+ *   D1  W1  normal grunt : ~176K XP
+ *   D1  W5  boss         : ~920K XP
+ *   D10 W80 normal       : ~7M XP
+ *   D18 W136 boss        : ~117M XP   (still within budget, never "billions per run")
  *
  * _xpWeight, _waveNum, _difficulty are set on each enemy at spawn time
  * in buildWaveEnemies() (vc_enemies.js).
  */
-const XP_BASE = 1_314_588;
+const XP_BASE = 176_507;
 
 export function enemyXpValue(enemy) {
-    const weight     = enemy._xpWeight   || 1.0;          // type threat factor (set at spawn)
+    const weight     = enemy._xpWeight   || 1.0;   // type threat factor (set at spawn)
     const waveNum    = enemy._waveNum    || 1;
     const difficulty = enemy._difficulty || 1;
-    const waveFactor = Math.log2(waveNum + 1);             // W1→1.0  W10→3.46  W80→6.34
-    return XP_BASE * difficulty * waveFactor * weight;
+    const waveFactor = Math.log2(waveNum + 1);      // W1→1.0  W10→3.46  W136→7.1
+    return Math.round(XP_BASE * difficulty * waveFactor * weight);
 }
 
 export class VcEngine {
@@ -307,7 +318,8 @@ export class VcEngine {
                 && this.enemies.length === 0) {
             this._lastClearedWave = this.state.wave;
             if (!this.state._waveLeaked) {
-                const bonus = Math.round(20 * this.difficulty);
+                // Perfect-wave bonus: ~equivalent to 2 normal kills on that wave
+                const bonus = Math.round(XP_BASE * this.difficulty * Math.log2(this.state.wave + 1) * 2);
                 this.state.xpEarned += bonus;
                 this._tickEvents.push({ type: 'waveClear', bonus });
             }

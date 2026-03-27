@@ -2,7 +2,8 @@ import { mountVocabSelector, getBannedWords } from '../../vocab_selector.js';
 import * as srsDb from '../../srs_db.js';
 import { loadMeta, saveMeta, addXP, resetSkills, SKILL_DEFS, getDefaultSave,
          clearStage, highestDifficultyCleared, isStageCleared, isStageUnlocked,
-         getEffectiveSkills, recordStageXP, getStageXPBudget, RUN_MODIFIERS, combinedXpMult,
+         getEffectiveSkills, recordStageXP, getStageXPBudget, XP_ALL_MODS_MULT,
+         RUN_MODIFIERS, combinedXpMult,
          saveMidRun, loadMidRunSlots, deleteMidRunSlot } from './vc_meta.js';
 import { generateMap, getValidTemplates, getTemplateMinimap, TEMPLATES, getHexWorldLayout, HEX_TIER_COLORS } from './vc_mapgen.js';
 import { setVocabQueue, showCard } from './vc_vocab.js';
@@ -1039,23 +1040,25 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
     function renderXpPanel() {
                 const earned = _meta.stageXPEarned || {};
 
-        // Summary line: total earned vs total possible across all difficulties
-        let totalEarned = 0, totalBudget = 0;
+        // Summary line: total earned vs total possible (yellow cap = all mods × budget)
+        let totalBase = 0, totalYellow = 0, totalEarned = 0;
         for (let d = 1; d <= 18; d++) {
-            const budget = getStageXPBudget(d);
+            const base   = getStageXPBudget(d);
+            const yellow = Math.round(base * XP_ALL_MODS_MULT);
             const best   = earned[`${tpl.id}:${d}`] || 0;
-            totalBudget += budget;
-            totalEarned += Math.min(best, budget);
+            totalBase   += base;
+            totalYellow += yellow;
+            totalEarned += best;
         }
-        const totalPct = totalBudget > 0 ? Math.round(totalEarned / totalBudget * 100) : 0;
+        const totalPctBase   = totalBase   > 0 ? Math.round(totalEarned / totalBase   * 100) : 0;
 
-        // Find best "next repeat" difficulty: highest remaining XP that's been unlocked
+        // Find best "next repeat" difficulty: highest base-budget remaining that's unlocked
         let bestRepeatD = 0, bestRepeatRemaining = 0;
         for (let d = 1; d <= 18; d++) {
             if (!isStageUnlocked(_meta, tpl.id, d) && !_debugUnlockAll) continue;
-            const budget    = getStageXPBudget(d);
+            const base      = getStageXPBudget(d);
             const best      = earned[`${tpl.id}:${d}`] || 0;
-            const remaining = Math.max(0, budget - best);
+            const remaining = Math.max(0, base - best);
             if (remaining > bestRepeatRemaining) {
                 bestRepeatRemaining = remaining;
                 bestRepeatD = d;
@@ -1063,50 +1066,73 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
         }
 
         let html = `
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-                <div style="font-size:11px;color:#bdc3c7;">Total: <span style="color:#f1c40f;font-weight:bold;">${fmtN(totalEarned)}</span> / ${fmtN(totalBudget)} XP</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                <div style="font-size:11px;color:#bdc3c7;">Total: <span style="color:#f1c40f;font-weight:bold;">${fmtN(totalEarned)}</span> XP earned</div>
                 ${bestRepeatD > 0 && bestRepeatRemaining > 0
-                    ? `<div style="font-size:10px;background:#1a3a1a;border:1px solid #2ecc71;border-radius:4px;padding:2px 7px;color:#2ecc71;">▶ Best repeat: D${bestRepeatD} (+${fmtN(bestRepeatRemaining)})</div>`
-                    : `<div style="font-size:10px;color:#95a5a6;">All maxed ✓</div>`}
+                    ? `<div style="font-size:10px;background:#1a3a1a;border:1px solid #2ecc71;border-radius:4px;padding:2px 7px;color:#2ecc71;">▶ Best next: D${bestRepeatD} (+${fmtN(bestRepeatRemaining)})</div>`
+                    : `<div style="font-size:10px;color:#95a5a6;">All base budgets maxed ✓</div>`}
             </div>
-            <div style="display:grid;grid-template-columns:28px 1fr 64px 54px;gap:3px 6px;align-items:center;font-size:10px;color:#95a5a6;padding-bottom:4px;border-bottom:1px solid #1e3a50;margin-bottom:5px;">
-                <div>D</div><div>Progress</div><div style="text-align:right;">Earned</div><div style="text-align:right;">Left</div>
+            <div style="display:flex;gap:10px;font-size:9px;margin-bottom:6px;color:#95a5a6;">
+                <span><span style="display:inline-block;width:9px;height:9px;background:#2980b9;border-radius:2px;vertical-align:middle;margin-right:3px;"></span>Base (no mods)</span>
+                <span><span style="display:inline-block;width:9px;height:9px;background:#f1c40f;border-radius:2px;vertical-align:middle;margin-right:3px;"></span>All mods (${XP_ALL_MODS_MULT.toFixed(1)}×)</span>
+                <span><span style="display:inline-block;width:9px;height:9px;background:#2ecc71;border-radius:2px;vertical-align:middle;margin-right:3px;"></span>Wave grind bonus</span>
+            </div>
+            <div style="display:grid;grid-template-columns:28px 1fr 70px;gap:3px 6px;align-items:center;font-size:10px;color:#95a5a6;padding-bottom:4px;border-bottom:1px solid #1e3a50;margin-bottom:5px;">
+                <div>D</div><div>Progress</div><div style="text-align:right;">Earned</div>
             </div>`;
 
         for (let d = 1; d <= 18; d++) {
             const unlocked  = isStageUnlocked(_meta, tpl.id, d) || _debugUnlockAll;
             const cleared   = isStageCleared(_meta, tpl.id, d);
-            const budget    = getStageXPBudget(d);
+            const base      = getStageXPBudget(d);
+            const yellow    = Math.round(base * XP_ALL_MODS_MULT);
             const best      = earned[`${tpl.id}:${d}`] || 0;
-            const remaining = Math.max(0, budget - best);
-            const pct       = Math.min(100, best / budget * 100);
-            const isMaxed   = best >= budget;
             const isActive  = d === selectedD;
 
             if (!unlocked) {
                 html += `
-                <div style="display:grid;grid-template-columns:28px 1fr 64px 54px;gap:3px 6px;align-items:center;opacity:0.3;margin:1px 0;">
+                <div style="display:grid;grid-template-columns:28px 1fr 70px;gap:3px 6px;align-items:center;opacity:0.3;margin:1px 0;">
                     <div style="font-size:10px;font-weight:bold;color:#555;">D${d}</div>
-                    <div style="height:7px;background:#1a252f;border-radius:3px;"><div style="width:0%;height:100%;background:#333;border-radius:3px;"></div></div>
-                    <div style="text-align:right;color:#444;">—</div>
+                    <div style="height:7px;background:#1a252f;border-radius:3px;"></div>
                     <div style="text-align:right;color:#444;">🔒</div>
                 </div>`;
                 continue;
             }
 
-            const barColor  = isMaxed ? '#27ae60' : cleared ? '#2980b9' : '#f39c12';
-            const dColor    = isActive ? '#f1c40f' : isMaxed ? '#2ecc71' : cleared ? '#3498db' : '#bdc3c7';
-            const rowBg     = isActive ? 'background:rgba(241,196,15,0.07);border-radius:4px;' : '';
+            // Three-tier bar: base portion (blue) + mods portion (yellow) + grind portion (green)
+            const baseFrac   = Math.min(1, best / yellow);             // 0→1 fills blue+yellow
+            const blueFrac   = Math.min(best, base) / yellow;         // blue portion
+            const yellowFrac = Math.max(0, Math.min(best, yellow) - base) / yellow; // yellow portion
+            const greenFrac  = best > yellow ? Math.min(0.1, (best - yellow) / yellow) : 0; // green overflow indicator
+
+            // Tier state
+            let tier, dColor, earnedColor;
+            if (!cleared) {
+                tier = 'blue'; dColor = isActive ? '#f1c40f' : '#3498db'; earnedColor = '#3498db';
+            } else if (best < yellow) {
+                tier = 'yellow'; dColor = isActive ? '#f1c40f' : '#f1c40f'; earnedColor = '#f1c40f';
+            } else {
+                tier = 'green'; dColor = '#2ecc71'; earnedColor = '#2ecc71';
+            }
+            const rowBg = isActive ? 'background:rgba(241,196,15,0.07);border-radius:4px;' : '';
+
+            // Segmented bar: blue = base/yellow portion, yellow = mods portion, green = overflow
+            const blueW   = (blueFrac   * 100).toFixed(1);
+            const yellowW = (yellowFrac * 100).toFixed(1);
+            const greenW  = (greenFrac  * 100).toFixed(1);
+
+            const tierLabel = tier === 'green' ? '✨' : tier === 'yellow' ? '✓' : '';
 
             html += `
-                <div style="display:grid;grid-template-columns:28px 1fr 64px 54px;gap:3px 6px;align-items:center;padding:2px 2px;${rowBg}margin:1px 0;cursor:pointer;"
+                <div style="display:grid;grid-template-columns:28px 1fr 70px;gap:3px 6px;align-items:center;padding:2px 2px;${rowBg}margin:1px 0;cursor:pointer;"
                      data-xp-row-d="${d}">
-                    <div style="font-size:10px;font-weight:bold;color:${dColor};">D${d}${isMaxed ? '✓' : ''}</div>
-                    <div style="height:7px;background:#1a252f;border-radius:3px;overflow:hidden;">
-                        <div style="width:${pct.toFixed(1)}%;height:100%;background:${barColor};border-radius:3px;transition:width 0.3s;"></div>
+                    <div style="font-size:10px;font-weight:bold;color:${dColor};">D${d}${tierLabel}</div>
+                    <div style="height:7px;background:#1a252f;border-radius:3px;overflow:hidden;display:flex;">
+                        <div style="width:${blueW}%;height:100%;background:#2980b9;"></div>
+                        <div style="width:${yellowW}%;height:100%;background:#f1c40f;"></div>
+                        <div style="width:${greenW}%;height:100%;background:#2ecc71;"></div>
                     </div>
-                    <div style="text-align:right;color:${isMaxed ? '#2ecc71' : '#ecf0f1'};">${best > 0 ? fmtN(best) : '—'}</div>
-                    <div style="text-align:right;color:${remaining > 0 ? '#f39c12' : '#2ecc71'};">${remaining > 0 ? '+'+fmtN(remaining) : '✓'}</div>
+                    <div style="text-align:right;color:${earnedColor};font-size:10px;">${best > 0 ? fmtN(best) : '—'}</div>
                 </div>`;
         }
         html += '</div>';  // close inner
@@ -1149,11 +1175,22 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
         const cleared = isStageCleared(_meta, tpl.id, selectedD);
         const statusLine = cleared ? '✅ Cleared' : '⚔️ Not cleared';
         const xpBudgetDisplay = (() => {
-            const budget  = getStageXPBudget(selectedD);
-            const prevBest = (_meta.stageXPEarned || {})[`${tpl.id}:${selectedD}`] || 0;
-                        if (prevBest >= budget) return `💰 ${fmtN(budget)} XP ✓`;
-            if (prevBest > 0) return `💰 ${fmtN(prevBest)} / ${fmtN(budget)} XP`;
-            return `💰 Up to ${fmtN(budget)} XP`;
+            const baseBudget = getStageXPBudget(selectedD);
+            const yellowCap  = Math.round(baseBudget * XP_ALL_MODS_MULT);
+            const prevBest   = (_meta.stageXPEarned || {})[`${tpl.id}:${selectedD}`] || 0;
+            const cleared    = isStageCleared(_meta, tpl.id, selectedD);
+            if (!cleared) {
+                // Blue: not yet done — show base budget as the target
+                const pct = prevBest > 0 ? Math.round(prevBest / baseBudget * 100) : 0;
+                return `<span style="color:#3498db;">💰 ${pct > 0 ? fmtN(prevBest)+' / ' : ''}${fmtN(baseBudget)} XP${pct > 0 ? ' ('+pct+'%)' : ''}</span>`;
+            } else if (prevBest < yellowCap) {
+                // Yellow: cleared, grinding toward all-mods cap
+                const pct = Math.round(prevBest / yellowCap * 100);
+                return `<span style="color:#f1c40f;">💰 ${fmtN(prevBest)} / ${fmtN(yellowCap)} XP ✓ (${pct}%)</span>`;
+            } else {
+                // Green: exceeded yellow cap — wave grinding bonus
+                return `<span style="color:#2ecc71;">💰 ${fmtN(prevBest)} XP ✨ (maxed+)</span>`;
+            }
         })();
 
         const preview = getWavePreview(waves, selectedD);
@@ -1374,11 +1411,16 @@ function _confirmAndStartBattle(templateId, difficulty) {
         : `<span style="color:#f39c12">⚔️ Not yet cleared</span>`;
 
     const xpBadge = (() => {
-        const budget   = getStageXPBudget(difficulty);
-        const prevBest = (_meta.stageXPEarned || {})[`${templateId}:${difficulty}`] || 0;
-                if (prevBest >= budget) return `💰 ${fmtN(budget)} XP ✓ (maxed)`;
-        if (prevBest > 0)       return `💰 ${fmtN(prevBest)} / ${fmtN(budget)} XP`;
-        return `💰 Up to ${fmtN(budget)} XP`;
+        const baseBudget = getStageXPBudget(difficulty);
+        const yellowCap  = Math.round(baseBudget * XP_ALL_MODS_MULT);
+        const prevBest   = (_meta.stageXPEarned || {})[`${templateId}:${difficulty}`] || 0;
+        if (!cleared) {
+            return `💰 Up to ${fmtN(baseBudget)} XP`;
+        } else if (prevBest < yellowCap) {
+            return `💰 ${fmtN(prevBest)} / ${fmtN(yellowCap)} XP ✓`;
+        } else {
+            return `💰 ${fmtN(prevBest)} XP ✨ maxed+`;
+        }
     })();
 
     // ── Wave preview data ────────────────────────────────────────────────────

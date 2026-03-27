@@ -34,13 +34,52 @@ export const SKILL_DEFS = {
 };
 
 /**
- * Maximum XP a stage at `difficulty` can ever award (first full clear).
- * Calibrated so clearing all 5 templates × D1–D10 once → Level ~9,999.
- * Formula: 2.543e9 × 1.8^(difficulty-1)
+ * Maximum XP a stage at `difficulty` can ever award on a base clear (no modifiers,
+ * no bonus waves). These values are calibrated so that clearing all 5 templates ×
+ * D1–D18 exactly once (no mods, no extra waves) totals the XP needed for level 9,999.
  *
- * Repeat-clear rule: player only earns XP above their previous best for
- * that stage (stored in meta.stageXPEarned[templateId:difficulty]).
+ * Intermediate milestones (5 templates, no mods):
+ *   After all D1 clears  → ~level 393
+ *   After D1–D10 clears  → ~level 4,500
+ *   After D1–D18 clears  → level 9,999
+ *
+ * Yellow cap (stage already cleared) = base budget × XP_ALL_MODS_MULT (5.90×).
+ * Reaching beyond the yellow cap (wave grinding with bonusWaves skill) turns the bar green.
  */
+
+// Base XP budget per template per difficulty (calibrated, see vc_engine.js XP_BASE).
+const STAGE_XP_BUDGETS = [
+    130_841_125,   // D1
+    581_952_474,   // D2
+  1_418_145_662,   // D3
+  3_083_475_287,   // D4
+  5_322_135_019,   // D5
+  9_084_465_135,   // D6
+ 14_026_070_431,   // D7
+ 20_307_275_765,   // D8
+ 28_615_141_778,   // D9
+ 38_576_601_464,   // D10
+ 51_219_479_918,   // D11
+ 67_432_488_228,   // D12
+ 83_779_320_632,   // D13
+106_237_225_017,   // D14
+128_295_116_835,   // D15
+158_114_896_087,   // D16
+190_222_880_591,   // D17
+225_143_647_450,   // D18
+];
+
+/**
+ * XP multiplier when ALL run modifiers are active simultaneously.
+ * Individual modifier xpBonus values sum to 4.90, giving 1 + 4.90 = 5.90×.
+ * This is the ceiling for the yellow (cleared) progress bar segment.
+ */
+export const XP_ALL_MODS_MULT = 5.90;
+
+export function getStageXPBudget(difficulty) {
+    const d = Math.max(1, Math.min(18, difficulty));
+    return STAGE_XP_BUDGETS[d - 1];
+}
 /**
  * Optional run modifiers — player picks 0–5 before starting.
  * Each makes the run harder in a specific way and adds an XP bonus.
@@ -82,9 +121,7 @@ export function combinedXpMult(modifierIds) {
     return 1.0 + bonus;
 }
 
-export function getStageXPBudget(difficulty) {
-    return Math.round(2.543e9 * Math.pow(1.8, difficulty - 1));
-}
+
 
 export function getDefaultSave() {
     return {
@@ -219,23 +256,28 @@ export function clearStage(meta, templateId, difficulty) {
  * Returns the XP to actually award (new XP above the player's previous best),
  * and updates stageXPEarned so future runs can't re-earn the same XP.
  *
- * xpMult (default 1.0) is the run modifier multiplier — picking harder modifiers
- * raises the effective cap up to 2× the base budget, letting skilled players earn
- * more XP on repeat runs by opting into harder conditions.
+ * Three-tier cap system:
+ *   Blue  (not yet cleared) : cap = baseBudget (base clear, no mods)
+ *   Yellow (cleared once)   : cap = baseBudget × XP_ALL_MODS_MULT (5.90×, all mods)
+ *   Green  (beyond yellow)  : no cap — wave grinding with bonusWaves can push past yellow
  *
- * First clear (no mods): full base budget awarded.
- * Repeat at same score: 0 XP.
- * Repeat with mods (higher cap): only the improvement above previous best is awarded.
+ * xpMult (default 1.0) is the run modifier multiplier from combinedXpMult().
+ * The effective cap is max(baseBudget, baseBudget × xpMult) — i.e. modifiers raise the ceiling.
+ * Once the player surpasses the yellow ceiling via wave grinding, xpEarned flows in freely
+ * (no hard cap above yellow, progress turns green).
  */
 export function recordStageXP(meta, templateId, difficulty, xpEarned, xpMult = 1.0) {
-    const key         = `${templateId}:${difficulty}`;
-    const baseBudget  = getStageXPBudget(difficulty);
-    const effectiveCap = Math.round(baseBudget * Math.max(1.0, xpMult));
-    const cappedEarned = Math.min(xpEarned, effectiveCap);
+    const key          = `${templateId}:${difficulty}`;
+    const baseBudget   = getStageXPBudget(difficulty);
+    const yellowCap    = Math.round(baseBudget * XP_ALL_MODS_MULT);   // 5.90× — yellow ceiling
+    // Effective cap for this run: at minimum the base budget, raised by active mods.
+    // If player earned beyond the yellow cap (wave grinding), track it all.
+    const runCap       = Math.max(baseBudget, Math.round(baseBudget * Math.max(1.0, xpMult)));
+    // We store the raw xpEarned (uncapped) so green-tier grinding accumulates indefinitely.
     const prevBest     = meta.stageXPEarned[key] || 0;
-    const toAward      = Math.max(0, cappedEarned - prevBest);
-    if (cappedEarned > prevBest) {
-        meta.stageXPEarned[key] = cappedEarned;
+    const toAward      = Math.max(0, xpEarned - prevBest);
+    if (xpEarned > prevBest) {
+        meta.stageXPEarned[key] = xpEarned;
         saveMeta(meta);
     }
     return toAward;

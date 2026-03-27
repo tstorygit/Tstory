@@ -125,7 +125,7 @@ function _spawnRoom(room) {
 // Guarantees the spawn tile is walkable so neither player nor enemy appears
 // inside a tree, rock, wall, or other collision tile.
 function _safeSpawnPos(room) {
-    const walkable = new Set([TILE.FLOOR, TILE.STAIRS, TILE.CHEST, TILE.GRASS, TILE.STUMP, TILE.SHRINE]);
+    const walkable = new Set([TILE.FLOOR, TILE.CHEST, TILE.GRASS, TILE.STUMP, TILE.SHRINE]);
     const candidates = [];
     for (let r = 1; r < ROOM_ROWS - 1; r++) {
         for (let c = 1; c < ROOM_COLS - 1; c++) {
@@ -305,16 +305,15 @@ function updatePlayer(dt) {
     // The grapple hook / being airborne while grappling bypasses the pull.
     if (!state.grappleTarget) {
         const room = mapData.rooms[state.roomY][state.roomX];
-        const PIT_PULL_RADIUS = TILE_SIZE * 0.85;  // px — outer pull starts here
-        const PIT_FALL_RADIUS = TILE_SIZE * 0.22;  // px — fall/damage threshold
-        const PIT_PULL_STRENGTH = 180;              // px/s pull speed
+        const PIT_PULL_RADIUS = TILE_SIZE * 1.6;   // px — pull starts 1.6 tiles away
+        const PIT_FALL_RADIUS = TILE_SIZE * 0.3;   // px — fall threshold
+        const PIT_PULL_STRENGTH = 280;              // px/s at full pull
 
-        // Find the nearest pit tile centre
         const pc = Math.floor(state.player.x / TILE_SIZE);
         const pr = Math.floor(state.player.y / TILE_SIZE);
         let nearestPitDist = Infinity, nearestPitX = 0, nearestPitY = 0;
-        for (let dr = -1; dr <= 1; dr++) {
-            for (let dc = -1; dc <= 1; dc++) {
+        for (let dr = -2; dr <= 2; dr++) {
+            for (let dc = -2; dc <= 2; dc++) {
                 const tr = pr + dr, tc = pc + dc;
                 if (tr < 0 || tr >= ROOM_ROWS || tc < 0 || tc >= ROOM_COLS) continue;
                 if (room.grid[tr][tc] !== TILE.PIT) continue;
@@ -329,18 +328,17 @@ function updatePlayer(dt) {
 
         if (nearestPitDist < PIT_PULL_RADIUS) {
             if (nearestPitDist < PIT_FALL_RADIUS) {
-                // Fell in — deal damage and teleport back to last valid position
+                // Fell in — damage and snap back to last valid safe position
                 const fallDmg = Math.max(5, Math.floor(state.player.maxHp * 0.15));
                 if (state.player.invincibility <= 0) {
                     state.callbacks.onTakeDamage(fallDmg, null);
                 }
-                // Snap back to last valid position (before the pit edge)
                 state.player.x = state.player.lastValidX ?? (canvas.width / 2);
                 state.player.y = state.player.lastValidY ?? (canvas.height / 2);
-                state.player.invincibility = Math.max(state.player.invincibility, 1.2);
+                state.player.invincibility = Math.max(state.player.invincibility, 1.5);
             } else {
-                // Gradually pull toward the pit centre
-                const pullFactor = 1 - (nearestPitDist / PIT_PULL_RADIUS); // 0→1 as you approach
+                // Gradual pull — gets stronger the closer you are
+                const pullFactor = 1 - (nearestPitDist / PIT_PULL_RADIUS);
                 const dx = nearestPitX - state.player.x;
                 const dy = nearestPitY - state.player.y;
                 const dist = nearestPitDist || 1;
@@ -444,11 +442,10 @@ function updatePlayer(dt) {
     const stairsMidC = Math.floor(ROOM_COLS / 2) * TILE_SIZE + TILE_SIZE / 2;
     const stairsMidR = Math.floor(ROOM_ROWS / 2) * TILE_SIZE + TILE_SIZE / 2;
 
-    // Exit Stairs — walk into them to trigger the descent quiz.
-    // room.cleared is set when all enemies are dead. Also handle the edge case
-    // where a room was spawned but enemies died off-screen or quiz was skipped.
-    if (room.isExit && room.cleared && !room.stairsTriggered &&
-        Math.hypot(state.player.x - stairsMidC, state.player.y - stairsMidR) < 40) {
+    // Exit Stairs — player must TAP while standing on them to descend.
+    // Pure proximity was triggering accidentally when walking through the room.
+    if (room.isExit && room.cleared && !room.stairsTriggered && tapped &&
+        Math.hypot(state.player.x - stairsMidC, state.player.y - stairsMidR) < 48) {
         room.stairsTriggered = true;
         state.callbacks.onStairsReached(() => { room.stairsTriggered = false; });
     }
@@ -579,8 +576,9 @@ function _doAttack() {
                             tryDropLoot(tx, ty, 0.3);
                             clearedObstacle = true;
                         } else if (wpn.grapple && targetTile === wpn.grapple) {
-                            // Land on a walkable tile ADJACENT to the post, not the post itself.
-                            // Pick the neighbour closest to the player to feel natural.
+                            // Land on the walkable tile on the FAR side of the post —
+                            // i.e. the neighbour farthest from the player, which is the
+                            // tile the player is trying to reach across the pit.
                             const walkableNeighbours = [{dr:-1,dc:0},{dr:1,dc:0},{dr:0,dc:-1},{dr:0,dc:1}]
                                 .filter(({dr,dc}) => {
                                     const nr=tr+dr, nc=tc+dc;
@@ -594,12 +592,12 @@ function _doAttack() {
                                     dist: Math.hypot((tc+dc)*TILE_SIZE+TILE_SIZE/2 - state.player.x,
                                                      (tr+dr)*TILE_SIZE+TILE_SIZE/2 - state.player.y),
                                 }))
-                                .sort((a,b) => a.dist - b.dist);
+                                .sort((a,b) => b.dist - a.dist); // FARTHEST first = far side of post
                             if (walkableNeighbours.length > 0) {
                                 state.grappleTarget = { x: walkableNeighbours[0].x, y: walkableNeighbours[0].y };
                             } else {
-                                // Fallback: pull toward post (shouldn't happen after map sanity pass)
-                                state.grappleTarget = { x: tc * TILE_SIZE + TILE_SIZE / 2, y: tr * TILE_SIZE + TILE_SIZE / 2 };
+                                // No walkable neighbour — don't grapple (post is surrounded by pits)
+                                // This shouldn't happen after the map sanity pass in leg_map.js
                             }
                             clearedObstacle = true;
                         }
@@ -926,7 +924,25 @@ function draw(dt) {
 
     drawRoomTiles(room);
 
-    ctx.font = '20px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    // ── Pulsing ▼ beacon above the stairs when the room is cleared ────────
+    // Drawn in world-space so it moves with the room but floats above tiles.
+    if (room.isExit && room.cleared) {
+        const sx = Math.floor(ROOM_COLS / 2) * TILE_SIZE + TILE_SIZE / 2;
+        const sy = Math.floor(ROOM_ROWS / 2) * TILE_SIZE;
+        const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 200); // 0.6–1.0
+        ctx.save();
+        ctx.globalAlpha = pulse;
+        ctx.font = 'bold 18px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillStyle = '#fff700';
+        ctx.fillText('▼', sx, sy - 2);
+        ctx.strokeStyle = '#b7950b';
+        ctx.lineWidth = 2;
+        ctx.strokeText('▼', sx, sy - 2);
+        ctx.globalAlpha = 1;
+        ctx.restore();
+    }
     drops.forEach(d => { ctx.fillText(d.emoji, d.x, d.y); });
 
     ctx.font = '24px Arial'; 
