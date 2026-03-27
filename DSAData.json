@@ -1,5 +1,5 @@
 {
-  "waterCurrent": 300,
+  "waterCurrent": 272,
   "waterMax": 300,
   "waterUnit": "Liter",
   "distanceUnit": "Meilen",
@@ -40,11 +40,10 @@
     }
   ],
 "currentEvent": {
-    "trigger": "Auf nach Tafui",
-    "notes": "Und Tabi auf dem Hexenbesen. Ramil ist uncomfortable...",
+    "trigger": "Relikt der Alten",
+    "notes": "Ihr stolpert über ein versteinertes Artefakt – eine gewaltige Schuppe, die im Sonnenlicht smaragdgrün schimmert. Ein Omen Pyrdacors?",
     "effect": 1.0,
     "waterModifier": 1.0
-  }
-,
+  },
   "lastUpdated": "2026-03-27"
 }
