@@ -3,7 +3,7 @@
  * Das Schwarze Auge — Wüsten-Tracker
  *
  * ARCHITECTURE:
- *   index.html    → needs ONLY: <div id="dsa-dashboard"></div>
+ *   index.html    → needs ONLY: <div id="dsa-dashboard"></div> and your own Sync button
  *   DSAData.json  → all content & values (GM edits this file)
  *   dsa_ui.js     → self-contained: injects CSS & HTML structure
  */
@@ -23,42 +23,7 @@ function injectStyles() {
             color: #333;
             max-width: 800px;
             margin: 0 auto;
-            padding: 10px;
-        }
-
-        /* ── HEADER & CONTROLS ── */
-        .dsa-header-controls {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-            background: #fff;
-            padding: 15px 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-            border-left: 5px solid #8b5a2b;
-        }
-
-        .dsa-header-controls h2 {
-            margin: 0;
-            color: #4a3b2c;
-            font-size: 1.5rem;
-        }
-
-        .dsa-btn-refresh {
-            background-color: #8b5a2b;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: bold;
-            transition: background 0.2s;
-        }
-        
-        .dsa-btn-refresh:hover {
-            background-color: #6d4622;
+            padding: 10px 0;
         }
 
         /* ── STATUS MESSAGE ── */
@@ -170,7 +135,7 @@ export function initDSA() {
         return;
     }
 
-    // Grundstruktur injizieren (damit die User-HTML sauber bleibt)
+    // Grundstruktur ohne eigenen Header injizieren (damit dein blauer Button nicht doppelt gemoppelt wird)
     rootEl.innerHTML = `
         <div class="dsa-wrapper">
             <div id="dsa-internal-status" class="dsa-status-message"></div>
@@ -178,9 +143,19 @@ export function initDSA() {
         </div>
     `;
 
-    document.getElementById('dsa-internal-btn-refresh')
-        .addEventListener('click', () => fetchAndRender(true));
+    // Verbinde deinen blauen Button (muss id="btn-dsa-refresh" in der index.html haben)
+    const externalSyncBtn = document.getElementById('btn-dsa-refresh');
+    if (externalSyncBtn) {
+        externalSyncBtn.addEventListener('click', () => fetchAndRender(true));
+    }
 
+    // Verbinde evtl. Tab-Buttons, falls vorhanden
+    const tab = document.querySelector('button[data-target="view-dsa"]');
+    if (tab) {
+        tab.addEventListener('click', () => fetchAndRender(false));
+    }
+
+    // Initiales Laden
     fetchAndRender(false);
 }
 
@@ -227,7 +202,7 @@ function renderDashboard(container, d) {
     const waterPct   = waterMax > 0 ? Math.min(100, water / waterMax * 100) : 0;
     const waterColor = waterPct > 60 ? '#3a9e6e' : waterPct > 30 ? '#c9922a' : '#c0392b';
 
-    // Find the active stage (first non-done)
+    // Finde die aktive Etappe (erste, die nicht "done" ist)
     const activeIdx  = stages.findIndex(s => !s.done);
     const active     = activeIdx !== -1 ? stages[activeIdx] : null;
 
@@ -256,14 +231,14 @@ function renderDashboard(container, d) {
         <!-- ══ ACTIVE STAGE ══════════════════════════════════════════════ -->
         ${active ? renderActiveStage(active, distUnit, hoursPerDay, effectiveHoursPerDay) : ''}
 
-        <!-- ══ STAGE LIST ════════════════════════════════════════════════ -->
-        ${renderStageList(stages, activeIdx, distUnit)}
-
         <!-- ══ GM NOTES & EVENTS ═════════════════════════════════════════ -->
         ${renderEventCard(event, legacyNotes, groupSize)}
+
+        <!-- ══ STAGE LIST ════════════════════════════════════════════════ -->
+        ${renderStageList(stages, activeIdx, distUnit)}
     `;
 
-    // Kick off CSS transitions after first paint
+    // CSS-Animationen auslösen (nach dem ersten Rendern)
     requestAnimationFrame(() => {
         const ease = '1.2s cubic-bezier(0.4,0,0.2,1)';
         container.querySelector('.dsa-tank-fill')?.style.setProperty('transition', `height ${ease}`);
@@ -283,6 +258,7 @@ function renderActiveStage(s, distUnit, baseHours, effectiveHours) {
     const distLeft = +(Math.max(0, s.distanceTotal - traveled)).toFixed(2);
     const hoursLeft = +(Math.max(0, s.hoursTotal - walked)).toFixed(2);
     
+    // Berechne "Tage noch" basierend auf dem aktuellen Geschwindigkeits-Effekt
     const daysLeft = effectiveHours > 0 ? (hoursLeft / effectiveHours).toFixed(1) : '∞';
     
     let speedStyle = '';
@@ -368,9 +344,11 @@ function renderEventCard(event, legacyNotes, groupSize) {
         const waterMod = event.waterModifier ?? 1.0;
         const effect   = event.effect ?? 1.0;
         
+        // Pro Kopf (Basis 5L normal / 3L rationiert)
         const reqOptHead = +(5 * waterMod).toFixed(1);
         const reqRatHead = +(3 * waterMod).toFixed(1);
         
+        // Gesamtgruppe (Kopf-Wert * Gruppenstärke)
         const reqOptGroup = +(reqOptHead * groupSize).toFixed(1);
         const reqRatGroup = +(reqRatHead * groupSize).toFixed(1);
         
@@ -453,7 +431,7 @@ function renderStageList(stages, activeIdx, distUnit) {
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
 function buildTicks(max) {
-    return [75, 50, 25].map(pct => `
+    return[75, 50, 25].map(pct => `
         <div style="position:absolute; bottom:${pct}%; left:0; width:100%; border-bottom:1px solid rgba(255,255,255,0.5);">
             <span style="position:absolute; left:5px; bottom:2px; font-size:10px; color:#fff; text-shadow: 1px 1px 2px #000;">
                 ${Math.round(max * pct / 100)}
