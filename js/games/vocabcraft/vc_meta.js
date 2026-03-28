@@ -34,45 +34,39 @@ export const SKILL_DEFS = {
 };
 
 /**
- * Maximum XP a stage at `difficulty` can ever award on a base clear (no modifiers,
- * no bonus waves). These values are calibrated so that clearing all 5 templates ×
- * D1–D18 exactly once (no mods, no extra waves) totals the XP needed for level 9,999.
- *
- * Intermediate milestones (5 templates, no mods):
- *   After all D1 clears  → ~level 393
- *   After D1–D10 clears  → ~level 4,500
- *   After D1–D18 clears  → level 9,999
- *
- * Yellow cap (stage already cleared) = base budget × XP_ALL_MODS_MULT (5.90×).
- * Reaching beyond the yellow cap (wave grinding with bonusWaves skill) turns the bar green.
+ * Maximum XP a stage can award on a base clear (no modifiers, no bonus waves).
+ * Calibrated with the C=1000, p=1.5 level curve so that:
+ *   One D1 clear (first time)           → ~level 3–4
+ *   5 templates × D1 cleared            → ~level 7
+ *   5 templates × D1–D10 cleared        → ~level 346
+ *   5 templates × D1–D18 cleared        → level 9,999
+ *   With all modifiers + wave grinding  → 99,999+
  */
-
-// Base XP budget per template per difficulty (calibrated, see vc_engine.js XP_BASE).
 const STAGE_XP_BUDGETS = [
-    130_841_125,   // D1
-    581_952_474,   // D2
-  1_418_145_662,   // D3
-  3_083_475_287,   // D4
-  5_322_135_019,   // D5
-  9_084_465_135,   // D6
- 14_026_070_431,   // D7
- 20_307_275_765,   // D8
- 28_615_141_778,   // D9
- 38_576_601_464,   // D10
- 51_219_479_918,   // D11
- 67_432_488_228,   // D12
- 83_779_320_632,   // D13
-106_237_225_017,   // D14
-128_295_116_835,   // D15
-158_114_896_087,   // D16
-190_222_880_591,   // D17
-225_143_647_450,   // D18
+          9_024,  // D1
+         25_817,  // D2
+         73_863,  // D3
+        211_322,  // D4
+        604_587,  // D5
+      1_729_713,  // D6
+      4_948_677,  // D7
+     14_158_071,  // D8
+     40_505_975,  // D9
+    115_886_832,  // D10
+    331_550_046,  // D11
+    948_558_440,  // D12
+  2_713_807_842,  // D13
+  7_764_153_154,  // D14
+ 22_213_096_031,  // D15
+ 63_551_249_632,  // D16
+181_818_928_986,  // D17
+520_180_533_494,  // D18
 ];
 
 /**
  * XP multiplier when ALL run modifiers are active simultaneously.
- * Individual modifier xpBonus values sum to 4.90, giving 1 + 4.90 = 5.90×.
- * This is the ceiling for the yellow (cleared) progress bar segment.
+ * All 16 modifiers' xpBonus values sum to 4.90 → 1 + 4.90 = 5.90×.
+ * Used as the yellow-bar ceiling in the XP progress panel.
  */
 export const XP_ALL_MODS_MULT = 5.90;
 
@@ -211,15 +205,19 @@ export function saveMeta(meta) {
 export function addXP(meta, amount) {
     meta.xp += amount;
     
-    // GCFW-style Polynomial EXP curve (Base * Level^1.8) 
-    // Prevents Infinity breaks while allowing Wizard Levels in the 10,000s
-    let nextLevelReq = Math.floor(100 * Math.pow(meta.level, 1.8));
+    // C=1000, p=1.5 XP curve — tuned so 90 first-clears (D1–D18, 5 templates, no mods)
+    // reaches exactly level 9,999. Much flatter than the old 100*k^1.8 so per-kill
+    // numbers stay in readable integers (12–8000 XP/kill) while milestones scale correctly.
+    //   Level 4   needs  9,024 XP  (≈ one D1 clear)
+    //   Level 346 needs  ~28B XP   (≈ all D10 clears)
+    //   Level 9999 needs ~4T XP    (≈ all D18 clears)
+    let nextLevelReq = Math.floor(1000 * Math.pow(meta.level, 1.5));
     
     while (meta.xp >= nextLevelReq) {
         meta.xp -= nextLevelReq;
         meta.level++;
         meta.sp++;
-        nextLevelReq = Math.floor(100 * Math.pow(meta.level, 1.8));
+        nextLevelReq = Math.floor(1000 * Math.pow(meta.level, 1.5));
     }
     saveMeta(meta);
 }

@@ -634,7 +634,7 @@ function _showCamp() {
         }
     }
 
-    const nextReq = Math.floor(100 * Math.pow(_meta.level, 1.8));
+    const nextReq = Math.floor(1000 * Math.pow(_meta.level, 1.5));
     _screens.game.querySelector('#vc-camp-lvl').textContent =
         `Lv. ${_meta.level} (XP: ${Math.floor(_meta.xp)}/${nextReq})`;
 
@@ -1077,8 +1077,8 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
                 <span><span style="display:inline-block;width:9px;height:9px;background:#f1c40f;border-radius:2px;vertical-align:middle;margin-right:3px;"></span>All mods (${XP_ALL_MODS_MULT.toFixed(1)}×)</span>
                 <span><span style="display:inline-block;width:9px;height:9px;background:#2ecc71;border-radius:2px;vertical-align:middle;margin-right:3px;"></span>Wave grind bonus</span>
             </div>
-            <div style="display:grid;grid-template-columns:28px 1fr 70px;gap:3px 6px;align-items:center;font-size:10px;color:#95a5a6;padding-bottom:4px;border-bottom:1px solid #1e3a50;margin-bottom:5px;">
-                <div>D</div><div>Progress</div><div style="text-align:right;">Earned</div>
+            <div style="display:grid;grid-template-columns:28px 1fr 100px;gap:3px 6px;align-items:center;font-size:10px;color:#95a5a6;padding-bottom:4px;border-bottom:1px solid #1e3a50;margin-bottom:5px;">
+                <div>D</div><div>Progress</div><div style="text-align:right;">Earned / Max</div>
             </div>`;
 
         for (let d = 1; d <= 18; d++) {
@@ -1091,7 +1091,7 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
 
             if (!unlocked) {
                 html += `
-                <div style="display:grid;grid-template-columns:28px 1fr 70px;gap:3px 6px;align-items:center;opacity:0.3;margin:1px 0;">
+                <div style="display:grid;grid-template-columns:28px 1fr 100px;gap:3px 6px;align-items:center;opacity:0.3;margin:1px 0;">
                     <div style="font-size:10px;font-weight:bold;color:#555;">D${d}</div>
                     <div style="height:7px;background:#1a252f;border-radius:3px;"></div>
                     <div style="text-align:right;color:#444;">🔒</div>
@@ -1099,40 +1099,61 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
                 continue;
             }
 
-            // Three-tier bar: base portion (blue) + mods portion (yellow) + grind portion (green)
-            const baseFrac   = Math.min(1, best / yellow);             // 0→1 fills blue+yellow
-            const blueFrac   = Math.min(best, base) / yellow;         // blue portion
-            const yellowFrac = Math.max(0, Math.min(best, yellow) - base) / yellow; // yellow portion
-            const greenFrac  = best > yellow ? Math.min(0.1, (best - yellow) / yellow) : 0; // green overflow indicator
-
-            // Tier state
-            let tier, dColor, earnedColor;
+            // Determine tier and bar geometry
+            let tier, dColor, barMax, earnedLabel, earnedColor;
             if (!cleared) {
-                tier = 'blue'; dColor = isActive ? '#f1c40f' : '#3498db'; earnedColor = '#3498db';
+                // BLUE: not yet cleared — progress toward base budget
+                tier = 'blue';
+                dColor = isActive ? '#f1c40f' : '#3498db';
+                earnedColor = '#3498db';
+                barMax = base;
+                earnedLabel = `<span style="color:#3498db;">${best > 0 ? fmtN(best) : '—'}</span><span style="color:#555;"> / ${fmtN(base)}</span>`;
             } else if (best < yellow) {
-                tier = 'yellow'; dColor = isActive ? '#f1c40f' : '#f1c40f'; earnedColor = '#f1c40f';
+                // YELLOW: cleared once, grinding toward all-mods cap
+                tier = 'yellow';
+                dColor = isActive ? '#f1c40f' : '#e6b800';
+                earnedColor = '#f1c40f';
+                barMax = yellow;
+                earnedLabel = `<span style="color:#f1c40f;">${fmtN(best)}</span><span style="color:#555;"> / ${fmtN(yellow)}</span>`;
             } else {
-                tier = 'green'; dColor = '#2ecc71'; earnedColor = '#2ecc71';
+                // GREEN: exceeded yellow cap — free wave-grinding bonus
+                tier = 'green';
+                dColor = '#2ecc71';
+                earnedColor = '#2ecc71';
+                barMax = null; // no ceiling
+                earnedLabel = `<span style="color:#2ecc71;">✨ ${fmtN(best)}</span>`;
             }
             const rowBg = isActive ? 'background:rgba(241,196,15,0.07);border-radius:4px;' : '';
 
-            // Segmented bar: blue = base/yellow portion, yellow = mods portion, green = overflow
-            const blueW   = (blueFrac   * 100).toFixed(1);
-            const yellowW = (yellowFrac * 100).toFixed(1);
-            const greenW  = (greenFrac  * 100).toFixed(1);
+            // Segmented bar widths
+            // Blue segment: min(best, base) / barMax
+            // Yellow segment: (min(best, yellow) - base) / barMax, only in yellow tier
+            // Green indicator: small fixed pulse if in green tier
+            let blueW = 0, yellowW = 0, greenW = 0;
+            if (tier === 'blue') {
+                blueW = Math.min(100, best / base * 100);
+            } else if (tier === 'yellow') {
+                blueW = base / yellow * 100;          // blue portion = base/yellow of total bar
+                yellowW = (best - base) / yellow * 100;
+            } else {
+                // green: full bar split blue+yellow, plus a green pulse at the end
+                blueW = base / yellow * 100;
+                yellowW = 100 - blueW - 5;
+                greenW = 5;
+            }
 
             const tierLabel = tier === 'green' ? '✨' : tier === 'yellow' ? '✓' : '';
 
             html += `
-                <div style="display:grid;grid-template-columns:28px 1fr 70px;gap:3px 6px;align-items:center;padding:2px 2px;${rowBg}margin:1px 0;cursor:pointer;"
+                <div style="display:grid;grid-template-columns:28px 1fr 100px;gap:3px 6px;align-items:center;padding:2px 2px;${rowBg}margin:1px 0;cursor:pointer;"
                      data-xp-row-d="${d}">
                     <div style="font-size:10px;font-weight:bold;color:${dColor};">D${d}${tierLabel}</div>
                     <div style="height:7px;background:#1a252f;border-radius:3px;overflow:hidden;display:flex;">
-                        <div style="width:${blueW}%;height:100%;background:#2980b9;"></div>
-                        <div style="width:${yellowW}%;height:100%;background:#f1c40f;"></div>
-                        <div style="width:${greenW}%;height:100%;background:#2ecc71;"></div>
+                        <div style="width:${blueW.toFixed(1)}%;height:100%;background:#2980b9;"></div>
+                        <div style="width:${yellowW.toFixed(1)}%;height:100%;background:#f1c40f;"></div>
+                        <div style="width:${greenW.toFixed(1)}%;height:100%;background:#2ecc71;"></div>
                     </div>
-                    <div style="text-align:right;color:${earnedColor};font-size:10px;">${best > 0 ? fmtN(best) : '—'}</div>
+                    <div style="text-align:right;font-size:9px;line-height:1.2;">${earnedLabel}</div>
                 </div>`;
         }
         html += '</div>';  // close inner
@@ -1175,21 +1196,20 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
         const cleared = isStageCleared(_meta, tpl.id, selectedD);
         const statusLine = cleared ? '✅ Cleared' : '⚔️ Not cleared';
         const xpBudgetDisplay = (() => {
-            const baseBudget = getStageXPBudget(selectedD);
-            const yellowCap  = Math.round(baseBudget * XP_ALL_MODS_MULT);
-            const prevBest   = (_meta.stageXPEarned || {})[`${tpl.id}:${selectedD}`] || 0;
-            const cleared    = isStageCleared(_meta, tpl.id, selectedD);
+            const base     = getStageXPBudget(selectedD);
+            const yellow   = Math.round(base * XP_ALL_MODS_MULT);
+            const prevBest = (_meta.stageXPEarned || {})[`${tpl.id}:${selectedD}`] || 0;
+            const cleared  = isStageCleared(_meta, tpl.id, selectedD);
             if (!cleared) {
-                // Blue: not yet done — show base budget as the target
-                const pct = prevBest > 0 ? Math.round(prevBest / baseBudget * 100) : 0;
-                return `<span style="color:#3498db;">💰 ${pct > 0 ? fmtN(prevBest)+' / ' : ''}${fmtN(baseBudget)} XP${pct > 0 ? ' ('+pct+'%)' : ''}</span>`;
-            } else if (prevBest < yellowCap) {
+                // Blue: not cleared — show progress toward base budget
+                const earned = prevBest > 0 ? `${fmtN(prevBest)} / ` : '';
+                return `<span style="color:#3498db;">💰 ${earned}${fmtN(base)} XP</span>`;
+            } else if (prevBest < yellow) {
                 // Yellow: cleared, grinding toward all-mods cap
-                const pct = Math.round(prevBest / yellowCap * 100);
-                return `<span style="color:#f1c40f;">💰 ${fmtN(prevBest)} / ${fmtN(yellowCap)} XP ✓ (${pct}%)</span>`;
+                return `<span style="color:#f1c40f;">💰 ${fmtN(prevBest)} / ${fmtN(yellow)} XP ✓</span>`;
             } else {
-                // Green: exceeded yellow cap — wave grinding bonus
-                return `<span style="color:#2ecc71;">💰 ${fmtN(prevBest)} XP ✨ (maxed+)</span>`;
+                // Green: beyond yellow cap
+                return `<span style="color:#2ecc71;">💰 ${fmtN(prevBest)} XP ✨</span>`;
             }
         })();
 
@@ -1411,15 +1431,16 @@ function _confirmAndStartBattle(templateId, difficulty) {
         : `<span style="color:#f39c12">⚔️ Not yet cleared</span>`;
 
     const xpBadge = (() => {
-        const baseBudget = getStageXPBudget(difficulty);
-        const yellowCap  = Math.round(baseBudget * XP_ALL_MODS_MULT);
-        const prevBest   = (_meta.stageXPEarned || {})[`${templateId}:${difficulty}`] || 0;
+        const base     = getStageXPBudget(difficulty);
+        const yellow   = Math.round(base * XP_ALL_MODS_MULT);
+        const prevBest = (_meta.stageXPEarned || {})[`${templateId}:${difficulty}`] || 0;
         if (!cleared) {
-            return `💰 Up to ${fmtN(baseBudget)} XP`;
-        } else if (prevBest < yellowCap) {
-            return `💰 ${fmtN(prevBest)} / ${fmtN(yellowCap)} XP ✓`;
+            const earned = prevBest > 0 ? `${fmtN(prevBest)} / ` : '';
+            return `💰 ${earned}${fmtN(base)} XP`;
+        } else if (prevBest < yellow) {
+            return `💰 ${fmtN(prevBest)} / ${fmtN(yellow)} XP ✓`;
         } else {
-            return `💰 ${fmtN(prevBest)} XP ✨ maxed+`;
+            return `💰 ${fmtN(prevBest)} XP ✨`;
         }
     })();
 
