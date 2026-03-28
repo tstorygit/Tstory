@@ -344,6 +344,8 @@ const _defaultIdleUpgrades = () => ({
     yggdrasil:  { name: 'Neko Yggdrasil',   desc: '+260M Fish/sec',     cost: 1500000000000, costYarn: 120000, count: 0, effect: 260000000, vocabReq: 200 },
     litterbox:  { name: 'Cosmic Litterbox', desc: '+1B Fish/sec',       cost: 10000000000000, costYarn: 300000, count: 0, effect: 1000000000, vocabReq: 250 },
     universe:   { name: 'Purr-fect Universe', desc: '+4B Fish/sec',     cost: 80000000000000, costYarn: 750000, count: 0, effect: 4000000000, vocabReq: 300 },
+    nebula:     { name: 'Neko Nebula',        desc: '+16B Fish/sec',    cost: 600000000000000, costYarn: 2000000, count: 0, effect: 16000000000, vocabReq: 370 },
+    godcat:     { name: 'God Cat',            desc: '+65B Fish/sec',    cost: 5000000000000000, costYarn: 6000000, count: 0, effect: 65000000000, vocabReq: 450 },
     catnip:    { name: 'Catnip Garden',    desc: '+1% Idle Multiplier/lvl (total)', cost: 8000, costYarn: 0, count: 0, effect: 0.01, vocabReq: 7  },
 });
 
@@ -365,6 +367,8 @@ const _defaultClickUpgrades = () => ({
     celestial:  { name: 'Celestial Wand',  desc: '+65M Fish/Click',  cost: 700000000000, costYarn: 65000, count: 0, effect: 65000000, vocabReq: 185 },
     godyarn:    { name: 'God of Yarn',     desc: '+260M Fish/Click', cost: 5000000000000, costYarn: 160000, count: 0, effect: 260000000, vocabReq: 240 },
     omnipotent: { name: 'Omnipotent Paw',  desc: '+1B Fish/Click',   cost: 40000000000000, costYarn: 400000, count: 0, effect: 1000000000, vocabReq: 300 },
+    omniscient: { name: 'Omniscient Claw', desc: '+4B Fish/Click',   cost: 350000000000000, costYarn: 1200000, count: 0, effect: 4000000000, vocabReq: 370 },
+    divinity:   { name: 'Divine Swipe',    desc: '+16B Fish/Click',  cost: 3000000000000000, costYarn: 4000000, count: 0, effect: 16000000000, vocabReq: 450 },
 });
 
 const _defaultBellUpgrades = () => ({
@@ -481,7 +485,7 @@ function _freshGame() {
 function _getWordBonus(words, bloomLvl) {
     const linCoeff  = bloomLvl === 0 ? 0.03 : 0.05 + (bloomLvl - 1) * 0.02;
     const quadCoeff = bloomLvl === 0 ? 1.5  : 1.5 + bloomLvl * 0.5;
-    return 1 + words * linCoeff + Math.pow(words / 50, 2) * quadCoeff;
+    return 1 + (words * linCoeff + Math.pow(words / 50, 2) * quadCoeff) / 4;
 }
 
 function _getFishPerSec() {
@@ -641,13 +645,20 @@ function _bellCost(key, upg) {
 function _calcBells()   { return _g.fish < 50000   ? 0 : Math.floor(Math.pow(_g.fish  / 50000, 0.5)); }
 function _calcSpirits() { return _g.bells < 100     ? 0 : Math.floor(_g.bells / 50); }
 
+// How many spirits a rebirth would yield, assuming you ascend first (uses fish to convert to bells).
+// This lets the rebirth button show the full potential even when bells are 0 but fish is high.
+function _calcPotentialSpirits() {
+    const totalBells = _g.bells + _calcBells();
+    return totalBells < 100 ? 0 : Math.floor(totalBells / 50);
+}
+
 // Transcendence requires 500 spirits per tier (1st = 500, 2nd = 1000, etc.)
 // Each Transcendence costs more to create meaningful late-game gates
 function _calcTranscendenceCost() { return 5000 * (_g.transcendence + 1); }
 function _canTranscend() { return _g.karma >= _calcTranscendenceCost(); }
 
-// Transcendence multiplier: ×1.5 per stack, applied to all production
-function _getTranscendenceMult() { return Math.pow(1.5, _g.transcendence); }
+// Transcendence multiplier: ×1.4 per stack, applied to all production
+function _getTranscendenceMult() { return Math.pow(1.4, _g.transcendence); }
 
 // Format numbers for the topbar — max 4 chars (e.g. 1234, 1.2K, 1.2e5)
 function _fmtShort(n) {
@@ -1005,7 +1016,9 @@ function _buyUpgrade(shopType, key) {
         // Catnip Garden: yarn cost = next level number (level 1 costs 1 yarn, level 15 costs 15 yarn, etc.)
         const isLevelScaledYarn = (key === 'catnip' && shopType === 'upgrades');
         const rawYarnCost = isLevelScaledYarn ? (upg.count + 1) : (upg.costYarn || 0);
-        const costFish = Math.floor(upg.cost * Math.pow(1.18, upg.count) * discount);
+        // Catnip Garden uses a steeper fish cost curve (×1.5 per level vs ×1.18 for others)
+        const costScaleExp = (key === 'catnip' && shopType === 'upgrades') ? 1.5 : 1.18;
+        const costFish = Math.floor(upg.cost * Math.pow(costScaleExp, upg.count) * discount);
         const costYarn = Math.floor(rawYarnCost * discount);
         const vocabReq = upg.vocabReq || 0;
         const activeCount = _g.srs.filter(s => new Set(_vocabQueue.map(v => v.id)).has(s.id)).length;
@@ -1039,10 +1052,21 @@ function _ascend() {
 }
 
 function _rebirth() {
-    const earned = _calcSpirits();
-    if (earned <= 0) { alert('Need 100 Bells to Rebirth!'); return; }
-    if (!confirm(`REBIRTH? Reset EVERYTHING (including Bells) for +${_fmtN(earned)} 👻 Spirits?`)) return;
-    _g.karma += earned;
+    const potentialBells = _calcBells();
+    const totalBells     = _g.bells + potentialBells;
+    const earned         = totalBells < 100 ? 0 : Math.floor(totalBells / 50);
+    if (earned <= 0) { alert('Need 100 Bells to Rebirth! (tip: accumulate fish to ascend first)'); return; }
+    const ascendNote = potentialBells > 0
+        ? `\n\n(Auto-ascends first: +${_fmtN(potentialBells)} bells from your fish, then rebirths)`
+        : '';
+    if (!confirm(`REBIRTH? Reset EVERYTHING (including Bells) for +${_fmtN(earned)} 👻 Spirits?${ascendNote}`)) return;
+    // If fish would yield bells, auto-ascend first (keep eternal %)
+    if (potentialBells > 0) {
+        const keep = _g.rebirthUpgrades.eternal.count * _g.rebirthUpgrades.eternal.effect;
+        _g.bells += potentialBells;
+        _g.fish   = Math.floor(_g.fish * keep);
+    }
+    _g.karma += Math.floor(_g.bells / 50);
     _g.fish   = 0;
     _g.yarn   = 0;
     _g.bells  = 0;
@@ -1060,13 +1084,13 @@ function _rebirth() {
 function _transcend() {
     const cost = _calcTranscendenceCost();
     if (_g.karma < cost) { alert(`Need ${_fmtN(cost)} 👻 Spirits to Transcend!`); return; }
-    const nextMult = Math.pow(1.5, _g.transcendence + 1);
-    if (!confirm(`TRANSCEND? Spend ${_fmtN(cost)} Spirits to reset EVERYTHING and gain ✦${_g.transcendence + 1} (×${nextMult.toFixed(2)} to all production)?`)) return;
-    _g.karma -= cost;
+    const nextMult = Math.pow(1.4, _g.transcendence + 1);
+    if (!confirm(`TRANSCEND? Spend ${_fmtN(cost)} Spirits to reset EVERYTHING (including all Bells & remaining Spirits) and gain ✦${_g.transcendence + 1} (×${nextMult.toFixed(2)} to all production)?`)) return;
     _g.transcendence++;
+    _g.karma = 0;   // all spirits reset
     _g.fish  = 0;
     _g.yarn  = 0;
-    _g.bells = 0;
+    _g.bells = 0;   // all bells reset
     _g.combo = 0;
     for (const k in _g.upgrades)        _g.upgrades[k].count        = 0;
     for (const k in _g.clickUpgrades)   _g.clickUpgrades[k].count   = 0;
@@ -1426,7 +1450,7 @@ function _initGameDOM() {
     const el = _screens.game;
     if (!el) return;
 
-    const showSpirit = (_g.karma > 0 || _g.bells > 50);
+    const showSpirit = (_g.karma > 0 || _g.bells > 50 || _calcPotentialSpirits() > 0);
 
     el.innerHTML = `
 <div class="nk-root">
@@ -2301,7 +2325,7 @@ function _renderStats() {
             <div class="nk-stat-row"><span>🔔 Next Ascend Reward</span><span>+${_fmtN(nextBells)} Bell${nextBells !== 1 ? 's' : ''}</span></div>
             <div class="nk-stat-row"><span>📊 Ascend Progress</span><span>${bellProgress}% (need 50k 🐟)</span></div>
             <div class="nk-stat-row"><span>👻 Spirits (Karma)</span><span>${_fmtN(_g.karma)}</span></div>
-            <div class="nk-stat-row"><span>👻 Next Rebirth Reward</span><span>${nextSpirits > 0 ? '+' + _fmtN(nextSpirits) + ' Spirit' + (nextSpirits !== 1 ? 's' : '') : 'Need 100 Bells'}</span></div>
+            <div class="nk-stat-row"><span>👻 Next Rebirth Reward</span><span>${_calcPotentialSpirits() > 0 ? '+' + _fmtN(_calcPotentialSpirits()) + ' Spirit' + (_calcPotentialSpirits() !== 1 ? 's' : '') + (_calcBells() > 0 ? ' (incl. ascend)' : '') : 'Need 100 Bells'}</span></div>
             <div class="nk-stat-row"><span>📈 Idle Prod. Multiplier</span><span>×${(1 + Math.log10(1 + _g.bells) * 0.2).toFixed(2)} (from bells, log)</span></div>
             ${_g.transcendence > 0 ? `<div class="nk-stat-row"><span>✦ Transcendence Bonus</span><span>×${_getTranscendenceMult().toFixed(2)} to all production</span></div>` : `<div class="nk-stat-row"><span>✦ Transcendence</span><span>Need ${_fmtN(_calcTranscendenceCost())} 👻 to unlock</span></div>`}
         `;
@@ -2462,7 +2486,10 @@ function _updateUI() {
     const transcendBtn = g.querySelector('#nk-transcend-btn');
     const transcendBadge = g.querySelector('#nk-transcendence-badge');
     if (ascendBtn)  ascendBtn.textContent  = `⬆+${_fmtShort(_calcBells())}`;
-    if (rebirthBtn) rebirthBtn.textContent = `♻+${_fmtShort(_calcSpirits())}`;
+    if (rebirthBtn) rebirthBtn.textContent = `♻+${_fmtShort(_calcPotentialSpirits())}`;
+    if (rebirthBtn) rebirthBtn.title = _calcBells() > 0
+        ? `Rebirth (auto-ascends first: +${_fmtShort(_calcBells())} bells → +${_fmtShort(_calcPotentialSpirits())} spirits)`
+        : `Rebirth for +${_fmtShort(_calcPotentialSpirits())} spirits`;
 
     // Transcendence badge: ✦N left of 🐾 (always visible once first transcendence done)
     if (transcendBadge) {
@@ -2521,7 +2548,7 @@ function _updateUI() {
     // Keep leech bar in sync
     _updateLeechDojoBtn();
 
-    if (_g.karma > 0 || _g.bells > 50) {
+    if (_g.karma > 0 || _g.bells > 50 || _calcPotentialSpirits() > 0) {
         const karmaPill = g.querySelector('#nk-karma-pill');
         const navSpirit = g.querySelector('#nk-nav-spirit');
         const rebBtn    = g.querySelector('#nk-rebirth-btn');
