@@ -269,13 +269,16 @@ export function recordStageXP(meta, templateId, difficulty, xpEarned, xpMult = 1
     const baseBudget   = getStageXPBudget(difficulty);
     const yellowCap    = Math.round(baseBudget * XP_ALL_MODS_MULT);   // 5.90× — yellow ceiling
     // Effective cap for this run: at minimum the base budget, raised by active mods.
-    // If player earned beyond the yellow cap (wave grinding), track it all.
     const runCap       = Math.max(baseBudget, Math.round(baseBudget * Math.max(1.0, xpMult)));
-    // We store the raw xpEarned (uncapped) so green-tier grinding accumulates indefinitely.
+    // Clamp what we store to runCap — prevents wave-clear bonuses and enemy variance
+    // from silently bloating XP past what the UI shows as the budget.
+    // Once the player surpasses the yellow ceiling via wave grinding (green tier),
+    // we track the raw value so green-tier grinding accumulates indefinitely.
+    const cappedEarned = xpEarned <= yellowCap ? Math.min(xpEarned, runCap) : xpEarned;
     const prevBest     = meta.stageXPEarned[key] || 0;
-    const toAward      = Math.max(0, xpEarned - prevBest);
-    if (xpEarned > prevBest) {
-        meta.stageXPEarned[key] = xpEarned;
+    const toAward      = Math.max(0, cappedEarned - prevBest);
+    if (cappedEarned > prevBest) {
+        meta.stageXPEarned[key] = cappedEarned;
         saveMeta(meta);
     }
     return toAward;

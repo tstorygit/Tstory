@@ -1866,13 +1866,14 @@ function _renderGrimoire() {
 // ─── Mid-run autosave helpers ─────────────────────────────────────────────────
 
 /** Called after every wave-clear. Snapshots the run state and writes to localStorage. */
-function _autoSaveMidRun(engine, templateId, difficulty, gameMode, mapData) {
+function _autoSaveMidRun(engine, templateId, difficulty, gameMode, mapData, modifiers = []) {
     const snapshot = {
         saveId:    `${templateId}:${difficulty}:${Date.now()}`,
         timestamp: Date.now(),
         templateId,
         difficulty,
         gameMode,
+        modifiers,
         // Only the fields that are meaningful between waves (enemies/projectiles are gone).
         state: {
             mana:              engine.state.mana,
@@ -2067,25 +2068,27 @@ function _resumeFromSave(snapshot) {
 
     let ui;
     const effectiveMeta = { ..._meta, skills: getEffectiveSkills(_meta) };
+    const resumeModifiers = snapshot.modifiers || [];
+    const resumeXpMult    = combinedXpMult(resumeModifiers);
     _engine = new VcEngine(mapData, effectiveMeta, snapshot.difficulty, (eng, evts) => {
         if (ui) ui.draw(eng, evts);
         if (evts && evts.some(e => e.type === 'waveClear')) {
-            _autoSaveMidRun(eng, snapshot.templateId, snapshot.difficulty, snapshot.gameMode, mapData);
+            _autoSaveMidRun(eng, snapshot.templateId, snapshot.difficulty, snapshot.gameMode, mapData, resumeModifiers);
         }
     }, (isWin, xp) => {
-        // Mid-run resumes don't carry modifier info — award at 1× (base cap)
-        const awardedXP = recordStageXP(_meta, snapshot.templateId, snapshot.difficulty, xp, 1.0);
+        const awardedXP = recordStageXP(_meta, snapshot.templateId, snapshot.difficulty, xp, resumeXpMult);
         addXP(_meta, awardedXP);
         if (ui) { ui.destroy(); ui = null; }
+        const modNote = resumeModifiers.length > 0 ? ` [${resumeModifiers.map(id => RUN_MODIFIERS.find(m=>m.id===id)?.emoji).join('')} ${resumeXpMult.toFixed(2)}× XP]` : '';
         if (isWin) {
             clearStage(_meta, snapshot.templateId, snapshot.difficulty);
-            const repeatNote = awardedXP === 0 ? ' (already maxed)' : '';
-            alert(`${TEMPLATES.find(t => t.id === snapshot.templateId)?.name} D${snapshot.difficulty} Cleared! +${fmtN(Math.floor(awardedXP))} XP${repeatNote}`);
+            const repeatNote = awardedXP === 0 ? ' (already maxed — try harder modifiers!)' : '';
+            alert(`${TEMPLATES.find(t => t.id === snapshot.templateId)?.name} D${snapshot.difficulty} Cleared!${modNote} +${fmtN(Math.floor(awardedXP))} XP${repeatNote}`);
         } else {
-            alert(`Defeated! You salvaged +${fmtN(Math.floor(awardedXP))} XP`);
+            alert(`Defeated!${modNote} You salvaged +${fmtN(Math.floor(awardedXP))} XP`);
         }
         _showCamp();
-    }, snapshot.gameMode);
+    }, snapshot.gameMode, resumeModifiers);
 
     // ── Overwrite constructor defaults with saved state ──────────────────────
     Object.assign(_engine.state, snapshot.state);
@@ -2175,7 +2178,7 @@ function _startBattle(templateId, difficulty, gameMode = 'hard', modifiers = [])
         if (ui) ui.draw(eng, evts);
         // Auto-save: wave just fully cleared (enemies=0, queue=0) — perfect checkpoint.
         if (evts && evts.some(e => e.type === 'waveClear')) {
-            _autoSaveMidRun(eng, templateId, difficulty, gameMode, mapData);
+            _autoSaveMidRun(eng, templateId, difficulty, gameMode, mapData, modifiers);
         }
     }, (isWin, xp) => {
         const awardedXP = recordStageXP(_meta, templateId, difficulty, xp, runXpMult);
