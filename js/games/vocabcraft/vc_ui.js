@@ -942,7 +942,7 @@ export class VcUI {
         const gemDef = GEMS[gem.color];
         const isTrap = structRef.type === 'trap';
         const lvl = gem.level;
-        const cost = gemUpgradeCost(gem.color, lvl, this.engine.meta.skills);
+        const cost = gemUpgradeCost(gem.color, lvl, lvl + 1, this.engine.meta.skills);
         const mana = this.engine.state.mana;
 
         const poolMult  = this.engine.buffs?.poolMult || 1;
@@ -1074,7 +1074,7 @@ export class VcUI {
         // ── Upgrade slider ────────────────────────────────────────────────────
         let maxAffordUpgrade = lvl;
         for (let tl = lvl + 1; tl <= 40; tl++) {
-            if (this.engine.state.mana >= gemUpgradeCost(gem.color, tl - 1, this.engine.meta.skills))
+            if (this.engine.state.mana >= gemUpgradeCost(gem.color, lvl, tl, this.engine.meta.skills))
                 maxAffordUpgrade = tl;
             else break;
         }
@@ -1090,7 +1090,7 @@ export class VcUI {
             upLbl.textContent = '▲ Upgrade to:';
             const upVal = document.createElement('span');
             upVal.style.cssText = 'color:#f1c40f;font-weight:bold;';
-            const upCostInit = gemUpgradeCost(gem.color, maxAffordUpgrade - 1, this.engine.meta.skills);
+            const upCostInit = gemUpgradeCost(gem.color, lvl, maxAffordUpgrade, this.engine.meta.skills);
             upVal.textContent = `Lv.${maxAffordUpgrade} (${upCostInit} 💧)`;
             upgradeHeader.appendChild(upLbl);
             upgradeHeader.appendChild(upVal);
@@ -1111,7 +1111,7 @@ export class VcUI {
 
             upgradeSlider.oninput = () => {
                 const targetLv = parseInt(upgradeSlider.value, 10);
-                const upgCost  = gemUpgradeCost(gem.color, targetLv - 1, this.engine.meta.skills);
+                const upgCost  = gemUpgradeCost(gem.color, lvl, targetLv, this.engine.meta.skills);
                 upVal.textContent = `Lv.${targetLv} (${upgCost} 💧)`;
                 upBtn.textContent = `▲ Upgrade → Lv.${targetLv} (${fmtN(upgCost)} 💧)`;
                 upBtn.dataset.manaCost = upgCost;
@@ -1120,7 +1120,7 @@ export class VcUI {
 
             upBtn.onclick = () => {
                 const targetLv = parseInt(upgradeSlider.value, 10);
-                const upgCost  = gemUpgradeCost(gem.color, targetLv - 1, this.engine.meta.skills);
+                const upgCost  = gemUpgradeCost(gem.color, lvl, targetLv, this.engine.meta.skills);
                 this.handleVocabAction(upgCost, () => {
                     structRef.gem.level = targetLv;
                     this._structuresDirty = true;

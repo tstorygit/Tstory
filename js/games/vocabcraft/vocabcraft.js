@@ -1347,6 +1347,7 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
     function _updateSetupModUI() {
         const checks = modBody.querySelectorAll('[data-setup-mod-id]');
         _activeModifiers = [...checks].filter(c => c.checked).map(c => c.dataset.setupModId);
+        try { localStorage.setItem('vc_lastModifiers', JSON.stringify(_activeModifiers)); } catch(_) {}
         const mult = combinedXpMult(_activeModifiers);
         const countEl = modHeader.querySelector('#vc-setup-mod-count');
         const tierColor = mult >= 4.0 ? '#e74c3c' : mult >= 2.5 ? '#e67e22' : '#f1c40f';
@@ -1368,6 +1369,17 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
     modBody.querySelectorAll('[data-setup-mod-id]').forEach(cb => {
         cb.addEventListener('change', _updateSetupModUI);
     });
+
+    // Restore last-used modifiers from previous run
+    try {
+        const saved = JSON.parse(localStorage.getItem('vc_lastModifiers') || '[]');
+        if (Array.isArray(saved) && saved.length > 0) {
+            modBody.querySelectorAll('[data-setup-mod-id]').forEach(cb => {
+                if (saved.includes(cb.dataset.setupModId)) cb.checked = true;
+            });
+            _updateSetupModUI();
+        }
+    } catch(_) {}
 
     modHeader.addEventListener('click', () => {
         modBodyOpen = !modBodyOpen;
@@ -1607,6 +1619,7 @@ function _confirmAndStartBattle(templateId, difficulty) {
     function _updateModifierUI() {
         const checks = modal.querySelectorAll('[data-mod-id]');
         _activeModifiers = [...checks].filter(c => c.checked).map(c => c.dataset.modId);
+        try { localStorage.setItem('vc_lastModifiers', JSON.stringify(_activeModifiers)); } catch(_) {}
         const mult = combinedXpMult(_activeModifiers);
 
         // Update count label
@@ -1657,6 +1670,17 @@ function _confirmAndStartBattle(templateId, difficulty) {
     modal.querySelectorAll('[data-mod-id]').forEach(cb => {
         cb.addEventListener('change', _updateModifierUI);
     });
+
+    // Restore last-used modifiers
+    try {
+        const saved = JSON.parse(localStorage.getItem('vc_lastModifiers') || '[]');
+        if (Array.isArray(saved) && saved.length > 0) {
+            modal.querySelectorAll('[data-mod-id]').forEach(cb => {
+                if (saved.includes(cb.dataset.modId)) cb.checked = true;
+            });
+            _updateModifierUI();
+        }
+    } catch(_) {}
 
     modal.querySelector('#vc-confirm-go').onclick = () => {
         modal.remove();
@@ -2200,44 +2224,54 @@ function _startBattle(templateId, difficulty, gameMode = 'hard', modifiers = [])
         _engine.speedMult = _speedMult;
         _screens.game.querySelector('#vc-btn-speed').textContent = `⚡${_speedMult}x`;
 
-        // ── Modifier badges in HUD ───────────────────────────────────────────
-        const existingBadges = _screens.game.querySelector('#vc-mod-badges');
-        if (existingBadges) existingBadges.remove();
+        // ── Modifier info icon in HUD (replaces old pill strip that broke row2) ──
+        const existingModBtn = _screens.game.querySelector('#vc-mod-info-btn');
+        if (existingModBtn) existingModBtn.remove();
         if (modifiers.length > 0) {
-            const badgeStrip = document.createElement('div');
-            badgeStrip.id = 'vc-mod-badges';
-            badgeStrip.style.cssText = [
-                'display:flex', 'align-items:center', 'gap:4px',
-                'padding:2px 8px 2px 4px', 'flex-shrink:0'
+            const modBtn = document.createElement('button');
+            modBtn.id = 'vc-mod-info-btn';
+            modBtn.title = 'Active run modifiers';
+            modBtn.style.cssText = [
+                'background:#1f2d1a', 'border:1px solid #f39c12',
+                'border-radius:6px', 'padding:3px 7px',
+                'font-size:12px', 'font-weight:bold', 'color:#f39c12',
+                'cursor:pointer', 'flex-shrink:0', 'position:relative',
+                'white-space:nowrap', 'line-height:1'
             ].join(';');
-            modifiers.forEach(id => {
+            modBtn.textContent = `⚡${modifiers.length}`;
+
+            const lines = modifiers.map(id => {
                 const def = RUN_MODIFIERS.find(m => m.id === id);
-                if (!def) return;
-                const pill = document.createElement('div');
-                pill.title = `${def.name}: ${def.desc}`;
-                pill.style.cssText = [
-                    'display:flex', 'align-items:center', 'gap:3px',
-                    'background:#1f2d1a', 'border:1px solid #f39c12',
-                    'border-radius:10px', 'padding:1px 6px',
-                    'font-size:10px', 'font-weight:bold', 'color:#f39c12',
-                    'white-space:nowrap', 'cursor:default'
-                ].join(';');
-                pill.textContent = `${def.emoji} ${def.name}`;
-                badgeStrip.appendChild(pill);
+                return def ? `${def.emoji} ${def.name}: ${def.desc}` : id;
             });
-            // XP mult pill
-            const multPill = document.createElement('div');
-            multPill.style.cssText = [
-                'background:#1a2a1a', 'border:1px solid #2ecc71',
-                'border-radius:10px', 'padding:1px 7px',
-                'font-size:10px', 'font-weight:bold', 'color:#2ecc71',
-                'white-space:nowrap'
-            ].join(';');
-            multPill.textContent = `${runXpMult.toFixed(2)}× XP`;
-            badgeStrip.appendChild(multPill);
-            // Insert at front of wave-tracker row
-            const row2 = _screens.game.querySelector('.vc-topbar-row2');
-            if (row2) row2.insertBefore(badgeStrip, row2.firstChild);
+            lines.push(`XP Multiplier: ${runXpMult.toFixed(2)}×`);
+
+            let popup = null;
+            modBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (popup) { popup.remove(); popup = null; return; }
+                popup = document.createElement('div');
+                popup.style.cssText = [
+                    'position:fixed', 'z-index:9999',
+                    'background:#0f1c28', 'border:1px solid #f39c12',
+                    'border-radius:8px', 'padding:10px 14px',
+                    'font-size:11px', 'color:#ecf0f1', 'line-height:1.7',
+                    'box-shadow:0 4px 16px rgba(0,0,0,0.6)',
+                    'max-width:280px', 'pointer-events:none'
+                ].join(';');
+                popup.innerHTML = `<div style="font-size:12px;font-weight:bold;color:#f39c12;margin-bottom:6px;">⚡ Active Run Modifiers</div>`
+                    + lines.map((l, i) => `<div style="${i === lines.length - 1 ? 'margin-top:6px;color:#2ecc71;font-weight:bold;' : 'color:#bdc3c7;'}">${l}</div>`).join('');
+                const rect = modBtn.getBoundingClientRect();
+                popup.style.top  = (rect.bottom + 6) + 'px';
+                popup.style.left = Math.max(6, rect.left) + 'px';
+                document.body.appendChild(popup);
+                const close = () => { popup?.remove(); popup = null; document.removeEventListener('click', close); };
+                setTimeout(() => document.addEventListener('click', close), 0);
+            });
+
+            const howToBtn = _screens.game.querySelector('#vc-btn-howto');
+            if (howToBtn) howToBtn.insertAdjacentElement('beforebegin', modBtn);
+
         }
 
         _engine.start();

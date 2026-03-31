@@ -57,10 +57,23 @@ export function gemTotalCostColor(color, level, skills = {}) {
     const p = Math.pow(2, level - 1);
     return base * p + combine * (p - 1);
 }
-export function gemUpgradeCost(color, level, skills = {}) {
-    const colorDisc = 1 - ((skills[color + 'Cost'] || 0) * 0.01);
-    const combine   = Math.floor(gemCombineCost(skills) * colorDisc);
-    return gemTotalCostColor(color, level, skills) + combine;
+// gemUpgradeCost(color, fromLevel, toLevel, skills)
+// Returns the incremental mana cost to upgrade an existing gem from fromLevel → toLevel.
+// This is the delta between the two total costs, so a G3→G4 upgrade costs the same
+// as a G4 total cost minus a G3 total cost — not the full G4 build price.
+export function gemUpgradeCost(color, fromLevel, toLevel, skills = {}) {
+    // Legacy single-argument callers passed (color, targetLevel-1, skills) meaning
+    // "cost to go one step up from targetLevel-1 to targetLevel". Support that form
+    // when toLevel is omitted or is a plain object (the old skills arg position).
+    if (toLevel === undefined || (typeof toLevel === 'object' && toLevel !== null)) {
+        // Old signature: gemUpgradeCost(color, level, skills)
+        // level = fromLevel here, toLevel = fromLevel + 1
+        const oldSkills = (typeof toLevel === 'object' && toLevel !== null) ? toLevel : skills;
+        const fl = fromLevel;
+        const tl = fl + 1;
+        return gemTotalCostColor(color, tl, oldSkills) - gemTotalCostColor(color, fl, oldSkills);
+    }
+    return gemTotalCostColor(color, toLevel, skills) - gemTotalCostColor(color, fromLevel, skills);
 }
 
 export function gemDamage(gem, gemData, skills = {}) {
