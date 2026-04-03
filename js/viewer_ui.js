@@ -4,6 +4,7 @@ import * as srsDb from './srs_db.js';
 import { settings } from './settings.js';
 import { speakText, stopSpeech } from './tts_api.js';
 import { openPopup, closePopup } from './popup_manager.js';
+import { mountStoryVocabSelector } from './story_vocab_selector.js';
 
 // ─── ICONS ───────────────────────────────────────────────────────────────────
 
@@ -88,36 +89,134 @@ function renderLibrary() {
     storyContentDiv.innerHTML = '';
     const stories = storyMgr.getStoryList();
 
+    // ── Tabbed create/import/vocab panel ────────────────────────────────────────
     const createContainer = document.createElement('div');
-    createContainer.style.marginBottom = '30px';
-    createContainer.style.padding = '20px';
-    createContainer.style.background = 'var(--surface-color)';
-    createContainer.style.borderRadius = '8px';
-    createContainer.style.boxShadow = '0 2px 5px var(--shadow-light)';
+    createContainer.style.cssText = 'margin-bottom:30px;background:var(--surface-color);border-radius:10px;box-shadow:0 2px 5px var(--shadow-light);overflow:hidden;';
 
     createContainer.innerHTML = `
-        <h3 style="margin-bottom: 10px; color: var(--primary-color);">Create New Story</h3>
-        <textarea id="new-story-theme" rows="2" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); margin-bottom: 10px; background: var(--bg-color); color: var(--text-main);" placeholder="e.g. My cat Chi goes to space..."></textarea>
-        <button id="btn-create-story" class="primary-btn" style="margin-bottom: 20px;">Generate</button>
+        <!-- Tab bar -->
+        <div class="lib-tab-bar" style="display:flex;border-bottom:1px solid var(--border-color);">
+            <button class="lib-tab active" data-tab="create"
+                style="flex:1;padding:11px 8px;border:none;background:transparent;cursor:pointer;
+                       font-size:13px;font-weight:600;color:var(--primary-color);
+                       border-bottom:2px solid var(--primary-color);transition:all 0.15s;">
+                ✨ Create
+            </button>
+            <button class="lib-tab" data-tab="import"
+                style="flex:1;padding:11px 8px;border:none;background:transparent;cursor:pointer;
+                       font-size:13px;font-weight:600;color:var(--text-muted);
+                       border-bottom:2px solid transparent;transition:all 0.15s;">
+                📥 Import
+            </button>
+            <button class="lib-tab" data-tab="vocab"
+                style="flex:1;padding:11px 8px;border:none;background:transparent;cursor:pointer;
+                       font-size:13px;font-weight:600;color:var(--text-muted);
+                       border-bottom:2px solid transparent;transition:all 0.15s;">
+                🎯 Vocab Base
+            </button>
+        </div>
 
-        <div style="border-top: 1px solid var(--border-color); margin-bottom: 20px;"></div>
+        <!-- Create tab -->
+        <div class="lib-tab-pane" data-pane="create" style="padding:18px 20px;">
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;line-height:1.5;">
+                Describe a theme or scenario and the AI generates a Japanese story for you.
+                Set a <strong>Vocab Base</strong> (optional) to weave in specific words.
+            </div>
+            <textarea id="new-story-theme" rows="2"
+                style="width:100%;padding:10px;border-radius:6px;border:1px solid var(--border-color);
+                       margin-bottom:8px;background:var(--bg-color);color:var(--text-main);
+                       box-sizing:border-box;resize:vertical;"
+                placeholder="e.g. My cat Chi goes to space..."></textarea>
 
-        <h3 style="margin-bottom: 10px; color: #9c27b0;">Import Raw Text or Photo</h3>
-        <textarea id="import-raw-text" rows="3" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); margin-bottom: 10px; background: var(--bg-color); color: var(--text-main);" placeholder="Paste Japanese text here..."></textarea>
-        <div style="display: flex; gap: 10px;">
-            <button id="btn-import-story" class="primary-btn" style="flex: 1; background-color: #9c27b0;">Analyze Text</button>
-            <label for="import-photo-upload" class="primary-btn" style="width: auto; background-color: #7b1fa2; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0 20px;" title="Scan Photo">
-                📷 Scan
-            </label>
-            <input type="file" id="import-photo-upload" accept="image/*" style="display: none;">
+            <!-- Vocab base summary chip -->
+            <div id="vocab-base-chip" style="display:none;
+                margin-bottom:10px;padding:7px 12px;background:var(--bg-color);
+                border:1px solid var(--primary-color);border-radius:20px;
+                font-size:12px;color:var(--primary-color);cursor:pointer;
+                display:inline-flex;align-items:center;gap:6px;">
+                <span id="vocab-base-chip-text"></span>
+                <span style="opacity:0.6;font-size:10px;">(click Vocab Base tab to change)</span>
+            </div>
+
+            <button id="btn-create-story" class="primary-btn" style="width:100%;">⚡ Generate Story</button>
+        </div>
+
+        <!-- Import tab -->
+        <div class="lib-tab-pane" data-pane="import" style="display:none;padding:18px 20px;">
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;line-height:1.5;">
+                Paste Japanese text to have it tokenized and annotated, or scan a photo.
+            </div>
+            <textarea id="import-raw-text" rows="4"
+                style="width:100%;padding:10px;border-radius:6px;border:1px solid var(--border-color);
+                       margin-bottom:10px;background:var(--bg-color);color:var(--text-main);
+                       box-sizing:border-box;resize:vertical;"
+                placeholder="Paste Japanese text here..."></textarea>
+            <div style="display:flex;gap:10px;">
+                <button id="btn-import-story" class="primary-btn"
+                    style="flex:1;background-color:#9c27b0;">📝 Analyze Text</button>
+                <label for="import-photo-upload" class="primary-btn"
+                    style="width:auto;background-color:#7b1fa2;cursor:pointer;
+                           display:flex;align-items:center;justify-content:center;padding:0 20px;">
+                    📷 Scan
+                </label>
+                <input type="file" id="import-photo-upload" accept="image/*" style="display:none;">
+            </div>
+        </div>
+
+        <!-- Vocab Base tab -->
+        <div class="lib-tab-pane" data-pane="vocab" style="display:none;padding:18px 20px;">
+            <div id="svs-mount"></div>
         </div>
     `;
+
     storyContentDiv.appendChild(createContainer);
 
-    document.getElementById('btn-create-story').addEventListener('click', async () => {
-        const theme = document.getElementById('new-story-theme').value.trim();
+    // ── Mount vocab selector ─────────────────────────────────────────────────
+    const svsMountEl = createContainer.querySelector('#svs-mount');
+    const svsController = mountStoryVocabSelector(svsMountEl);
+
+    // ── Tab switching ────────────────────────────────────────────────────────
+    const tabs  = createContainer.querySelectorAll('.lib-tab');
+    const panes = createContainer.querySelectorAll('.lib-tab-pane');
+
+    function switchTab(targetTab) {
+        tabs.forEach(t => {
+            const active = t.getAttribute('data-tab') === targetTab;
+            t.classList.toggle('active', active);
+            t.style.color       = active ? 'var(--primary-color)' : 'var(--text-muted)';
+            t.style.borderBottom = active ? '2px solid var(--primary-color)' : '2px solid transparent';
+        });
+        panes.forEach(p => {
+            p.style.display = p.getAttribute('data-pane') === targetTab ? '' : 'none';
+        });
+
+        // Refresh preview when switching to vocab tab
+        if (targetTab === 'vocab') svsController.refresh();
+
+        // Update chip on create tab when leaving vocab tab
+        if (targetTab !== 'vocab') _updateVocabChip();
+    }
+
+    tabs.forEach(t => t.addEventListener('click', () => switchTab(t.getAttribute('data-tab'))));
+
+    function _updateVocabChip() {
+        const chip     = createContainer.querySelector('#vocab-base-chip');
+        const chipText = createContainer.querySelector('#vocab-base-chip-text');
+        const hasSel   = svsController.hasSelection();
+        chip.style.display = hasSel ? 'inline-flex' : 'none';
+        if (hasSel) chipText.textContent = `🎯 ${svsController.getSummaryText()}`;
+    }
+    _updateVocabChip();
+
+    // ── Create story ─────────────────────────────────────────────────────────
+    createContainer.querySelector('#btn-create-story').addEventListener('click', async () => {
+        const theme = createContainer.querySelector('#new-story-theme').value.trim();
         if (!theme) return alert("Please enter a theme!");
-        try {
+
+        // Collect vocab base (may be empty — that's fine)
+        const vocabBase = svsController.hasSelection() ? svsController.getSelection() : [];
+
+        const _doCreate = async () => {
             isBackgroundProcessing = false;
             showLoading(0, "Initializing Story...");
             await storyMgr.createNewStory(theme, updateProgress, () => {
@@ -127,30 +226,30 @@ function renderLibrary() {
             }, () => {
                 const s = storyMgr.getActiveStory();
                 if (s) renderBlock(s.blocks.length - 1);
-            });
+            }, vocabBase);
             renderReader();
             hideLoading();
             isBackgroundProcessing = false;
+        };
+
+        try {
+            await _doCreate();
         } catch (error) {
             hideLoading();
             isBackgroundProcessing = false;
-            const capturedTheme = theme;
             showErrorModal(error.message, async () => {
-                try {
-                    showLoading(0, "Initializing Story...");
-                    await storyMgr.createNewStory(capturedTheme, updateProgress, () => {
-                        hideLoading(); isBackgroundProcessing = true; renderReader();
-                    }, () => { const s = storyMgr.getActiveStory(); if (s) renderBlock(s.blocks.length - 1); });
-                    renderReader(); hideLoading(); isBackgroundProcessing = false;
-                } catch (e) { hideLoading(); isBackgroundProcessing = false; showErrorModal(e.message, null); }
+                try { await _doCreate(); }
+                catch (e) { hideLoading(); isBackgroundProcessing = false; showErrorModal(e.message, null); }
             });
         }
     });
 
-    document.getElementById('btn-import-story').addEventListener('click', async () => {
-        const text = document.getElementById('import-raw-text').value.trim();
+    // ── Import text ──────────────────────────────────────────────────────────
+    createContainer.querySelector('#btn-import-story').addEventListener('click', async () => {
+        const text = createContainer.querySelector('#import-raw-text').value.trim();
         if (!text) return alert("Please paste some text to import!");
-        try {
+
+        const _doImport = async () => {
             isBackgroundProcessing = false;
             showLoading(0, "Importing & Analyzing...");
             await storyMgr.createStoryFromRawText(text, updateProgress, () => {
@@ -164,33 +263,29 @@ function renderLibrary() {
             renderReader();
             hideLoading();
             isBackgroundProcessing = false;
+        };
+
+        try {
+            await _doImport();
         } catch (error) {
             hideLoading();
             isBackgroundProcessing = false;
-            const capturedText = text;
             showErrorModal(error.message, async () => {
-                try {
-                    showLoading(0, "Importing & Analyzing...");
-                    await storyMgr.createStoryFromRawText(capturedText, updateProgress, () => {
-                        hideLoading(); isBackgroundProcessing = true; renderReader();
-                    }, 'imported', () => { const s = storyMgr.getActiveStory(); if (s) renderBlock(s.blocks.length - 1); });
-                    renderReader(); hideLoading(); isBackgroundProcessing = false;
-                } catch (e) { hideLoading(); isBackgroundProcessing = false; showErrorModal(e.message, null); }
+                try { await _doImport(); }
+                catch (e) { hideLoading(); isBackgroundProcessing = false; showErrorModal(e.message, null); }
             });
         }
     });
 
-    document.getElementById('import-photo-upload').addEventListener('change', (e) => {
+    // ── Scan photo ───────────────────────────────────────────────────────────
+    createContainer.querySelector('#import-photo-upload').addEventListener('change', (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        
         const reader = new FileReader();
         reader.onload = async (event) => {
-            const dataUrl = event.target.result;
-            const base64Data = dataUrl.split(',')[1];
-            const mimeType = file.type;
-            
-            try {
+            const base64Data = event.target.result.split(',')[1];
+            const mimeType   = file.type;
+            const _doScan    = async () => {
                 isBackgroundProcessing = false;
                 showLoading(0, "Reading image...");
                 await storyMgr.createStoryFromImage(base64Data, mimeType, updateProgress, () => {
@@ -204,23 +299,18 @@ function renderLibrary() {
                 renderReader();
                 hideLoading();
                 isBackgroundProcessing = false;
+            };
+            try {
+                await _doScan();
             } catch (error) {
                 hideLoading();
                 isBackgroundProcessing = false;
-                const capturedBase64 = base64Data;
-                const capturedMime = mimeType;
                 showErrorModal(error.message, async () => {
-                    try {
-                        showLoading(0, "Reading image...");
-                        await storyMgr.createStoryFromImage(capturedBase64, capturedMime, updateProgress, () => {
-                            hideLoading(); isBackgroundProcessing = true; renderReader();
-                        }, () => { const s = storyMgr.getActiveStory(); if (s) renderBlock(s.blocks.length - 1); });
-                        renderReader(); hideLoading(); isBackgroundProcessing = false;
-                    } catch (e) { hideLoading(); isBackgroundProcessing = false; showErrorModal(e.message, null); }
+                    try { await _doScan(); }
+                    catch (e) { hideLoading(); isBackgroundProcessing = false; showErrorModal(e.message, null); }
                 });
             }
-            
-            e.target.value = ''; // Reset file input
+            e.target.value = '';
         };
         reader.readAsDataURL(file);
     });

@@ -45,7 +45,16 @@ export function deleteStory(id) {
     if (activeStoryId === id) activeStoryId = null;
 }
 
-export async function createNewStory(theme, onProgress, onRawTextReady, onEnrichedReady) {
+/**
+ * @param {string}   theme
+ * @param {Function} onProgress
+ * @param {Function} onRawTextReady
+ * @param {Function} onEnrichedReady
+ * @param {Array}    [vocabBase]  Optional array of {word, furi, translation} objects
+ *                                from story_vocab_selector. These words will be
+ *                                strongly encouraged in the generated story.
+ */
+export async function createNewStory(theme, onProgress, onRawTextReady, onEnrichedReady, vocabBase = []) {
     const stories = getStoryList();
     
     const newStory = {
@@ -54,7 +63,8 @@ export async function createNewStory(theme, onProgress, onRawTextReady, onEnrich
         themePrompt: theme,
         created: new Date().toISOString(),
         blocks: [],
-        type: 'generated'
+        type: 'generated',
+        vocabBase: vocabBase.length > 0 ? vocabBase : undefined,
     };
 
     stories.push(newStory);
@@ -196,6 +206,10 @@ export async function generateNextBlock(chosenOption, onProgress, onRawTextReady
         }
         targetWords = srsDb.getFilteredWords(srsCriteria).map(w => w.word);
     }
+
+    // Vocab base — words explicitly chosen by the user via the Vocab Base selector.
+    // These take priority and are injected as a stronger instruction.
+    const vocabBase = storyData.vocabBase || [];
     
     const customLevel = settings.customPromptParams || 'JLPT N4';
     const systemInstruction = `You are a Japanese visual novel writer.
@@ -210,7 +224,23 @@ STRICT RULES:
 
     let userPrompt = `Theme: ${storyData.themePrompt}`;
 
-    if (targetWords.length > 0) {
+    // Vocab base instruction — strong: aim to use as many of these as fits naturally
+    if (vocabBase.length > 0) {
+        // Pick a rotating slice of up to 15 words from the base to keep prompts focused.
+        // On subsequent blocks the slice shifts so different words get coverage over time.
+        const blockIdx = storyData.blocks.length;
+        const sliceSize = Math.min(15, vocabBase.length);
+        const offset = (blockIdx * sliceSize) % vocabBase.length;
+        const slice = [
+            ...vocabBase.slice(offset, offset + sliceSize),
+            ...vocabBase.slice(0, Math.max(0, (offset + sliceSize) - vocabBase.length))
+        ];
+        const wordList = slice.map(w => `${w.word}（${w.translation || w.furi || ''}）`).join('、');
+        userPrompt += `\n\nVOCABULARY BASE — Important: Naturally incorporate as many of these words as possible into the story. Prefer these over other word choices wherever the meaning fits:\n${wordList}`;
+    }
+
+    // Supplemental SRS words (if no vocab base, these are the only target words)
+    if (targetWords.length > 0 && vocabBase.length === 0) {
         userPrompt += `\nTry to naturally include these vocabulary words: ${targetWords.join(", ")}`;
     }
 
