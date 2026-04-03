@@ -1,25 +1,25 @@
 /**
  * story_vocab_selector.js
  *
- * A self-contained vocabulary picker for the "Create New Story" flow.
- * Unlike vocab_selector.js (which is deck/game focused), this one is
- * SRS-database focused — it lets you pick a subset of your own tracked
- * vocabulary to feed as a "vocab base" into story generation.
+ * A self-contained, polished vocabulary picker for story generation flows.
+ * Designed to be embedded either:
+ *   (a) as a collapsible accordion inside the "Create" tab, OR
+ *   (b) inside a modal sheet shown before generating a story continuation.
  *
  * ── Public API ────────────────────────────────────────────────────────────────
  *
- *   mountStoryVocabSelector(containerEl, options) → controller
+ *   mountStoryVocabSelector(containerEl, options?) → controller
  *
  *   controller.getSelection()   → Array<{word, furi, translation}>
- *   controller.getSummaryText() → string  (e.g. "50 due words")
+ *   controller.getSummaryText() → string  (e.g. "30 due words")
  *   controller.hasSelection()   → boolean
+ *   controller.refresh()        → void    (re-render with fresh DB data)
  *
  * ── Filter modes ─────────────────────────────────────────────────────────────
- *   due          – words whose dueDate <= now (SRS queue)
- *   recent       – recently reviewed (sorted by lastUpdated desc)
- *   interval_asc – shortest interval first (newest/struggling words)
- *   interval_desc– longest interval first (most mature words)
- *   status       – filter by LingQ status level (0–5)
+ *   due          – words whose dueDate ≤ now (SRS queue), most overdue first
+ *   recent       – recently reviewed (lastUpdated desc)
+ *   interval_asc – shortest interval first (struggling words)
+ *   status       – filter by LingQ status level(s)
  *   all          – all words, sorted by lastUpdated desc
  */
 
@@ -42,9 +42,9 @@ export function mountStoryVocabSelector(containerEl, opts = {}) {
     _wire(containerEl);
 
     return {
-        getSelection:   () => _buildSelection(containerEl),
-        getSummaryText: () => _summaryText(containerEl),
-        hasSelection:   () => _buildSelection(containerEl).length > 0,
+        getSelection:   () => _buildSelection(),
+        getSummaryText: () => _summaryText(),
+        hasSelection:   () => _buildSelection().length > 0,
         refresh:        () => { _render(containerEl); _wire(containerEl); },
     };
 }
@@ -52,111 +52,136 @@ export function mountStoryVocabSelector(containerEl, opts = {}) {
 // ─── RENDER ──────────────────────────────────────────────────────────────────
 
 function _render(el) {
-    const saved   = _load();
-    const allWords = Object.values(srsDb.getAllWords());
-    const total    = allWords.length;
+    const saved     = _load();
+    const allWords  = Object.values(srsDb.getAllWords());
+    const total     = allWords.length;
 
-    const mode    = saved.mode    ?? 'due';
-    const count   = saved.count   ?? 30;
-    const statuses = saved.statuses ?? [1, 2, 3];
+    const mode      = saved.mode     ?? 'due';
+    const count     = saved.count    ?? 30;
+    const statuses  = saved.statuses ?? [1, 2, 3];
 
-    // Count live preview for each mode
-    const now = Date.now();
+    const now       = Date.now();
     const dueCount  = allWords.filter(w => !w.dueDate || new Date(w.dueDate).getTime() <= now).length;
-    const allCount  = total;
+
+    const MODES = [
+        { value: 'due',          icon: '⏰', label: 'Due',        hint: dueCount > 0 ? `${dueCount}` : '' },
+        { value: 'recent',       icon: '🕐', label: 'Recent',     hint: '' },
+        { value: 'interval_asc', icon: '📈', label: 'Struggling', hint: '' },
+        { value: 'status',       icon: '🏷️', label: 'By Status',  hint: '' },
+        { value: 'all',          icon: '📚', label: 'All',        hint: `${total}` },
+    ];
+
+    const COUNTS = [10, 20, 30, 50, 100, 'All'];
+
+    const preview = _buildSelectionFromSettings(mode, count, statuses);
 
     el.innerHTML = `
-    <div class="svs-root" style="font-size:14px;">
+    <div class="svs-root">
 
-        <div style="margin-bottom:12px;color:var(--text-muted);font-size:12px;line-height:1.5;">
-            Select a subset of your SRS vocabulary (${total} words total) to guide the story.
-            The AI will try to include these words naturally.
-        </div>
-
-        <!-- Mode selector -->
-        <div style="margin-bottom:10px;">
-            <div style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;
-                        letter-spacing:0.06em;margin-bottom:6px;">Filter by</div>
-            <div class="svs-mode-group" style="display:flex;flex-wrap:wrap;gap:6px;">
-                ${_modeBtn('due',          '⏰ Due now',        mode, `${dueCount} words`)}
-                ${_modeBtn('recent',       '🕐 Recently done',  mode, '')}
-                ${_modeBtn('interval_asc', '📈 Shortest interval', mode, '')}
-                ${_modeBtn('interval_desc','📉 Longest interval',  mode, '')}
-                ${_modeBtn('status',       '🏷️ By status',      mode, '')}
-                ${_modeBtn('all',          '📚 All words',      mode, `${allCount}`)}
-            </div>
-        </div>
-
-        <!-- Status filter (only shown in 'status' mode) -->
-        <div class="svs-status-panel" style="${mode === 'status' ? '' : 'display:none;'}
-            margin-bottom:10px;padding:10px 14px;background:var(--surface-color);
-            border:1px solid var(--border-color);border-radius:8px;">
-            <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:8px;">
-                Include LingQ status levels:
-            </div>
-            <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                ${[0,1,2,3,4,5].map(s => `
-                    <label style="display:flex;align-items:center;cursor:pointer;">
-                        <input type="checkbox" class="svs-status-cb" value="${s}"
-                               ${statuses.includes(s) ? 'checked' : ''}
-                               style="width:14px;height:14px;margin-right:5px;cursor:pointer;">
-                        <span class="status-btn" data-status="${s}"
-                              style="display:inline-flex;align-items:center;justify-content:center;
-                                     width:28px;height:28px;border-radius:50%;font-size:13px;
-                                     font-weight:bold;border:2px solid transparent;">${s}</span>
-                    </label>`).join('')}
-            </div>
-        </div>
-
-        <!-- Count picker -->
-        <div style="margin-bottom:12px;">
-            <div style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;
-                        letter-spacing:0.06em;margin-bottom:6px;">How many words</div>
-            <div class="svs-count-group" style="display:flex;flex-wrap:wrap;gap:6px;">
-                ${[10, 20, 30, 50, 80, 'All'].map(c => `
-                    <button class="svs-count-btn${c == count || (c === 'All' && count === 'All') ? ' active' : ''}"
-                            data-count="${c}"
-                            style="padding:5px 12px;border-radius:6px;font-size:13px;cursor:pointer;
-                                   border:2px solid var(--border-color);
-                                   background:${(c == count || (c === 'All' && count === 'All'))
-                                       ? 'var(--primary-color)' : 'var(--surface-color)'};
-                                   color:${(c == count || (c === 'All' && count === 'All'))
-                                       ? '#fff' : 'var(--text-main)'};">${c}</button>
+        <div class="svs-row">
+            <div class="svs-section-label">Source</div>
+            <div class="svs-pill-row">
+                ${MODES.map(m => `
+                    <button class="svs-pill ${m.value === mode ? 'active' : ''}" data-mode="${m.value}">
+                        ${m.icon} ${m.label}${m.hint ? ` <span class="svs-badge">${m.hint}</span>` : ''}
+                    </button>
                 `).join('')}
             </div>
         </div>
 
-        <!-- Live preview -->
-        <div class="svs-preview" style="
-            padding:10px 14px;background:var(--surface-color);border:1px solid var(--border-color);
-            border-radius:8px;font-size:12px;color:var(--text-muted);min-height:36px;
-            display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            ${_previewHTML(_buildSelectionFromSettings(mode, count, statuses))}
+        <div class="svs-status-filter ${mode === 'status' ? '' : 'svs-hidden'}">
+            <div class="svs-section-label">Include status levels</div>
+            <div class="svs-status-row">
+                ${[0,1,2,3,4,5].map(s => `
+                    <label class="svs-status-label">
+                        <input type="checkbox" class="svs-status-cb" value="${s}"
+                               ${statuses.includes(s) ? 'checked' : ''}>
+                        <span class="status-btn" data-status="${s}">${s}</span>
+                    </label>
+                `).join('')}
+            </div>
         </div>
 
-    </div>`;
-}
+        <div class="svs-row">
+            <div class="svs-section-label">Limit</div>
+            <div class="svs-pill-row">
+                ${COUNTS.map(c => `
+                    <button class="svs-count-btn svs-pill ${
+                        (c === 'All' && count === 'All') || c == count ? 'active' : ''
+                    }" data-count="${c}">${c}</button>
+                `).join('')}
+            </div>
+        </div>
 
-function _modeBtn(value, label, current, hint) {
-    const active = value === current;
-    return `<button class="svs-mode-btn${active ? ' active' : ''}" data-mode="${value}"
-        style="padding:5px 11px;border-radius:6px;font-size:12px;cursor:pointer;
-               border:2px solid ${active ? 'var(--primary-color)' : 'var(--border-color)'};
-               background:${active ? 'var(--primary-color)' : 'var(--surface-color)'};
-               color:${active ? '#fff' : 'var(--text-main)'};
-               display:flex;flex-direction:column;align-items:center;gap:1px;line-height:1.2;">
-        <span>${label}</span>
-        ${hint ? `<span style="font-size:10px;opacity:0.75;">${hint}</span>` : ''}
-    </button>`;
+        <div class="svs-preview">
+            ${_previewHTML(preview)}
+        </div>
+
+    </div>
+
+    <style>
+    .svs-root { font-size:13px; color:var(--text-main); }
+    .svs-row { margin-bottom:12px; }
+    .svs-section-label {
+        font-size:10px; font-weight:700; text-transform:uppercase;
+        letter-spacing:0.08em; color:var(--text-muted); margin-bottom:7px;
+    }
+    .svs-pill-row { display:flex; flex-wrap:wrap; gap:5px; }
+    .svs-pill {
+        display:inline-flex; align-items:center; gap:4px;
+        padding:5px 11px; border-radius:20px;
+        border:1.5px solid var(--border-color);
+        background:var(--bg-color); color:var(--text-main);
+        font-size:12px; font-weight:500; cursor:pointer;
+        transition:border-color 0.12s, background 0.12s, color 0.12s;
+        white-space:nowrap; line-height:1;
+    }
+    .svs-pill:hover { border-color:var(--primary-color); color:var(--primary-color); }
+    .svs-pill.active {
+        background:var(--primary-color); border-color:var(--primary-color);
+        color:#fff; font-weight:600;
+    }
+    .svs-badge {
+        font-size:10px; font-weight:600;
+        background:rgba(0,0,0,0.15); border-radius:8px;
+        padding:1px 5px; line-height:1.4;
+    }
+    .svs-pill.active .svs-badge { background:rgba(255,255,255,0.25); }
+    .svs-status-filter { margin-bottom:12px; }
+    .svs-hidden { display:none !important; }
+    .svs-status-row { display:flex; gap:8px; flex-wrap:wrap; }
+    .svs-status-label { display:flex; align-items:center; gap:5px; cursor:pointer; }
+    .svs-status-label input[type="checkbox"] {
+        width:14px; height:14px; cursor:pointer; accent-color:var(--primary-color);
+    }
+    .svs-preview {
+        padding:9px 12px;
+        background:var(--bg-color);
+        border:1px solid var(--border-color);
+        border-radius:8px;
+        font-size:12px; color:var(--text-muted);
+        min-height:32px; display:flex; align-items:center;
+        flex-wrap:wrap; gap:5px; line-height:1.6;
+    }
+    .svs-word-chip {
+        background:var(--surface-color); border:1px solid var(--border-color);
+        border-radius:4px; padding:1px 7px; font-size:12px; color:var(--text-main);
+    }
+    .svs-preview-count { font-weight:700; color:var(--primary-color); margin-right:2px; }
+    </style>`;
 }
 
 function _previewHTML(words) {
-    if (words.length === 0) return `<span style="font-style:italic;">No words match — adjust filters above.</span>`;
-    const preview = words.slice(0, 8).map(w => `<span style="
-        background:var(--bg-color);border:1px solid var(--border-color);
-        border-radius:4px;padding:2px 6px;font-size:12px;">${w.word}</span>`).join('');
-    const more = words.length > 8 ? `<span style="font-style:italic;">+${words.length - 8} more</span>` : '';
-    return `<span style="font-weight:600;color:var(--text-main);margin-right:4px;">${words.length} words selected:</span>${preview}${more}`;
+    if (words.length === 0) {
+        return `<span style="font-style:italic;">No words match — adjust filters above.</span>`;
+    }
+    const chips = words.slice(0, 10).map(w =>
+        `<span class="svs-word-chip">${w.word}</span>`
+    ).join('');
+    const more = words.length > 10
+        ? `<span style="font-style:italic;">+${words.length - 10} more</span>`
+        : '';
+    return `<span class="svs-preview-count">${words.length} words</span>${chips}${more}`;
 }
 
 // ─── WIRE ─────────────────────────────────────────────────────────────────────
@@ -165,17 +190,14 @@ function _wire(el) {
     const root = el.querySelector('.svs-root');
     if (!root) return;
 
-    // Mode buttons
-    root.querySelectorAll('.svs-mode-btn').forEach(btn => {
+    root.querySelectorAll('.svs-pill[data-mode]').forEach(btn => {
         btn.addEventListener('click', () => {
-            const mode = btn.getAttribute('data-mode');
-            _save({ mode });
+            _save({ mode: btn.getAttribute('data-mode') });
             _render(el);
             _wire(el);
         });
     });
 
-    // Status checkboxes
     root.querySelectorAll('.svs-status-cb').forEach(cb => {
         cb.addEventListener('change', () => {
             const statuses = [...root.querySelectorAll('.svs-status-cb:checked')].map(c => +c.value);
@@ -184,20 +206,11 @@ function _wire(el) {
         });
     });
 
-    // Count buttons
     root.querySelectorAll('.svs-count-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const raw = btn.getAttribute('data-count');
-            const count = raw === 'All' ? 'All' : +raw;
-            _save({ count });
-
-            // Update button styles
-            root.querySelectorAll('.svs-count-btn').forEach(b => {
-                const isActive = b === btn;
-                b.style.background = isActive ? 'var(--primary-color)' : 'var(--surface-color)';
-                b.style.color      = isActive ? '#fff' : 'var(--text-main)';
-                b.style.border     = `2px solid ${isActive ? 'var(--primary-color)' : 'var(--border-color)'}`;
-            });
+            _save({ count: raw === 'All' ? 'All' : +raw });
+            root.querySelectorAll('.svs-count-btn').forEach(b => b.classList.toggle('active', b === btn));
             _refreshPreview(el);
         });
     });
@@ -205,7 +218,7 @@ function _wire(el) {
 
 function _refreshPreview(el) {
     const saved = _load();
-    const words  = _buildSelectionFromSettings(saved.mode ?? 'due', saved.count ?? 30, saved.statuses ?? [1,2,3]);
+    const words = _buildSelectionFromSettings(saved.mode ?? 'due', saved.count ?? 30, saved.statuses ?? [1, 2, 3]);
     const preview = el.querySelector('.svs-preview');
     if (preview) preview.innerHTML = _previewHTML(words);
 }
@@ -213,8 +226,8 @@ function _refreshPreview(el) {
 // ─── SELECTION BUILDER ───────────────────────────────────────────────────────
 
 function _buildSelectionFromSettings(mode, count, statuses) {
-    const now = Date.now();
-    let words = Object.values(srsDb.getAllWords());
+    const now  = Date.now();
+    let words  = Object.values(srsDb.getAllWords());
 
     switch (mode) {
         case 'due':
@@ -222,19 +235,15 @@ function _buildSelectionFromSettings(mode, count, statuses) {
             words.sort((a, b) => {
                 const da = a.dueDate ? new Date(a.dueDate).getTime() : 0;
                 const db = b.dueDate ? new Date(b.dueDate).getTime() : 0;
-                return da - db; // most overdue first
+                return da - db;
             });
             break;
         case 'recent':
             words.sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime());
             break;
         case 'interval_asc':
-            words = words.filter(w => w.interval !== undefined);
+            words = words.filter(w => w.interval !== undefined && w.interval > 0);
             words.sort((a, b) => (a.interval ?? Infinity) - (b.interval ?? Infinity));
-            break;
-        case 'interval_desc':
-            words = words.filter(w => w.interval !== undefined);
-            words.sort((a, b) => (b.interval ?? -1) - (a.interval ?? -1));
             break;
         case 'status':
             words = words.filter(w => statuses.includes(w.status));
@@ -253,7 +262,7 @@ function _buildSelectionFromSettings(mode, count, statuses) {
     return words.map(w => ({ word: w.word, furi: w.furi || '', translation: w.translation || '' }));
 }
 
-function _buildSelection(el) {
+function _buildSelection() {
     const saved = _load();
     return _buildSelectionFromSettings(
         saved.mode     ?? 'due',
@@ -262,17 +271,9 @@ function _buildSelection(el) {
     );
 }
 
-function _summaryText(el) {
-    const words = _buildSelection(el);
+function _summaryText() {
+    const words = _buildSelection();
     const saved = _load();
-    const modeLabels = {
-        due:           'due',
-        recent:        'recently reviewed',
-        interval_asc:  'shortest interval',
-        interval_desc: 'longest interval',
-        status:        'by status',
-        all:           'all',
-    };
-    const label = modeLabels[saved.mode ?? 'due'] ?? 'selected';
-    return `${words.length} ${label} word${words.length !== 1 ? 's' : ''}`;
+    const labels = { due:'due', recent:'recent', interval_asc:'struggling', status:'by status', all:'all' };
+    return `${words.length} ${labels[saved.mode ?? 'due'] ?? 'selected'} word${words.length !== 1 ? 's' : ''}`;
 }

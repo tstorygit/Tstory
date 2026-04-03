@@ -94,7 +94,7 @@ function renderLibrary() {
     createContainer.style.cssText = 'margin-bottom:30px;background:var(--surface-color);border-radius:10px;box-shadow:0 2px 5px var(--shadow-light);overflow:hidden;';
 
     createContainer.innerHTML = `
-        <!-- Tab bar -->
+        <!-- Tab bar (2 tabs only) -->
         <div class="lib-tab-bar" style="display:flex;border-bottom:1px solid var(--border-color);">
             <button class="lib-tab active" data-tab="create"
                 style="flex:1;padding:11px 8px;border:none;background:transparent;cursor:pointer;
@@ -108,34 +108,35 @@ function renderLibrary() {
                        border-bottom:2px solid transparent;transition:all 0.15s;">
                 📥 Import
             </button>
-            <button class="lib-tab" data-tab="vocab"
-                style="flex:1;padding:11px 8px;border:none;background:transparent;cursor:pointer;
-                       font-size:13px;font-weight:600;color:var(--text-muted);
-                       border-bottom:2px solid transparent;transition:all 0.15s;">
-                🎯 Vocab Base
-            </button>
         </div>
 
         <!-- Create tab -->
         <div class="lib-tab-pane" data-pane="create" style="padding:18px 20px;">
             <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;line-height:1.5;">
                 Describe a theme or scenario and the AI generates a Japanese story for you.
-                Set a <strong>Vocab Base</strong> (optional) to weave in specific words.
             </div>
             <textarea id="new-story-theme" rows="2"
                 style="width:100%;padding:10px;border-radius:6px;border:1px solid var(--border-color);
-                       margin-bottom:8px;background:var(--bg-color);color:var(--text-main);
+                       margin-bottom:10px;background:var(--bg-color);color:var(--text-main);
                        box-sizing:border-box;resize:vertical;"
                 placeholder="e.g. My cat Chi goes to space..."></textarea>
 
-            <!-- Vocab base summary chip -->
-            <div id="vocab-base-chip" style="display:none;
-                margin-bottom:10px;padding:7px 12px;background:var(--bg-color);
-                border:1px solid var(--primary-color);border-radius:20px;
-                font-size:12px;color:var(--primary-color);cursor:pointer;
-                display:inline-flex;align-items:center;gap:6px;">
-                <span id="vocab-base-chip-text"></span>
-                <span style="opacity:0.6;font-size:10px;">(click Vocab Base tab to change)</span>
+            <!-- Vocab Base accordion -->
+            <div id="svs-accordion" style="margin-bottom:10px;border:1px solid var(--border-color);border-radius:8px;overflow:hidden;">
+                <button id="svs-accordion-toggle"
+                    style="width:100%;display:flex;align-items:center;justify-content:space-between;
+                           padding:9px 13px;border:none;background:var(--bg-color);cursor:pointer;
+                           font-size:12px;font-weight:600;color:var(--text-muted);text-align:left;
+                           transition:background 0.12s;">
+                    <span style="display:flex;align-items:center;gap:6px;">
+                        <span>🎯</span>
+                        <span id="svs-accordion-label">Vocab Base <span style="font-weight:400;opacity:0.7;">(optional)</span></span>
+                    </span>
+                    <span id="svs-accordion-arrow" style="font-size:10px;transition:transform 0.2s;">▼</span>
+                </button>
+                <div id="svs-accordion-body" style="display:none;padding:14px;border-top:1px solid var(--border-color);background:var(--surface-color);">
+                    <div id="svs-mount"></div>
+                </div>
             </div>
 
             <button id="btn-create-story" class="primary-btn" style="width:100%;">⚡ Generate Story</button>
@@ -162,18 +163,47 @@ function renderLibrary() {
                 <input type="file" id="import-photo-upload" accept="image/*" style="display:none;">
             </div>
         </div>
-
-        <!-- Vocab Base tab -->
-        <div class="lib-tab-pane" data-pane="vocab" style="display:none;padding:18px 20px;">
-            <div id="svs-mount"></div>
-        </div>
     `;
 
     storyContentDiv.appendChild(createContainer);
 
-    // ── Mount vocab selector ─────────────────────────────────────────────────
+    // ── Mount vocab selector (lazy: only render when accordion first opens) ──
     const svsMountEl = createContainer.querySelector('#svs-mount');
-    const svsController = mountStoryVocabSelector(svsMountEl);
+    let svsController = null;
+    let svsReady = false;
+
+    function _ensureSvs() {
+        if (!svsReady) {
+            svsController = mountStoryVocabSelector(svsMountEl);
+            svsReady = true;
+        }
+    }
+
+    // ── Accordion wiring ─────────────────────────────────────────────────────
+    const accordionToggle = createContainer.querySelector('#svs-accordion-toggle');
+    const accordionBody   = createContainer.querySelector('#svs-accordion-body');
+    const accordionArrow  = createContainer.querySelector('#svs-accordion-arrow');
+    const accordionLabel  = createContainer.querySelector('#svs-accordion-label');
+
+    accordionToggle.addEventListener('click', () => {
+        const isOpen = accordionBody.style.display !== 'none';
+        accordionBody.style.display = isOpen ? 'none' : '';
+        accordionArrow.style.transform = isOpen ? '' : 'rotate(180deg)';
+        accordionToggle.style.background = isOpen ? 'var(--bg-color)' : 'var(--surface-color)';
+        if (!isOpen) {
+            _ensureSvs();
+            svsController.refresh();
+        }
+        _updateAccordionLabel();
+    });
+
+    function _updateAccordionLabel() {
+        if (!svsController) { accordionLabel.innerHTML = `Vocab Base <span style="font-weight:400;opacity:0.7;">(optional)</span>`; return; }
+        const hasSel = svsController.hasSelection();
+        accordionLabel.innerHTML = hasSel
+            ? `Vocab Base <span style="font-weight:400;color:var(--primary-color);">· ${svsController.getSummaryText()}</span>`
+            : `Vocab Base <span style="font-weight:400;opacity:0.7;">(optional)</span>`;
+    }
 
     // ── Tab switching ────────────────────────────────────────────────────────
     const tabs  = createContainer.querySelectorAll('.lib-tab');
@@ -183,38 +213,23 @@ function renderLibrary() {
         tabs.forEach(t => {
             const active = t.getAttribute('data-tab') === targetTab;
             t.classList.toggle('active', active);
-            t.style.color       = active ? 'var(--primary-color)' : 'var(--text-muted)';
+            t.style.color        = active ? 'var(--primary-color)' : 'var(--text-muted)';
             t.style.borderBottom = active ? '2px solid var(--primary-color)' : '2px solid transparent';
         });
         panes.forEach(p => {
             p.style.display = p.getAttribute('data-pane') === targetTab ? '' : 'none';
         });
-
-        // Refresh preview when switching to vocab tab
-        if (targetTab === 'vocab') svsController.refresh();
-
-        // Update chip on create tab when leaving vocab tab
-        if (targetTab !== 'vocab') _updateVocabChip();
     }
 
     tabs.forEach(t => t.addEventListener('click', () => switchTab(t.getAttribute('data-tab'))));
-
-    function _updateVocabChip() {
-        const chip     = createContainer.querySelector('#vocab-base-chip');
-        const chipText = createContainer.querySelector('#vocab-base-chip-text');
-        const hasSel   = svsController.hasSelection();
-        chip.style.display = hasSel ? 'inline-flex' : 'none';
-        if (hasSel) chipText.textContent = `🎯 ${svsController.getSummaryText()}`;
-    }
-    _updateVocabChip();
 
     // ── Create story ─────────────────────────────────────────────────────────
     createContainer.querySelector('#btn-create-story').addEventListener('click', async () => {
         const theme = createContainer.querySelector('#new-story-theme').value.trim();
         if (!theme) return alert("Please enter a theme!");
 
-        // Collect vocab base (may be empty — that's fine)
-        const vocabBase = svsController.hasSelection() ? svsController.getSelection() : [];
+        // Collect vocab base (null if accordion was never opened — that's fine)
+        const vocabBase = (svsController && svsController.hasSelection()) ? svsController.getSelection() : [];
 
         const _doCreate = async () => {
             isBackgroundProcessing = false;
@@ -942,7 +957,105 @@ function renderBlock(index) {
     }
 }
 
+// ─── VOCAB BASE MODAL (shown before each continuation) ───────────────────────
+
+let _vocabModalSvsController = null;
+
+function _showVocabModal(choiceText) {
+    return new Promise((resolve) => {
+        // Backdrop
+        const backdrop = document.createElement('div');
+        backdrop.style.cssText = `
+            position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:3000;
+            display:flex;align-items:flex-end;justify-content:center;
+            animation:svmFadeIn 0.15s ease;`;
+
+        // Sheet
+        const sheet = document.createElement('div');
+        sheet.style.cssText = `
+            width:100%;max-width:600px;
+            background:var(--surface-color);
+            border-radius:16px 16px 0 0;
+            padding:20px 20px 28px;
+            box-shadow:0 -4px 24px rgba(0,0,0,0.18);
+            animation:svmSlideUp 0.2s cubic-bezier(0.34,1.56,0.64,1);
+            max-height:82vh;overflow-y:auto;`;
+
+        // Header
+        const header = document.createElement('div');
+        header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;';
+        header.innerHTML = `
+            <div>
+                <div style="font-size:15px;font-weight:700;color:var(--text-main);">🎯 Vocab Base</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Choose which words to weave into the next block</div>
+            </div>
+            <button id="svm-close" style="
+                border:none;background:var(--bg-color);color:var(--text-muted);
+                width:30px;height:30px;border-radius:50%;font-size:16px;cursor:pointer;
+                display:flex;align-items:center;justify-content:center;line-height:1;">✕</button>`;
+
+        // Selector mount
+        const mount = document.createElement('div');
+        mount.id = 'svm-mount';
+
+        // Footer buttons
+        const footer = document.createElement('div');
+        footer.style.cssText = 'display:flex;gap:10px;margin-top:18px;';
+        footer.innerHTML = `
+            <button id="svm-skip" style="
+                flex:1;padding:11px;border-radius:8px;
+                border:1.5px solid var(--border-color);background:var(--bg-color);
+                color:var(--text-muted);font-size:13px;font-weight:600;cursor:pointer;">
+                Skip
+            </button>
+            <button id="svm-generate" style="
+                flex:2;padding:11px;border-radius:8px;border:none;
+                background:var(--primary-color);color:#fff;
+                font-size:13px;font-weight:700;cursor:pointer;">
+                ⚡ Generate
+            </button>`;
+
+        sheet.appendChild(header);
+        sheet.appendChild(mount);
+        sheet.appendChild(footer);
+        backdrop.appendChild(sheet);
+        document.body.appendChild(backdrop);
+
+        // Inject keyframe animations once
+        if (!document.getElementById('svm-styles')) {
+            const style = document.createElement('style');
+            style.id = 'svm-styles';
+            style.textContent = `
+                @keyframes svmFadeIn  { from { opacity:0 } to { opacity:1 } }
+                @keyframes svmSlideUp { from { transform:translateY(40px);opacity:0 } to { transform:translateY(0);opacity:1 } }`;
+            document.head.appendChild(style);
+        }
+
+        // Mount selector
+        _vocabModalSvsController = mountStoryVocabSelector(mount);
+
+        const _close = (vocab) => {
+            backdrop.remove();
+            resolve(vocab);
+        };
+
+        sheet.querySelector('#svm-close').addEventListener('click', () => _close(null));
+        sheet.querySelector('#svm-skip').addEventListener('click', () => _close([]));
+        sheet.querySelector('#svm-generate').addEventListener('click', () => {
+            const sel = _vocabModalSvsController.hasSelection()
+                ? _vocabModalSvsController.getSelection()
+                : [];
+            _close(sel);
+        });
+        backdrop.addEventListener('click', (e) => { if (e.target === backdrop) _close(null); });
+    });
+}
+
 async function triggerGeneration(choiceText) {
+    // Show vocab modal — null means user dismissed (cancel), [] means skip, array means use vocab
+    const vocabChoice = await _showVocabModal(choiceText);
+    if (vocabChoice === null) return;   // user hit ✕ or tapped backdrop — cancel generation
+
     try {
         isBackgroundProcessing = false;
         showLoading(0, "Writing next chapter...");
@@ -954,7 +1067,7 @@ async function triggerGeneration(choiceText) {
         }, () => {
             const s = storyMgr.getActiveStory();
             if (s) { currentBlockIndex = s.blocks.length - 1; renderBlock(currentBlockIndex); }
-        });
+        }, vocabChoice.length > 0 ? vocabChoice : null);
         currentBlockIndex = storyMgr.getActiveStory().blocks.length - 1;
         renderBlock(currentBlockIndex);
         hideLoading();

@@ -189,7 +189,7 @@ export async function createStoryFromImage(base64Data, mimeType, onProgress, onR
     return await createStoryFromRawText(extractedText, onProgress, onRawTextReady, 'imported-photo', onEnrichedReady);
 }
 
-export async function generateNextBlock(chosenOption, onProgress, onRawTextReady, onEnrichedReady = null) {
+export async function generateNextBlock(chosenOption, onProgress, onRawTextReady, onEnrichedReady = null, vocabOverride = null) {
     let stories = getStoryList();
     let storyIndex = stories.findIndex(s => s.id === activeStoryId);
     if (storyIndex === -1) throw new Error("Active story not found in storage.");
@@ -208,8 +208,8 @@ export async function generateNextBlock(chosenOption, onProgress, onRawTextReady
     }
 
     // Vocab base — words explicitly chosen by the user via the Vocab Base selector.
-    // These take priority and are injected as a stronger instruction.
-    const vocabBase = storyData.vocabBase || [];
+    // vocabOverride (from a per-continuation modal) takes precedence over the story-level base.
+    const vocabBase = vocabOverride ?? storyData.vocabBase ?? [];
     
     const customLevel = settings.customPromptParams || 'JLPT N4';
     const systemInstruction = `You are a Japanese visual novel writer.
