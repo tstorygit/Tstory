@@ -125,6 +125,7 @@ function _initGameState(battleMode = 'attrition') {
         answerDisabled:       false,
         answerTimeLeft:       1.0,
         combo:                0,
+        cardFlash:            null,   // { correct: idx, wrong: idx|null } — cleared after render delay
         // derived (computed)
         playerHp:0, playerAtk:0, playerDef:0, playerSpd:0, answerSecs:0, expToNext:0, _pb:null,
         // ui helpers
@@ -743,7 +744,6 @@ function _onGroupAttack(rawType) {
     _updateAtkBtnHighlight();
 
     const isCorrect = targetCard.trans === word.trans;
-    const timeFrac  = _g.answerTimeLeft;
 
     // SRS grading
     srsDb.gradeWordInGame({ word: word.word, furi: word.furi, translation: word.trans }, isCorrect ? 2 : 0, true);
@@ -767,6 +767,9 @@ function _onGroupAttack(rawType) {
         targetCard.dead      = true;
         targetCard.currentHp = 0;
         _g.enemyHp           = 0;
+
+        // Flash correct card green
+        _g.cardFlash = { correct: idx, wrong: null };
 
         const wildNote = rawType === 'wild' ? ` (Wild → ${resolvedType})` : '';
         if (feedback === 'weakness') _g.narration = `⚡ Weakness!${wildNote} "${targetCard.trans}" correct! EXP ×${mult.toFixed(2)}`;
@@ -801,6 +804,7 @@ function _onGroupAttack(rawType) {
         setTimeout(() => {
             _g.selectedGroupIdx = null;
             _g.answerDisabled   = false;
+            _g.cardFlash        = null;
 
             if (_g.battleMode === 'endless') {
                 // ── Endless: replace the dead slot with a fresh enemy ─────
@@ -846,6 +850,10 @@ function _onGroupAttack(rawType) {
         const { dmg, narration } = handleWrongAnswerRetaliation(_g, targetCard);
         _g.currentHp = Math.max(0, _g.currentHp - dmg);
 
+        // Find the correct card index to reveal it green
+        const correctIdx = _g.enemyGroup.findIndex(e => !e.dead && e.trans === word.trans);
+        _g.cardFlash = { correct: correctIdx, wrong: idx };
+
         const wildNote = rawType === 'wild' ? ` (Wild → ${resolvedType})` : '';
         _g.narration = `✗ "${targetCard.trans}" is wrong!${wildNote} ${narration}`;
 
@@ -858,9 +866,10 @@ function _onGroupAttack(rawType) {
             if (_g.currentHp <= 0) { _handlePlayerDefeated(); return; }
             _g.selectedGroupIdx = null;
             _g.answerDisabled   = false;
+            _g.cardFlash        = null;
             _renderGroupCards();
             _updateMultBadges();
-        }, 600);
+        }, 900);
     }
 }
 
@@ -1051,12 +1060,20 @@ function _renderTargetWord() {
 
 function _renderGroupCards() {
     if (!_g.enemyGroup.length) return;
+    const flash = _g.cardFlash;
     _dom.ecards.forEach((card, i) => {
         const e   = _g.enemyGroup[i];
         const sel = _g.selectedGroupIdx === i && !e.dead;
         const hpPct = Math.max(0, Math.round(e.currentHp / e.maxHp * 100));
         const hpCol = hpPct > 50 ? 'var(--tbb-hp-green)' : hpPct > 25 ? 'var(--tbb-hp-yellow)' : 'var(--tbb-hp-red)';
-        card.className = 'tbb-ecard' + (e.dead ? ' dead' : '') + (sel ? ' sel' : '');
+
+        let flashCls = '';
+        if (flash) {
+            if (i === flash.correct) flashCls = ' flash-correct';
+            else if (i === flash.wrong) flashCls = ' flash-wrong';
+        }
+
+        card.className = 'tbb-ecard' + (e.dead ? ' dead' : '') + (sel ? ' sel' : '') + flashCls;
         card.innerHTML = `
             <div class="tbb-ec-cursor">${sel ? '▼' : ''}</div>
             <div class="tbb-ec-icon">${e.emoji}</div>
@@ -1602,6 +1619,10 @@ function _injectStyles() {
 .tbb-ecard:hover:not(.dead)  { border-color: var(--tbb-gold); transform: translateY(-0.3em); box-shadow: 0 0.4em 1.2em rgba(0,0,0,.5); }
 .tbb-ecard.sel               { border-color: var(--tbb-green); transform: translateY(-0.4em); box-shadow: 0 0.5em 1.4em rgba(61,186,111,.3); }
 .tbb-ecard.dead              { opacity: .15; cursor: default; filter: grayscale(1); transform: none !important; pointer-events: none; }
+.tbb-ecard.flash-correct     { border-color: #2ecc71 !important; box-shadow: 0 0 1.2em rgba(46,204,113,.6) !important; background: rgba(46,204,113,.08); transform: translateY(-0.4em); animation: tbbFlashGreen .9s ease-out; }
+.tbb-ecard.flash-wrong       { border-color: #e74c3c !important; box-shadow: 0 0 1.2em rgba(231,76,60,.6)  !important; background: rgba(231,76,60,.10); animation: tbbFlashRed   .9s ease-out; }
+@keyframes tbbFlashGreen { 0% { box-shadow: 0 0 2.5em rgba(46,204,113,.9); } 100% { box-shadow: 0 0 0.8em rgba(46,204,113,.3); } }
+@keyframes tbbFlashRed   { 0% { box-shadow: 0 0 2.5em rgba(231,76,60,.9);  } 100% { box-shadow: 0 0 0.8em rgba(231,76,60,.3);  } }
 .tbb-ec-cursor { height: 1.1em; display: flex; justify-content: center; align-items: flex-end; font-size: 0.6em; color: var(--tbb-green); animation: tbbArrBob .5s ease-in-out infinite alternate; font-family: 'Courier New', monospace; }
 @keyframes tbbArrBob { from { transform: translateY(0); } to { transform: translateY(-0.2em); } }
 .tbb-ec-icon {
