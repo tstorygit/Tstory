@@ -7,7 +7,7 @@ import { spawnEnemy }         from './tbb_enemies.js';
 import { getFloorData }       from './tbb_floors.js';
 import { PERK_DEFS, REBIRTH_MIN_LEVEL, REBIRTH_AP_DIVIDER,
          totalApSpent, canSpendAp, computePerkBonuses, calcRebirthAp } from './tbb_ascension.js';
-import { getAttackMultiplier, handleWrongAnswerRetaliation,
+import { computePlayerDamage, getAttackMultiplier, handleWrongAnswerRetaliation,
          handlePlayerDefense, actionExp,
          timeAdjustExp, applyExpBonuses, expToNextLevel,
          generateMcOptions } from './tbb_battle.js';
@@ -56,6 +56,8 @@ function _defaultSave() {
         ascensionCount:       0,
         floorActionsDone:     {},   // floor# -> true, persisted so unlock/repeat logic survives sessions
         unlockedFeatures:     {},   // featureKey -> true
+        // Settings
+        autoProgressFloor:    false, // auto-advance to next floor after clearing current
     };
 }
 
@@ -84,6 +86,7 @@ function _writeSave() {
         ascensionCount:       _g.ascensionCount,
         floorActionsDone:     Object.assign({}, _g.floorActionsDone),
         unlockedFeatures:     Object.assign({}, _g.unlockedFeatures),
+        autoProgressFloor:    _g.autoProgressFloor ?? false,
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(s));
 }
@@ -111,7 +114,8 @@ function _initGameState(battleMode = 'attrition') {
         phase:                'idle',
         narration:            'Entering the dungeon…',
         attackType:           'slash',
-        quickStrikeMode:      true,   // tap card → instant attack with current type
+        quickStrikeMode:      false,   // CHANGED: weapon buttons set stance only; enemy click fires attack
+        autoProgressFloor:    sv.autoProgressFloor ?? false,
         // ── Group battle state ──────────────────────────────────────────
         enemyGroup:           [],    // array of 4 enemy objects with .trans + .dead
         selectedGroupIdx:     null,  // which card the player has targeted
@@ -199,15 +203,17 @@ function _renderSetup() {
         </label>`;
     actions.appendChild(modeWrap);
 
-    // ── Quick Strike mode toggle ──────────────────────────────────────────
+    // ── Quick Strike mode info (always on now) ────────────────────────────
     const qsWrap = document.createElement('div');
     qsWrap.style.cssText = 'margin-top:10px;display:flex;flex-direction:column;gap:6px;';
     qsWrap.innerHTML = `
-        <div style="font-size:0.85em;font-weight:700;color:#8090a8;letter-spacing:.04em;">CONTROL MODE</div>
-        <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:0.85em;">
-            <input type="checkbox" id="tbb-qs-toggle" checked style="margin-top:3px;flex-shrink:0;">
-            <span><strong>Quick Strike</strong> — Tap an enemy card to instantly attack with the selected type. Type buttons set your stance; enemy cards fire the attack.</span>
-        </label>`;
+        <div style="font-size:0.85em;font-weight:700;color:#8090a8;letter-spacing:.04em;">HOW TO FIGHT</div>
+        <div style="font-size:0.85em;color:#c0cad8;line-height:1.5;">
+            1️⃣ <b>Choose your weapon</b> — tap SLASH / PIERCE / MAGIC to set your stance.<br>
+            2️⃣ <b>Attack</b> — tap an enemy card to strike it with your current weapon.<br>
+            Enemies have real HP — it takes <b>~5 correct answers</b> to defeat one.<br>
+            Wrong answers let enemies <b>hit back</b>!
+        </div>`;
     actions.appendChild(qsWrap);
 
     const startBtn = document.createElement('button');
@@ -232,9 +238,9 @@ async function _startGame() {
 
     _vocabQueue = queue.map(w => ({ word: w.word, furi: w.furi || w.word, trans: w.trans || '—' }));
     const modeRadio = _screens.setup.querySelector('input[name="tbb-mode"]:checked');
-    const qsCheck   = _screens.setup.querySelector('#tbb-qs-toggle');
     _initGameState(modeRadio?.value ?? 'attrition');
-    _g.quickStrikeMode = qsCheck ? qsCheck.checked : true;
+    // quickStrikeMode is always true: weapon buttons set stance, enemy taps fire attack
+    _g.quickStrikeMode = true;
 
     _show('game');
     _buildGameDOM();
@@ -248,34 +254,31 @@ let _timerStartMs   = 0;       // wall-clock time of last resume
 
 function _spawnEnemyAndBegin() {
     // ── Spawn a group of 4 enemies of the same template ──────────────────
-    // Use the same floor-tier logic: pick one template, clone 4× with hp variance
     const templateEnemy = spawnEnemy(_g.currentFloor);
     _g.enemy   = templateEnemy;  // keep for legacy helpers
     _g.enemyHp = templateEnemy.maxHp;
 
     _g.enemyGroup = [0,1,2,3].map(() => {
         const e = spawnEnemy(_g.currentFloor);
-        // Force same name/emoji as template so the group looks coherent
         return {
             ...e,
-            name:   templateEnemy.name,
-            emoji:  templateEnemy.emoji,
-            weakTo: templateEnemy.weakTo,
-            resists:templateEnemy.resists,
-            maxHp:  templateEnemy.maxHp,
-            currentHp: templateEnemy.maxHp,
-            dead:   false,
-            trans:  null,   // assigned below
+            name:      templateEnemy.name,
+            emoji:     templateEnemy.emoji,
+            weakTo:    templateEnemy.weakTo,
+            resists:   templateEnemy.resists,
+            maxHp:     templateEnemy.maxHp,
+            currentHp: templateEnemy.maxHp,  // real HP — enemies take damage per answer
+            dead:      false,
+            trans:     null,
         };
     });
 
-    // ── Pick vocab word and assign translations ───────────────────────────
     _prepareGroupVocab();
 
     _g.selectedGroupIdx = null;
     _g.answerDisabled   = false;
     _g.phase            = 'player_attack';
-    _g.narration        = `${templateEnemy.emoji} ${templateEnemy.name} ×4 appear! (Lv.${templateEnemy.level}) Strike the correct meaning!`;
+    _g.narration        = `${templateEnemy.emoji} ${templateEnemy.name} ×4 appear! (Lv.${templateEnemy.level}) Select your weapon, then strike!`;
 
     _renderAll();
     _updateComboDisplay();
@@ -689,54 +692,41 @@ function _selectGroupEnemy(idx) {
     if (_g.answerDisabled || _g.phase !== 'player_attack') return;
     if (_g.enemyGroup[idx]?.dead) return;
 
-    if (_g.quickStrikeMode) {
-        // Quick Strike: selecting a card immediately fires the attack with the current type
-        _g.selectedGroupIdx = idx;
-        _renderGroupCards();
-        _onGroupAttack(_g.attackType);
-    } else {
-        // Classic: first click selects, then player presses a type button
-        _g.selectedGroupIdx = idx;
-        _renderGroupCards();
-        _updateMultBadges();
-    }
+    // Selecting an enemy ALWAYS fires the attack with the currently selected weapon
+    _g.selectedGroupIdx = idx;
+    _renderGroupCards();
+    _onGroupAttack(_g.attackType);
 }
 
-// ─── Group Battle: type button clicked ───────────────────────────────────────
+// ─── Group Battle: type button clicked — sets stance ONLY ─────────────────────
 function _onTypeButtonClick(rawType) {
-    if (_g.answerDisabled || _g.phase !== 'player_attack') return;
+    if (_g.phase !== 'player_attack') return;
 
-    if (_g.quickStrikeMode) {
-        // Set stance; if a card is already targeted, fire immediately
-        const resolvedType = rawType === 'wild'
-            ? ['slash','pierce','magic'][Math.floor(Math.random() * 3)]
-            : rawType;
-        _g.attackType = resolvedType;
-        _updateAtkBtnHighlight();
-        if (_g.selectedGroupIdx !== null && !_g.enemyGroup[_g.selectedGroupIdx]?.dead) {
-            _onGroupAttack(rawType);
-        }
-    } else {
-        // Classic: type button fires attack (card must be selected first)
-        _onGroupAttack(rawType);
-    }
+    // Wild randomly picks a type for the next attack
+    const resolvedType = rawType === 'wild'
+        ? ['slash','pierce','magic'][Math.floor(Math.random() * 3)]
+        : rawType;
+    _g.attackType = resolvedType;
+    _updateAtkBtnHighlight();
+    _updateMultBadges();
+    // Show feedback in narration so player knows what stance they're in
+    const labels = { slash: '⚔ SLASH', pierce: '🗡 PIERCE', magic: '✦ MAGIC' };
+    const rawLabel = rawType === 'wild' ? `? WILD → ${resolvedType.toUpperCase()}` : labels[resolvedType];
+    _g.narration = `Stance: ${rawLabel} — now tap an enemy to attack!`;
+    _updateNarration();
 }
 
-// ─── Group Battle: fire attack (called by type buttons) ───────────────────────
+// ─── Group Battle: fire attack (called when player taps an enemy card) ────────
 function _onGroupAttack(rawType) {
     if (_g.answerDisabled || _g.phase !== 'player_attack') return;
-    if (_g.selectedGroupIdx === null) {
-        _g.narration = 'Select an enemy first!';
-        _updateNarration();
-        return;
-    }
+    if (_g.selectedGroupIdx === null) return;
 
     _g.answerDisabled = true;
     _stopTimer();
 
-    const idx        = _g.selectedGroupIdx;
-    const targetCard = _g.enemyGroup[idx];
-    const word       = _g.groupTargetWord;
+    const idx          = _g.selectedGroupIdx;
+    const targetCard   = _g.enemyGroup[idx];
+    const word         = _g.groupTargetWord;
     const resolvedType = rawType === 'wild'
         ? ['slash','pierce','magic'][Math.floor(Math.random() * 3)]
         : rawType;
@@ -753,116 +743,125 @@ function _onGroupAttack(rawType) {
     const comboMult = _g.combo > 1 ? (1 + 0.2 * Math.log2(_g.combo)) : 1.0;
     _updateComboDisplay();
 
-    if (isCorrect) {
-        // ── Correct: EXP scaled by type matchup via getAttackMultiplier ─────
-        const { mult, feedback } = getAttackMultiplier(targetCard, resolvedType, _g._pb);
-        // weaknessAmpBonus already baked into mult from getAttackMultiplier
-        const expMult = mult;
+    const wildNote = rawType === 'wild' ? ` (Wild→${resolvedType})` : '';
 
+    if (isCorrect) {
+        // ── Correct: deal real HP damage to the enemy ────────────────────
+        const { dmg, mult, feedback } = computePlayerDamage(targetCard, resolvedType, _g.playerAtk, _g._pb);
+        targetCard.currentHp = Math.max(0, targetCard.currentHp - dmg);
+        const died = targetCard.currentHp <= 0;
+        if (died) targetCard.dead = true;
+
+        // EXP: type multiplier + combo
         let rawExp = actionExp(targetCard.expYield, true);
-        rawExp     = timeAdjustExp(rawExp, 1.0); // no timer — always full value
-        rawExp     = Math.round(rawExp * comboMult * expMult);
+        rawExp     = timeAdjustExp(rawExp, 1.0);
+        rawExp     = Math.round(rawExp * comboMult * mult);
         const gained = applyExpBonuses(rawExp, _g._pb.additiveExpPct, _g._pb.multExpPct);
 
-        targetCard.dead      = true;
-        targetCard.currentHp = 0;
-        _g.enemyHp           = 0;
-
-        // Flash correct card green
         _g.cardFlash = { correct: idx, wrong: null };
 
-        const wildNote = rawType === 'wild' ? ` (Wild → ${resolvedType})` : '';
-        if (feedback === 'weakness') _g.narration = `⚡ Weakness!${wildNote} "${targetCard.trans}" correct! EXP ×${mult.toFixed(2)}`;
-        else if (feedback === 'resist') _g.narration = `🛡 Resisted${wildNote}, but correct. "${targetCard.trans}" — EXP ×0.5`;
-        else if (feedback === 'crit')   _g.narration = `💥 Critical${wildNote}! "${targetCard.trans}" — EXP ×${mult.toFixed(1)}`;
-        else                            _g.narration = `✓ Correct${wildNote}! "${targetCard.trans}" — ${targetCard.name} defeated.`;
+        const hpStr = died ? ' ☠️' : ` [${targetCard.currentHp}/${targetCard.maxHp} HP]`;
+        if (feedback === 'weakness') _g.narration = `⚡ Weakness!${wildNote} -${dmg} dmg${hpStr}`;
+        else if (feedback === 'resist') _g.narration = `🛡 Resisted${wildNote}. -${dmg} dmg${hpStr}`;
+        else if (feedback === 'crit')   _g.narration = `💥 Crit!${wildNote} -${dmg} dmg${hpStr}`;
+        else                            _g.narration = `✓ Hit!${wildNote} -${dmg} dmg${hpStr}`;
 
-        _g.totalEnemiesDefeated++;
-        _g.enemiesOnFloorKilled++;
+        if (died) {
+            _g.totalEnemiesDefeated++;
+            _g.enemiesOnFloorKilled++;
+            _g.narration = `☠️ ${targetCard.name} defeated!${wildNote}`;
+
+            // Floor unlock: 4 kills = floor cleared
+            if (_g.enemiesOnFloorKilled >= 4) {
+                _g.enemiesOnFloorKilled = 0;
+                const nextFloor = _g.currentFloor + 1;
+                if (nextFloor <= MAX_FLOORS) {
+                    const wasNew = nextFloor > _g.maxUnlockedFloor;
+                    if (wasNew) _g.maxUnlockedFloor = nextFloor;
+                    if (_g.autoProgressFloor) {
+                        _g.currentFloor = nextFloor;
+                        _g.narration = `🗺️ Floor cleared! → Floor ${nextFloor}!`;
+                    } else if (wasNew) {
+                        _g.narration = `🗺️ Floor ${nextFloor} unlocked! (Menu → Go to Floor)`;
+                    }
+                }
+            }
+            _writeSave();
+        }
 
         _addExp(gained);
         _updateDueCount();
-        _g.selectedGroupIdx = null;  // clear before render so flash-correct wins over sel style
-        _spawnFloatEnemy(`+${gained} EXP`,
+        _g.selectedGroupIdx = null;
+        _spawnFloatEnemy(`-${dmg}${died ? '☠' : ''}`,
             feedback === 'weakness' ? '#d4a847' :
             feedback === 'crit'     ? '#9b6fff' :
             feedback === 'resist'   ? '#e07070' : '#3dba6f');
+        _spawnFloatPlayer(`+${gained} EXP`, '#3498db');
         _renderGroupCards();
         _updateHpBars();
         _updateNarration();
         _updateMultBadges();
 
-        // Floor unlock check
-        const unlocked = _g.enemiesOnFloorKilled >= ENEMIES_PER_FLOOR_UNLOCK
-            && _g.currentFloor === _g.maxUnlockedFloor
-            && _g.maxUnlockedFloor < MAX_FLOORS - 1;
-        if (unlocked) {
-            _g.maxUnlockedFloor++;
-            _g.narration += `  🗺️ Floor ${_g.maxUnlockedFloor} unlocked!`;
-            _updateNarration();
-        }
-        _writeSave();
-
         setTimeout(() => {
-            _g.selectedGroupIdx = null;
-            _g.answerDisabled   = false;
-            _g.cardFlash        = null;
+            if (_g.phase === 'game_over') return;
+            _g.cardFlash      = null;
+            _g.answerDisabled = false;
 
             if (_g.battleMode === 'endless') {
-                // ── Endless: replace the dead slot with a fresh enemy ─────
-                const fresh = spawnEnemy(_g.currentFloor);
-                _g.enemyGroup[idx] = {
-                    ...fresh,
-                    currentHp: fresh.maxHp,
-                    dead:      false,
-                    trans:     null,
-                };
-                // Redistribute all 4 MC options across the (now full) group
+                if (died) {
+                    // Replace dead slot with fresh enemy of same type
+                    const fresh = spawnEnemy(_g.currentFloor);
+                    _g.enemyGroup[idx] = {
+                        ...fresh,
+                        name: _g.enemy.name, emoji: _g.enemy.emoji,
+                        weakTo: _g.enemy.weakTo, resists: _g.enemy.resists,
+                        maxHp: _g.enemy.maxHp, currentHp: _g.enemy.maxHp,
+                        dead: false, trans: null,
+                    };
+                }
                 _prepareGroupVocab();
                 const aliveCount = _g.enemyGroup.filter(e => !e.dead).length;
-                _g.narration = `${fresh.emoji} ${fresh.name} joins the fray! (${aliveCount} remain)`;
+                _g.narration = died
+                    ? `${_g.enemy.emoji} A new ${_g.enemy.name} appears! (${aliveCount} standing)`
+                    : `${targetCard.name} staggers but stands! Keep attacking!`;
                 _renderAll();
                 _updateComboDisplay();
             } else {
-                // ── Attrition: check survivors ────────────────────────────
-                const aliveIndices = _g.enemyGroup
-                    .map((e, i) => e.dead ? null : i)
-                    .filter(i => i !== null);
-
+                // Attrition
+                const aliveIndices = _g.enemyGroup.map((e, i) => e.dead ? null : i).filter(i => i !== null);
                 if (aliveIndices.length === 0) {
-                    // All 4 dead — full encounter clear, spawn new wave
-                    _spawnEnemyAndBegin();
+                    _spawnEnemyAndBegin();  // whole wave cleared
                 } else {
-                    // Redistribute MC options only among the living cards
                     _prepareGroupVocabAmong(aliveIndices);
-                    const lastName = _g.enemyGroup[aliveIndices[0]].name;
-                    _g.narration = aliveIndices.length === 1
-                        ? `⚔️ One ${lastName} remains — finish it!`
-                        : `${aliveIndices.length} enemies remain — strike the correct meaning!`;
+                    const nAlive = aliveIndices.length;
+                    _g.narration = died
+                        ? (nAlive === 1 ? `⚔️ One enemy remains!` : `${nAlive} enemies remain!`)
+                        : `${targetCard.name} fights back! [${targetCard.currentHp}/${targetCard.maxHp} HP]`;
                     _renderGroupCards();
                     _renderTargetWord();
                     _updateMultBadges();
                     _updateNarration();
                 }
             }
-        }, 1100);
+        }, 1000);
 
     } else {
         // ── Wrong: targeted enemy retaliates ─────────────────────────────
         const { dmg, narration } = handleWrongAnswerRetaliation(_g, targetCard);
         _g.currentHp = Math.max(0, _g.currentHp - dmg);
 
-        // Find the correct card index to reveal it green
         const correctIdx = _g.enemyGroup.findIndex(e => !e.dead && e.trans === word.trans);
         _g.cardFlash = { correct: correctIdx, wrong: idx };
 
-        const wildNote = rawType === 'wild' ? ` (Wild → ${resolvedType})` : '';
-        _g.narration = `✗ "${targetCard.trans}" is wrong!${wildNote} ${narration}`;
-
+        _g.narration = `✗ Wrong!${wildNote} ${narration}`;
         _spawnFloatPlayer(`-${dmg}`, '#e74c3c');
         _renderGroupCards();
         _updateHpBars();
         _updateNarration();
+
+        // Small EXP even on wrong
+        const wrongExp = applyExpBonuses(actionExp(targetCard.expYield, false), _g._pb.additiveExpPct, _g._pb.multExpPct);
+        if (wrongExp > 0) _addExp(wrongExp);
 
         setTimeout(() => {
             if (_g.currentHp <= 0) { _handlePlayerDefeated(); return; }
@@ -870,10 +869,7 @@ function _onGroupAttack(rawType) {
             _g.answerDisabled   = false;
             _g.cardFlash        = null;
 
-            // Pick a fresh target word and redistribute MC options among alive cards
-            const aliveIndices = _g.enemyGroup
-                .map((e, i) => e.dead ? null : i)
-                .filter(i => i !== null);
+            const aliveIndices = _g.enemyGroup.map((e, i) => e.dead ? null : i).filter(i => i !== null);
             _prepareGroupVocabAmong(aliveIndices);
             _renderGroupCards();
             _renderTargetWord();
@@ -974,9 +970,9 @@ function _buildGameDOM() {
 
     <!-- ── ATTACK TYPE FOOTER ────────────────────────────────────────── -->
     <div class="tbb-footer">
-        <button class="tbb-atk-btn tbb-type-slash" id="tbb-bt-slash"  data-type="slash"  onclick="">⚔ SLASH<span  class="tbb-atk-sub">stance</span><span class="tbb-mult-badge" id="tbb-mb-slash"></span></button>
-        <button class="tbb-atk-btn tbb-type-pierce" id="tbb-bt-pierce" data-type="pierce" onclick="">🗡 PIERCE<span class="tbb-atk-sub">stance</span><span class="tbb-mult-badge" id="tbb-mb-pierce"></span></button>
-        <button class="tbb-atk-btn tbb-type-magic"  id="tbb-bt-magic"  data-type="magic"  onclick="">✦ MAGIC<span  class="tbb-atk-sub">stance</span><span class="tbb-mult-badge" id="tbb-mb-magic"></span></button>
+        <button class="tbb-atk-btn tbb-type-slash" id="tbb-bt-slash"  data-type="slash"  onclick="">⚔ SLASH<span  class="tbb-atk-sub">set stance</span><span class="tbb-mult-badge" id="tbb-mb-slash"></span></button>
+        <button class="tbb-atk-btn tbb-type-pierce" id="tbb-bt-pierce" data-type="pierce" onclick="">🗡 PIERCE<span class="tbb-atk-sub">set stance</span><span class="tbb-mult-badge" id="tbb-mb-pierce"></span></button>
+        <button class="tbb-atk-btn tbb-type-magic"  id="tbb-bt-magic"  data-type="magic"  onclick="">✦ MAGIC<span  class="tbb-atk-sub">set stance</span><span class="tbb-mult-badge" id="tbb-mb-magic"></span></button>
         <button class="tbb-atk-btn tbb-type-wild"   id="tbb-bt-wild"   data-type="wild"   onclick="">? WILD<span   class="tbb-atk-sub">random</span><span class="tbb-mult-badge" id="tbb-mb-wild">×??</span></button>
     </div>
 
@@ -1107,34 +1103,36 @@ function _renderGroupCards() {
         }
 
         card.className = 'tbb-ecard' + (e.dead ? ' dead' : '') + (sel ? ' sel' : '') + flashCls;
+        const hpLabel = e.dead ? '💀' : `${e.currentHp}/${e.maxHp}`;
         card.innerHTML = `
-            <div class="tbb-ec-cursor">${sel ? '▼' : ''}</div>
+            <div class="tbb-ec-cursor">${sel ? '▼ ATTACK' : ''}</div>
             <div class="tbb-ec-icon">${e.emoji}</div>
             <div class="tbb-ec-info">
                 <div class="tbb-ec-name">${e.name}</div>
                 <div class="tbb-ec-hpbg"><div class="tbb-ec-hpfill" style="width:${hpPct}%;background:${hpCol}"></div></div>
+                <div class="tbb-ec-hplbl">${hpLabel}</div>
             </div>
             <div class="tbb-ec-trans">${e.trans}</div>`;
     });
 }
 
 function _updateMultBadges() {
+    // Show what the current stance does vs the first alive enemy (representative)
     const TYPES = ['slash','pierce','magic'];
-    const sel = _g.selectedGroupIdx;
-    if (sel === null || !_g.enemyGroup[sel]) {
+    const firstAlive = _g.enemyGroup.find(e => !e.dead) ?? null;
+    if (!firstAlive) {
         TYPES.forEach(t => {
             const b = document.getElementById('tbb-mb-'+t);
             if (b) { b.textContent = ''; b.className = 'tbb-mult-badge'; }
         });
         return;
     }
-    const e = _g.enemyGroup[sel];
     TYPES.forEach(t => {
         const b = document.getElementById('tbb-mb-'+t);
         if (!b) return;
-        if (t === e.weakTo)  { b.textContent = '×1.75'; b.className = 'tbb-mult-badge tbb-mult-weak'; }
-        else if (t === e.resists) { b.textContent = '×0.5'; b.className = 'tbb-mult-badge tbb-mult-res'; }
-        else                 { b.textContent = '×1.0';  b.className = 'tbb-mult-badge tbb-mult-norm'; }
+        if (t === firstAlive.weakTo)  { b.textContent = '×1.75 ⚡'; b.className = 'tbb-mult-badge tbb-mult-weak'; }
+        else if (t === firstAlive.resists) { b.textContent = '×0.5 🛡'; b.className = 'tbb-mult-badge tbb-mult-res'; }
+        else { b.textContent = '×1.0'; b.className = 'tbb-mult-badge tbb-mult-norm'; }
     });
 }
 
@@ -1164,7 +1162,8 @@ function _updateStats() {
 function _updateAtkBtnHighlight() {
     if (!_dom.atkBtns) return;
     _dom.atkBtns.forEach(btn => {
-        const isActive = _g.quickStrikeMode && btn.dataset.type === _g.attackType;
+        // Always highlight the active stance (weapon buttons set stance, enemy taps attack)
+        const isActive = btn.dataset.type === _g.attackType;
         btn.classList.toggle('tbb-atk-btn-active', isActive);
     });
 }
@@ -1457,54 +1456,98 @@ function _renderRebirthConfirm() {
 }
 
 function _showMenuOverlay() {
-    const jumpUnlocked = !!_g.unlockedFeatures['unlock_floor_jump'];
-    const qsChecked = _g.quickStrikeMode ? 'checked' : '';
+    const jumpUnlocked   = !!_g.unlockedFeatures['unlock_floor_jump'];
+    const autoChecked    = _g.autoProgressFloor ? 'checked' : '';
     _showOverlay(`
         <div class="tbb-dialog">
             <div class="tbb-dialog-title">☰ Menu</div>
             <div class="tbb-dialog-body">
                 <p>Floor: ${_g.currentFloor} / ${_g.maxUnlockedFloor} unlocked</p>
                 <p>Total enemies defeated: ${_g.totalEnemiesDefeated}</p>
-                <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:0.85em;margin-top:0.5em;">
-                    <input type="checkbox" id="tbb-menu-qs" ${qsChecked} style="margin-top:3px;flex-shrink:0;">
-                    <span><strong>Quick Strike</strong> — Tap enemy to attack with current stance</span>
+
+                <div style="font-size:0.8em;font-weight:700;color:#8090a8;letter-spacing:.04em;margin-top:0.6em;">SETTINGS</div>
+
+                <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:0.85em;margin-top:0.4em;">
+                    <input type="checkbox" id="tbb-menu-autoprog" ${autoChecked} style="margin-top:3px;flex-shrink:0;">
+                    <span><strong>Auto-Progress Floor</strong> — Automatically advance to the next floor after clearing the current one (4 kills)</span>
                 </label>
+
                 ${jumpUnlocked ? `
-                <div class="tbb-floor-selector">
+                <div class="tbb-floor-selector" style="margin-top:0.6em;">
                     <label>Jump to Floor:</label>
                     <input type="range" id="tbb-floor-range" min="0" max="${_g.maxUnlockedFloor}" value="${_g.currentFloor}" step="1">
                     <span id="tbb-floor-range-val">${_g.currentFloor}</span>
-                </div>` : `<p class="tbb-muted">🗺️ <i>Find the Cartographer's Table (Floor 18) to unlock floor jumping.</i></p>`}
+                </div>` : `<p class="tbb-muted" style="margin-top:0.4em;">🗺️ <i>Find the Cartographer's Table (Floor 18) to unlock floor jumping.</i></p>`}
             </div>
             <div class="tbb-dialog-actions">
                 ${jumpUnlocked ? `<button class="tbb-dialog-btn tbb-dialog-btn-primary" id="tbb-floor-go">Go to Floor</button>` : ''}
                 <button class="tbb-dialog-btn" id="tbb-menu-exit">Exit Game</button>
+                <button class="tbb-dialog-btn" id="tbb-wipe-btn" style="color:#e74c3c;border-color:#e74c3c;opacity:0.7;">🗑 Wipe All Progress</button>
                 <button class="tbb-dialog-btn" id="tbb-menu-close">Close</button>
             </div>
         </div>
     `);
-    const qsCb = _dom.overlay.querySelector('#tbb-menu-qs');
-    if (qsCb) qsCb.addEventListener('change', () => {
-        _g.quickStrikeMode = qsCb.checked;
-        _g.selectedGroupIdx = null;   // reset any dangling selection
-        _updateAtkBtnHighlight();
-        _renderGroupCards();
+
+    const autoCb = _dom.overlay.querySelector('#tbb-menu-autoprog');
+    if (autoCb) autoCb.addEventListener('change', () => {
+        _g.autoProgressFloor = autoCb.checked;
+        _writeSave();
     });
+
     const range = _dom.overlay.querySelector('#tbb-floor-range');
     const val   = _dom.overlay.querySelector('#tbb-floor-range-val');
     if (range) range.addEventListener('input', () => { val.textContent = range.value; });
     const goBtn = _dom.overlay.querySelector('#tbb-floor-go');
     if (goBtn) goBtn.addEventListener('click', () => {
         _g.currentFloor = parseInt(range.value);
+        _g.enemiesOnFloorKilled = 0;
         _closeOverlay();
         _spawnEnemyAndBegin();
     });
+
+    _dom.overlay.querySelector('#tbb-wipe-btn').addEventListener('click', () => {
+        _showWipeConfirmOverlay();
+    });
+
     _dom.overlay.querySelector('#tbb-menu-exit').addEventListener('click', () => {
         _stopTimer();
         _closeOverlay();
         _onExit();
     });
     _dom.overlay.querySelector('#tbb-menu-close').addEventListener('click', _closeOverlay);
+}
+
+// ─── Wipe Progress ────────────────────────────────────────────────────────────
+function _showWipeConfirmOverlay() {
+    _showOverlay(`
+        <div class="tbb-dialog">
+            <div class="tbb-dialog-title tbb-red">⚠️ Wipe All Progress?</div>
+            <div class="tbb-dialog-body">
+                <p>This will permanently delete:</p>
+                <p class="tbb-muted">• Player level, EXP, stat allocations<br>
+                   • All unlocked floors &amp; floor events<br>
+                   • Ascension Points &amp; all perk levels<br>
+                   • Total enemies defeated &amp; settings</p>
+                <p style="color:#e74c3c;font-weight:700;margin-top:0.5em;">This cannot be undone.</p>
+            </div>
+            <div class="tbb-dialog-actions">
+                <button class="tbb-dialog-btn" style="background:#7b1e1e;border-color:#e74c3c;color:#fff;" id="tbb-wipe-confirm">🗑 Yes, Wipe Everything</button>
+                <button class="tbb-dialog-btn tbb-dialog-btn-primary" id="tbb-wipe-cancel">Cancel</button>
+            </div>
+        </div>
+    `);
+    _dom.overlay.querySelector('#tbb-wipe-confirm').addEventListener('click', () => {
+        localStorage.removeItem(SAVE_KEY);
+        _closeOverlay();
+        _initGameState(_g.battleMode);
+        _g.currentHp = _g.playerHp;
+        _spawnEnemyAndBegin();
+        _renderAll();
+    });
+    _dom.overlay.querySelector('#tbb-wipe-cancel').addEventListener('click', () => {
+        _closeOverlay();
+        _showMenuOverlay();
+    });
 }
 
 // ─── CSS ──────────────────────────────────────────────────────────────────────
@@ -1678,6 +1721,7 @@ function _injectStyles() {
 .tbb-ec-name { font-family: 'Courier New', monospace; font-size: 0.72em; color: var(--tbb-silver); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: .03em; }
 .tbb-ec-hpbg { height: 0.22em; background: #180808; border-radius: 0.15em; overflow: hidden; border: 1px solid #2e1010; }
 .tbb-ec-hpfill { height: 100%; border-radius: 0.15em; transition: width .3s ease; }
+.tbb-ec-hplbl { font-family: 'Courier New', monospace; font-size: 0.58em; color: var(--tbb-silver); text-align: center; margin-top: 0.15em; letter-spacing: .02em; }
 .tbb-ec-trans {
     border-top: 1px solid var(--tbb-border);
     background: var(--tbb-card2);
