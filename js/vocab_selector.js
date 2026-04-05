@@ -196,13 +196,16 @@ function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, 
         });
     }
 
-    const useSrsChecked = saved.useSrs   !== undefined ? saved.useSrs   : hasSrs;
+    // Fresh install (nothing saved yet): default SRS=on, no deck pre-selected.
+    const hasAnySavedState = saved.useSrs !== undefined || saved.decks !== undefined;
+    const useSrsChecked = saved.useSrs   !== undefined ? saved.useSrs   : true;
     const savedStatuses = saved.statuses !== undefined ? saved.statuses : [0,1,2,3];
     const savedCount    = saved.count    !== undefined ? saved.count    : defaultCount;
     const savedMode     = saved.selMode  !== undefined ? saved.selMode  : 'sequential';
 
-    // Deck enabled state — migrate legacy single "useList" flag
-    let savedDecks = saved.decks ?? { frequency: saved.useList ?? true };
+    // Deck enabled state — only fall back to frequency=true when there IS saved state
+    // (legacy migration). On a fresh install no deck is pre-selected.
+    let savedDecks = saved.decks ?? (hasAnySavedState ? { frequency: saved.useList ?? true } : {});
     DECKS.forEach(d => { if (savedDecks[d.id] === undefined) savedDecks[d.id] = false; });
 
     let html = `<div class="caro-setup-panel vs-root">`;
