@@ -781,6 +781,7 @@ function _onGroupAttack(rawType) {
         _g.enemiesOnFloorKilled++;
 
         _addExp(gained);
+        _updateDueCount();
         _spawnFloatEnemy(`+${gained} EXP`,
             feedback === 'weakness' ? '#d4a847' :
             feedback === 'crit'     ? '#9b6fff' :
@@ -867,8 +868,16 @@ function _onGroupAttack(rawType) {
             _g.selectedGroupIdx = null;
             _g.answerDisabled   = false;
             _g.cardFlash        = null;
+
+            // Pick a fresh target word and redistribute MC options among alive cards
+            const aliveIndices = _g.enemyGroup
+                .map((e, i) => e.dead ? null : i)
+                .filter(i => i !== null);
+            _prepareGroupVocabAmong(aliveIndices);
             _renderGroupCards();
+            _renderTargetWord();
             _updateMultBadges();
+            _updateDueCount();
         }, 900);
     }
 }
@@ -943,6 +952,7 @@ function _buildGameDOM() {
         <div class="tbb-target-jp" id="tbb-word-kanji">—</div>
         <div class="tbb-word-furi" id="tbb-word-furi"></div>
         <span class="tbb-status-dot" id="tbb-status-dot"></span>
+        <span class="tbb-due-count" id="tbb-due-count" style="display:none"></span>
     </div>
 
     <!-- ── NARRATION ─────────────────────────────────────────────────── -->
@@ -989,6 +999,7 @@ function _buildGameDOM() {
         wordFuri:     root.querySelector('#tbb-word-furi'),
         wordKanji:    root.querySelector('#tbb-word-kanji'),
         statusDot:    root.querySelector('#tbb-status-dot'),
+        dueCount:     root.querySelector('#tbb-due-count'),
         targetTag:    root.querySelector('#tbb-target-tag'),
         atkPill:      root.querySelector('#tbb-atk-pill'),
         floatPlayer:  root.querySelector('#tbb-float-player'),
@@ -1042,6 +1053,7 @@ function _renderAll() {
     _renderTargetWord();
     _updateMultBadges();
     _updateAtkBtnHighlight();
+    _updateDueCount();
 }
 
 function _renderTargetWord() {
@@ -1055,6 +1067,26 @@ function _renderTargetWord() {
     } else {
         _dom.statusDot.className = 'tbb-status-dot due';
         _dom.statusDot.title = 'Scheduled Review';
+    }
+}
+
+function _updateDueCount() {
+    if (!_dom.dueCount) return;
+    // Only show when the session queue contains SRS words
+    const hasSrs = _vocabQueue.some(w => w.deckId === 'srs') ||
+                   _vocabQueue.length > 0; // always show if we have a queue
+    if (!hasSrs) { _dom.dueCount.style.display = 'none'; return; }
+    const now = new Date();
+    const due = _vocabQueue.filter(w => {
+        const entry = srsDb.getAllWords()[w.word];
+        return !entry || !entry.dueDate || new Date(entry.dueDate) <= now;
+    }).length;
+    if (due === 0) {
+        _dom.dueCount.style.display = 'none';
+    } else {
+        _dom.dueCount.style.display = 'inline-flex';
+        _dom.dueCount.textContent   = due;
+        _dom.dueCount.title         = `${due} word${due !== 1 ? 's' : ''} due for review`;
     }
 }
 
@@ -1568,6 +1600,16 @@ function _injectStyles() {
 .tbb-status-dot  { position: absolute; top: 0.4em; right: 0.6em; width: 0.55em; height: 0.55em; border-radius: 50%; }
 .tbb-status-dot.due   { background: #2ecc71; box-shadow: 0 0 0.3em #2ecc71; }
 .tbb-status-dot.drill { background: linear-gradient(135deg,#ff0080,#ff8c00,#40e0d0,#9b59b6); box-shadow: 0 0 0.3em rgba(255,255,255,.4); }
+.tbb-due-count {
+    display: inline-flex; align-items: center; justify-content: center;
+    position: absolute; top: 0.4em; right: 2.2em;
+    min-width: 1.4em; height: 1.4em; padding: 0 0.35em;
+    border-radius: 0.7em;
+    background: rgba(46,204,113,.18); border: 1px solid rgba(46,204,113,.5);
+    color: #2ecc71; font-size: 0.6em; font-weight: 800;
+    font-family: 'Courier New', monospace; letter-spacing: .02em;
+    cursor: default;
+}
 
 /* ── Narration ───────────────────────────────────────────────────────────── */
 .tbb-narration-wrap { padding: 0.4em 0.75em 0.25em; flex-shrink: 0; }
