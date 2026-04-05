@@ -111,6 +111,7 @@ function _initGameState(battleMode = 'attrition') {
         phase:                'idle',
         narration:            'Entering the dungeon…',
         attackType:           'slash',
+        quickStrikeMode:      true,   // tap card → instant attack with current type
         // ── Group battle state ──────────────────────────────────────────
         enemyGroup:           [],    // array of 4 enemy objects with .trans + .dead
         selectedGroupIdx:     null,  // which card the player has targeted
@@ -197,6 +198,17 @@ function _renderSetup() {
         </label>`;
     actions.appendChild(modeWrap);
 
+    // ── Quick Strike mode toggle ──────────────────────────────────────────
+    const qsWrap = document.createElement('div');
+    qsWrap.style.cssText = 'margin-top:10px;display:flex;flex-direction:column;gap:6px;';
+    qsWrap.innerHTML = `
+        <div style="font-size:0.85em;font-weight:700;color:#8090a8;letter-spacing:.04em;">CONTROL MODE</div>
+        <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:0.85em;">
+            <input type="checkbox" id="tbb-qs-toggle" checked style="margin-top:3px;flex-shrink:0;">
+            <span><strong>Quick Strike</strong> — Tap an enemy card to instantly attack with the selected type. Type buttons set your stance; enemy cards fire the attack.</span>
+        </label>`;
+    actions.appendChild(qsWrap);
+
     const startBtn = document.createElement('button');
     startBtn.className   = 'primary-btn';
     startBtn.style.marginTop = '8px';
@@ -219,7 +231,9 @@ async function _startGame() {
 
     _vocabQueue = queue.map(w => ({ word: w.word, furi: w.furi || w.word, trans: w.trans || '—' }));
     const modeRadio = _screens.setup.querySelector('input[name="tbb-mode"]:checked');
+    const qsCheck   = _screens.setup.querySelector('#tbb-qs-toggle');
     _initGameState(modeRadio?.value ?? 'attrition');
+    _g.quickStrikeMode = qsCheck ? qsCheck.checked : true;
 
     _show('game');
     _buildGameDOM();
@@ -673,9 +687,38 @@ function _stopTimer() {
 function _selectGroupEnemy(idx) {
     if (_g.answerDisabled || _g.phase !== 'player_attack') return;
     if (_g.enemyGroup[idx]?.dead) return;
-    _g.selectedGroupIdx = idx;
-    _renderGroupCards();
-    _updateMultBadges();
+
+    if (_g.quickStrikeMode) {
+        // Quick Strike: selecting a card immediately fires the attack with the current type
+        _g.selectedGroupIdx = idx;
+        _renderGroupCards();
+        _onGroupAttack(_g.attackType);
+    } else {
+        // Classic: first click selects, then player presses a type button
+        _g.selectedGroupIdx = idx;
+        _renderGroupCards();
+        _updateMultBadges();
+    }
+}
+
+// ─── Group Battle: type button clicked ───────────────────────────────────────
+function _onTypeButtonClick(rawType) {
+    if (_g.answerDisabled || _g.phase !== 'player_attack') return;
+
+    if (_g.quickStrikeMode) {
+        // Set stance; if a card is already targeted, fire immediately
+        const resolvedType = rawType === 'wild'
+            ? ['slash','pierce','magic'][Math.floor(Math.random() * 3)]
+            : rawType;
+        _g.attackType = resolvedType;
+        _updateAtkBtnHighlight();
+        if (_g.selectedGroupIdx !== null && !_g.enemyGroup[_g.selectedGroupIdx]?.dead) {
+            _onGroupAttack(rawType);
+        }
+    } else {
+        // Classic: type button fires attack (card must be selected first)
+        _onGroupAttack(rawType);
+    }
 }
 
 // ─── Group Battle: fire attack (called by type buttons) ───────────────────────
@@ -697,6 +740,7 @@ function _onGroupAttack(rawType) {
         ? ['slash','pierce','magic'][Math.floor(Math.random() * 3)]
         : rawType;
     _g.attackType = resolvedType;
+    _updateAtkBtnHighlight();
 
     const isCorrect = targetCard.trans === word.trans;
     const timeFrac  = _g.answerTimeLeft;
@@ -910,9 +954,9 @@ function _buildGameDOM() {
 
     <!-- ── ATTACK TYPE FOOTER ────────────────────────────────────────── -->
     <div class="tbb-footer">
-        <button class="tbb-atk-btn tbb-type-slash" id="tbb-bt-slash"  data-type="slash"  onclick="">⚔ SLASH<span  class="tbb-atk-sub">ATK type</span><span class="tbb-mult-badge" id="tbb-mb-slash"></span></button>
-        <button class="tbb-atk-btn tbb-type-pierce" id="tbb-bt-pierce" data-type="pierce" onclick="">🗡 PIERCE<span class="tbb-atk-sub">ATK type</span><span class="tbb-mult-badge" id="tbb-mb-pierce"></span></button>
-        <button class="tbb-atk-btn tbb-type-magic"  id="tbb-bt-magic"  data-type="magic"  onclick="">✦ MAGIC<span  class="tbb-atk-sub">ATK type</span><span class="tbb-mult-badge" id="tbb-mb-magic"></span></button>
+        <button class="tbb-atk-btn tbb-type-slash" id="tbb-bt-slash"  data-type="slash"  onclick="">⚔ SLASH<span  class="tbb-atk-sub">stance</span><span class="tbb-mult-badge" id="tbb-mb-slash"></span></button>
+        <button class="tbb-atk-btn tbb-type-pierce" id="tbb-bt-pierce" data-type="pierce" onclick="">🗡 PIERCE<span class="tbb-atk-sub">stance</span><span class="tbb-mult-badge" id="tbb-mb-pierce"></span></button>
+        <button class="tbb-atk-btn tbb-type-magic"  id="tbb-bt-magic"  data-type="magic"  onclick="">✦ MAGIC<span  class="tbb-atk-sub">stance</span><span class="tbb-mult-badge" id="tbb-mb-magic"></span></button>
         <button class="tbb-atk-btn tbb-type-wild"   id="tbb-bt-wild"   data-type="wild"   onclick="">? WILD<span   class="tbb-atk-sub">random</span><span class="tbb-mult-badge" id="tbb-mb-wild">×??</span></button>
     </div>
 
@@ -951,9 +995,9 @@ function _buildGameDOM() {
         card.addEventListener('click', () => _selectGroupEnemy(parseInt(card.dataset.idx)));
     });
 
-    // Wire attack type buttons — instant fire
+    // Wire attack type buttons
     _dom.atkBtns.forEach(btn => {
-        btn.addEventListener('click', () => _onGroupAttack(btn.dataset.type));
+        btn.addEventListener('click', () => _onTypeButtonClick(btn.dataset.type));
     });
 
     // Header buttons
@@ -963,6 +1007,9 @@ function _buildGameDOM() {
         _pauseAnswerTimer();
         _showFloorLandingOverlay(() => { _resumeAnswerTimer(); });
     });
+
+    // Reflect initial stance
+    _updateAtkBtnHighlight();
 }
 
 // ─── Render Helpers ───────────────────────────────────────────────────────────
@@ -985,6 +1032,7 @@ function _renderAll() {
     _renderGroupCards();
     _renderTargetWord();
     _updateMultBadges();
+    _updateAtkBtnHighlight();
 }
 
 function _renderTargetWord() {
@@ -1061,6 +1109,14 @@ function _updateStats() {
     if (_g.statPointsToAllocate > 0) {
         _dom.atkPill.title = `${_g.statPointsToAllocate} stat point(s) available!`;
     }
+}
+
+function _updateAtkBtnHighlight() {
+    if (!_dom.atkBtns) return;
+    _dom.atkBtns.forEach(btn => {
+        const isActive = _g.quickStrikeMode && btn.dataset.type === _g.attackType;
+        btn.classList.toggle('tbb-atk-btn-active', isActive);
+    });
 }
 
 function _updateNarration() {
@@ -1352,12 +1408,17 @@ function _renderRebirthConfirm() {
 
 function _showMenuOverlay() {
     const jumpUnlocked = !!_g.unlockedFeatures['unlock_floor_jump'];
+    const qsChecked = _g.quickStrikeMode ? 'checked' : '';
     _showOverlay(`
         <div class="tbb-dialog">
             <div class="tbb-dialog-title">☰ Menu</div>
             <div class="tbb-dialog-body">
                 <p>Floor: ${_g.currentFloor} / ${_g.maxUnlockedFloor} unlocked</p>
                 <p>Total enemies defeated: ${_g.totalEnemiesDefeated}</p>
+                <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:0.85em;margin-top:0.5em;">
+                    <input type="checkbox" id="tbb-menu-qs" ${qsChecked} style="margin-top:3px;flex-shrink:0;">
+                    <span><strong>Quick Strike</strong> — Tap enemy to attack with current stance</span>
+                </label>
                 ${jumpUnlocked ? `
                 <div class="tbb-floor-selector">
                     <label>Jump to Floor:</label>
@@ -1372,6 +1433,13 @@ function _showMenuOverlay() {
             </div>
         </div>
     `);
+    const qsCb = _dom.overlay.querySelector('#tbb-menu-qs');
+    if (qsCb) qsCb.addEventListener('change', () => {
+        _g.quickStrikeMode = qsCb.checked;
+        _g.selectedGroupIdx = null;   // reset any dangling selection
+        _updateAtkBtnHighlight();
+        _renderGroupCards();
+    });
     const range = _dom.overlay.querySelector('#tbb-floor-range');
     const val   = _dom.overlay.querySelector('#tbb-floor-range-val');
     if (range) range.addEventListener('input', () => { val.textContent = range.value; });
@@ -1594,6 +1662,11 @@ function _injectStyles() {
 .tbb-atk-btn:hover.tbb-type-pierce { border-color: #e09050; }
 .tbb-atk-btn:hover.tbb-type-magic  { border-color: #a080e0; }
 .tbb-atk-btn:hover.tbb-type-wild   { border-color: var(--tbb-gold2); }
+/* Active stance highlight (Quick Strike mode) */
+.tbb-atk-btn.tbb-atk-btn-active.tbb-type-slash  { border-color: #e07070; background: #2a0e0e; box-shadow: 0 0 0.6em rgba(224,112,112,.35); }
+.tbb-atk-btn.tbb-atk-btn-active.tbb-type-pierce { border-color: #e09050; background: #2a1a08; box-shadow: 0 0 0.6em rgba(224,144,80,.35); }
+.tbb-atk-btn.tbb-atk-btn-active.tbb-type-magic  { border-color: #a080e0; background: #1a1030; box-shadow: 0 0 0.6em rgba(160,128,224,.35); }
+.tbb-atk-btn.tbb-atk-btn-active.tbb-type-wild   { border-color: var(--tbb-gold2); background: #201c08; box-shadow: 0 0 0.6em rgba(212,168,71,.35); }
 .tbb-atk-sub  { font-size: 0.75em; color: var(--tbb-silver); letter-spacing: 0; }
 .tbb-mult-badge { font-size: 0.7em; padding: 0.1em 0.35em; border-radius: 0.25em; font-family: 'Courier New', monospace; }
 .tbb-mult-weak { background: #1a1408; color: var(--tbb-gold); }
