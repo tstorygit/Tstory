@@ -782,6 +782,7 @@ function _onGroupAttack(rawType) {
 
         _addExp(gained);
         _updateDueCount();
+        _g.selectedGroupIdx = null;  // clear before render so flash-correct wins over sel style
         _spawnFloatEnemy(`+${gained} EXP`,
             feedback === 'weakness' ? '#d4a847' :
             feedback === 'crit'     ? '#9b6fff' :
@@ -1661,7 +1662,7 @@ function _injectStyles() {
 .tbb-ecard:hover:not(.dead)  { border-color: var(--tbb-gold); transform: translateY(-0.3em); box-shadow: 0 0.4em 1.2em rgba(0,0,0,.5); }
 .tbb-ecard.sel               { border-color: var(--tbb-green); transform: translateY(-0.4em); box-shadow: 0 0.5em 1.4em rgba(61,186,111,.3); }
 .tbb-ecard.dead              { opacity: .15; cursor: default; filter: grayscale(1); transform: none !important; pointer-events: none; }
-.tbb-ecard.flash-correct     { border-color: #2ecc71 !important; box-shadow: 0 0 1.2em rgba(46,204,113,.6) !important; background: rgba(46,204,113,.08); transform: translateY(-0.4em); animation: tbbFlashGreen .9s ease-out; }
+.tbb-ecard.flash-correct, .tbb-ecard.flash-correct.sel { border-color: #2ecc71 !important; box-shadow: 0 0 1.4em rgba(46,204,113,.75) !important; background: rgba(46,204,113,.12) !important; transform: translateY(-0.5em) !important; animation: tbbFlashGreen .9s ease-out; }
 .tbb-ecard.flash-wrong       { border-color: #e74c3c !important; box-shadow: 0 0 1.2em rgba(231,76,60,.6)  !important; background: rgba(231,76,60,.10); animation: tbbFlashRed   .9s ease-out; }
 @keyframes tbbFlashGreen { 0% { box-shadow: 0 0 2.5em rgba(46,204,113,.9); } 100% { box-shadow: 0 0 0.8em rgba(46,204,113,.3); } }
 @keyframes tbbFlashRed   { 0% { box-shadow: 0 0 2.5em rgba(231,76,60,.9);  } 100% { box-shadow: 0 0 0.8em rgba(231,76,60,.3);  } }
