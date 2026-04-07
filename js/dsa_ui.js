@@ -189,7 +189,7 @@ function renderDashboard(container, d) {
     const waterUnit   = d.waterUnit    ?? 'Einheiten';
     const distUnit    = d.distanceUnit ?? 'Meilen';
     const hoursPerDay = d.hoursPerDay  ?? 8;
-    const stages      = d.stages       ??[];
+    const stages      = d.stages       ?? [];
     const groupSize   = d.groupSize    ?? 7;
     
     // Event & Notes Logic
@@ -229,7 +229,7 @@ function renderDashboard(container, d) {
         </div>
 
         <!-- ══ ACTIVE STAGE ══════════════════════════════════════════════ -->
-        ${active ? renderActiveStage(active, distUnit, baseHours=hoursPerDay, effectiveHoursPerDay) : ''}
+        ${active ? renderActiveStage(active, distUnit, hoursPerDay, effectiveHoursPerDay) : ''}
 
         <!-- ══ GM NOTES & EVENTS ═════════════════════════════════════════ -->
         ${renderEventCard(event, legacyNotes, groupSize)}
