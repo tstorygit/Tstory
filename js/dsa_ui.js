@@ -229,7 +229,7 @@ function renderDashboard(container, d) {
         </div>
 
         <!-- ══ ACTIVE STAGE ══════════════════════════════════════════════ -->
-        ${active ? renderActiveStage(active, distUnit, hoursPerDay, effectiveHoursPerDay) : ''}
+        ${active ? renderActiveStage(active, distUnit, baseHours=hoursPerDay, effectiveHoursPerDay) : ''}
 
         <!-- ══ GM NOTES & EVENTS ═════════════════════════════════════════ -->
         ${renderEventCard(event, legacyNotes, groupSize)}
@@ -251,11 +251,17 @@ function renderDashboard(container, d) {
 // ─── ACTIVE STAGE CARD ───────────────────────────────────────────────────────
 
 function renderActiveStage(s, distUnit, baseHours, effectiveHours) {
-    const traveled = s.distanceTraveled ?? 0;
-    const walked   = s.hoursWalked      ?? 0;
-    const distPct  = s.distanceTotal > 0 ? Math.min(100, traveled / s.distanceTotal * 100) : 0;
-    const hoursPct = s.hoursTotal    > 0 ? Math.min(100, walked   / s.hoursTotal    * 100) : 0;
-    const distLeft = +(Math.max(0, s.distanceTotal - traveled)).toFixed(2);
+    const walked   = s.hoursWalked ?? 0;
+    
+    // Fortschritt anhand der Zeit berechnen
+    const timeRatio = s.hoursTotal > 0 ? Math.min(1, walked / s.hoursTotal) : 0;
+    const hoursPct  = timeRatio * 100;
+    
+    // Distanz wird dynamisch aus dem prozentualen Zeitfortschritt abgeleitet (distanceTraveled wird ignoriert)
+    const traveled = +(timeRatio * s.distanceTotal).toFixed(2);
+    const distPct  = hoursPct; // Strecke und Zeit bleiben durch diese Berechnung synchron
+
+    const distLeft  = +(Math.max(0, s.distanceTotal - traveled)).toFixed(2);
     const hoursLeft = +(Math.max(0, s.hoursTotal - walked)).toFixed(2);
     
     // Berechne "Tage noch" basierend auf dem aktuellen Geschwindigkeits-Effekt
@@ -399,8 +405,11 @@ function renderStageList(stages, activeIdx, distUnit) {
         if (isDone) {
             icon = '✅';
         } else if (isActive) {
-            const pct = s.distanceTotal > 0
-                ? Math.round((s.distanceTraveled ?? 0) / s.distanceTotal * 100) : 0;
+            // Berechne Fortschritt hier ebenfalls über die gelaufenen Stunden
+            const walked = s.hoursWalked ?? 0;
+            const pct = s.hoursTotal > 0
+                ? Math.round(Math.min(1, walked / s.hoursTotal) * 100) : 0;
+            
             icon  = '🐪';
             extra = `<div class="dsa-stage-mini-bar"><div class="dsa-stage-mini-fill" style="width:${pct}%"></div></div>`;
         } else {

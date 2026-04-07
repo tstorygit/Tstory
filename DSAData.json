@@ -24,7 +24,7 @@
       "hoursTotal": 74.69,
       "done": false,      
       "distanceTraveled": 0,
-      "hoursWalked": 16
+      "hoursWalked": 24
     },
     {
       "name": "Oase Tarfui → Oase Keft",
@@ -40,8 +40,8 @@
     }
   ],
 "currentEvent": {
-    "trigger": "Relikt der Alten",
-    "notes": "Ihr stolpert über ein versteinertes Artefakt – eine gewaltige Schuppe, die im Sonnenlicht smaragdgrün schimmert. Ein Omen Pyrdacors?",
+    "trigger": "Klarer Sternenhimmel",
+    "notes": "Die Wüste fühlt sich sehr leer an und am Himmel ist keine Wolke. Es ist sehr ruhig. Es ist fast so, als könne man in den Himmel fallen.",
     "effect": 1.0,
     "waterModifier": 1.0
   },
