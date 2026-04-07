@@ -1,5 +1,5 @@
 {
-  "waterCurrent": 181,
+  "waterCurrent": 157,
   "waterMax": 300,
   "waterUnit": "Liter",
   "distanceUnit": "Meilen",
@@ -24,7 +24,7 @@
       "hoursTotal": 74.69,
       "done": false,      
       "distanceTraveled": 0,
-      "hoursWalked": 40
+      "hoursWalked": 48
     },
     {
       "name": "Oase Tarfui → Oase Keft",
@@ -40,10 +40,10 @@
     }
   ],
 "currentEvent": {
-    "trigger": "Fata Morgana",
-    "notes": "Am Horizont flimmert die Silhouette einer gewaltigen, fliegenden Stadt in den Wolken. Ein Trugbild aus alten Zeiten – oder ein magisches Echo?",
-    "effect": 1.0,
-    "waterModifier": 1.0
+    "trigger": "Der Khamsin weht",
+    "notes": "Ein heißer Sandwind kommt auf. Die Sichtweite sinkt auf wenige Meter. Navigationsproben (+7) erforderlich, sonst droht Orientierungslosigkeit.",
+    "effect": 0.5,
+    "waterModifier": 1.5
   },
   "lastUpdated": "2026-03-27"
 }
