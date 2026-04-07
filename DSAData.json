@@ -40,8 +40,8 @@
     }
   ],
 "currentEvent": {
-    "trigger": "...",
-    "notes": "...?",
+    "trigger": "Frische Spuren",
+    "notes": "Ihr kreuzt die Fährte einer anderen, schnellen Karawane. Die Kamelspuren deuten darauf hin, dass sie es sehr eilig hatten. Werden sie verfolgt?",
     "effect": 1.0,
     "waterModifier": 1.0
   },
