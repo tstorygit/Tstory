@@ -5,7 +5,7 @@
   "distanceUnit": "Meilen",
   "hoursPerDay": 8,
   "groupSize": 7,
-  "stages":[
+  "stages": [
     {
       "name": "Mherwed → Gebirgspass",
       "distanceTotal": 72.14,
@@ -39,11 +39,11 @@
       "done": false
     }
   ],
-"currentEvent": {
+  "currentEvent": {
     "trigger": "Frische Spuren",
     "notes": "Ihr kreuzt eine Fährte. Vielleicht einer anderen, schnellen Karawane? Spurenlesen Probe!",
     "effect": 1.0,
     "waterModifier": 1.0
-  }
+  },
   "lastUpdated": "2026-03-27"
 }
