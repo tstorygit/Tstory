@@ -107,7 +107,10 @@ export function getDeckConfig(screenEl) {
     if (!root) return null;
 
     const useSrs = root.querySelector('.vs-use-srs')?.checked ?? false;
+    const srsFilterMode = root.querySelector('input[name="vs-srs-mode"]:checked')?.value ?? 'metrics';
+    const srsMetric = root.querySelector('.vs-srs-metric-select')?.value ?? 'all';
     const statuses = [...root.querySelectorAll('.vs-status-check:checked')].map(c => +c.value);
+    
     const selMode  = root.querySelector('input[name="vs-sel-mode"]:checked')?.value ?? 'random';
     const countBtn = root.querySelector('.caro-count-btn.active');
     const count    = countBtn ? (countBtn.getAttribute('data-count') === 'All' ? 'All' : +countBtn.getAttribute('data-count')) : 'All';
@@ -123,7 +126,7 @@ export function getDeckConfig(screenEl) {
         }
     });
 
-    return { useSrs, statuses, selMode, count, decks };
+    return { useSrs, srsFilterMode, srsMetric, statuses, selMode, count, decks };
 }
 
 // ─── MOUNT ───────────────────────────────────────────────────────────────────
@@ -135,7 +138,7 @@ export function mountVocabSelector(screenEl, opts = {}) {
         defaultCounts   = [10, 20, 50, 100, 200, 500, 1000, 'All'],
         defaultCount    = 'All',
         title           = 'Setup',
-        preloadConfig   = null,   // { useSrs, statuses, selMode, count, decks:{id:{lo,hi}} }
+        preloadConfig   = null,   // { useSrs, srsFilterMode, srsMetric, statuses, selMode, count, decks:{id:{lo,hi}} }
         extendMode      = false,  // true → show "extending existing deck" banner
     } = opts;
 
@@ -169,12 +172,14 @@ function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, 
     // the global vocab_selector_settings key (which is shared across all games).
     const saved = preloadConfig
         ? {
-            useSrs:    preloadConfig.useSrs,
-            statuses:  preloadConfig.statuses,
-            selMode:   preloadConfig.selMode,
-            count:     preloadConfig.count,
-            decks:     Object.fromEntries(DECKS.map(d => [d.id, !!preloadConfig.decks?.[d.id]])),
-            deckRanges: Object.fromEntries(
+            useSrs:        preloadConfig.useSrs,
+            srsFilterMode: preloadConfig.srsFilterMode,
+            srsMetric:     preloadConfig.srsMetric,
+            statuses:      preloadConfig.statuses,
+            selMode:       preloadConfig.selMode,
+            count:         preloadConfig.count,
+            decks:         Object.fromEntries(DECKS.map(d => [d.id, !!preloadConfig.decks?.[d.id]])),
+            deckRanges:    Object.fromEntries(
                 Object.entries(preloadConfig.decks || {}).map(([id, r]) => [id, r])
             ),
           }
@@ -187,25 +192,27 @@ function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, 
         const seedRanges = {};
         Object.entries(preloadConfig.decks || {}).forEach(([id, r]) => { seedRanges[id] = r; });
         _saveSettings({
-            useSrs:    preloadConfig.useSrs,
-            statuses:  preloadConfig.statuses,
-            selMode:   preloadConfig.selMode,
-            count:     preloadConfig.count,
-            decks:     seedDecks,
-            deckRanges: seedRanges,
+            useSrs:        preloadConfig.useSrs,
+            srsFilterMode: preloadConfig.srsFilterMode,
+            srsMetric:     preloadConfig.srsMetric,
+            statuses:      preloadConfig.statuses,
+            selMode:       preloadConfig.selMode,
+            count:         preloadConfig.count,
+            decks:         seedDecks,
+            deckRanges:    seedRanges,
         });
     }
 
-    // Fresh install (nothing saved yet): default SRS=on, no deck pre-selected.
-    const hasAnySavedState = saved.useSrs !== undefined || saved.decks !== undefined;
-    const useSrsChecked = saved.useSrs   !== undefined ? saved.useSrs   : true;
-    const savedStatuses = saved.statuses !== undefined ? saved.statuses : [0,1,2,3];
+    // Fresh install (nothing saved yet): default SRS=on, ALL statuses 0-5, metrics mode
+    const useSrsChecked = saved.useSrs !== undefined ? saved.useSrs : true;
+    const srsFilterMode = saved.srsFilterMode !== undefined ? saved.srsFilterMode : 'metrics';
+    const srsMetric     = saved.srsMetric !== undefined ? saved.srsMetric : 'all';
+    const savedStatuses = saved.statuses !== undefined ? saved.statuses : [0,1,2,3,4,5];
     const savedCount    = saved.count    !== undefined ? saved.count    : defaultCount;
     const savedMode     = saved.selMode  !== undefined ? saved.selMode  : 'sequential';
 
-    // Deck enabled state — only fall back to frequency=true when there IS saved state
-    // (legacy migration). On a fresh install no deck is pre-selected.
-    let savedDecks = saved.decks ?? (hasAnySavedState ? { frequency: saved.useList ?? true } : {});
+    // Deck enabled state — default to empty if not saved, don't force old fallbacks
+    let savedDecks = saved.decks || {};
     DECKS.forEach(d => { if (savedDecks[d.id] === undefined) savedDecks[d.id] = false; });
 
     let html = `<div class="caro-setup-panel vs-root">`;
@@ -227,7 +234,7 @@ function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, 
     html += `<div class="caro-setup-section">`;
     html += `<div class="caro-setup-section-title">Word Sources</div>`;
 
-    // SRS toggle + status chips
+    // SRS toggle + status/metrics chips
     html += `
         <label class="settings-toggle" style="border-radius:8px 8px 0 0;">
             <input type="checkbox" class="vs-use-srs" ${useSrsChecked ? 'checked' : ''}>
@@ -236,19 +243,43 @@ function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, 
                 My SRS Vocabulary <em>(${Object.keys(srsWords).length} words)</em>
             </span>
         </label>
-        <div class="vs-srs-filter" style="padding:10px 20px 12px;background:var(--surface-color);
+        
+        <div class="vs-srs-options" style="padding:10px 20px 12px;background:var(--surface-color);
              border:1px solid var(--border-color);border-top:none;${useSrsChecked ? '' : 'display:none;'}">
-            <div style="font-size:13px;font-weight:600;color:var(--text-muted);margin-bottom:8px;">Include statuses:</div>
-            <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                ${[0,1,2,3,4,5].map(s => `
-                    <label class="caro-status-chip" style="opacity:${savedStatuses.includes(s)?'1':'0.35'}">
-                        <input type="checkbox" class="vs-status-check" value="${s}" ${savedStatuses.includes(s)?'checked':''}>
-                        <span class="status-btn" data-status="${s}"
-                              style="display:inline-flex;align-items:center;justify-content:center;
-                                     width:32px;height:32px;border-radius:50%;cursor:pointer;
-                                     font-size:14px;font-weight:bold;border:2px solid transparent;">${s}</span>
-                    </label>`).join('')}
-            </div>
+             
+             <div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap;">
+                 <label style="font-size:13px; font-weight:600; color:var(--text-main); cursor:pointer; display:flex; align-items:center; gap:6px;">
+                     <input type="radio" name="vs-srs-mode" value="metrics" ${srsFilterMode==='metrics'?'checked':''} style="accent-color:var(--primary-color);"> 
+                     SRS Metrics
+                 </label>
+                 <label style="font-size:13px; font-weight:600; color:var(--text-main); cursor:pointer; display:flex; align-items:center; gap:6px;">
+                     <input type="radio" name="vs-srs-mode" value="lingq" ${srsFilterMode==='lingq'?'checked':''} style="accent-color:var(--primary-color);"> 
+                     LingQ Levels
+                 </label>
+             </div>
+
+             <div class="vs-srs-filter-metrics" style="${srsFilterMode==='metrics' ? '' : 'display:none;'}">
+                 <select class="vs-srs-metric-select" style="width:100%; padding:8px 10px; border-radius:6px; border:1px solid var(--border-color); background:var(--bg-color); color:var(--text-main); font-size:13px; outline:none; cursor:pointer;">
+                     <option value="all" ${srsMetric==='all'?'selected':''}>All SRS Words</option>
+                     <option value="due" ${srsMetric==='due'?'selected':''}>Due / Overdue First</option>
+                     <option value="short_int" ${srsMetric==='short_int'?'selected':''}>Shortest Interval First (Struggling)</option>
+                     <option value="long_int" ${srsMetric==='long_int'?'selected':''}>Longest Interval First (Mature)</option>
+                 </select>
+             </div>
+
+             <div class="vs-srs-filter-lingq" style="${srsFilterMode==='lingq' ? '' : 'display:none;'}">
+                 <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:8px;">Include statuses:</div>
+                 <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                    ${[0,1,2,3,4,5].map(s => `
+                        <label class="caro-status-chip" style="opacity:${savedStatuses.includes(s)?'1':'0.35'}">
+                            <input type="checkbox" class="vs-status-check" value="${s}" ${savedStatuses.includes(s)?'checked':''}>
+                            <span class="status-btn" data-status="${s}"
+                                  style="display:inline-flex;align-items:center;justify-content:center;
+                                         width:32px;height:32px;border-radius:50%;cursor:pointer;
+                                         font-size:14px;font-weight:bold;border:2px solid transparent;">${s}</span>
+                        </label>`).join('')}
+                 </div>
+             </div>
         </div>`;
 
     // One toggle + range panel per deck, grouped under Interest / Goal sub-headers
@@ -438,11 +469,31 @@ function _wireEvents(el, { bannedKey, showCountPicker, defaultCounts, defaultCou
 
     // SRS toggle
     const srsToggle = root.querySelector('.vs-use-srs');
-    const srsFilter = root.querySelector('.vs-srs-filter');
+    const srsOptions = root.querySelector('.vs-srs-options');
     srsToggle?.addEventListener('change', () => {
-        if (srsFilter) srsFilter.style.display = srsToggle.checked ? 'block' : 'none';
+        if (srsOptions) srsOptions.style.display = srsToggle.checked ? 'block' : 'none';
         _saveSettings({ useSrs: srsToggle.checked });
     });
+
+    // SRS Mode radio buttons (Metrics vs LingQ)
+    root.querySelectorAll('input[name="vs-srs-mode"]').forEach(radio => {
+        radio.addEventListener('change', () => {
+            if (!radio.checked) return;
+            _saveSettings({ srsFilterMode: radio.value });
+            const metricsEl = root.querySelector('.vs-srs-filter-metrics');
+            const lingqEl   = root.querySelector('.vs-srs-filter-lingq');
+            if (metricsEl) metricsEl.style.display = radio.value === 'metrics' ? 'block' : 'none';
+            if (lingqEl)   lingqEl.style.display   = radio.value === 'lingq' ? 'block' : 'none';
+        });
+    });
+
+    // SRS Metric dropdown
+    const metricSelect = root.querySelector('.vs-srs-metric-select');
+    if (metricSelect) {
+        metricSelect.addEventListener('change', () => {
+            _saveSettings({ srsMetric: metricSelect.value });
+        });
+    }
 
     // Status chips
     root.querySelectorAll('.vs-status-check').forEach(cb => {
@@ -577,7 +628,9 @@ async function _buildQueueAsync(el, { bannedKey }) {
     const warn      = msg => { if (warnEl) { warnEl.textContent = msg; warnEl.style.display = 'block'; } return []; };
     const clearWarn = ()  => { if (warnEl) warnEl.style.display = 'none'; };
 
-    const useSrs = root?.querySelector('.vs-use-srs')?.checked ?? false;
+    const useSrs        = root?.querySelector('.vs-use-srs')?.checked ?? false;
+    const srsFilterMode = root?.querySelector('input[name="vs-srs-mode"]:checked')?.value ?? 'metrics';
+    const srsMetric     = root?.querySelector('.vs-srs-metric-select')?.value ?? 'all';
 
     const activeDeckIds = [...(root?.querySelectorAll('.vs-use-deck:checked') || [])]
         .map(cb => cb.dataset.deckId);
@@ -585,17 +638,18 @@ async function _buildQueueAsync(el, { bannedKey }) {
 
     if (!useSrs && !useDecks) return warn('Select at least one word source.');
 
-    const statuses = useSrs
+    const statuses = useSrs && srsFilterMode === 'lingq'
         ? [...(root?.querySelectorAll('.vs-status-check:checked') || [])].map(c => +c.value)
         : [];
 
-    if (useSrs && statuses.length === 0) return warn('Select at least one SRS status to include.');
+    if (useSrs && srsFilterMode === 'lingq' && statuses.length === 0) return warn('Select at least one LingQ status to include.');
 
     clearWarn();
 
     const banned = new Set(getBannedWords(bannedKey));
     // Use deckId::word as map key so the same word from different decks is kept separately
     const map    = new Map();
+    const now    = Date.now();
 
     if (useDecks) {
         const modeRadio = root?.querySelector('input[name="vs-sel-mode"]:checked');
@@ -647,17 +701,34 @@ async function _buildQueueAsync(el, { bannedKey }) {
     }
 
     if (useSrs) {
-        Object.values(srsDb.getAllWords()).forEach(w => {
-            if (banned.has(w.word)) return;
-            if (statuses.includes(w.status)) {
-                map.set(`srs::${w.word}`, {
-                    word:   w.word,
-                    furi:   w.furi,
-                    trans:  w.translation,
-                    status: w.status,
-                    deckId: 'srs',
-                });
+        let srsWords = Object.values(srsDb.getAllWords()).filter(w => !banned.has(w.word));
+
+        if (srsFilterMode === 'lingq') {
+            srsWords = srsWords.filter(w => statuses.includes(w.status));
+        } else {
+            if (srsMetric === 'due') {
+                srsWords = srsWords.filter(w => !w.dueDate || new Date(w.dueDate).getTime() <= now);
+                srsWords.sort((a,b) => (a.dueDate ? new Date(a.dueDate).getTime() : 0) - (b.dueDate ? new Date(b.dueDate).getTime() : 0));
+            } else if (srsMetric === 'short_int') {
+                srsWords = srsWords.filter(w => w.interval !== undefined);
+                srsWords.sort((a,b) => a.interval - b.interval);
+            } else if (srsMetric === 'long_int') {
+                srsWords = srsWords.filter(w => w.interval !== undefined);
+                srsWords.sort((a,b) => b.interval - a.interval);
             }
+        }
+
+        // Add to map, preserving the sort order via _rank if sequential mode was picked 
+        // (though custom decks dictate the core loop, we append SRS sequentially)
+        srsWords.forEach((w, idx) => {
+            map.set(`srs::${w.word}`, {
+                word:   w.word,
+                furi:   w.furi,
+                trans:  w.translation,
+                status: w.status,
+                deckId: 'srs',
+                _rank:  idx
+            });
         });
     }
 

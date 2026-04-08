@@ -1,7 +1,8 @@
+[MODIFIED FILE] main/js/games/tbb/tbb.js
 // js/games/tbb/tbb.js — Turn-Based Battle (TBB) vocabulary game
 // export { init, launch }
 
-import { mountVocabSelector } from '../../vocab_selector.js';
+import { mountVocabSelector, getDeckConfig } from '../../vocab_selector.js';
 import * as srsDb             from '../../srs_db.js';
 import { spawnEnemy }         from './tbb_enemies.js';
 import { getFloorData }       from './tbb_floors.js';
@@ -18,8 +19,9 @@ let _onExit   = null;
 let _selector = null;
 let _vocabQueue = [];
 
-const SAVE_KEY   = 'tbb_save';
-const BANNED_KEY = 'tbb_banned_words';
+const SAVE_KEY     = 'tbb_save';
+const BANNED_KEY   = 'tbb_banned_words';
+const DECK_CFG_KEY = 'tbb_deck_cfg';
 
 // Base player constants
 const BASE_HP  = 60;
@@ -41,6 +43,7 @@ let _g = null;
 
 function _defaultSave() {
     return {
+        battleMode:           'attrition',   // 'attrition' | 'endless'
         playerLevel:          1,
         playerCurrentExp:     0,
         allocatedVit:         0,
@@ -56,7 +59,6 @@ function _defaultSave() {
         ascensionCount:       0,
         floorActionsDone:     {},   // floor# -> true, persisted so unlock/repeat logic survives sessions
         unlockedFeatures:     {},   // featureKey -> true
-        // Settings
         autoProgressFloor:    false, // auto-advance to next floor after clearing current
     };
 }
@@ -71,6 +73,7 @@ function _loadSave() {
 
 function _writeSave() {
     const s = {
+        battleMode:           _g.battleMode,
         playerLevel:          _g.playerLevel,
         playerCurrentExp:     _g.playerCurrentExp,
         allocatedVit:         _g.allocatedVit,
@@ -91,6 +94,14 @@ function _writeSave() {
     localStorage.setItem(SAVE_KEY, JSON.stringify(s));
 }
 
+function _loadDeckCfg() {
+    try { return JSON.parse(localStorage.getItem(DECK_CFG_KEY)); } catch { return null; }
+}
+
+function _saveDeckCfg(cfg) {
+    localStorage.setItem(DECK_CFG_KEY, JSON.stringify(cfg));
+}
+
 function _computeDerivedStats() {
     const pb = computePerkBonuses(_g.perkLevels);
     _g._pb = pb;
@@ -101,11 +112,11 @@ function _computeDerivedStats() {
     _g.expToNext  = expToNextLevel(_g.playerLevel);
 }
 
-function _initGameState(battleMode = 'attrition') {
+function _initGameState() {
     const sv = _loadSave();
     _g = Object.assign({}, sv, {
         // Session state (not persisted)
-        battleMode:           battleMode,   // 'attrition' | 'endless'
+        battleMode:           sv.battleMode || 'attrition',
         currentHp:            0,
         enemy:                null,   // kept for SRS/exp helpers that reference _g.enemy
         enemyHp:              0,
@@ -114,7 +125,7 @@ function _initGameState(battleMode = 'attrition') {
         phase:                'idle',
         narration:            'Entering the dungeon…',
         attackType:           'slash',
-        quickStrikeMode:      false,   // CHANGED: weapon buttons set stance only; enemy click fires attack
+        quickStrikeMode:      true,   // ALWAYS ON
         autoProgressFloor:    sv.autoProgressFloor ?? false,
         // ── Group battle state ──────────────────────────────────────────
         enemyGroup:           [],    // array of 4 enemy objects with .trans + .dead
@@ -147,10 +158,32 @@ export function init(screens, onExit) {
     _onExit  = onExit;
 }
 
-export function launch() {
+export async function launch() {
     _injectStyles();
-    _show('setup');
-    _renderSetup();
+
+    let deckCfg = _loadDeckCfg();
+    if (!deckCfg) {
+        // Default to ALL SRS words with metric mode on first launch
+        deckCfg = { 
+            useSrs: true, 
+            srsFilterMode: 'metrics', 
+            srsMetric: 'all', 
+            statuses: [0,1,2,3,4,5], 
+            selMode: 'random', 
+            count: 'All', 
+            decks: {} 
+        };
+    }
+
+    const queue = await _buildVocabFromDeckCfg(deckCfg);
+    
+    if (queue.length > 0) {
+        _startGameWithQueue(queue);
+    } else {
+        // If zero words found (e.g. no SRS, empty custom deck), force setup screen
+        _show('setup');
+        _renderSetup();
+    }
 }
 
 // ─── Screen Management ────────────────────────────────────────────────────────
@@ -175,7 +208,30 @@ function _show(name) {
     if (hdr) hdr.textContent = _titles[name] || '⚔️ TBB';
 }
 
-// ─── Setup Screen ─────────────────────────────────────────────────────────────
+// ─── Deck Configuration Helper ────────────────────────────────────────────────
+async function _buildVocabFromDeckCfg(deckCfg) {
+    const scratch = document.createElement('div');
+    scratch.style.display = 'none';
+    document.body.appendChild(scratch);
+
+    const ctrl = mountVocabSelector(scratch, {
+        bannedKey: BANNED_KEY,
+        preloadConfig: deckCfg,
+        title: '_tbb_internal_'
+    });
+
+    let queue = [];
+    try {
+        queue = await ctrl.getQueue();
+    } catch (e) {
+        console.warn('[TBB] Could not build vocab from saved deck:', e);
+    }
+
+    scratch.remove();
+    return queue;
+}
+
+// ─── Setup Screen (Fallback Only) ─────────────────────────────────────────────
 function _renderSetup() {
     const el = _screens.setup;
     if (!el) return;
@@ -188,22 +244,6 @@ function _renderSetup() {
 
     const actions = _selector.getActionsEl();
 
-    // ── Battle mode selector ──────────────────────────────────────────────
-    const modeWrap = document.createElement('div');
-    modeWrap.style.cssText = 'margin-top:10px;display:flex;flex-direction:column;gap:6px;';
-    modeWrap.innerHTML = `
-        <div style="font-size:0.85em;font-weight:700;color:#8090a8;letter-spacing:.04em;">BATTLE MODE</div>
-        <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:0.85em;">
-            <input type="radio" name="tbb-mode" value="attrition" checked style="margin-top:3px;flex-shrink:0;">
-            <span><strong>Attrition</strong> — 4 enemies, defeat them one by one. New vocab drawn from survivors until the last one falls.</span>
-        </label>
-        <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:0.85em;">
-            <input type="radio" name="tbb-mode" value="endless" style="margin-top:3px;flex-shrink:0;">
-            <span><strong>Endless</strong> — 4 enemies always. A new enemy spawns immediately when one is defeated.</span>
-        </label>`;
-    actions.appendChild(modeWrap);
-
-    // ── Quick Strike mode info (always on now) ────────────────────────────
     const qsWrap = document.createElement('div');
     qsWrap.style.cssText = 'margin-top:10px;display:flex;flex-direction:column;gap:6px;';
     qsWrap.innerHTML = `
@@ -220,7 +260,7 @@ function _renderSetup() {
     startBtn.className   = 'primary-btn';
     startBtn.style.marginTop = '8px';
     startBtn.textContent = '⚔️ Start Battle';
-    startBtn.addEventListener('click', _startGame);
+    startBtn.addEventListener('click', _startGameFromSetup);
 
     const backBtn = document.createElement('button');
     backBtn.className   = 'caro-back-btn';
@@ -231,20 +271,34 @@ function _renderSetup() {
     actions.append(startBtn, backBtn);
 }
 
-// ─── Game Initialisation ──────────────────────────────────────────────────────
-async function _startGame() {
+async function _startGameFromSetup() {
     const queue = await _selector.getQueue();
     if (!queue.length) return;
+    
+    const deckCfg = getDeckConfig(_screens.setup);
+    if (deckCfg) _saveDeckCfg(deckCfg);
 
+    _startGameWithQueue(queue);
+}
+
+// ─── Game Initialisation ──────────────────────────────────────────────────────
+function _startGameWithQueue(queue) {
     _vocabQueue = queue.map(w => ({ word: w.word, furi: w.furi || w.word, trans: w.trans || '—' }));
-    const modeRadio = _screens.setup.querySelector('input[name="tbb-mode"]:checked');
-    _initGameState(modeRadio?.value ?? 'attrition');
-    // quickStrikeMode is always true: weapon buttons set stance, enemy taps fire attack
-    _g.quickStrikeMode = true;
+    
+    if (!_g) {
+        _initGameState();
+        _g.quickStrikeMode = true;
+    }
 
     _show('game');
     _buildGameDOM();
-    _spawnEnemyAndBegin();
+    
+    if (!_g.enemyGroup || _g.enemyGroup.length === 0) {
+        _spawnEnemyAndBegin();
+    } else {
+        _renderAll();
+        _updateComboDisplay();
+    }
 }
 
 let _timerInterval  = null;
@@ -1172,11 +1226,6 @@ function _updateNarration() {
     _dom.narration.textContent = _g.narration || '—';
 }
 
-// Stubs for legacy callers that may still exist in overlay code
-function _renderChallenge() { _renderGroupCards(); _renderTargetWord(); }
-function _updateTimerBar()   { /* timer removed in group battle */ }
-function _markMcButtons()    { /* MC buttons removed in group battle */ }
-
 // ─── Floating Numbers ─────────────────────────────────────────────────────────
 function _spawnFloat(anchor, text, color) {
     const el = document.createElement('span');
@@ -1471,6 +1520,14 @@ function _showMenuOverlay() {
                     <input type="checkbox" id="tbb-menu-autoprog" ${autoChecked} style="margin-top:3px;flex-shrink:0;">
                     <span><strong>Auto-Progress Floor</strong> — Automatically advance to the next floor after clearing the current one (4 kills)</span>
                 </label>
+                
+                <div style="margin-top:10px;">
+                    <div style="font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Battle Mode</div>
+                    <select id="tbb-menu-battlemode" style="width:100%; padding:6px; border-radius:4px; background:var(--tbb-card); color:var(--tbb-text); border:1px solid var(--tbb-border);">
+                        <option value="attrition" ${_g.battleMode === 'attrition' ? 'selected' : ''}>Attrition (Defeat 1 by 1)</option>
+                        <option value="endless" ${_g.battleMode === 'endless' ? 'selected' : ''}>Endless (Respawn immediately)</option>
+                    </select>
+                </div>
 
                 ${jumpUnlocked ? `
                 <div class="tbb-floor-selector" style="margin-top:0.6em;">
@@ -1481,6 +1538,7 @@ function _showMenuOverlay() {
             </div>
             <div class="tbb-dialog-actions">
                 ${jumpUnlocked ? `<button class="tbb-dialog-btn tbb-dialog-btn-primary" id="tbb-floor-go">Go to Floor</button>` : ''}
+                <button class="tbb-dialog-btn" id="tbb-menu-change-vocab" style="margin-top:4px; border-color:#3498db; color:#3498db; font-weight:bold;">📚 Change Vocabulary</button>
                 <button class="tbb-dialog-btn" id="tbb-menu-exit">Exit Game</button>
                 <button class="tbb-dialog-btn" id="tbb-wipe-btn" style="color:#e74c3c;border-color:#e74c3c;opacity:0.7;">🗑 Wipe All Progress</button>
                 <button class="tbb-dialog-btn" id="tbb-menu-close">Close</button>
@@ -1494,6 +1552,14 @@ function _showMenuOverlay() {
         _writeSave();
     });
 
+    const modeSel = _dom.overlay.querySelector('#tbb-menu-battlemode');
+    if (modeSel) {
+        modeSel.addEventListener('change', () => {
+            _g.battleMode = modeSel.value;
+            _writeSave();
+        });
+    }
+
     const range = _dom.overlay.querySelector('#tbb-floor-range');
     const val   = _dom.overlay.querySelector('#tbb-floor-range-val');
     if (range) range.addEventListener('input', () => { val.textContent = range.value; });
@@ -1505,6 +1571,14 @@ function _showMenuOverlay() {
         _spawnEnemyAndBegin();
     });
 
+    const changeVocabBtn = _dom.overlay.querySelector('#tbb-menu-change-vocab');
+    if (changeVocabBtn) {
+        changeVocabBtn.addEventListener('click', () => {
+            _closeOverlay();
+            _openChangeDeckModal();
+        });
+    }
+
     _dom.overlay.querySelector('#tbb-wipe-btn').addEventListener('click', () => {
         _showWipeConfirmOverlay();
     });
@@ -1515,6 +1589,85 @@ function _showMenuOverlay() {
         _onExit();
     });
     _dom.overlay.querySelector('#tbb-menu-close').addEventListener('click', _closeOverlay);
+}
+
+// ─── Change Deck Modal ────────────────────────────────────────────────────────
+function _openChangeDeckModal() {
+    const existing = document.getElementById('tbb-change-deck-overlay');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'tbb-change-deck-overlay';
+    overlay.style.cssText = `
+        position:fixed; inset:0; z-index:9000;
+        background:var(--tbb-bg);
+        display:flex; flex-direction:column;
+        overflow:hidden;
+    `;
+
+    overlay.innerHTML = `
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:12px 16px; background:var(--tbb-surface); border-bottom:1px solid var(--tbb-border); flex-shrink:0;">
+            <div style="font-size:16px; font-weight:bold; color:var(--tbb-gold);">📚 Change Deck</div>
+            <button id="tbb-cdm-cancel" style="background:none; border:none; font-size:22px; cursor:pointer; color:var(--tbb-muted); line-height:1; padding:2px 6px;">✕</button>
+        </div>
+        <div id="tbb-cdm-selector-wrap" style="flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; padding-bottom:20px;"></div>
+        <div style="padding:12px 16px; background:var(--tbb-surface); border-top:1px solid var(--tbb-border); flex-shrink:0; display:flex; flex-direction:column; gap:8px; padding-bottom:calc(12px + env(safe-area-inset-bottom, 0px));">
+            <div id="tbb-cdm-status" style="display:none; font-size:12px; padding:6px 10px; background:rgba(231,76,60,0.1); border:1px solid #e74c3c; border-radius:6px; color:#e74c3c;"></div>
+            <button id="tbb-cdm-confirm" style="width:100%; padding:14px; border:none; border-radius:8px; background:var(--tbb-green); color:white; font-size:15px; font-weight:bold; cursor:pointer;">✓ Apply New Deck</button>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const selectorWrap = overlay.querySelector('#tbb-cdm-selector-wrap');
+    const currentDeck  = _loadDeckCfg();
+    const cdmSelector  = mountVocabSelector(selectorWrap, {
+        bannedKey:     BANNED_KEY,
+        preloadConfig: currentDeck,
+        extendMode:    true,
+        title:         'Choose Vocabulary',
+        defaultCount:  currentDeck?.count ?? 'All',
+    });
+
+    const statusEl = overlay.querySelector('#tbb-cdm-status');
+    overlay.querySelector('#tbb-cdm-cancel').addEventListener('click', () => overlay.remove());
+
+    overlay.querySelector('#tbb-cdm-confirm').addEventListener('click', async () => {
+        const confirmBtn = overlay.querySelector('#tbb-cdm-confirm');
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = '⏳ Building queue…';
+        statusEl.style.display = 'none';
+
+        const newDeckCfg = getDeckConfig(selectorWrap);
+        const rawQueue   = await cdmSelector.getQueue();
+
+        if (!rawQueue.length) {
+            confirmBtn.disabled = false;
+            confirmBtn.textContent = '✓ Apply New Deck';
+            statusEl.textContent = 'No words matched — adjust your selection and try again.';
+            statusEl.style.display = 'block';
+            return;
+        }
+
+        if (newDeckCfg) _saveDeckCfg(newDeckCfg);
+
+        _vocabQueue = rawQueue.map(w => ({
+            word:   w.word,
+            furi:   w.furi  || w.word,
+            trans:  w.trans || '—'
+        }));
+
+        const aliveIndices = _g.enemyGroup.map((e, i) => e.dead ? null : i).filter(i => i !== null);
+        if (aliveIndices.length === 0) {
+            _spawnEnemyAndBegin();
+        } else {
+            _prepareGroupVocabAmong(aliveIndices);
+            _renderGroupCards();
+            _renderTargetWord();
+        }
+        
+        overlay.remove();
+    });
 }
 
 // ─── Wipe Progress ────────────────────────────────────────────────────────────
