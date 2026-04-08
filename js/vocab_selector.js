@@ -74,15 +74,13 @@ export function setBannedWords(bannedKey = 'vocab_selector_banned', list) {
 
 // ─── SETTINGS PERSISTENCE ────────────────────────────────────────────────────
 
-const SETTINGS_KEY = 'vocab_selector_settings';
-
-function _loadSettings() {
-    try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; }
+function _loadSettings(settingsKey) {
+    try { return JSON.parse(localStorage.getItem(settingsKey)) || {}; }
     catch { return {}; }
 }
 
-function _saveSettings(patch) {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ..._loadSettings(), ...patch }));
+function _saveSettings(settingsKey, patch) {
+    localStorage.setItem(settingsKey, JSON.stringify({ ..._loadSettings(settingsKey), ...patch }));
 }
 
 // Per-deck range helpers
@@ -90,11 +88,11 @@ function _getDeckRange(saved, deckId) {
     return saved.deckRanges?.[deckId] ?? { lo: 1, hi: 1000 };
 }
 
-function _saveDeckRange(deckId, lo, hi) {
-    const saved  = _loadSettings();
+function _saveDeckRange(settingsKey, deckId, lo, hi) {
+    const saved  = _loadSettings(settingsKey);
     const ranges = saved.deckRanges || {};
     ranges[deckId] = { lo, hi };
-    _saveSettings({ deckRanges: ranges });
+    _saveSettings(settingsKey, { deckRanges: ranges });
 }
 
 // ─── DECK CONFIG SNAPSHOT ────────────────────────────────────────────────────
@@ -142,8 +140,10 @@ export function mountVocabSelector(screenEl, opts = {}) {
         extendMode      = false,  // true → show "extending existing deck" banner
     } = opts;
 
-    _render(screenEl, { bannedKey, showCountPicker, defaultCounts, defaultCount, title, preloadConfig, extendMode });
-    _wireEvents(screenEl, { bannedKey, showCountPicker, defaultCounts, defaultCount, title, opts, preloadConfig });
+    const settingsKey = bannedKey + '_settings';
+
+    _render(screenEl, { bannedKey, settingsKey, showCountPicker, defaultCounts, defaultCount, title, preloadConfig, extendMode });
+    _wireEvents(screenEl, { bannedKey, settingsKey, showCountPicker, defaultCounts, defaultCount, title, opts, preloadConfig });
 
     return {
         getQueue:     () => _buildQueueAsync(screenEl, { bannedKey }),
@@ -154,8 +154,8 @@ export function mountVocabSelector(screenEl, opts = {}) {
         },
         refresh: () => {
             const savedActions = _captureActions(screenEl);
-            _render(screenEl, { bannedKey, showCountPicker, defaultCounts, defaultCount, title, preloadConfig, extendMode });
-            _wireEvents(screenEl, { bannedKey, showCountPicker, defaultCounts, defaultCount, title, opts, preloadConfig });
+            _render(screenEl, { bannedKey, settingsKey, showCountPicker, defaultCounts, defaultCount, title, preloadConfig, extendMode });
+            _wireEvents(screenEl, { bannedKey, settingsKey, showCountPicker, defaultCounts, defaultCount, title, opts, preloadConfig });
             _restoreActions(screenEl, savedActions);
         },
     };
@@ -163,13 +163,13 @@ export function mountVocabSelector(screenEl, opts = {}) {
 
 // ─── RENDER ──────────────────────────────────────────────────────────────────
 
-function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, title, preloadConfig = null, extendMode = false }) {
+function _render(el, { bannedKey, settingsKey, showCountPicker, defaultCounts, defaultCount, title, preloadConfig = null, extendMode = false }) {
     const srsWords = srsDb.getAllWords();
     const hasSrs   = Object.keys(srsWords).length > 0;
     const banned   = getBannedWords(bannedKey);
 
     // If a preloadConfig is provided, use it as the source of truth instead of
-    // the global vocab_selector_settings key (which is shared across all games).
+    // the localized settings key.
     const saved = preloadConfig
         ? {
             useSrs:        preloadConfig.useSrs,
@@ -183,15 +183,15 @@ function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, 
                 Object.entries(preloadConfig.decks || {}).map(([id, r]) => [id, r])
             ),
           }
-        : _loadSettings();
+        : _loadSettings(settingsKey);
 
-    // Seed the global settings store from preloadConfig so that range-input
+    // Seed the settings store from preloadConfig so that range-input
     // event handlers (which call _saveDeckRange/_saveSettings) stay in sync.
     if (preloadConfig) {
         const seedDecks = Object.fromEntries(DECKS.map(d => [d.id, !!preloadConfig.decks?.[d.id]]));
         const seedRanges = {};
         Object.entries(preloadConfig.decks || {}).forEach(([id, r]) => { seedRanges[id] = r; });
-        _saveSettings({
+        _saveSettings(settingsKey, {
             useSrs:        preloadConfig.useSrs,
             srsFilterMode: preloadConfig.srsFilterMode,
             srsMetric:     preloadConfig.srsMetric,
@@ -464,7 +464,7 @@ function _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, 
 
 // ─── WIRE EVENTS ─────────────────────────────────────────────────────────────
 
-function _wireEvents(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, title, opts, preloadConfig = null }) {
+function _wireEvents(el, { bannedKey, settingsKey, showCountPicker, defaultCounts, defaultCount, title, opts, preloadConfig = null }) {
     const root = el.querySelector('.vs-root');
 
     // SRS toggle
@@ -472,14 +472,14 @@ function _wireEvents(el, { bannedKey, showCountPicker, defaultCounts, defaultCou
     const srsOptions = root.querySelector('.vs-srs-options');
     srsToggle?.addEventListener('change', () => {
         if (srsOptions) srsOptions.style.display = srsToggle.checked ? 'block' : 'none';
-        _saveSettings({ useSrs: srsToggle.checked });
+        _saveSettings(settingsKey, { useSrs: srsToggle.checked });
     });
 
     // SRS Mode radio buttons (Metrics vs LingQ)
     root.querySelectorAll('input[name="vs-srs-mode"]').forEach(radio => {
         radio.addEventListener('change', () => {
             if (!radio.checked) return;
-            _saveSettings({ srsFilterMode: radio.value });
+            _saveSettings(settingsKey, { srsFilterMode: radio.value });
             const metricsEl = root.querySelector('.vs-srs-filter-metrics');
             const lingqEl   = root.querySelector('.vs-srs-filter-lingq');
             if (metricsEl) metricsEl.style.display = radio.value === 'metrics' ? 'block' : 'none';
@@ -491,7 +491,7 @@ function _wireEvents(el, { bannedKey, showCountPicker, defaultCounts, defaultCou
     const metricSelect = root.querySelector('.vs-srs-metric-select');
     if (metricSelect) {
         metricSelect.addEventListener('change', () => {
-            _saveSettings({ srsMetric: metricSelect.value });
+            _saveSettings(settingsKey, { srsMetric: metricSelect.value });
         });
     }
 
@@ -501,7 +501,7 @@ function _wireEvents(el, { bannedKey, showCountPicker, defaultCounts, defaultCou
         cb.addEventListener('change', () => {
             _chipOpacity(cb);
             const checked = [...root.querySelectorAll('.vs-status-check:checked')].map(c => +c.value);
-            _saveSettings({ statuses: checked });
+            _saveSettings(settingsKey, { statuses: checked });
         });
     });
 
@@ -560,7 +560,7 @@ function _wireEvents(el, { bannedKey, showCountPicker, defaultCounts, defaultCou
 
             const decks = {};
             root.querySelectorAll('.vs-use-deck').forEach(c => { decks[c.dataset.deckId] = c.checked; });
-            _saveSettings({ decks, useList: Object.values(decks).some(Boolean) });
+            _saveSettings(settingsKey, { decks, useList: Object.values(decks).some(Boolean) });
         });
     });
 
@@ -579,7 +579,7 @@ function _wireEvents(el, { bannedKey, showCountPicker, defaultCounts, defaultCou
             const n  = lo <= hi ? hi - lo + 1 : 0;
             label.textContent = lo <= hi ? `(${n} word${n!==1?'s':''})` : '⚠ lower > upper';
             label.style.color = lo <= hi ? 'var(--text-muted)' : '#c0392b';
-            _saveDeckRange(deckId, lo, hi);
+            _saveDeckRange(settingsKey, deckId, lo, hi);
         });
     });
 
@@ -587,7 +587,7 @@ function _wireEvents(el, { bannedKey, showCountPicker, defaultCounts, defaultCou
     root.querySelectorAll('input[name="vs-sel-mode"]').forEach(radio => {
         radio.addEventListener('change', () => {
             if (!radio.checked) return;
-            _saveSettings({ selMode: radio.value });
+            _saveSettings(settingsKey, { selMode: radio.value });
             root.querySelectorAll('.vs-mode-label').forEach(lbl => {
                 const r  = lbl.querySelector('input[name="vs-sel-mode"]');
                 const on = r?.checked;
@@ -605,7 +605,7 @@ function _wireEvents(el, { bannedKey, showCountPicker, defaultCounts, defaultCou
         root.querySelectorAll('.caro-count-btn').forEach(x => x.classList.remove('active'));
         b.classList.add('active');
         const raw = b.getAttribute('data-count');
-        _saveSettings({ count: raw === 'All' ? 'All' : +raw });
+        _saveSettings(settingsKey, { count: raw === 'All' ? 'All' : +raw });
     });
 
     // Clear bans
@@ -613,8 +613,8 @@ function _wireEvents(el, { bannedKey, showCountPicker, defaultCounts, defaultCou
         if (!confirm('Clear all banned words?')) return;
         setBannedWords(bannedKey, []);
         const savedActions = _captureActions(el);
-        _render(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, title });
-        _wireEvents(el, { bannedKey, showCountPicker, defaultCounts, defaultCount, title, opts });
+        _render(el, { bannedKey, settingsKey, showCountPicker, defaultCounts, defaultCount, title });
+        _wireEvents(el, { bannedKey, settingsKey, showCountPicker, defaultCounts, defaultCount, title, opts });
         _restoreActions(el, savedActions);
     });
 }
