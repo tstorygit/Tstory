@@ -809,11 +809,12 @@ function _renderWarModal() {
     modal.querySelector('#eu-white-peace-btn')?.addEventListener('click', () => {
         _warState.done = true;
         const cost = Math.round(_warState.fullCost * 0.1);
+        const provName = _g.provinces.find(p => p.id === _warState.provId)?.name || '?';
         _g.resources.manpower = Math.max(0, _g.resources.manpower - cost);
         _g.stability = Math.max(0, (_g.stability ?? STABILITY_MAX) - 1);
         modal.style.display = 'none';
         modal.classList.remove('eu-active-overlay');
-        _toast(`🏳️ White Peace with ${_g.provinces.find(p => p.id === _warState.provId)?.name || '?'}. −${cost} ⚔️, −1 Stability.`, '#7f8c8d');
+        _toast(`🏳️ White Peace with ${provName}. −${cost} ⚔️, −1 Stability.`, '#7f8c8d');
         _warState = null;
         _renderMap(); _updateSRSQueue(); _updateUI();
     });
@@ -1448,7 +1449,7 @@ function _renderMap() {
 
     // On first render, scroll the wrapper so the capital is centred in view
     if (isFirstRender && wrapEl) {
-        const capital = _g.provinces.find(p => p.owner === 'player');
+        const capital = _g.provinces.find(p => p.id === _g.capitalId);
         if (capital) {
             const cx = capital.x * HSTEP + (capital.y % 2 === 1 ? HSTEP / 2 : 0) + PAD + HW / 2;
             const cy = capital.y * VSTEP + PAD + HH / 2;
@@ -1552,7 +1553,7 @@ function _renderProvincePanel(prov) {
                 </button>
             </div>`;
         }
-    } else if (isAdj) {
+    } else if (isAdj && !isVassal) {
         const stats      = _getEmpireStats();
         const tierMod    = prov.tier || 1;
         const tierLabel  = ['', '⭐ Poor', '⭐⭐ Average', '⭐⭐⭐ Rich'][tierMod];
@@ -2105,9 +2106,10 @@ function _loadGame() {
 
 function _checkVictory() {
     if (_g.victoryAchieved) return;
-    const total = _g.provinces.length;
+    const scoreable = _g.provinces.filter(p => !p.isFiller);
+    const total = scoreable.length;
     if (total === 0) return;
-    const cored = _g.provinces.filter(p => p.cored).length;
+    const cored = scoreable.filter(p => p.owner === 'player' && p.cored).length;
     if (cored < total) return;
 
     _g.victoryAchieved = true;
