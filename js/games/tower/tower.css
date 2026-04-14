@@ -145,3 +145,21 @@
     0% { opacity: 1; transform: translate(-50%, 0) scale(1); }
     100% { opacity: 0; transform: translate(-50%, -30px) scale(1.2); }
 }
+
+/* ── Battle Controls & Abilities ── */
+.tw-battle-controls {
+    display: flex; flex-direction: column; gap: 8px; padding: 8px 12px; background: #0a0a14; border-bottom: 1px solid #333; z-index: 10;
+}
+.tw-targeting, .tw-abilities { display: flex; gap: 4px; }
+.tw-target-btn, .tw-abil-btn {
+    flex: 1; padding: 6px; font-size: 11px; font-weight: bold; cursor: pointer; border-radius: 4px;
+    background: rgba(255,255,255,0.05); color: #888; border: 1px solid #333; transition: all 0.2s;
+}
+.tw-target-btn.active { background: rgba(0,255,255,0.2); color: #00ffff; border-color: #00ffff; }
+.tw-abil-btn { background: rgba(155, 89, 182, 0.1); color: #c39bd3; border-color: #9b59b6; }
+.tw-abil-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.tw-abil-btn.ready { background: rgba(155, 89, 182, 0.5); color: #fff; box-shadow: 0 0 10px #9b59b6; }
+.tw-combo-text { font-size: 12px; font-weight: bold; color: #f39c12; text-shadow: 0 0 5px #f39c12; margin-left: 10px; }
+.tw-ability-bar-wrap { width: 100%; height: 4px; background: rgba(255,255,255,0.1); margin-top: 4px; }
+.tw-ability-fill { height: 100%; background: #9b59b6; transition: width 0.2s; }
+.tw-modal { display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,0.9); }

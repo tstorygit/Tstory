@@ -2,8 +2,8 @@
 
 import { mountVocabSelector } from '../../vocab_selector.js';
 import { GameVocabManager } from '../../game_vocab_mgr.js';
-import { showGameQuiz, poolSourceLabel, renderVocabSettings } from '../../game_vocab_mgr_ui.js';
-import { UPGRADES, LAB_RESEARCH, calcStat, calcCost, calcLabCost, calcLabTimeMs } from './tower_data.js';
+import { showGameQuiz, renderVocabSettings } from '../../game_vocab_mgr_ui.js';
+import { UPGRADES, LAB_RESEARCH, RELICS, calcStat, calcCost, calcLabCost, calcLabTimeMs } from './tower_data.js';
 import { TowerEngine } from './tower_engine.js';
 
 let _screens = null;
@@ -20,6 +20,11 @@ let _run = {
     diff: 1,
     cash: 0,
     knowledgeStacks: 0,
+    combo: 0,
+    abilityCharge: 0,
+    targetMode: 'closest',
+    vocabQuestions: 0,
+    vocabCorrect: 0,
     levels: { offense: {}, defense: {}, utility: {} }
 };
 
@@ -36,10 +41,12 @@ function _defaultSave() {
             utility: { cashBonus:0, coinsWave:0, freeUpg:0 }
         },
         lab: {
-            active: null, // { id, endTime }
-            levels: { knowledge:0, gameSpeed:0, coinYield:0 }
+            active: null,
+            levels: { knowledge:0, gameSpeed:0, coinYield:0, startingCash:0, vocabMastery:0, synergy:0 }
         },
-        vocabConfig: GameVocabManager.defaultConfig()
+        vocabConfig: GameVocabManager.defaultConfig(),
+        stats: { totalCorrect: 0, sessionCorrect: 0, highestStreak: 0, wordsMastered: [] },
+        relics: []
     };
 }
 
@@ -48,8 +55,6 @@ export function init(screens, onExit) {
     _onExit = onExit;
     _injectCSS();
     
-    // Setup HTML Structure inside the two provided screens
-    // Hub goes in `setup` screen
     _screens.setup.innerHTML = `
         <div class="tw-root">
             <div class="tw-header">
@@ -60,6 +65,7 @@ export function init(screens, onExit) {
                 <button class="tw-tab-btn active" data-tab="hub-play">Play</button>
                 <button class="tw-tab-btn" data-tab="hub-workshop">Workshop</button>
                 <button class="tw-tab-btn" data-tab="hub-lab">Lab</button>
+                <button class="tw-tab-btn" data-tab="hub-stats">Stats</button>
                 <button class="tw-tab-btn" data-tab="hub-vocab">Vocab</button>
             </div>
             
@@ -92,6 +98,13 @@ export function init(screens, onExit) {
                 </div>
                 <div id="tw-lab-list"></div>
             </div>
+
+            <!-- Stats Tab -->
+            <div class="tw-screen tw-scroll-content" id="tw-hub-stats">
+                <h3 style="color:#00ffff; margin-top:0;">Session & Lifetime Stats</h3>
+                <div id="tw-stats-content"></div>
+                <div id="tw-relics-content" style="margin-top:20px;"></div>
+            </div>
             
             <!-- Vocab Tab -->
             <div class="tw-screen tw-scroll-content" id="tw-hub-vocab">
@@ -104,11 +117,26 @@ export function init(screens, onExit) {
     // Battle Screen
     _screens.game.innerHTML = `
         <div class="tw-root">
-            <div class="tw-header tw-battle-header">
-                <div class="tw-wave-text">Wave <span id="tw-run-wave">1</span></div>
-                <div class="tw-run-cash">$ <span id="tw-run-cash-val">0</span></div>
-                <div style="font-size:12px; font-weight:bold; color:#9b59b6;">🧠 ×<span id="tw-run-know">1.00</span></div>
+            <div class="tw-header tw-battle-header" style="flex-direction:column; align-items:stretch; padding: 8px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                    <div class="tw-wave-text">Wave <span id="tw-run-wave">1</span></div>
+                    <div class="tw-run-cash">$ <span id="tw-run-cash-val">0</span></div>
+                    <div style="font-size:12px; font-weight:bold; color:#9b59b6;">🧠 ×<span id="tw-run-know">1.00</span><span id="tw-run-combo" class="tw-combo-text"></span></div>
+                </div>
+                <div class="tw-targeting">
+                    <button class="tw-target-btn active" data-target="closest">Closest</button>
+                    <button class="tw-target-btn" data-target="farthest">Farthest</button>
+                    <button class="tw-target-btn" data-target="boss">Boss</button>
+                    <button class="tw-target-btn" data-target="fast">Fast</button>
+                </div>
+                <div class="tw-abilities" style="margin-top:4px;">
+                    <button class="tw-abil-btn" id="tw-abil-barrage" disabled>Barrage</button>
+                    <button class="tw-abil-btn" id="tw-abil-nova" disabled>Nova</button>
+                    <button class="tw-abil-btn" id="tw-abil-aegis" disabled>Aegis</button>
+                </div>
+                <div class="tw-ability-bar-wrap"><div class="tw-ability-fill" id="tw-abil-bar" style="width:0%;"></div></div>
             </div>
+            
             <div class="tw-hp-bar-wrap"><div class="tw-hp-fill" id="tw-run-hp-bar"></div></div>
             
             <div class="tw-canvas-wrap">
@@ -126,6 +154,12 @@ export function init(screens, onExit) {
                 <div class="tw-subtab-content" id="tw-run-defense"></div>
                 <div class="tw-subtab-content" id="tw-run-utility"></div>
             </div>
+
+            <div id="tw-death-screen" class="tw-screen tw-modal" style="display:none; position:absolute; inset:0; z-index:1000;">
+                <h1 style="color:#e74c3c; margin-bottom:10px;">Tower Destroyed</h1>
+                <div id="tw-death-stats" style="text-align:center; color:#fff; line-height:1.8; margin-bottom:20px;"></div>
+                <button id="tw-death-return" class="tw-play-btn" style="width:200px;">Return to Hub</button>
+            </div>
         </div>
     `;
 
@@ -135,7 +169,8 @@ export function init(screens, onExit) {
             _screens.setup.querySelectorAll('.tw-tab-btn').forEach(b => b.classList.remove('active'));
             _screens.setup.querySelectorAll('.tw-screen').forEach(s => s.classList.remove('active'));
             btn.classList.add('active');
-            _screens.setup.querySelector(`#${btn.dataset.tab}`).classList.add('active');
+            _screens.setup.querySelector(`#tw-${btn.dataset.tab}`).classList.add('active');
+            if (btn.dataset.tab === 'hub-stats') _renderStats();
         });
     });
 
@@ -145,7 +180,27 @@ export function init(screens, onExit) {
             _screens.game.querySelectorAll('.tw-subtab-btn').forEach(b => b.classList.remove('active'));
             _screens.game.querySelectorAll('.tw-subtab-content').forEach(s => s.classList.remove('active'));
             btn.classList.add('active');
-            _screens.game.querySelector(`#${btn.dataset.subtab}`).classList.add('active');
+            _screens.game.querySelector(`#tw-${btn.dataset.subtab}`).classList.add('active');
+        });
+    });
+
+    // Wire Battle Controls
+    _screens.game.querySelectorAll('.tw-target-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            _screens.game.querySelectorAll('.tw-target-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            _run.targetMode = btn.dataset.target;
+            if (_engine) _engine.setTargetMode(_run.targetMode);
+        });
+    });
+
+    ['barrage', 'nova', 'aegis'].forEach(abil => {
+        _screens.game.querySelector(`#tw-abil-${abil}`).addEventListener('click', () => {
+            if (_run.abilityCharge >= 100) {
+                _run.abilityCharge = 0;
+                _updateAbilitiesUI();
+                if (_engine) _engine.activateAbility(abil);
+            }
         });
     });
 
@@ -153,7 +208,6 @@ export function init(screens, onExit) {
     _screens.setup.querySelector('#tw-start-run').onclick = () => _startRun();
     _screens.setup.querySelector('#tw-change-deck-btn').onclick = () => _openDeckSelector();
 
-    // Difficulty selectors
     let selectedDiff = 1;
     const diffVal = _screens.setup.querySelector('#tw-diff-val');
     const targetVal = _screens.setup.querySelector('#tw-target-val');
@@ -170,7 +224,6 @@ export function init(screens, onExit) {
     prevBtn.onclick = () => { selectedDiff--; updateDiffUI(); };
     nextBtn.onclick = () => { selectedDiff++; updateDiffUI(); };
 
-    // Set up engine
     _engine = new TowerEngine(_screens.game.querySelector('#tw-canvas'), {
         onHpUpdate: () => _updateRunHUD(),
         onEnemyKill: (cash) => {
@@ -180,24 +233,32 @@ export function init(screens, onExit) {
         },
         onWaveComplete: () => {
             _run.wave++;
+            if (_save.lab.levels.startingCash >= 5) {
+                _run.cash = Math.floor(_run.cash * 1.02);
+            }
             _checkUnlock();
             _startNextWave();
         },
-        onPlayerDie: () => _handleDeath()
+        onPlayerDie: () => _handleDeath(),
+        hasRelic: (id) => _save.relics.includes(id)
     });
 
-    // Start Lab ticker
     setInterval(_labTicker, 1000);
-
-    // Expose updateDiffUI so _showHub() can call it after _save is loaded
     init._updateDiffUI = updateDiffUI;
 }
 
 export function launch() {
     _save = JSON.parse(localStorage.getItem(SAVE_KEY)) || _defaultSave();
     
-    // Ensure all categories exist
+    // Patch old saves
+    if (_save.lab.levels.startingCash === undefined) _save.lab.levels.startingCash = 0;
+    if (_save.lab.levels.vocabMastery === undefined) _save.lab.levels.vocabMastery = 0;
+    if (_save.lab.levels.synergy === undefined) _save.lab.levels.synergy = 0;
+    if (!_save.stats) _save.stats = { totalCorrect: 0, sessionCorrect: 0, highestStreak: 0, wordsMastered: [] };
+    if (!_save.relics) _save.relics = [];
     if (!_save.workshop.offense) _save = _defaultSave();
+
+    _save.stats.sessionCorrect = 0; // Reset session stats
 
     _vocabMgr = new GameVocabManager(_save.vocabConfig);
     const srsPool = GameVocabManager.loadSrsPool();
@@ -223,13 +284,12 @@ function _showHub() {
     
     _screens.setup.querySelector('#tw-hub-coins').textContent = Math.floor(_save.coins);
     
-    // Update Diff UI now that _save is available
     if (typeof init._updateDiffUI === 'function') init._updateDiffUI();
 
     _renderWorkshop();
     _renderLab();
+    _renderStats();
     
-    // Render Vocab Settings
     renderVocabSettings(
         _vocabMgr,
         _screens.setup.querySelector('#tw-vocab-settings-mount'),
@@ -241,7 +301,7 @@ function _showHub() {
     );
 }
 
-// ─── WORKSHOP & LAB ──────────────────────────────────────────────────────────
+// ─── WORKSHOP, LAB & STATS ───────────────────────────────────────────────────
 
 function _renderWorkshop() {
     const list = _screens.setup.querySelector('#tw-ws-list');
@@ -254,7 +314,6 @@ function _renderWorkshop() {
         for (const id in UPGRADES[cat]) {
             const def = UPGRADES[cat][id];
             const lvl = _save.workshop[cat][id];
-            if (def.max !== undefined && lvl >= def.max) continue; // Optional: hide maxed
             
             const cost = calcCost(cat, id, lvl, true);
             const val = calcStat(cat, id, lvl, 0);
@@ -276,7 +335,7 @@ function _renderWorkshop() {
                     _save.coins -= cost;
                     _save.workshop[cat][id]++;
                     _saveGame();
-                    _showHub(); // Re-render
+                    _showHub();
                 }
             };
             catDiv.appendChild(row);
@@ -329,6 +388,42 @@ function _renderLab() {
     }
 }
 
+function _renderStats() {
+    const statsContent = _screens.setup.querySelector('#tw-stats-content');
+    const relicsContent = _screens.setup.querySelector('#tw-relics-content');
+    
+    statsContent.innerHTML = `
+        <div style="display:flex; flex-direction:column; gap:8px;">
+            <div class="tw-upg-row"><div class="tw-upg-name">Session Correct</div><div class="tw-upg-val">${_save.stats.sessionCorrect}</div></div>
+            <div class="tw-upg-row"><div class="tw-upg-name">Total Correct</div><div class="tw-upg-val">${_save.stats.totalCorrect}</div></div>
+            <div class="tw-upg-row"><div class="tw-upg-name">Highest Streak</div><div class="tw-upg-val">${_save.stats.highestStreak}</div></div>
+            <div class="tw-upg-row"><div class="tw-upg-name">Words Mastered</div><div class="tw-upg-val">${_save.stats.wordsMastered.length}</div></div>
+            <div class="tw-upg-row"><div class="tw-upg-name">Highest Wave</div><div class="tw-upg-val">${_save.highestWave}</div></div>
+            <div class="tw-upg-row"><div class="tw-upg-name">Max Tier</div><div class="tw-upg-val">${_save.maxDiff}</div></div>
+        </div>
+    `;
+    
+    relicsContent.innerHTML = `<h3 style="color:#f1c40f; margin-bottom:10px;">Relics</h3><div style="display:flex; flex-direction:column; gap:8px;">`;
+    if (_save.relics.length === 0) {
+        relicsContent.innerHTML += `<div style="color:#777; font-size:12px;">No relics unlocked. Beat target waves to earn them!</div>`;
+    } else {
+        for (const tier of _save.relics) {
+            const rel = RELICS[tier];
+            if (rel) {
+                relicsContent.innerHTML += `
+                    <div class="tw-upg-row" style="border-color:#f1c40f;">
+                        <div class="tw-upg-info">
+                            <div class="tw-upg-name" style="color:#f1c40f;">${rel.name} <span style="font-size:10px;color:#aaa;">Tier ${tier}</span></div>
+                            <div style="font-size:11px; color:#bbb;">${rel.desc}</div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+    }
+    relicsContent.innerHTML += `</div>`;
+}
+
 function _labTicker() {
     if (_screens.setup.style.display === 'none') return;
     if (!_save || !_save.lab.active) {
@@ -361,38 +456,52 @@ function _labTicker() {
 // ─── RUN MECHANICS ───────────────────────────────────────────────────────────
 
 function _getTowerStats() {
-    const kMult = 0.01 + (_save.lab.levels.knowledge * 0.005);
+    let kMult = 0.01 + (_save.lab.levels.knowledge * 0.005);
+    if (_save.relics.includes(5)) kMult *= 2; // Master Crown
     const kBuff = 1 + (_run.knowledgeStacks * kMult);
+    
+    const masteryBuff = 1 + (_save.stats.wordsMastered.length * 0.0001); // +0.01% per word
     
     let stats = {};
     for (const cat of ['offense', 'defense', 'utility']) {
         for (const id in UPGRADES[cat]) {
             let val = calcStat(cat, id, _save.workshop[cat][id], _run.levels[cat][id]);
             
-            // Apply Knowledge Buff to Absolute Core Stats
-            if (id === 'damage' || id === 'health' || id === 'regen' || id === 'cashBonus') {
+            // Core stat buffs
+            if (id === 'damage' || id === 'health' || id === 'regen' || id === 'cashBonus' || id === 'atkSpeed' || id === 'coinsWave') {
                 val *= kBuff;
+            }
+            if (id === 'damage') {
+                val *= masteryBuff;
+            }
+            if (id === 'atkSpeed' && _save.relics.includes(4)) {
+                val *= 1.2; // Expert Crest
             }
             stats[id] = val;
         }
     }
     
-    // Track current HP state
     stats.currentHp = _engine.stats ? (_engine.stats.currentHp || stats.health) : stats.health;
-    // ensure max hp increase heals
     if (_engine.stats && stats.health > _engine.stats.health) {
         stats.currentHp += (stats.health - _engine.stats.health);
     }
     stats.gameSpeed = 1 + (_save.lab.levels.gameSpeed * 0.1);
+    stats.kBuff = kBuff;
+    
+    stats.synergyPierce = _save.lab.levels.synergy > 0 && kBuff >= 2.0;
+    stats.synergyChain = _save.lab.levels.synergy > 0 && kBuff >= 3.0;
     
     return stats;
 }
 
 function _startRun() {
-    // Reset Run State
     _run.wave = 1;
-    _run.cash = 50 * _save.lab.levels.startingCash; // Base 0 + bonus
+    _run.cash = 50 + (50 * _save.lab.levels.startingCash);
     _run.knowledgeStacks = 0;
+    _run.combo = 0;
+    _run.abilityCharge = 0;
+    _run.vocabQuestions = 0;
+    _run.vocabCorrect = 0;
     
     for (const cat of ['offense', 'defense', 'utility']) {
         for (const id in UPGRADES[cat]) {
@@ -402,17 +511,27 @@ function _startRun() {
     
     _screens.setup.style.display = 'none';
     _screens.game.style.display = 'flex';
-    
+    _engine._resize();
+
     _vocabMgr.seedInitialWords(5);
     
     _engine.startRun(_getTowerStats(), _run.wave, _run.diff);
+    _engine.setTargetMode(_run.targetMode);
+    
     _updateRunHUD();
+    _updateAbilitiesUI();
     _renderRunUpgrades();
     
     _startNextWave();
 }
 
 function _startNextWave() {
+    if (_run.wave === 1 && _save.relics.includes(2)) { // Scholar Badge
+        _run.knowledgeStacks++;
+        _run.wave = 2;
+        _engine.spawnFloatText('+1 Knowledge (Relic)!', '#2ecc71', true);
+    }
+
     _updateRunHUD();
     
     _engine.pause();
@@ -424,15 +543,38 @@ function _startNextWave() {
         container: uiLayer,
         title: `Wave ${_run.wave} Approaching`,
         subtitle: 'Correct answer grants +1 Knowledge Stack!',
-        onAnswer: (isCorrect) => {
+        onAnswer: (isCorrect, wordObj) => {
+            _run.vocabQuestions++;
             if (isCorrect) {
-                _run.knowledgeStacks++;
-                _engine.spawnFloatText('+1 Knowledge!', '#2ecc71', true);
+                _run.combo++;
+                _run.vocabCorrect++;
+                _save.stats.totalCorrect++;
+                _save.stats.sessionCorrect++;
+                if (_run.combo > _save.stats.highestStreak) _save.stats.highestStreak = _run.combo;
+                
+                if (_save.lab.levels.vocabMastery > 0 && wordObj && !_save.stats.wordsMastered.includes(wordObj.kanji)) {
+                    _save.stats.wordsMastered.push(wordObj.kanji);
+                }
+                
+                let chargeAmt = 20;
+                if (_save.relics.includes(3)) chargeAmt = 30; // Adept Token
+                _run.abilityCharge = Math.min(100, _run.abilityCharge + chargeAmt);
+                _updateAbilitiesUI();
+
+                let comboMult = 1;
+                if (_run.combo >= 10) comboMult = 3;
+                else if (_run.combo >= 5) comboMult = 2;
+                else if (_run.combo >= 3) comboMult = 1.5;
+
+                const gain = 1 * comboMult;
+                _run.knowledgeStacks += gain;
+                _engine.spawnFloatText(`+${gain} Knowledge!`, '#2ecc71', true);
             } else {
+                _run.combo = 0;
                 _engine.spawnFloatText('Missed Buff...', '#e74c3c', true);
             }
             
-            _engine.stats = _getTowerStats(); // Apply new buff
+            _engine.stats = _getTowerStats();
             _updateRunHUD();
             
             _vocabMgr.resume();
@@ -451,10 +593,16 @@ function _checkUnlock() {
     const target = Math.round(26 * Math.log(_run.diff) + 10);
     if (_run.wave > _save.highestWave) _save.highestWave = _run.wave;
     
-    if (_run.wave > target && _run.diff >= _save.maxDiff) {
-        _save.maxDiff = _run.diff + 1;
+    if (_run.wave > target) {
+        if (!_save.relics.includes(_run.diff)) {
+            _save.relics.push(_run.diff);
+            _engine.spawnFloatText('RELIC UNLOCKED!', '#f1c40f', true);
+        }
+        if (_run.diff >= _save.maxDiff) {
+            _save.maxDiff = _run.diff + 1;
+            _engine.spawnFloatText('TIER UNLOCKED!', '#00ffff', true);
+        }
         _saveGame();
-        _engine.spawnFloatText('TIER UNLOCKED!', '#00ffff', true);
     }
 }
 
@@ -462,12 +610,12 @@ function _handleDeath() {
     const coinsWave = _engine.stats.coinsWave;
     const baseCoins = _run.wave * _run.diff;
     const bonusCoins = _run.wave * coinsWave;
+    
     let totalCoins = baseCoins + bonusCoins;
+    const yieldBonus = _save.lab.levels.coinYield * 0.1;
+    const yieldCoins = totalCoins * yieldBonus;
     
-    // Lab Coin Yield
-    totalCoins *= (1 + _save.lab.levels.coinYield * 0.1);
-    totalCoins = Math.floor(totalCoins);
-    
+    totalCoins = Math.floor(totalCoins + yieldCoins);
     _save.coins += totalCoins;
     
     if (_vocabMgr && !_vocabMgr.isGlobalSrs) {
@@ -475,23 +623,71 @@ function _handleDeath() {
     }
     _saveGame();
     
-    alert(`Tower Destroyed at Wave ${_run.wave}!\nYou earned ${totalCoins} 🪙 Coins.`);
-    _showHub();
+    const acc = _run.vocabQuestions > 0 ? Math.round((_run.vocabCorrect / _run.vocabQuestions) * 100) : 0;
+    
+    const deathScreen = _screens.game.querySelector('#tw-death-screen');
+    const deathStats = deathScreen.querySelector('#tw-death-stats');
+    
+    deathStats.innerHTML = `
+        <div style="font-size:24px; color:#00ffff; font-weight:bold; margin-bottom:10px;">Reached Wave ${_run.wave}</div>
+        <div>Base Coins: <span style="font-family:monospace;">🪙 ${Math.floor(baseCoins)}</span></div>
+        <div>Wave Bonus: <span style="font-family:monospace;">🪙 ${Math.floor(bonusCoins)}</span></div>
+        <div>Lab Yield: <span style="font-family:monospace;">🪙 ${Math.floor(yieldCoins)}</span></div>
+        <div style="font-weight:bold; color:#f1c40f; margin-top:8px;">Total Coins: 🪙 ${totalCoins}</div>
+        <div style="margin-top:15px; font-size:14px; color:#aaa; border-top:1px solid #333; padding-top:10px;">
+            Knowledge Stacks: ${_run.knowledgeStacks}<br>
+            Vocab Accuracy: ${acc}%
+        </div>
+    `;
+    
+    deathScreen.style.display = 'flex';
+    
+    const returnBtn = deathScreen.querySelector('#tw-death-return');
+    returnBtn.onclick = () => {
+        deathScreen.style.display = 'none';
+        _showHub();
+    };
 }
 
 function _updateRunHUD() {
     _screens.game.querySelector('#tw-run-wave').textContent = _run.wave;
     _screens.game.querySelector('#tw-run-cash-val').textContent = Math.floor(_run.cash);
     
-    const kMult = 0.01 + (_save.lab.levels.knowledge * 0.005);
+    let kMult = 0.01 + (_save.lab.levels.knowledge * 0.005);
+    if (_save.relics.includes(5)) kMult *= 2;
     const kBuff = 1 + (_run.knowledgeStacks * kMult);
     _screens.game.querySelector('#tw-run-know').textContent = kBuff.toFixed(2);
+    
+    const comboEl = _screens.game.querySelector('#tw-run-combo');
+    if (_run.combo >= 3) {
+        let text = ' x1.5';
+        if (_run.combo >= 10) text = ' x3.0';
+        else if (_run.combo >= 5) text = ' x2.0';
+        comboEl.textContent = text;
+    } else {
+        comboEl.textContent = '';
+    }
     
     const hpBar = _screens.game.querySelector('#tw-run-hp-bar');
     if (_engine && _engine.stats) {
         const pct = Math.max(0, _engine.stats.currentHp / _engine.stats.health) * 100;
         hpBar.style.width = `${pct}%`;
     }
+}
+
+function _updateAbilitiesUI() {
+    const bar = _screens.game.querySelector('#tw-abil-bar');
+    if (bar) bar.style.width = `${_run.abilityCharge}%`;
+    
+    const isReady = _run.abilityCharge >= 100;
+    ['barrage', 'nova', 'aegis'].forEach(abil => {
+        const btn = _screens.game.querySelector(`#tw-abil-${abil}`);
+        if (btn) {
+            btn.disabled = !isReady;
+            if (isReady) btn.classList.add('ready');
+            else btn.classList.remove('ready');
+        }
+    });
 }
 
 function _renderRunUpgrades() {
@@ -504,7 +700,7 @@ function _renderRunUpgrades() {
             const runLvl = _run.levels[cat][id];
             if (def.max !== undefined) {
                 const totalVal = calcStat(cat, id, _save.workshop[cat][id], runLvl);
-                if (totalVal >= def.max) continue; // Hide capped
+                if (totalVal >= def.max) continue;
             }
             
             const cost = calcCost(cat, id, runLvl, false);
@@ -524,7 +720,6 @@ function _renderRunUpgrades() {
             
             row.querySelector('button').onclick = () => {
                 if (_run.cash >= cost) {
-                    // Free Upgrade chance
                     if (Math.random() > _engine.stats.freeUpg) {
                         _run.cash -= cost;
                     } else {
