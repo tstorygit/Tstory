@@ -1,0 +1,147 @@
+/* main/js/games/tower/tower.css */
+
+.tw-root {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: #050510;
+    color: #e0e0e0;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    overflow: hidden;
+    position: relative;
+    user-select: none;
+}
+
+/* ── HUD & Tabs ── */
+.tw-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 16px; background: rgba(20, 20, 30, 0.95);
+    border-bottom: 2px solid #00ffff; box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+    flex-shrink: 0; z-index: 10;
+}
+.tw-header-title { font-size: 18px; font-weight: bold; color: #00ffff; text-shadow: 0 0 5px #00ffff; margin: 0; }
+.tw-coins { font-family: monospace; font-size: 16px; font-weight: bold; color: #f1c40f; text-shadow: 0 0 5px #f1c40f; }
+
+.tw-tab-bar {
+    display: flex; background: rgba(10, 10, 15, 0.9);
+    border-bottom: 1px solid #333; flex-shrink: 0;
+}
+.tw-tab-btn {
+    flex: 1; padding: 12px 0; background: none; border: none;
+    color: #888; font-size: 13px; font-weight: bold; cursor: pointer;
+    border-bottom: 3px solid transparent; transition: all 0.2s;
+}
+.tw-tab-btn.active { color: #fff; border-bottom-color: #00ffff; background: rgba(0, 255, 255, 0.05); }
+
+/* ── Screens ── */
+.tw-screen { display: none; flex-direction: column; height: 100%; flex: 1; min-height: 0; }
+.tw-screen.active { display: flex; }
+
+.tw-scroll-content { flex: 1; overflow-y: auto; padding: 16px; -webkit-overflow-scrolling: touch; }
+
+/* ── Hub / Main Menu ── */
+.tw-stage-card {
+    background: rgba(20, 20, 30, 0.8); border: 1px solid #333;
+    border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 20px;
+}
+.tw-stage-controls { display: flex; align-items: center; justify-content: center; gap: 20px; margin-bottom: 10px; }
+.tw-diff-btn {
+    background: none; border: 2px solid #00ffff; color: #00ffff;
+    border-radius: 50%; width: 36px; height: 36px; font-size: 18px;
+    font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 0 8px rgba(0, 255, 255, 0.3); transition: all 0.15s;
+}
+.tw-diff-btn:active { transform: scale(0.9); }
+.tw-diff-btn:disabled { border-color: #555; color: #555; box-shadow: none; pointer-events: none; }
+.tw-diff-label { font-size: 24px; font-weight: bold; width: 120px; }
+.tw-target-wave { font-size: 12px; color: #aaa; margin-bottom: 20px; }
+
+.tw-play-btn {
+    width: 100%; padding: 16px; border-radius: 10px; border: none;
+    background: #00ffff; color: #000; font-size: 18px; font-weight: bold;
+    cursor: pointer; box-shadow: 0 0 15px rgba(0, 255, 255, 0.6); transition: transform 0.1s;
+}
+.tw-play-btn:active { transform: scale(0.97); }
+
+/* ── Upgrades List (Workshop & In-Run) ── */
+.tw-upg-cat-title {
+    font-size: 11px; font-weight: bold; color: #00ffff; text-transform: uppercase;
+    letter-spacing: 2px; margin: 16px 0 8px; border-bottom: 1px solid rgba(0, 255, 255, 0.3); padding-bottom: 4px;
+}
+.tw-upg-row {
+    display: flex; justify-content: space-between; align-items: center;
+    background: rgba(20, 20, 30, 0.9); border: 1px solid #333;
+    border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;
+}
+.tw-upg-info { display: flex; flex-direction: column; gap: 4px; }
+.tw-upg-name { font-size: 14px; font-weight: bold; color: #fff; }
+.tw-upg-val { font-size: 12px; color: #aaa; font-family: monospace; }
+.tw-upg-buy {
+    background: transparent; border: 1px solid #2ecc71; color: #2ecc71;
+    border-radius: 6px; padding: 8px 12px; font-size: 13px; font-weight: bold; cursor: pointer;
+    min-width: 80px; text-align: center; transition: all 0.15s; font-family: monospace;
+}
+.tw-upg-buy:hover:not(:disabled) { background: rgba(46, 204, 113, 0.15); box-shadow: 0 0 8px rgba(46, 204, 113, 0.4); }
+.tw-upg-buy:disabled { border-color: #555; color: #777; cursor: not-allowed; }
+
+/* ── Lab ── */
+.tw-lab-row {
+    background: rgba(20, 20, 30, 0.9); border: 1px solid #9b59b6;
+    border-radius: 8px; padding: 12px; margin-bottom: 10px;
+}
+.tw-lab-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.tw-lab-name { font-size: 14px; font-weight: bold; color: #c39bd3; }
+.tw-lab-lvl { font-size: 12px; color: #aaa; }
+.tw-lab-desc { font-size: 11px; color: #888; margin-bottom: 10px; }
+.tw-lab-actions { display: flex; justify-content: space-between; align-items: center; }
+.tw-lab-time { font-size: 12px; font-family: monospace; color: #f1c40f; }
+.tw-lab-buy {
+    background: transparent; border: 1px solid #f1c40f; color: #f1c40f;
+    border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: bold; cursor: pointer;
+}
+.tw-lab-buy:disabled { border-color: #555; color: #777; }
+
+/* ── Battle Screen ── */
+.tw-battle-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 12px; background: #050510; border-bottom: 1px solid #333; z-index: 10;
+}
+.tw-wave-text { font-size: 16px; font-weight: bold; color: #fff; }
+.tw-run-cash { font-family: monospace; font-size: 15px; font-weight: bold; color: #2ecc71; text-shadow: 0 0 5px rgba(46, 204, 113, 0.5); }
+
+.tw-hp-bar-wrap {
+    width: 100%; height: 6px; background: rgba(255,255,255,0.1);
+    border-bottom: 1px solid #333; z-index: 10;
+}
+.tw-hp-fill { height: 100%; background: #00ffff; box-shadow: 0 0 5px #00ffff; transition: width 0.1s linear; }
+
+.tw-canvas-wrap {
+    flex: 1; min-height: 0; position: relative; background: #000;
+}
+#tw-canvas { display: block; width: 100%; height: 100%; }
+
+.tw-battle-upgrades {
+    height: 45%; border-top: 2px solid #00ffff; background: #0a0a14;
+    display: flex; flex-direction: column; z-index: 10;
+}
+.tw-subtab-bar { display: flex; background: rgba(0,0,0,0.5); border-bottom: 1px solid #333; }
+.tw-subtab-btn {
+    flex: 1; padding: 8px 0; background: none; border: none; color: #888;
+    font-size: 11px; font-weight: bold; text-transform: uppercase; cursor: pointer;
+}
+.tw-subtab-btn.active { color: #00ffff; background: rgba(0, 255, 255, 0.1); }
+.tw-subtab-content { flex: 1; overflow-y: auto; padding: 10px; display: none; -webkit-overflow-scrolling: touch; }
+.tw-subtab-content.active { display: block; }
+
+/* ── UI Layer for popups ── */
+#tw-ui-layer { position: absolute; inset: 0; pointer-events: none; z-index: 100; }
+
+.tw-float-text {
+    position: absolute; pointer-events: none; font-weight: bold; font-family: monospace;
+    font-size: 14px; text-shadow: 1px 1px 2px #000;
+    animation: twFloatUp 0.8s forwards ease-out; z-index: 50;
+}
+@keyframes twFloatUp {
+    0% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -30px) scale(1.2); }
+}

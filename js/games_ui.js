@@ -58,6 +58,18 @@ const GAME_REGISTRY = [
             summary: { classes: 'content-scroll' },
         },
     },
+{
+    id:     'tower',
+    icon:   '🗼',
+    title:  'Polyglot Tower',
+    desc:   'Defend your tower against geometric waves. Answer vocabulary correctly at the start of each wave to gain massive power buffs.',
+    loader: () => import('./games/tower/tower.js'),
+    headerTitle: 'Polyglot Tower',
+    screens: {
+        setup: { classes: '' }, // The Hub/Menu
+        game:  { classes: '', style: 'padding:0; overflow:hidden; position:relative;' }, // The Battle
+    },
+},
     {
         id:     'eu',
         icon:   '🌍',
