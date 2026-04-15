@@ -13,6 +13,8 @@
     max-width: 900px;
     margin: 0 auto;
     width: 100%;
+    box-sizing: border-box;
+    padding-bottom: 80px; /* Bottom buffer for external elements */
 }
 
 .tw-header {

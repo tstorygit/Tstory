@@ -20,7 +20,7 @@ let _run = {
     diff: 1,
     cash: 0,
     earnedCoinsDrops: 0,
-    earnedCoinsInterest: 0,
+    earnedCoinsWave: 0,
     knowledgeStacks: 0,
     combo: 0,
     abilityCharge: 0,
@@ -37,6 +37,7 @@ function _defaultSave() {
         coins: 0,
         gems: 0,
         highestWave: 0,
+        highestWavePerDiff: {},
         maxDiff: 1,
         workshop: {
             unlocks: {},
@@ -76,8 +77,10 @@ export function init(screens, onExit) {
                 <button class="tw-tab-btn" data-tab="tw-hub-workshop">Workshop</button>
                 <button class="tw-tab-btn" data-tab="tw-hub-lab">Lab</button>
                 <button class="tw-tab-btn" data-tab="tw-hub-cards">Cards</button>
+                <button class="tw-tab-btn" data-tab="tw-hub-login">Daily</button>
                 <button class="tw-tab-btn" data-tab="tw-hub-quests">Quests</button>
                 <button class="tw-tab-btn" data-tab="tw-hub-stats">Stats</button>
+                <button class="tw-tab-btn" data-tab="tw-hub-data">Data</button>
                 <button class="tw-tab-btn" data-tab="tw-hub-vocab">Vocab</button>
             </div>
             
@@ -95,6 +98,18 @@ export function init(screens, onExit) {
                         <button class="tw-diff-btn" id="tw-diff-next">❯</button>
                     </div>
                     <div class="tw-target-wave">Complete Wave <span id="tw-target-val">10</span> to unlock next tier.</div>
+                    
+                    <div style="background:rgba(0,0,0,0.4); border-radius:8px; padding:10px; margin-bottom:15px; font-size:12px; color:#aaa;">
+                        <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                            <span>Highest Wave (Tier <span id="tw-diff-lbl-num">1</span>):</span>
+                            <span id="tw-diff-highest" style="color:#fff; font-weight:bold;">0</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between;">
+                            <span>Coin Multiplier:</span>
+                            <span><span style="color:#f1c40f; font-weight:bold;" id="tw-diff-coin-mult">x1.00</span> <span style="font-size:10px;">(Base x<span id="tw-diff-base-mult">1</span>)</span></span>
+                        </div>
+                    </div>
+
                     <button class="tw-play-btn" id="tw-start-run">BATTLE</button>
                 </div>
                 <button id="tw-exit-game" style="width:100%; padding:12px; background:none; border:1px solid #555; color:#aaa; border-radius:8px; margin-top:20px; cursor:pointer;">Exit to App</button>
@@ -124,6 +139,14 @@ export function init(screens, onExit) {
                 <div id="tw-cards-inv" class="tw-card-grid"></div>
             </div>
 
+            <div class="tw-screen tw-scroll-content" id="tw-hub-login">
+                <div style="text-align:center; margin-bottom: 20px;">
+                    <h3 style="color:#00ffff; margin:0 0 5px 0;">Daily Rewards</h3>
+                    <div style="color:#f1c40f; font-weight:bold; font-size:16px;">Total Streak: <span id="tw-login-streak-val">0</span> Days</div>
+                </div>
+                <div id="tw-login-weeks" style="display:flex; flex-direction:column; gap:15px;"></div>
+            </div>
+
             <div class="tw-screen tw-scroll-content" id="tw-hub-quests">
                 <h3 style="color:#e74c3c; margin-top:0;">Daily Quests</h3>
                 <p style="font-size:12px; color:#aaa;">Complete missions for Gems and Coins. Resets daily.</p>
@@ -135,6 +158,19 @@ export function init(screens, onExit) {
                 <div id="tw-stats-content"></div>
                 <div id="tw-relics-content" style="margin-top:20px;"></div>
             </div>
+
+            <div class="tw-screen tw-scroll-content" id="tw-hub-data">
+                <h3 style="color:#e74c3c; margin-top:0;">Wipe Data</h3>
+                <p style="font-size:12px; color:#aaa; margin-bottom:20px;">Reset specific parts of your progress. This cannot be undone!</p>
+                <div style="display:flex; flex-direction:column; gap:10px;">
+                    <button class="tw-play-btn" style="background:#e74c3c; font-size:14px;" id="tw-wipe-coins">Reset Coins & Gems</button>
+                    <button class="tw-play-btn" style="background:#e74c3c; font-size:14px;" id="tw-wipe-workshop">Reset Workshop</button>
+                    <button class="tw-play-btn" style="background:#e74c3c; font-size:14px;" id="tw-wipe-lab">Reset Lab</button>
+                    <button class="tw-play-btn" style="background:#e74c3c; font-size:14px;" id="tw-wipe-cards">Reset Cards</button>
+                    <button class="tw-play-btn" style="background:#e74c3c; font-size:14px;" id="tw-wipe-stats">Reset Stats & Quests</button>
+                    <button class="tw-play-btn" style="background:#c0392b; font-size:16px; margin-top:20px;" id="tw-wipe-all">HARD RESET ALL</button>
+                </div>
+            </div>
             
             <div class="tw-screen tw-scroll-content" id="tw-hub-vocab">
                 <div id="tw-vocab-settings-mount"></div>
@@ -142,7 +178,7 @@ export function init(screens, onExit) {
             </div>
         </div>
 
-        <div id="tw-daily-popup" class="tw-modal" style="display:none; position:absolute; inset:0; z-index:1000;">
+        <div id="tw-daily-popup" class="tw-modal" style="display:none; position:absolute; inset:0 0 80px 0; z-index:1000;">
             <div style="background:#1a1a2e; padding:30px; border-radius:12px; text-align:center; border:2px solid #f1c40f; max-width:80%;">
                 <h2 style="color:#f1c40f; margin-top:0;">Daily Login Bonus!</h2>
                 <div style="font-size:14px; color:#fff; margin-bottom:15px;">Day <span id="tw-login-day" style="font-weight:bold;color:#00ffff;"></span></div>
@@ -199,7 +235,7 @@ export function init(screens, onExit) {
                 <div class="tw-subtab-content" id="tw-run-utility"></div>
             </div>
 
-            <div id="tw-death-screen" class="tw-screen tw-modal" style="display:none; position:absolute; inset:0; z-index:1000; padding:20px;">
+            <div id="tw-death-screen" class="tw-screen tw-modal" style="display:none; position:absolute; inset:0 0 80px 0; z-index:1000; padding:20px;">
                 <h1 style="color:#e74c3c; margin-bottom:5px;">Tower Destroyed</h1>
                 <div style="font-size:18px; color:#00ffff; margin-bottom:15px;">Reached Wave <span id="tw-ds-wave"></span></div>
                 
@@ -209,7 +245,7 @@ export function init(screens, onExit) {
                     <div class="tw-death-grid-item">Boss Dmg Taken<div class="tw-death-val" id="tw-ds-bossdmg" style="color:#e74c3c;">0</div></div>
                     <div class="tw-death-grid-item">Mob Dmg Taken<div class="tw-death-val" id="tw-ds-mobdmg" style="color:#e67e22;">0</div></div>
                     <div class="tw-death-grid-item">Coins (Drops)<div class="tw-death-val" id="tw-ds-cdrops" style="color:#f1c40f;">0</div></div>
-                    <div class="tw-death-grid-item">Coins (Interest)<div class="tw-death-val" id="tw-ds-cint" style="color:#f1c40f;">0</div></div>
+                    <div class="tw-death-grid-item">Coins (Wave)<div class="tw-death-val" id="tw-ds-cint" style="color:#f1c40f;">0</div></div>
                 </div>
 
                 <div style="width:100%; max-width:400px; margin-bottom:20px; background:rgba(0,0,0,0.5); padding:10px; border-radius:8px;">
@@ -231,6 +267,7 @@ export function init(screens, onExit) {
             if (btn.dataset.tab === 'tw-hub-stats') _renderStats();
             if (btn.dataset.tab === 'tw-hub-quests') _renderQuests();
             if (btn.dataset.tab === 'tw-hub-cards') _renderCards();
+            if (btn.dataset.tab === 'tw-hub-login') _renderLoginTab();
         });
     });
 
@@ -270,6 +307,49 @@ export function init(screens, onExit) {
         });
     });
 
+    // Wipe Data Handlers
+    _screens.setup.querySelector('#tw-wipe-coins').onclick = () => {
+        if(confirm('Reset Coins & Gems?')) { _save.coins = 0; _save.gems = 0; _saveGame(); _showHub(); }
+    };
+    _screens.setup.querySelector('#tw-wipe-workshop').onclick = () => {
+        if(confirm('Reset Workshop Upgrades?')) { 
+            _save.workshop = _defaultSave().workshop; 
+            _saveGame(); _showHub(); 
+        }
+    };
+    _screens.setup.querySelector('#tw-wipe-lab').onclick = () => {
+        if(confirm('Reset Lab Research?')) { 
+            _save.lab = _defaultSave().lab; 
+            _saveGame(); _showHub(); 
+        }
+    };
+    _screens.setup.querySelector('#tw-wipe-cards').onclick = () => {
+        if(confirm('Reset Cards & Slots?')) { 
+            _save.cards = _defaultSave().cards; 
+            _saveGame(); _showHub(); 
+        }
+    };
+    _screens.setup.querySelector('#tw-wipe-stats').onclick = () => {
+        if(confirm('Reset Stats, Quests & Relics?')) { 
+            const def = _defaultSave();
+            _save.stats = def.stats; 
+            _save.highestWave = def.highestWave;
+            _save.highestWavePerDiff = def.highestWavePerDiff;
+            _save.maxDiff = def.maxDiff;
+            _save.relics = def.relics;
+            _save.quests = def.quests;
+            _saveGame(); _showHub(); 
+        }
+    };
+    _screens.setup.querySelector('#tw-wipe-all').onclick = () => {
+        if(confirm('HARD RESET: Delete ALL progress? This cannot be undone.')) { 
+            const savedVocab = _save.vocabConfig;
+            _save = _defaultSave();
+            _save.vocabConfig = savedVocab; 
+            _saveGame(); _showHub(); 
+        }
+    };
+
     _screens.setup.querySelector('#tw-exit-game').onclick = () => _onExit();
     _screens.setup.querySelector('#tw-start-run').onclick = () => _startRun();
     _screens.setup.querySelector('#tw-change-deck-btn').onclick = () => _openDeckSelector();
@@ -282,10 +362,24 @@ export function init(screens, onExit) {
 
     const updateDiffUI = () => {
         diffVal.textContent = selectedDiff;
+        _screens.setup.querySelector('#tw-diff-lbl-num').textContent = selectedDiff;
         targetVal.textContent = Math.round(26 * Math.log(selectedDiff) + 10);
         prevBtn.disabled = selectedDiff <= 1;
         nextBtn.disabled = selectedDiff >= (_save ? _save.maxDiff : 1);
         _run.diff = selectedDiff;
+
+        if (_save) {
+            const hWave = _save.highestWavePerDiff ? (_save.highestWavePerDiff[selectedDiff] || 0) : 0;
+            _screens.setup.querySelector('#tw-diff-highest').textContent = hWave;
+
+            const baseStats = _getTowerStats();
+            const cBonus = baseStats.coinBonus || 1;
+            const labYield = 1 + ((_save.lab.levels.coinYield || 0) * 0.1);
+            const totalMult = selectedDiff * cBonus * labYield;
+
+            _screens.setup.querySelector('#tw-diff-base-mult').textContent = selectedDiff;
+            _screens.setup.querySelector('#tw-diff-coin-mult').textContent = 'x' + totalMult.toFixed(2);
+        }
     };
     prevBtn.onclick = () => { selectedDiff--; updateDiffUI(); };
     nextBtn.onclick = () => { selectedDiff++; updateDiffUI(); };
@@ -331,7 +425,7 @@ export function init(screens, onExit) {
             waveCoins = Math.floor(waveCoins * (_engine.stats.coinBonus || 1));
             waveCoins = Math.floor(waveCoins * (1 + (_save.lab.levels.coinYield || 0) * 0.1));
             
-            _run.earnedCoinsInterest += waveCoins;
+            _run.earnedCoinsWave += waveCoins;
             
             if (!_run.boughtDefense) {
                 _updateQuest('reach_wave_no_def', _run.wave);
@@ -356,6 +450,12 @@ export function launch() {
     _save = JSON.parse(localStorage.getItem(SAVE_KEY)) || _defaultSave();
     
     if (!_save.gems) _save.gems = 0;
+    if (!_save.highestWavePerDiff) {
+        _save.highestWavePerDiff = {};
+        if (_save.highestWave > 0) {
+            _save.highestWavePerDiff[1] = _save.highestWave;
+        }
+    }
     if (!_save.login) _save.login = { lastDate: null, streakDays: 0 };
     if (!_save.quests) _save.quests = { date: null, active:[] };
     if (!_save.cards) _save.cards = { owned: {}, equipped: [null], unlockedSlots: 1 };
@@ -428,6 +528,7 @@ function _showHub() {
     _renderStats();
     _renderQuests();
     _renderCards();
+    _renderLoginTab();
     
     renderVocabSettings(
         _vocabMgr,
@@ -453,7 +554,7 @@ function _checkDailyLogin() {
 
         if (_save.login.streakDays % 28 === 0) rewardGems = 100;
         else if (_save.login.streakDays % 7 === 0) rewardGems = 20;
-        else rewardCoins = 50 * ((_save.login.streakDays % 7) || 1);
+        else rewardCoins = 50 * ((_save.login.streakDays % 7) || 7);
 
         const popup = _screens.setup.querySelector('#tw-daily-popup');
         const rwdEl = popup.querySelector('#tw-login-reward');
@@ -474,6 +575,47 @@ function _checkDailyLogin() {
             _showHub();
         };
     }
+}
+
+function _renderLoginTab() {
+    const streakEl = _screens.setup.querySelector('#tw-login-streak-val');
+    const weeksEl = _screens.setup.querySelector('#tw-login-weeks');
+    
+    streakEl.textContent = _save.login.streakDays || 0;
+    
+    let html = '';
+    const cycle = Math.floor(Math.max(0, (_save.login.streakDays || 1) - 1) / 28);
+    
+    for (let w = 0; w < 4; w++) {
+        html += `<div style="background:rgba(20,20,30,0.8); border:1px solid #333; border-radius:8px; padding:10px;">
+            <div style="font-size:11px; color:#888; margin-bottom:8px; font-weight:bold; text-transform:uppercase;">Week ${cycle * 4 + w + 1}</div>
+            <div style="display:flex; gap:5px; justify-content:space-between;">`;
+        for (let d = 1; d <= 7; d++) {
+            const day = cycle * 28 + w * 7 + d;
+            let rewGems = 0, rewCoins = 0;
+            if (day % 28 === 0) rewGems = 100;
+            else if (day % 7 === 0) rewGems = 20;
+            else rewCoins = 50 * ((day % 7) || 7); 
+
+            const isPast = day <= _save.login.streakDays;
+            const isToday = day === _save.login.streakDays;
+            
+            let bg = isToday ? 'background:rgba(46,204,113,0.2); border-color:#2ecc71;' : (isPast ? 'background:rgba(255,255,255,0.05); border-color:#555; opacity:0.5;' : 'background:rgba(0,0,0,0.5); border-color:#333;');
+            
+            let icon = rewGems ? '💎' : '🪙';
+            let amt = rewGems || rewCoins;
+            let color = rewGems ? '#e74c3c' : '#f1c40f';
+
+            html += `<div style="flex:1; border:1px solid; border-radius:6px; padding:8px 0; text-align:center; ${bg}">
+                <div style="font-size:10px; color:#aaa; margin-bottom:4px;">Day ${day}</div>
+                <div style="font-size:14px;">${icon}</div>
+                <div style="font-size:11px; font-weight:bold; color:${color}; margin-top:2px;">${amt}</div>
+                ${isPast ? '<div style="font-size:10px; color:#2ecc71; margin-top:2px;">✓</div>' : ''}
+            </div>`;
+        }
+        html += `</div></div>`;
+    }
+    weeksEl.innerHTML = html;
 }
 
 function _generateDailyQuests() {
@@ -830,7 +972,7 @@ function _getTowerStats() {
         }
     }
 
-    let kMult = 0.01 + (_save.lab.levels.knowledge * 0.005);
+    let kMult = 0.01 + ((_save.lab ? _save.lab.levels.knowledge : 0) * 0.005);
     if (_save.relics.includes(5)) kMult *= 2; 
     kMult *= (1 + knowCardBuff);
     
@@ -855,7 +997,6 @@ function _getTowerStats() {
         }
     }
     
-    // Apply other equipped cards
     stats.enemySpeedMult = 1.0;
     if (_save && _save.cards) {
         for (let i = 0; i < _save.cards.unlockedSlots; i++) {
@@ -902,11 +1043,11 @@ function _getTowerStats() {
     if (_engine.stats && stats.health > _engine.stats.health) {
         stats.currentHp += (stats.health - _engine.stats.health);
     }
-    stats.gameSpeed = 1 + (_save.lab.levels.gameSpeed * 0.1);
+    stats.gameSpeed = 1 + ((_save.lab ? _save.lab.levels.gameSpeed : 0) * 0.1);
     stats.kBuff = kBuff;
     
-    stats.synergyPierce = _save.lab.levels.synergy > 0 && kBuff >= 2.0;
-    stats.synergyChain = _save.lab.levels.synergy > 0 && kBuff >= 3.0;
+    stats.synergyPierce = _save.lab && _save.lab.levels.synergy > 0 && kBuff >= 2.0;
+    stats.synergyChain = _save.lab && _save.lab.levels.synergy > 0 && kBuff >= 3.0;
     
     return stats;
 }
@@ -915,7 +1056,7 @@ function _startRun() {
     _run.wave = 1;
     _run.cash = 50 + (50 * _save.lab.levels.startingCash);
     _run.earnedCoinsDrops = 0;
-    _run.earnedCoinsInterest = 0;
+    _run.earnedCoinsWave = 0;
     _run.knowledgeStacks = 0;
     _run.combo = 0;
     _run.abilityCharge = 0;
@@ -976,7 +1117,7 @@ function _startNextWave() {
                 _save.stats.sessionCorrect++;
                 _updateQuest('answer_vocab', 1);
 
-                _save.gems += 1; // 1 Gem per correct vocab
+                _save.gems += 1; 
 
                 if (_run.combo > _save.stats.highestStreak) _save.stats.highestStreak = _run.combo;
                 
@@ -1025,6 +1166,11 @@ function _checkUnlock() {
     const target = Math.round(26 * Math.log(_run.diff) + 10);
     if (_run.wave > _save.highestWave) _save.highestWave = _run.wave;
     
+    if (!_save.highestWavePerDiff) _save.highestWavePerDiff = {};
+    if (_run.wave > (_save.highestWavePerDiff[_run.diff] || 0)) {
+        _save.highestWavePerDiff[_run.diff] = _run.wave;
+    }
+
     if (_run.wave > target) {
         if (!_save.relics.includes(_run.diff)) {
             _save.relics.push(_run.diff);
@@ -1039,7 +1185,7 @@ function _checkUnlock() {
 }
 
 function _handleDeath() {
-    const totalCoins = _run.earnedCoinsDrops + _run.earnedCoinsInterest;
+    const totalCoins = _run.earnedCoinsDrops + _run.earnedCoinsWave;
     _save.coins += totalCoins;
     
     if (_vocabMgr && !_vocabMgr.isGlobalSrs) {
@@ -1057,7 +1203,7 @@ function _handleDeath() {
     deathScreen.querySelector('#tw-ds-bossdmg').textContent = Math.floor(_engine.runStats.dmgTakenBoss).toLocaleString();
     deathScreen.querySelector('#tw-ds-mobdmg').textContent = Math.floor(_engine.runStats.dmgTakenBasic).toLocaleString();
     deathScreen.querySelector('#tw-ds-cdrops').textContent = _run.earnedCoinsDrops;
-    deathScreen.querySelector('#tw-ds-cint').textContent = _run.earnedCoinsInterest;
+    deathScreen.querySelector('#tw-ds-cint').textContent = _run.earnedCoinsWave;
 
     const wordsDiv = deathScreen.querySelector('#tw-ds-words');
     wordsDiv.innerHTML = '';
@@ -1085,13 +1231,10 @@ function _updateRunHUD() {
     _screens.game.querySelector('#tw-run-wave').textContent = _run.wave;
     _screens.game.querySelector('#tw-run-cash-val').textContent = Math.floor(_run.cash);
     
-    const totalCoins = _save.coins + _run.earnedCoinsDrops + _run.earnedCoinsInterest;
+    const totalCoins = _save.coins + _run.earnedCoinsDrops + _run.earnedCoinsWave;
     _screens.game.querySelector('#tw-run-coins-val').textContent = Math.floor(totalCoins);
     _screens.game.querySelector('#tw-run-gems-val').textContent = Math.floor(_save.gems);
     
-    let kMult = 0.01 + (_save.lab.levels.knowledge * 0.005);
-    if (_save.relics.includes(5)) kMult *= 2;
-    // Safe card buff calc just for UI
     let knowCardBuff = 0;
     if (_save && _save.cards) {
         for (let i = 0; i < _save.cards.unlockedSlots; i++) {
@@ -1106,6 +1249,9 @@ function _updateRunHUD() {
             }
         }
     }
+
+    let kMult = 0.01 + ((_save.lab ? _save.lab.levels.knowledge : 0) * 0.005);
+    if (_save.relics.includes(5)) kMult *= 2;
     kMult *= (1 + knowCardBuff);
     
     const kBuff = 1 + (_run.knowledgeStacks * kMult);
