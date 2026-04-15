@@ -2,7 +2,7 @@
 
 import { mountVocabSelector } from '../../vocab_selector.js';
 import { GameVocabManager } from '../../game_vocab_mgr.js';
-import { showGameQuiz, renderVocabSettings } from '../../game_vocab_mgr_ui.js';
+import { showGameQuiz, poolSourceLabel, renderVocabSettings, setGvmTheme } from '../../game_vocab_mgr_ui.js';
 import { UPGRADES, LAB_RESEARCH, RELICS, calcStat, calcCost, calcLabCost, calcLabTimeMs } from './tower_data.js';
 import { TowerEngine } from './tower_engine.js';
 
@@ -13,6 +13,7 @@ let _engine = null;
 
 const SAVE_KEY = 'polyglot_tower_save';
 let _save = null;
+let _speedMult = 1; // Default speed
 
 // Run state
 let _run = {
@@ -46,7 +47,7 @@ function _defaultSave() {
         },
         vocabConfig: GameVocabManager.defaultConfig(),
         stats: { totalCorrect: 0, sessionCorrect: 0, highestStreak: 0, wordsMastered: [] },
-        relics: []
+        relics:[]
     };
 }
 
@@ -55,6 +56,8 @@ export function init(screens, onExit) {
     _onExit = onExit;
     _injectCSS();
     
+    // Setup HTML Structure inside the two provided screens
+    // Hub goes in `setup` screen
     _screens.setup.innerHTML = `
         <div class="tw-root">
             <div class="tw-header">
@@ -62,15 +65,24 @@ export function init(screens, onExit) {
                 <div class="tw-coins">🪙 <span id="tw-hub-coins">0</span></div>
             </div>
             <div class="tw-tab-bar">
-                <button class="tw-tab-btn active" data-tab="hub-play">Play</button>
-                <button class="tw-tab-btn" data-tab="hub-workshop">Workshop</button>
-                <button class="tw-tab-btn" data-tab="hub-lab">Lab</button>
-                <button class="tw-tab-btn" data-tab="hub-stats">Stats</button>
-                <button class="tw-tab-btn" data-tab="hub-vocab">Vocab</button>
+                <button class="tw-tab-btn active" data-tab="tw-hub-play">Play</button>
+                <button class="tw-tab-btn" data-tab="tw-hub-workshop">Workshop</button>
+                <button class="tw-tab-btn" data-tab="tw-hub-lab">Lab</button>
+                <button class="tw-tab-btn" data-tab="tw-hub-stats">Stats</button>
+                <button class="tw-tab-btn" data-tab="tw-hub-vocab">Vocab</button>
             </div>
             
             <!-- Play Tab -->
             <div class="tw-screen active tw-scroll-content" id="tw-hub-play">
+                <div class="tw-tower-visual">
+                    <div class="tw-tower-crystal">🔮</div>
+                    <div class="tw-tower-body">
+                        <div class="tw-tower-window"></div>
+                        <div class="tw-tower-window"></div>
+                    </div>
+                    <div class="tw-tower-base"></div>
+                </div>
+
                 <div class="tw-stage-card">
                     <h3 style="color:#00ffff; margin-top:0;">Select Difficulty</h3>
                     <div class="tw-stage-controls">
@@ -119,7 +131,10 @@ export function init(screens, onExit) {
         <div class="tw-root">
             <div class="tw-header tw-battle-header" style="flex-direction:column; align-items:stretch; padding: 8px;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                    <div class="tw-wave-text">Wave <span id="tw-run-wave">1</span></div>
+                    <div style="display:flex; flex-direction:column; gap:2px;">
+                        <div class="tw-wave-text">Wave <span id="tw-run-wave">1</span></div>
+                        <div style="font-size:11px; color:#f1c40f; font-weight:bold; font-family:monospace;">🪙 +<span id="tw-run-earned-coins">0</span></div>
+                    </div>
                     <div class="tw-run-cash">$ <span id="tw-run-cash-val">0</span></div>
                     <div style="font-size:12px; font-weight:bold; color:#9b59b6;">🧠 ×<span id="tw-run-know">1.00</span><span id="tw-run-combo" class="tw-combo-text"></span></div>
                 </div>
@@ -128,6 +143,7 @@ export function init(screens, onExit) {
                     <button class="tw-target-btn" data-target="farthest">Farthest</button>
                     <button class="tw-target-btn" data-target="boss">Boss</button>
                     <button class="tw-target-btn" data-target="fast">Fast</button>
+                    <button class="tw-speed-btn" id="tw-btn-speed">⚡ 1x</button>
                 </div>
                 <div class="tw-abilities" style="margin-top:4px;">
                     <button class="tw-abil-btn" id="tw-abil-barrage" disabled>Barrage</button>
@@ -143,12 +159,12 @@ export function init(screens, onExit) {
                 <canvas id="tw-canvas"></canvas>
                 <div id="tw-ui-layer"></div>
             </div>
-            
+                
             <div class="tw-battle-upgrades">
                 <div class="tw-subtab-bar">
-                    <button class="tw-subtab-btn active" data-subtab="run-offense">Offense</button>
-                    <button class="tw-subtab-btn" data-subtab="run-defense">Defense</button>
-                    <button class="tw-subtab-btn" data-subtab="run-utility">Utility</button>
+                    <button class="tw-subtab-btn active" data-subtab="tw-run-offense">Offense</button>
+                    <button class="tw-subtab-btn" data-subtab="tw-run-defense">Defense</button>
+                    <button class="tw-subtab-btn" data-subtab="tw-run-utility">Utility</button>
                 </div>
                 <div class="tw-subtab-content active" id="tw-run-offense"></div>
                 <div class="tw-subtab-content" id="tw-run-defense"></div>
@@ -169,8 +185,8 @@ export function init(screens, onExit) {
             _screens.setup.querySelectorAll('.tw-tab-btn').forEach(b => b.classList.remove('active'));
             _screens.setup.querySelectorAll('.tw-screen').forEach(s => s.classList.remove('active'));
             btn.classList.add('active');
-            _screens.setup.querySelector(`#tw-${btn.dataset.tab}`).classList.add('active');
-            if (btn.dataset.tab === 'hub-stats') _renderStats();
+            _screens.setup.querySelector(`#${btn.dataset.tab}`).classList.add('active');
+            if (btn.dataset.tab === 'tw-hub-stats') _renderStats();
         });
     });
 
@@ -180,7 +196,7 @@ export function init(screens, onExit) {
             _screens.game.querySelectorAll('.tw-subtab-btn').forEach(b => b.classList.remove('active'));
             _screens.game.querySelectorAll('.tw-subtab-content').forEach(s => s.classList.remove('active'));
             btn.classList.add('active');
-            _screens.game.querySelector(`#tw-${btn.dataset.subtab}`).classList.add('active');
+            _screens.game.querySelector(`#${btn.dataset.subtab}`).classList.add('active');
         });
     });
 
@@ -192,6 +208,15 @@ export function init(screens, onExit) {
             _run.targetMode = btn.dataset.target;
             if (_engine) _engine.setTargetMode(_run.targetMode);
         });
+    });
+    
+    // Wire Speed Button
+    _screens.game.querySelector('#tw-btn-speed').addEventListener('click', () => {
+        const steps = [1, 2, 3, 5];
+        const idx = steps.indexOf(_speedMult);
+        _speedMult = steps[(idx + 1) % steps.length];
+        _screens.game.querySelector('#tw-btn-speed').textContent = `⚡ ${_speedMult}x`;
+        if (_engine) _engine.speedMult = _speedMult;
     });
 
     ['barrage', 'nova', 'aegis'].forEach(abil => {
@@ -208,6 +233,7 @@ export function init(screens, onExit) {
     _screens.setup.querySelector('#tw-start-run').onclick = () => _startRun();
     _screens.setup.querySelector('#tw-change-deck-btn').onclick = () => _openDeckSelector();
 
+    // Difficulty selectors
     let selectedDiff = 1;
     const diffVal = _screens.setup.querySelector('#tw-diff-val');
     const targetVal = _screens.setup.querySelector('#tw-target-val');
@@ -218,12 +244,14 @@ export function init(screens, onExit) {
         diffVal.textContent = selectedDiff;
         targetVal.textContent = Math.round(26 * Math.log(selectedDiff) + 10);
         prevBtn.disabled = selectedDiff <= 1;
-        nextBtn.disabled = selectedDiff >= _save.maxDiff;
+        // Null-safe check: _save might not be loaded yet during init
+        nextBtn.disabled = selectedDiff >= (_save ? _save.maxDiff : 1);
         _run.diff = selectedDiff;
     };
     prevBtn.onclick = () => { selectedDiff--; updateDiffUI(); };
     nextBtn.onclick = () => { selectedDiff++; updateDiffUI(); };
 
+    // Set up engine
     _engine = new TowerEngine(_screens.game.querySelector('#tw-canvas'), {
         onHpUpdate: () => _updateRunHUD(),
         onEnemyKill: (cash) => {
@@ -233,17 +261,20 @@ export function init(screens, onExit) {
         },
         onWaveComplete: () => {
             _run.wave++;
-            if (_save.lab.levels.startingCash >= 5) {
+            if (_save && _save.lab.levels.startingCash >= 5) {
                 _run.cash = Math.floor(_run.cash * 1.02);
             }
             _checkUnlock();
             _startNextWave();
         },
         onPlayerDie: () => _handleDeath(),
-        hasRelic: (id) => _save.relics.includes(id)
+        hasRelic: (id) => _save && _save.relics.includes(id)
     });
 
+    // Start Lab ticker
     setInterval(_labTicker, 1000);
+    
+    // Expose updateDiffUI so it can be called cleanly once launch() runs
     init._updateDiffUI = updateDiffUI;
 }
 
@@ -255,10 +286,13 @@ export function launch() {
     if (_save.lab.levels.vocabMastery === undefined) _save.lab.levels.vocabMastery = 0;
     if (_save.lab.levels.synergy === undefined) _save.lab.levels.synergy = 0;
     if (!_save.stats) _save.stats = { totalCorrect: 0, sessionCorrect: 0, highestStreak: 0, wordsMastered: [] };
-    if (!_save.relics) _save.relics = [];
+    if (!_save.relics) _save.relics =[];
     if (!_save.workshop.offense) _save = _defaultSave();
 
     _save.stats.sessionCorrect = 0; // Reset session stats
+
+    // Force Dark Mode for the VocabManager UI within this game
+    setGvmTheme('dark');
 
     _vocabMgr = new GameVocabManager(_save.vocabConfig);
     const srsPool = GameVocabManager.loadSrsPool();
@@ -284,12 +318,14 @@ function _showHub() {
     
     _screens.setup.querySelector('#tw-hub-coins').textContent = Math.floor(_save.coins);
     
+    // Refresh UI numbers now that _save is definitively loaded
     if (typeof init._updateDiffUI === 'function') init._updateDiffUI();
 
     _renderWorkshop();
     _renderLab();
     _renderStats();
     
+    // Render Vocab Settings
     renderVocabSettings(
         _vocabMgr,
         _screens.setup.querySelector('#tw-vocab-settings-mount'),
@@ -314,6 +350,7 @@ function _renderWorkshop() {
         for (const id in UPGRADES[cat]) {
             const def = UPGRADES[cat][id];
             const lvl = _save.workshop[cat][id];
+            if (def.max !== undefined && lvl >= def.max) continue; // Optional: hide maxed
             
             const cost = calcCost(cat, id, lvl, true);
             const val = calcStat(cat, id, lvl, 0);
@@ -335,7 +372,7 @@ function _renderWorkshop() {
                     _save.coins -= cost;
                     _save.workshop[cat][id]++;
                     _saveGame();
-                    _showHub();
+                    _showHub(); // Re-render
                 }
             };
             catDiv.appendChild(row);
@@ -455,6 +492,16 @@ function _labTicker() {
 
 // ─── RUN MECHANICS ───────────────────────────────────────────────────────────
 
+function _calculateEarnedCoins() {
+    const coinsWave = (_engine && _engine.stats) ? (_engine.stats.coinsWave || 0) : 0;
+    const baseCoins = _run.wave * _run.diff;
+    const bonusCoins = _run.wave * coinsWave;
+    let totalCoins = baseCoins + bonusCoins;
+    const yieldBonus = (_save.lab.levels.coinYield || 0) * 0.1;
+    const yieldCoins = totalCoins * yieldBonus;
+    return Math.floor(totalCoins + yieldCoins);
+}
+
 function _getTowerStats() {
     let kMult = 0.01 + (_save.lab.levels.knowledge * 0.005);
     if (_save.relics.includes(5)) kMult *= 2; // Master Crown
@@ -503,7 +550,7 @@ function _startRun() {
     _run.vocabQuestions = 0;
     _run.vocabCorrect = 0;
     
-    for (const cat of ['offense', 'defense', 'utility']) {
+    for (const cat of['offense', 'defense', 'utility']) {
         for (const id in UPGRADES[cat]) {
             _run.levels[cat][id] = 0;
         }
@@ -512,6 +559,7 @@ function _startRun() {
     _screens.setup.style.display = 'none';
     _screens.game.style.display = 'flex';
     _engine._resize();
+    _engine.speedMult = _speedMult;
 
     _vocabMgr.seedInitialWords(5);
     
@@ -607,15 +655,7 @@ function _checkUnlock() {
 }
 
 function _handleDeath() {
-    const coinsWave = _engine.stats.coinsWave;
-    const baseCoins = _run.wave * _run.diff;
-    const bonusCoins = _run.wave * coinsWave;
-    
-    let totalCoins = baseCoins + bonusCoins;
-    const yieldBonus = _save.lab.levels.coinYield * 0.1;
-    const yieldCoins = totalCoins * yieldBonus;
-    
-    totalCoins = Math.floor(totalCoins + yieldCoins);
+    const totalCoins = _calculateEarnedCoins();
     _save.coins += totalCoins;
     
     if (_vocabMgr && !_vocabMgr.isGlobalSrs) {
@@ -630,10 +670,7 @@ function _handleDeath() {
     
     deathStats.innerHTML = `
         <div style="font-size:24px; color:#00ffff; font-weight:bold; margin-bottom:10px;">Reached Wave ${_run.wave}</div>
-        <div>Base Coins: <span style="font-family:monospace;">🪙 ${Math.floor(baseCoins)}</span></div>
-        <div>Wave Bonus: <span style="font-family:monospace;">🪙 ${Math.floor(bonusCoins)}</span></div>
-        <div>Lab Yield: <span style="font-family:monospace;">🪙 ${Math.floor(yieldCoins)}</span></div>
-        <div style="font-weight:bold; color:#f1c40f; margin-top:8px;">Total Coins: 🪙 ${totalCoins}</div>
+        <div style="font-weight:bold; color:#f1c40f; margin-top:8px;">Earned Coins: 🪙 ${totalCoins}</div>
         <div style="margin-top:15px; font-size:14px; color:#aaa; border-top:1px solid #333; padding-top:10px;">
             Knowledge Stacks: ${_run.knowledgeStacks}<br>
             Vocab Accuracy: ${acc}%
@@ -652,6 +689,7 @@ function _handleDeath() {
 function _updateRunHUD() {
     _screens.game.querySelector('#tw-run-wave').textContent = _run.wave;
     _screens.game.querySelector('#tw-run-cash-val').textContent = Math.floor(_run.cash);
+    _screens.game.querySelector('#tw-run-earned-coins').textContent = _calculateEarnedCoins();
     
     let kMult = 0.01 + (_save.lab.levels.knowledge * 0.005);
     if (_save.relics.includes(5)) kMult *= 2;
@@ -691,7 +729,7 @@ function _updateAbilitiesUI() {
 }
 
 function _renderRunUpgrades() {
-    for (const cat of ['offense', 'defense', 'utility']) {
+    for (const cat of['offense', 'defense', 'utility']) {
         const container = _screens.game.querySelector(`#tw-run-${cat}`);
         container.innerHTML = '';
         

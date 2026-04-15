@@ -1,5 +1,3 @@
-// main/js/games/tower/tower_engine.js
-
 export class TowerEngine {
     constructor(canvas, callbacks) {
         this.canvas = canvas;
@@ -10,8 +8,8 @@ export class TowerEngine {
         this.cy = 0;
         this.enemies = [];
         this.projectiles = [];
-        this.enemyProjectiles = [];
-        this.floatTexts = [];
+        this.enemyProjectiles =[];
+        this.floatTexts =[];
         
         this.state = 'STOPPED';
         this.lastTime = 0;
@@ -27,6 +25,7 @@ export class TowerEngine {
         
         this.targetMode = 'closest';
         this.buffs = { barrage: 0, aegis: 0 };
+        this.speedMult = 1;
         
         this._resize();
         window.addEventListener('resize', () => this._resize());
@@ -44,10 +43,10 @@ export class TowerEngine {
         this.stats = stats;
         this.wave = startWave;
         this.diff = diff;
-        this.enemies = [];
+        this.enemies =[];
         this.projectiles = [];
         this.enemyProjectiles = [];
-        this.floatTexts = [];
+        this.floatTexts =[];
         this.state = 'IDLE';
         this.attackCooldown = 0;
         this.buffs = { barrage: 0, aegis: 0 };
@@ -86,14 +85,16 @@ export class TowerEngine {
     }
 
     pause() {
-        if (this.state === 'PLAYING') this.state = 'PAUSED';
+        if (this.state === 'PLAYING' || this.state === 'IDLE') this.state = 'PAUSED';
     }
 
     resume() {
-        if (this.state === 'PAUSED') {
+        if (this.state === 'PAUSED' || this.state === 'IDLE') {
             this.state = 'PLAYING';
             this.lastTime = performance.now();
-            this.rafId = requestAnimationFrame((t) => this._loop(t));
+            if (!this.rafId) {
+                this.rafId = requestAnimationFrame((t) => this._loop(t));
+            }
         }
     }
 
@@ -174,18 +175,21 @@ export class TowerEngine {
 
         if (this.stats.currentHp <= 0) {
             this.state = 'STOPPED';
-            this._draw();
+            this._draw(performance.now());
             this.callbacks.onPlayerDie();
         }
     }
 
     _loop(time) {
-        if (this.state !== 'PLAYING') return;
+        if (this.state !== 'PLAYING') {
+            this.rafId = null;
+            return;
+        }
 
         let dt = (time - this.lastTime) / 1000;
         this.lastTime = time;
         if (dt > 0.1) dt = 0.1;
-        dt *= this.stats.gameSpeed; 
+        dt *= (this.stats.gameSpeed || 1) * this.speedMult; 
 
         // Health Regen
         if (this.stats.regen > 0 && this.stats.currentHp < this.stats.health) {
@@ -240,7 +244,7 @@ export class TowerEngine {
                         isCrit: isCrit,
                         speed: 500,
                         vx: 0, vy: 0,
-                        hitIds: [],
+                        hitIds:[],
                         chainBounces: this.stats.synergyChain ? 2 : 0,
                         pierces: this.stats.synergyPierce ? 3 : 0
                     });
@@ -253,38 +257,48 @@ export class TowerEngine {
         // Update Projectiles
         for (let i = this.projectiles.length - 1; i >= 0; i--) {
             const p = this.projectiles[i];
-            
+            let hitTarget = null;
+            let step = p.speed * dt;
+
             if (p.targetId) {
                 const target = this.enemies.find(e => e.id === p.targetId);
                 if (target) {
-                    p.vx = (target.x - p.x);
-                    p.vy = (target.y - p.y);
-                    const mag = Math.hypot(p.vx, p.vy);
-                    if (mag > 0) { p.vx = (p.vx/mag)*p.speed; p.vy = (p.vy/mag)*p.speed; }
+                    const dx = target.x - p.x;
+                    const dy = target.y - p.y;
+                    const dist = Math.hypot(dx, dy);
+                    if (dist > 0) { p.vx = (dx/dist)*p.speed; p.vy = (dy/dist)*p.speed; }
+
+                    if (dist <= step + target.radius) {
+                        hitTarget = target;
+                    }
+                } else {
+                    p.targetId = null; // target died before hit
                 }
-            }
-            
-            p.x += p.vx * dt;
-            p.y += p.vy * dt;
-            
-            if (p.x < 0 || p.x > this.canvas.width || p.y < 0 || p.y > this.canvas.height) {
-                this.projectiles.splice(i, 1);
-                continue;
             }
 
-            let hit = false;
-            for (const e of this.enemies) {
-                if (p.hitIds.includes(e.id)) continue;
-                if (Math.hypot(e.x - p.x, e.y - p.y) < e.radius + 5) {
-                    e.hp -= p.dmg;
-                    if (p.isCrit) this.spawnFloatText(Math.floor(p.dmg), '#f1c40f');
-                    p.hitIds.push(e.id);
-                    hit = true;
-                    break;
+            if (!hitTarget) {
+                p.x += p.vx * dt;
+                p.y += p.vy * dt;
+                
+                if (p.x < 0 || p.x > this.canvas.width || p.y < 0 || p.y > this.canvas.height) {
+                    this.projectiles.splice(i, 1);
+                    continue;
+                }
+
+                for (const e of this.enemies) {
+                    if (p.hitIds.includes(e.id)) continue;
+                    if (Math.hypot(e.x - p.x, e.y - p.y) < e.radius + 10) {
+                        hitTarget = e;
+                        break;
+                    }
                 }
             }
-            
-            if (hit) {
+
+            if (hitTarget) {
+                hitTarget.hp -= p.dmg;
+                if (p.isCrit) this.spawnFloatText(Math.floor(p.dmg), '#f1c40f');
+                p.hitIds.push(hitTarget.id);
+
                 if (this.stats.synergyChain && p.chainBounces > 0) {
                     p.chainBounces--;
                     let nextTarget = this.enemies.find(en => !p.hitIds.includes(en.id) && Math.hypot(en.x - p.x, en.y - p.y) < 150);
@@ -341,7 +355,7 @@ export class TowerEngine {
             const step = e.speed * dt;
 
             if (e.type === 'ranged') {
-                if (dist > this.stats.range * 0.7) {
+                if (dist > (this.stats.range || 100) * 0.7) {
                     e.x += (dx / dist) * step;
                     e.y += (dy / dist) * step;
                 }
@@ -351,7 +365,7 @@ export class TowerEngine {
                     e.attackCooldown = 2.0;
                 }
             } else {
-                if (dist - e.radius < 15) {
+                if (dist - e.radius <= 15 + step) {
                     this._dealDamageToTower(e.dmg);
                     if (this.state === 'STOPPED') return;
                     if (this.stats.thorns > 0) e.hp -= e.dmg * this.stats.thorns;
@@ -376,11 +390,16 @@ export class TowerEngine {
             this.callbacks.onWaveComplete();
         }
 
-        this._draw();
-        this.rafId = requestAnimationFrame((t) => this._loop(t));
+        this._draw(time);
+        
+        if (this.state === 'PLAYING') {
+            this.rafId = requestAnimationFrame((t) => this._loop(t));
+        } else {
+            this.rafId = null;
+        }
     }
 
-    _drawPolygon(x, y, radius, sides, color, fill = false) {
+    _drawPolygon(x, y, radius, sides, color, fill = false, lineWidth = 2) {
         this.ctx.beginPath();
         for (let i = 0; i < sides; i++) {
             const a = (Math.PI * 2 / sides) * i - Math.PI / 2;
@@ -392,23 +411,30 @@ export class TowerEngine {
             this.ctx.fill();
         } else {
             this.ctx.strokeStyle = color;
-            this.ctx.lineWidth = 2;
+            this.ctx.lineWidth = lineWidth;
             this.ctx.stroke();
         }
     }
 
-    _draw() {
+    _draw(time) {
+        time = time || performance.now();
         this.ctx.fillStyle = '#050510';
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
+        const pulse = Math.abs(Math.sin(time / 250)); // 0 to 1
+
+        const AA =[];
+        const B5B = [5, 5];
+
         // Draw Range Circle
         this.ctx.beginPath();
-        this.ctx.arc(this.cx, this.cy, this.stats.range, 0, Math.PI * 2);
+        this.ctx.arc(this.cx, this.cy, this.stats.range || 100, 0, Math.PI * 2);
         this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
         this.ctx.lineWidth = 1;
-        this.ctx.setLineDash([5, 5]);
+        
+        this.ctx['setLineDash'](B5B);
         this.ctx.stroke();
-        this.ctx.setLineDash([]);
+        this.ctx['setLineDash'](AA);
 
         // Knowledge Aura Glow
         let glowColor = '#00ffff';
@@ -416,7 +442,7 @@ export class TowerEngine {
         if (this.stats.kBuff >= 3.0) { glowColor = '#ffffff'; blur = 30; }
         else if (this.stats.kBuff >= 2.0) { glowColor = '#9b59b6'; blur = 20; }
         
-        this.ctx.shadowBlur = blur;
+        this.ctx.shadowBlur = blur * (0.5 + pulse * 0.5); // Pulsing glow
         this.ctx.shadowColor = glowColor;
         this._drawPolygon(this.cx, this.cy, 16, 6, glowColor);
         
@@ -438,10 +464,17 @@ export class TowerEngine {
             if (e.type === 'boss') sides = 8;
             if (e.type === 'ranged') sides = 6;
             
+            // Pulse effect for enemies taking damage or bosses
+            if (e.hp < e.maxHp || e.type === 'boss') {
+                this.ctx.shadowBlur = (e.type === 'boss' ? 15 : 8) * (0.8 + pulse * 0.2);
+                this.ctx.shadowColor = e.color;
+            }
+
             this._drawPolygon(e.x, e.y, e.radius, sides, e.color);
+            this.ctx.shadowBlur = 0;
             
-            // HP Bar
-            if (e.type === 'boss' || e.type === 'tank') {
+            // HP Bar for ANY damaged enemy or boss/tank
+            if (e.hp < e.maxHp || e.type === 'boss' || e.type === 'tank') {
                 const w = e.radius * 2;
                 const hpPct = Math.max(0, e.hp / e.maxHp);
                 this.ctx.fillStyle = '#333';
@@ -466,7 +499,10 @@ export class TowerEngine {
             this.ctx.beginPath();
             this.ctx.arc(ep.x, ep.y, 4, 0, Math.PI * 2);
             this.ctx.fillStyle = '#e74c3c';
+            this.ctx.shadowBlur = 6;
+            this.ctx.shadowColor = '#e74c3c';
             this.ctx.fill();
+            this.ctx.shadowBlur = 0;
         }
 
         // Floating Texts
