@@ -6,10 +6,10 @@ export class TowerEngine {
         
         this.cx = 0;
         this.cy = 0;
-        this.enemies = [];
+        this.enemies =[];
         this.projectiles = [];
         this.enemyProjectiles = [];
-        this.floatTexts = [];
+        this.floatTexts =[];
         
         this.state = 'STOPPED';
         this.lastTime = 0;
@@ -43,10 +43,10 @@ export class TowerEngine {
         this.stats = stats;
         this.wave = startWave;
         this.diff = diff;
-        this.enemies = [];
+        this.enemies =[];
         this.projectiles = [];
-        this.enemyProjectiles = [];
-        this.floatTexts = [];
+        this.enemyProjectiles =[];
+        this.floatTexts =[];
         this.state = 'IDLE';
         this.attackCooldown = 0;
         this.buffs = { barrage: 0, aegis: 0 };
@@ -122,26 +122,26 @@ export class TowerEngine {
         let type = 'basic';
         let hpMult = 1, spdMult = 1, dmgMult = 1, cashMult = 1;
         let color = '#FF00FF';
+        let atkSpeed = 1.0;
 
         if (this.wave % 10 === 0 && this.enemiesToSpawn === 1) {
-            type = 'boss'; hpMult = 10; spdMult = 0.4; dmgMult = 5; cashMult = 20; color = '#e74c3c';
+            type = 'boss'; hpMult = 10; spdMult = 0.4; dmgMult = 5; cashMult = 20; color = '#e74c3c'; atkSpeed = 1.5;
         } else {
             let fastChance = 0.05 + Math.min(0.25, (this.wave / 50) * 0.25);
             let tankChance = 0.05 + Math.min(0.20, (this.wave / 50) * 0.20);
             let rangedChance = 0.05 + Math.min(0.15, (this.wave / 50) * 0.15);
             
             const rand = Math.random();
-            if (rand < fastChance) { type = 'fast'; hpMult = 0.5; spdMult = 1.8; color = '#f1c40f'; }
-            else if (rand < fastChance + tankChance) { type = 'tank'; hpMult = 3.0; spdMult = 0.6; cashMult = 2; color = '#3498db'; }
-            else if (rand < fastChance + tankChance + rangedChance) { type = 'ranged'; hpMult = 0.8; spdMult = 0.8; cashMult = 1.5; color = '#9b59b6'; }
+            if (rand < fastChance) { type = 'fast'; hpMult = 0.5; spdMult = 1.8; color = '#f1c40f'; atkSpeed = 0.5; }
+            else if (rand < fastChance + tankChance) { type = 'tank'; hpMult = 3.0; spdMult = 0.6; cashMult = 2; color = '#3498db'; atkSpeed = 2.0; }
+            else if (rand < fastChance + tankChance + rangedChance) { type = 'ranged'; hpMult = 0.8; spdMult = 0.8; cashMult = 1.5; color = '#9b59b6'; atkSpeed = 2.0; }
         }
 
-        // Drastically increased exponential growth to ensure rounds end sooner rather than later
         const baseHp = 10 * Math.pow(1.15, this.wave) * this.diff;
         const baseDmg = 2 * Math.pow(1.12, this.wave) * this.diff;
         
         let relic1Mult = this.callbacks.hasRelic && this.callbacks.hasRelic(1) && type === 'boss' ? 3 : 1;
-        const baseCash = 5 * Math.pow(1.08, this.wave) * this.diff * this.stats.cashBonus * cashMult * relic1Mult;
+        const baseCash = 5 * Math.pow(1.08, this.wave) * this.diff * (this.stats.cashBonus || 1) * cashMult * relic1Mult;
 
         this.enemies.push({
             id: Math.random().toString(36),
@@ -152,10 +152,12 @@ export class TowerEngine {
             maxHp: baseHp * hpMult,
             dmg: baseDmg * dmgMult,
             speed: Math.min(100, 25 + this.wave * 0.8) * spdMult,
+            atkSpeed: atkSpeed,
+            attackCooldown: atkSpeed,
+            kb: 0,
             cash: baseCash,
             color: color,
-            radius: type === 'boss' ? 18 : type === 'tank' ? 12 : type === 'fast' ? 8 : 10,
-            attackCooldown: 2.0
+            radius: type === 'boss' ? 18 : type === 'tank' ? 12 : type === 'fast' ? 8 : 10
         });
     }
 
@@ -166,8 +168,17 @@ export class TowerEngine {
             return;
         }
         
-        const mitigated = rawDmg * (1 - this.stats.defPct) - this.stats.defAbs;
+        const mitigated = rawDmg * (1 - (this.stats.defPct || 0)) - (this.stats.defAbs || 0);
         const finalDmg = Math.max(1, mitigated);
+        
+        if (this.stats.currentHp - finalDmg <= 0) {
+            if (this.stats.defyDeath > 0 && Math.random() < this.stats.defyDeath) {
+                this.stats.currentHp = this.stats.health * 0.3; // Survive with 30% HP
+                this.spawnFloatText('DEFY DEATH!', '#f1c40f', true);
+                this.callbacks.onHpUpdate();
+                return;
+            }
+        }
         
         this.stats.currentHp -= finalDmg;
         this.spawnFloatText(`-${Math.floor(finalDmg)}`, '#e74c3c', true);
@@ -236,7 +247,11 @@ export class TowerEngine {
                 
                 if (target) {
                     const isCrit = Math.random() < this.stats.critChance;
-                    const dmg = isCrit ? this.stats.damage * this.stats.critMult : this.stats.damage;
+                    let dmg = isCrit ? this.stats.damage * this.stats.critMult : this.stats.damage;
+                    
+                    const dist = Math.hypot(target.x - this.cx, target.y - this.cy);
+                    const meterMult = 1 + (dist * (this.stats.dmgMeter || 0));
+                    dmg *= meterMult;
                     
                     this.projectiles.push({
                         x: this.cx, y: this.cy,
@@ -245,9 +260,10 @@ export class TowerEngine {
                         isCrit: isCrit,
                         speed: 500,
                         vx: 0, vy: 0,
-                        hitIds: [],
+                        hitIds:[],
                         chainBounces: this.stats.synergyChain ? 2 : 0,
-                        pierces: this.stats.synergyPierce ? 3 : 0
+                        pierces: this.stats.synergyPierce ? 3 : 0,
+                        hasBounced: false
                     });
                     
                     this.attackCooldown = 1 / currentAtkSpeed;
@@ -300,8 +316,22 @@ export class TowerEngine {
                 if (p.isCrit) this.spawnFloatText(Math.floor(p.dmg), '#f1c40f', false, hitTarget.x, hitTarget.y - 10);
                 p.hitIds.push(hitTarget.id);
 
+                if (this.stats.knockback > 0 && Math.random() < this.stats.knockback) {
+                    hitTarget.kb = hitTarget.type === 'boss' ? 10 : 40;
+                }
+
+                let bounceProc = (this.stats.bounce > 0 && Math.random() < this.stats.bounce);
+
                 if (this.stats.synergyChain && p.chainBounces > 0) {
                     p.chainBounces--;
+                    let nextTarget = this.enemies.find(en => !p.hitIds.includes(en.id) && Math.hypot(en.x - p.x, en.y - p.y) < 150);
+                    if (nextTarget) {
+                        p.targetId = nextTarget.id;
+                    } else {
+                        this.projectiles.splice(i, 1);
+                    }
+                } else if (bounceProc && p.chainBounces === 0 && !p.hasBounced) {
+                    p.hasBounced = true; 
                     let nextTarget = this.enemies.find(en => !p.hitIds.includes(en.id) && Math.hypot(en.x - p.x, en.y - p.y) < 150);
                     if (nextTarget) {
                         p.targetId = nextTarget.id;
@@ -339,9 +369,10 @@ export class TowerEngine {
         for (let i = this.enemies.length - 1; i >= 0; i--) {
             const e = this.enemies[i];
             
-            if (e.hp <= 0) {
+            if (e.hp <= 0 && !e.dead) {
+                e.dead = true;
                 this.spawnFloatText(`+$${Math.floor(e.cash)}`, '#2ecc71', false, e.x, e.y);
-                this.callbacks.onEnemyKill(e.cash, e.x, e.y);
+                this.callbacks.onEnemyKill(e.cash, e.x, e.y, e.type);
                 
                 if (this.stats.lifesteal > 0 && this.stats.currentHp < this.stats.health) {
                     const heal = this.stats.damage * this.stats.lifesteal;
@@ -361,21 +392,39 @@ export class TowerEngine {
                 if (dist > (this.stats.range || 100) * 0.7) {
                     e.x += (dx / dist) * step;
                     e.y += (dy / dist) * step;
-                }
-                e.attackCooldown -= dt;
-                if (e.attackCooldown <= 0) {
-                    this.enemyProjectiles.push({ x: e.x, y: e.y, dmg: e.dmg, speed: 150 });
-                    e.attackCooldown = 2.0;
+                    e.attackCooldown = e.atkSpeed; 
+                } else {
+                    e.attackCooldown -= dt;
+                    if (e.attackCooldown <= 0) {
+                        this.enemyProjectiles.push({ x: e.x, y: e.y, dmg: e.dmg, speed: 150 });
+                        e.attackCooldown = e.atkSpeed;
+                    }
                 }
             } else {
-                if (dist - e.radius <= 15 + step) {
-                    this._dealDamageToTower(e.dmg);
-                    if (this.state === 'STOPPED') return;
-                    if (this.stats.thorns > 0) e.hp -= e.dmg * this.stats.thorns;
-                    this.enemies.splice(i, 1);
+                if (dist - e.radius <= 15) {
+                    e.attackCooldown -= dt;
+                    if (e.attackCooldown <= 0) {
+                        this._dealDamageToTower(e.dmg);
+                        if (this.state === 'STOPPED') return;
+                        
+                        if (this.stats.thorns > 0) {
+                            e.hp -= e.dmg * this.stats.thorns;
+                            this.spawnFloatText(`-${Math.floor(e.dmg * this.stats.thorns)}`, '#e74c3c', false, e.x, e.y - 15);
+                        }
+                        e.attackCooldown = e.atkSpeed;
+                    }
                 } else {
-                    e.x += (dx / dist) * step;
-                    e.y += (dy / dist) * step;
+                    if (e.kb > 0) {
+                        const kbStep = 200 * dt; 
+                        e.x -= (dx / dist) * kbStep;
+                        e.y -= (dy / dist) * kbStep;
+                        e.kb -= kbStep;
+                        e.attackCooldown = e.atkSpeed; 
+                    } else {
+                        e.x += (dx / dist) * step;
+                        e.y += (dy / dist) * step;
+                        e.attackCooldown = e.atkSpeed; 
+                    }
                 }
             }
         }
@@ -427,7 +476,7 @@ export class TowerEngine {
         const pulse = Math.abs(Math.sin(time / 250)); // 0 to 1
 
         const AA = [];
-        const B5B = [5, 5];
+        const B5B =[5, 5];
 
         // Draw Range Circle
         this.ctx.beginPath();

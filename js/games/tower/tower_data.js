@@ -3,6 +3,8 @@ export const UPGRADES = {
         damage:     { name: 'Damage',        base: 5,   step: 2,     baseCost: 10,  costMult: 1.15, isPct: false },
         atkSpeed:   { name: 'Attack Speed',  base: 1.0, step: 0.1,   baseCost: 15,  costMult: 1.18, isPct: false, max: 10 },
         range:      { name: 'Range',         base: 120, step: 4,     baseCost: 20,  costMult: 1.18, isPct: false, max: 300 },
+        dmgMeter:   { name: 'Damage/Meter',  base: 0,   step: 0.001, baseCost: 100, costMult: 1.30, isPct: true,  max: 0.2, reqUnlock: true, unlockCost: 400 },
+        bounce:     { name: 'Bounce Shot',   base: 0,   step: 0.05,  baseCost: 150, costMult: 1.35, isPct: true,  max: 0.8, reqUnlock: true, unlockCost: 500 },
         critChance: { name: 'Crit Chance',   base: 0,   step: 0.02,  baseCost: 50,  costMult: 1.25, isPct: true,  max: 0.8, reqUnlock: true, unlockCost: 200 },
         critMult:   { name: 'Crit Factor',   base: 1.5, step: 0.2,   baseCost: 50,  costMult: 1.25, isPct: false, reqUnlock: true, unlockCost: 250 }
     },
@@ -12,13 +14,16 @@ export const UPGRADES = {
         defAbs:     { name: 'Defense (Abs)', base: 0,   step: 2,     baseCost: 20,  costMult: 1.20, isPct: false },
         defPct:     { name: 'Defense (%)',   base: 0,   step: 0.01,  baseCost: 100, costMult: 1.35, isPct: true,  max: 0.75, reqUnlock: true, unlockCost: 500 },
         lifesteal:  { name: 'Lifesteal',     base: 0,   step: 0.005, baseCost: 200, costMult: 1.40, isPct: true,  max: 0.5, reqUnlock: true, unlockCost: 1000 },
-        thorns:     { name: 'Thorns Dmg',    base: 0,   step: 0.1,   baseCost: 50,  costMult: 1.35, isPct: true, reqUnlock: true, unlockCost: 300 }
+        knockback:  { name: 'Knockback',     base: 0,   step: 0.05,  baseCost: 150, costMult: 1.40, isPct: true,  max: 0.8, reqUnlock: true, unlockCost: 800 },
+        thorns:     { name: 'Thorns Dmg',    base: 0,   step: 0.1,   baseCost: 50,  costMult: 1.35, isPct: true, reqUnlock: true, unlockCost: 300 },
+        defyDeath:  { name: 'Defy Death',    base: 0,   step: 0.01,  baseCost: 1000,costMult: 1.50, isPct: true,  max: 0.3, reqUnlock: true, unlockCost: 2500 }
     },
     utility: {
         cashBonus:      { name: 'Cash Bonus',       base: 1,   step: 0.05,  baseCost: 50,  costMult: 1.30, isPct: true, reqUnlock: true, unlockCost: 150 },
         cashWave:       { name: 'Cash / Wave',      base: 0,   step: 5,     baseCost: 100, costMult: 1.35, isPct: false, reqUnlock: true, unlockCost: 300 },
         coinBonus:      { name: 'Coin Bonus',       base: 1,   step: 0.02,  baseCost: 500, costMult: 1.50, isPct: true, reqUnlock: true, unlockCost: 1000 },
         coinsWave:      { name: 'Coins / Wave',     base: 0,   step: 1,     baseCost: 200, costMult: 1.45, isPct: false, reqUnlock: true, unlockCost: 500 },
+        interest:       { name: 'Interest/Wave',    base: 0,   step: 0.005, baseCost: 300, costMult: 1.50, isPct: true,  max: 0.1, reqUnlock: true, unlockCost: 1500 },
         freeUpgOffense: { name: 'Free Offense Upg', base: 0,   step: 0.005, baseCost: 500, costMult: 1.60, isPct: true,  max: 0.5, reqUnlock: true, unlockCost: 2000 },
         freeUpgDefense: { name: 'Free Defense Upg', base: 0,   step: 0.005, baseCost: 500, costMult: 1.60, isPct: true,  max: 0.5, reqUnlock: true, unlockCost: 2000 },
         freeUpgUtility: { name: 'Free Utility Upg', base: 0,   step: 0.005, baseCost: 500, costMult: 1.60, isPct: true,  max: 0.5, reqUnlock: true, unlockCost: 2000 }

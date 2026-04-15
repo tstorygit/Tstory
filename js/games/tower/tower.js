@@ -39,17 +39,17 @@ function _defaultSave() {
         maxDiff: 1,
         workshop: {
             unlocks: {},
-            offense: { damage:0, atkSpeed:0, range:0, critChance:0, critMult:0 },
-            defense: { health:0, regen:0, defAbs:0, defPct:0, lifesteal:0, thorns:0 },
-            utility: { cashBonus:0, cashWave:0, coinBonus:0, coinsWave:0, freeUpgOffense:0, freeUpgDefense:0, freeUpgUtility:0 }
+            offense: { damage:0, atkSpeed:0, range:0, critChance:0, critMult:0, dmgMeter:0, bounce:0 },
+            defense: { health:0, regen:0, defAbs:0, defPct:0, lifesteal:0, thorns:0, knockback:0, defyDeath:0 },
+            utility: { cashBonus:0, cashWave:0, coinBonus:0, coinsWave:0, interest:0, freeUpgOffense:0, freeUpgDefense:0, freeUpgUtility:0 }
         },
         lab: {
             active: null,
             levels: { knowledge:0, gameSpeed:0, coinYield:0, startingCash:0, vocabMastery:0, synergy:0 }
         },
         vocabConfig: GameVocabManager.defaultConfig(),
-        stats: { totalCorrect: 0, sessionCorrect: 0, highestStreak: 0, wordsMastered: [] },
-        relics: []
+        stats: { totalCorrect: 0, sessionCorrect: 0, highestStreak: 0, wordsMastered:[] },
+        relics:[]
     };
 }
 
@@ -218,9 +218,7 @@ export function init(screens, onExit) {
         _speedMult = steps[(idx + 1) % steps.length];
         _screens.game.querySelector('#tw-btn-speed').textContent = `⚡ ${_speedMult}x`;
         if (_engine) _engine.speedMult = _speedMult;
-    });
-
-    ['barrage', 'nova', 'aegis'].forEach(abil => {
+    });['barrage', 'nova', 'aegis'].forEach(abil => {
         _screens.game.querySelector(`#tw-abil-${abil}`).addEventListener('click', () => {
             if (_run.abilityCharge >= 100) {
                 _run.abilityCharge = 0;
@@ -255,13 +253,26 @@ export function init(screens, onExit) {
     // Set up engine
     _engine = new TowerEngine(_screens.game.querySelector('#tw-canvas'), {
         onHpUpdate: () => _updateRunHUD(),
-        onEnemyKill: (cash, x, y) => {
+        onEnemyKill: (cash, x, y, type) => {
             _run.cash += cash;
             
-            // Random chance for an enemy to drop a coin (scales with lab research)
-            if (Math.random() < 0.03 + ((_save.lab.levels.coinYield || 0) * 0.01)) {
-                _run.earnedCoins += 1;
-                _engine.spawnFloatText('+1 🪙', '#f1c40f', false, x, y - 20);
+            let coinDrop = 0;
+            // Boss drops guaranteed multiplier. Standard enemies have small drop chance.
+            if (type === 'boss') {
+                coinDrop = 5 * _run.diff;
+            } else {
+                let chance = 0.02; // basic
+                if (type === 'fast' || type === 'tank' || type === 'ranged') chance = 0.05;
+                if (Math.random() < chance) {
+                    coinDrop = 1;
+                }
+            }
+            
+            if (coinDrop > 0) {
+                let finalDrop = Math.floor(coinDrop * (_engine.stats.coinBonus || 1) * (1 + (_save.lab.levels.coinYield || 0) * 0.1));
+                if (finalDrop < 1) finalDrop = 1;
+                _run.earnedCoins += finalDrop;
+                _engine.spawnFloatText(`+${finalDrop} 🪙`, '#f1c40f', false, x, y - 20);
             }
             
             _updateRunHUD();
@@ -270,9 +281,10 @@ export function init(screens, onExit) {
         onWaveComplete: () => {
             // Apply cash / wave here
             let waveCash = _engine.stats.cashWave || 0;
-            if (waveCash > 0) {
-                _run.cash += waveCash;
-                _engine.spawnFloatText(`+$${Math.floor(waveCash)}`, '#2ecc71', true);
+            let interest = Math.floor(_run.cash * (_engine.stats.interest || 0));
+            if (waveCash + interest > 0) {
+                _run.cash += waveCash + interest;
+                _engine.spawnFloatText(`+$${Math.floor(waveCash + interest)}`, '#2ecc71', true);
             }
 
             // Apply coins / wave here
@@ -309,11 +321,16 @@ export function launch() {
     if (_save.lab.levels.startingCash === undefined) _save.lab.levels.startingCash = 0;
     if (_save.lab.levels.vocabMastery === undefined) _save.lab.levels.vocabMastery = 0;
     if (_save.lab.levels.synergy === undefined) _save.lab.levels.synergy = 0;
-    if (!_save.stats) _save.stats = { totalCorrect: 0, sessionCorrect: 0, highestStreak: 0, wordsMastered: [] };
-    if (!_save.relics) _save.relics = [];
+    if (!_save.stats) _save.stats = { totalCorrect: 0, sessionCorrect: 0, highestStreak: 0, wordsMastered:[] };
+    if (!_save.relics) _save.relics =[];
     if (!_save.workshop.offense) _save = _defaultSave();
     
-    // Patch new utility upgrades
+    // Patch new upgrades
+    if (_save.workshop.offense.dmgMeter === undefined) _save.workshop.offense.dmgMeter = 0;
+    if (_save.workshop.offense.bounce === undefined) _save.workshop.offense.bounce = 0;
+    if (_save.workshop.defense.knockback === undefined) _save.workshop.defense.knockback = 0;
+    if (_save.workshop.defense.defyDeath === undefined) _save.workshop.defense.defyDeath = 0;
+    
     if (_save.workshop.utility) {
         if (_save.workshop.utility.freeUpg !== undefined) {
             _save.workshop.utility.freeUpgOffense = _save.workshop.utility.freeUpg;
@@ -325,6 +342,7 @@ export function launch() {
         if (_save.workshop.utility.coinBonus === undefined) _save.workshop.utility.coinBonus = 0;
         if (_save.workshop.utility.coinsWave === undefined) _save.workshop.utility.coinsWave = 0;
         if (_save.workshop.utility.cashBonus === undefined) _save.workshop.utility.cashBonus = 0;
+        if (_save.workshop.utility.interest === undefined) _save.workshop.utility.interest = 0;
         if (_save.workshop.utility.freeUpgOffense === undefined) _save.workshop.utility.freeUpgOffense = 0;
         if (_save.workshop.utility.freeUpgDefense === undefined) _save.workshop.utility.freeUpgDefense = 0;
         if (_save.workshop.utility.freeUpgUtility === undefined) _save.workshop.utility.freeUpgUtility = 0;
@@ -568,7 +586,7 @@ function _getTowerStats() {
         for (const id in UPGRADES[cat]) {
             let val = calcStat(cat, id, _save.workshop[cat][id] || 0, _run.levels[cat][id] || 0);
             
-            // Core stat buffs (now including cashWave, coinsWave, and coinBonus)
+            // Core stat buffs (scaled by knowledge stacks)
             if (['damage', 'health', 'regen', 'cashBonus', 'cashWave', 'coinBonus', 'coinsWave', 'atkSpeed'].includes(id)) {
                 val *= kBuff;
             }
@@ -605,7 +623,7 @@ function _startRun() {
     _run.vocabQuestions = 0;
     _run.vocabCorrect = 0;
     
-    for (const cat of ['offense', 'defense', 'utility']) {
+    for (const cat of['offense', 'defense', 'utility']) {
         for (const id in UPGRADES[cat]) {
             _run.levels[cat][id] = 0;
         }
@@ -772,8 +790,7 @@ function _updateAbilitiesUI() {
     const bar = _screens.game.querySelector('#tw-abil-bar');
     if (bar) bar.style.width = `${_run.abilityCharge}%`;
     
-    const isReady = _run.abilityCharge >= 100;
-    ['barrage', 'nova', 'aegis'].forEach(abil => {
+    const isReady = _run.abilityCharge >= 100;['barrage', 'nova', 'aegis'].forEach(abil => {
         const btn = _screens.game.querySelector(`#tw-abil-${abil}`);
         if (btn) {
             btn.disabled = !isReady;
@@ -784,7 +801,7 @@ function _updateAbilitiesUI() {
 }
 
 function _renderRunUpgrades() {
-    for (const cat of ['offense', 'defense', 'utility']) {
+    for (const cat of['offense', 'defense', 'utility']) {
         const container = _screens.game.querySelector(`#tw-run-${cat}`);
         container.innerHTML = '';
         
