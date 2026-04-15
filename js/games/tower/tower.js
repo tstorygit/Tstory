@@ -20,6 +20,7 @@ let _run = {
     wave: 1,
     diff: 1,
     cash: 0,
+    earnedCoins: 0,
     knowledgeStacks: 0,
     combo: 0,
     abilityCharge: 0,
@@ -37,9 +38,10 @@ function _defaultSave() {
         highestWave: 0,
         maxDiff: 1,
         workshop: {
+            unlocks: {},
             offense: { damage:0, atkSpeed:0, range:0, critChance:0, critMult:0 },
             defense: { health:0, regen:0, defAbs:0, defPct:0, lifesteal:0, thorns:0 },
-            utility: { cashBonus:0, coinsWave:0, freeUpg:0 }
+            utility: { cashBonus:0, cashWave:0, coinBonus:0, coinsWave:0, freeUpgOffense:0, freeUpgDefense:0, freeUpgUtility:0 }
         },
         lab: {
             active: null,
@@ -47,7 +49,7 @@ function _defaultSave() {
         },
         vocabConfig: GameVocabManager.defaultConfig(),
         stats: { totalCorrect: 0, sessionCorrect: 0, highestStreak: 0, wordsMastered: [] },
-        relics:[]
+        relics: []
     };
 }
 
@@ -57,7 +59,6 @@ export function init(screens, onExit) {
     _injectCSS();
     
     // Setup HTML Structure inside the two provided screens
-    // Hub goes in `setup` screen
     _screens.setup.innerHTML = `
         <div class="tw-root">
             <div class="tw-header">
@@ -254,12 +255,34 @@ export function init(screens, onExit) {
     // Set up engine
     _engine = new TowerEngine(_screens.game.querySelector('#tw-canvas'), {
         onHpUpdate: () => _updateRunHUD(),
-        onEnemyKill: (cash) => {
+        onEnemyKill: (cash, x, y) => {
             _run.cash += cash;
+            
+            // Random chance for an enemy to drop a coin (scales with lab research)
+            if (Math.random() < 0.03 + ((_save.lab.levels.coinYield || 0) * 0.01)) {
+                _run.earnedCoins += 1;
+                _engine.spawnFloatText('+1 🪙', '#f1c40f', false, x, y - 20);
+            }
+            
             _updateRunHUD();
             _renderRunUpgrades();
         },
         onWaveComplete: () => {
+            // Apply cash / wave here
+            let waveCash = _engine.stats.cashWave || 0;
+            if (waveCash > 0) {
+                _run.cash += waveCash;
+                _engine.spawnFloatText(`+$${Math.floor(waveCash)}`, '#2ecc71', true);
+            }
+
+            // Apply coins / wave here
+            let waveBaseCoins = (_run.wave * _run.diff);
+            let waveCoins = Math.floor(waveBaseCoins + (_engine.stats.coinsWave || 0));
+            waveCoins = Math.floor(waveCoins * (_engine.stats.coinBonus || 1));
+            waveCoins = Math.floor(waveCoins * (1 + (_save.lab.levels.coinYield || 0) * 0.1));
+            
+            _run.earnedCoins += waveCoins;
+            
             _run.wave++;
             if (_save && _save.lab.levels.startingCash >= 5) {
                 _run.cash = Math.floor(_run.cash * 1.02);
@@ -282,12 +305,30 @@ export function launch() {
     _save = JSON.parse(localStorage.getItem(SAVE_KEY)) || _defaultSave();
     
     // Patch old saves
+    if (!_save.workshop.unlocks) _save.workshop.unlocks = {};
     if (_save.lab.levels.startingCash === undefined) _save.lab.levels.startingCash = 0;
     if (_save.lab.levels.vocabMastery === undefined) _save.lab.levels.vocabMastery = 0;
     if (_save.lab.levels.synergy === undefined) _save.lab.levels.synergy = 0;
     if (!_save.stats) _save.stats = { totalCorrect: 0, sessionCorrect: 0, highestStreak: 0, wordsMastered: [] };
-    if (!_save.relics) _save.relics =[];
+    if (!_save.relics) _save.relics = [];
     if (!_save.workshop.offense) _save = _defaultSave();
+    
+    // Patch new utility upgrades
+    if (_save.workshop.utility) {
+        if (_save.workshop.utility.freeUpg !== undefined) {
+            _save.workshop.utility.freeUpgOffense = _save.workshop.utility.freeUpg;
+            _save.workshop.utility.freeUpgDefense = _save.workshop.utility.freeUpg;
+            _save.workshop.utility.freeUpgUtility = _save.workshop.utility.freeUpg;
+            delete _save.workshop.utility.freeUpg;
+        }
+        if (_save.workshop.utility.cashWave === undefined) _save.workshop.utility.cashWave = 0;
+        if (_save.workshop.utility.coinBonus === undefined) _save.workshop.utility.coinBonus = 0;
+        if (_save.workshop.utility.coinsWave === undefined) _save.workshop.utility.coinsWave = 0;
+        if (_save.workshop.utility.cashBonus === undefined) _save.workshop.utility.cashBonus = 0;
+        if (_save.workshop.utility.freeUpgOffense === undefined) _save.workshop.utility.freeUpgOffense = 0;
+        if (_save.workshop.utility.freeUpgDefense === undefined) _save.workshop.utility.freeUpgDefense = 0;
+        if (_save.workshop.utility.freeUpgUtility === undefined) _save.workshop.utility.freeUpgUtility = 0;
+    }
 
     _save.stats.sessionCorrect = 0; // Reset session stats
 
@@ -349,32 +390,55 @@ function _renderWorkshop() {
         
         for (const id in UPGRADES[cat]) {
             const def = UPGRADES[cat][id];
-            const lvl = _save.workshop[cat][id];
-            if (def.max !== undefined && lvl >= def.max) continue; // Optional: hide maxed
-            
-            const cost = calcCost(cat, id, lvl, true);
-            const val = calcStat(cat, id, lvl, 0);
+            const lvl = _save.workshop[cat][id] || 0;
+            const isLocked = def.reqUnlock && !_save.workshop.unlocks[id];
             
             const row = document.createElement('div');
             row.className = 'tw-upg-row';
-            row.innerHTML = `
-                <div class="tw-upg-info">
-                    <div class="tw-upg-name">${def.name} <span style="font-size:10px;color:#777;">Lvl ${lvl}</span></div>
-                    <div class="tw-upg-val">${def.isPct ? (val*100).toFixed(1)+'%' : val.toFixed(1)}</div>
-                </div>
-                <button class="tw-upg-buy" ${(_save.coins < cost || (def.max && lvl >= def.max)) ? 'disabled' : ''}>
-                    ${(def.max && lvl >= def.max) ? 'MAX' : '🪙 ' + cost}
-                </button>
-            `;
             
-            row.querySelector('button').onclick = () => {
-                if (_save.coins >= cost) {
-                    _save.coins -= cost;
-                    _save.workshop[cat][id]++;
-                    _saveGame();
-                    _showHub(); // Re-render
-                }
-            };
+            if (isLocked) {
+                row.innerHTML = `
+                    <div class="tw-upg-info">
+                        <div class="tw-upg-name" style="color:#777;">🔒 ${def.name}</div>
+                        <div class="tw-upg-val">Requires Unlock</div>
+                    </div>
+                    <button class="tw-upg-buy" ${(_save.coins < def.unlockCost) ? 'disabled' : ''}>
+                        🪙 ${def.unlockCost}
+                    </button>
+                `;
+                row.querySelector('button').onclick = () => {
+                    if (_save.coins >= def.unlockCost) {
+                        _save.coins -= def.unlockCost;
+                        _save.workshop.unlocks[id] = true;
+                        _saveGame();
+                        _showHub(); // Re-render logic
+                    }
+                };
+            } else {
+                if (def.max !== undefined && lvl >= def.max) continue; // Optional: hide maxed
+                
+                const cost = calcCost(cat, id, lvl, true);
+                const val = calcStat(cat, id, lvl, 0);
+                
+                row.innerHTML = `
+                    <div class="tw-upg-info">
+                        <div class="tw-upg-name">${def.name} <span style="font-size:10px;color:#777;">Lvl ${lvl}</span></div>
+                        <div class="tw-upg-val">${def.isPct ? (val*100).toFixed(1)+'%' : val.toFixed(1)}</div>
+                    </div>
+                    <button class="tw-upg-buy" ${(_save.coins < cost || (def.max && lvl >= def.max)) ? 'disabled' : ''}>
+                        ${(def.max && lvl >= def.max) ? 'MAX' : '🪙 ' + cost}
+                    </button>
+                `;
+                
+                row.querySelector('button').onclick = () => {
+                    if (_save.coins >= cost) {
+                        _save.coins -= cost;
+                        _save.workshop[cat][id] = lvl + 1;
+                        _saveGame();
+                        _showHub();
+                    }
+                };
+            }
             catDiv.appendChild(row);
         }
         list.appendChild(catDiv);
@@ -492,16 +556,6 @@ function _labTicker() {
 
 // ─── RUN MECHANICS ───────────────────────────────────────────────────────────
 
-function _calculateEarnedCoins() {
-    const coinsWave = (_engine && _engine.stats) ? (_engine.stats.coinsWave || 0) : 0;
-    const baseCoins = _run.wave * _run.diff;
-    const bonusCoins = _run.wave * coinsWave;
-    let totalCoins = baseCoins + bonusCoins;
-    const yieldBonus = (_save.lab.levels.coinYield || 0) * 0.1;
-    const yieldCoins = totalCoins * yieldBonus;
-    return Math.floor(totalCoins + yieldCoins);
-}
-
 function _getTowerStats() {
     let kMult = 0.01 + (_save.lab.levels.knowledge * 0.005);
     if (_save.relics.includes(5)) kMult *= 2; // Master Crown
@@ -512,10 +566,10 @@ function _getTowerStats() {
     let stats = {};
     for (const cat of ['offense', 'defense', 'utility']) {
         for (const id in UPGRADES[cat]) {
-            let val = calcStat(cat, id, _save.workshop[cat][id], _run.levels[cat][id]);
+            let val = calcStat(cat, id, _save.workshop[cat][id] || 0, _run.levels[cat][id] || 0);
             
-            // Core stat buffs
-            if (id === 'damage' || id === 'health' || id === 'regen' || id === 'cashBonus' || id === 'atkSpeed' || id === 'coinsWave') {
+            // Core stat buffs (now including cashWave, coinsWave, and coinBonus)
+            if (['damage', 'health', 'regen', 'cashBonus', 'cashWave', 'coinBonus', 'coinsWave', 'atkSpeed'].includes(id)) {
                 val *= kBuff;
             }
             if (id === 'damage') {
@@ -544,13 +598,14 @@ function _getTowerStats() {
 function _startRun() {
     _run.wave = 1;
     _run.cash = 50 + (50 * _save.lab.levels.startingCash);
+    _run.earnedCoins = 0;
     _run.knowledgeStacks = 0;
     _run.combo = 0;
     _run.abilityCharge = 0;
     _run.vocabQuestions = 0;
     _run.vocabCorrect = 0;
     
-    for (const cat of['offense', 'defense', 'utility']) {
+    for (const cat of ['offense', 'defense', 'utility']) {
         for (const id in UPGRADES[cat]) {
             _run.levels[cat][id] = 0;
         }
@@ -655,7 +710,7 @@ function _checkUnlock() {
 }
 
 function _handleDeath() {
-    const totalCoins = _calculateEarnedCoins();
+    const totalCoins = _run.earnedCoins;
     _save.coins += totalCoins;
     
     if (_vocabMgr && !_vocabMgr.isGlobalSrs) {
@@ -689,7 +744,7 @@ function _handleDeath() {
 function _updateRunHUD() {
     _screens.game.querySelector('#tw-run-wave').textContent = _run.wave;
     _screens.game.querySelector('#tw-run-cash-val').textContent = Math.floor(_run.cash);
-    _screens.game.querySelector('#tw-run-earned-coins').textContent = _calculateEarnedCoins();
+    _screens.game.querySelector('#tw-run-earned-coins').textContent = _run.earnedCoins;
     
     let kMult = 0.01 + (_save.lab.levels.knowledge * 0.005);
     if (_save.relics.includes(5)) kMult *= 2;
@@ -729,20 +784,26 @@ function _updateAbilitiesUI() {
 }
 
 function _renderRunUpgrades() {
-    for (const cat of['offense', 'defense', 'utility']) {
+    for (const cat of ['offense', 'defense', 'utility']) {
         const container = _screens.game.querySelector(`#tw-run-${cat}`);
         container.innerHTML = '';
         
         for (const id in UPGRADES[cat]) {
             const def = UPGRADES[cat][id];
-            const runLvl = _run.levels[cat][id];
+            
+            // Do not show the upgrade if it's locked in the workshop
+            if (def.reqUnlock && !_save.workshop.unlocks[id]) continue;
+
+            const runLvl = _run.levels[cat][id] || 0;
+            const wsLvl = _save.workshop[cat][id] || 0;
+
             if (def.max !== undefined) {
-                const totalVal = calcStat(cat, id, _save.workshop[cat][id], runLvl);
-                if (totalVal >= def.max) continue;
+                const totalVal = calcStat(cat, id, wsLvl, runLvl);
+                if (totalVal >= def.max) continue; // Hide if visually maxed
             }
             
             const cost = calcCost(cat, id, runLvl, false);
-            const val = calcStat(cat, id, _save.workshop[cat][id], runLvl);
+            const val = calcStat(cat, id, wsLvl, runLvl);
             
             const row = document.createElement('div');
             row.className = 'tw-upg-row';
@@ -756,14 +817,20 @@ function _renderRunUpgrades() {
                 </button>
             `;
             
+            let freeChance = 0;
+            if (cat === 'offense') freeChance = _engine.stats.freeUpgOffense || 0;
+            else if (cat === 'defense') freeChance = _engine.stats.freeUpgDefense || 0;
+            else if (cat === 'utility') freeChance = _engine.stats.freeUpgUtility || 0;
+
             row.querySelector('button').onclick = () => {
                 if (_run.cash >= cost) {
-                    if (Math.random() > _engine.stats.freeUpg) {
+                    let isFree = Math.random() < freeChance;
+                    if (!isFree) {
                         _run.cash -= cost;
                     } else {
                         _engine.spawnFloatText('FREE!', '#f1c40f', true);
                     }
-                    _run.levels[cat][id]++;
+                    _run.levels[cat][id] = runLvl + 1;
                     _engine.stats = _getTowerStats();
                     _updateRunHUD();
                     _renderRunUpgrades();

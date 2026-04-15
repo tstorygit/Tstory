@@ -1,25 +1,27 @@
-// main/js/games/tower/tower_data.js
-
 export const UPGRADES = {
     offense: {
-        damage:     { name: 'Damage',        base: 5,   step: 1,     baseCost: 10,  costMult: 1.15, isPct: false },
-        atkSpeed:   { name: 'Attack Speed',  base: 1.0, step: 0.1,   baseCost: 15,  costMult: 1.20, isPct: false, max: 10 },
-        range:      { name: 'Range',         base: 120, step: 4,     baseCost: 20,  costMult: 1.10, isPct: false, max: 300 },
-        critChance: { name: 'Crit Chance',   base: 0,   step: 0.01,  baseCost: 50,  costMult: 1.30, isPct: true,  max: 0.8 },
-        critMult:   { name: 'Crit Factor',   base: 1.5, step: 0.2,   baseCost: 50,  costMult: 1.30, isPct: false }
+        damage:     { name: 'Damage',        base: 5,   step: 2,     baseCost: 10,  costMult: 1.15, isPct: false },
+        atkSpeed:   { name: 'Attack Speed',  base: 1.0, step: 0.1,   baseCost: 15,  costMult: 1.18, isPct: false, max: 10 },
+        range:      { name: 'Range',         base: 120, step: 4,     baseCost: 20,  costMult: 1.18, isPct: false, max: 300 },
+        critChance: { name: 'Crit Chance',   base: 0,   step: 0.02,  baseCost: 50,  costMult: 1.25, isPct: true,  max: 0.8, reqUnlock: true, unlockCost: 200 },
+        critMult:   { name: 'Crit Factor',   base: 1.5, step: 0.2,   baseCost: 50,  costMult: 1.25, isPct: false, reqUnlock: true, unlockCost: 250 }
     },
     defense: {
-        health:     { name: 'Health',        base: 100, step: 10,    baseCost: 10,  costMult: 1.15, isPct: false },
-        regen:      { name: 'Health Regen',  base: 0,   step: 0.5,   baseCost: 25,  costMult: 1.20, isPct: false },
-        defAbs:     { name: 'Defense (Abs)', base: 0,   step: 1,     baseCost: 20,  costMult: 1.20, isPct: false },
-        defPct:     { name: 'Defense (%)',   base: 0,   step: 0.005, baseCost: 100, costMult: 1.40, isPct: true,  max: 0.9 },
-        lifesteal:  { name: 'Lifesteal',     base: 0,   step: 0.005, baseCost: 200, costMult: 1.50, isPct: true,  max: 0.5 },
-        thorns:     { name: 'Thorns Dmg',    base: 0,   step: 0.05,  baseCost: 50,  costMult: 1.30, isPct: true }
+        health:     { name: 'Health',        base: 50,  step: 15,    baseCost: 10,  costMult: 1.15, isPct: false },
+        regen:      { name: 'Health Regen',  base: 0,   step: 1,     baseCost: 20,  costMult: 1.20, isPct: false },
+        defAbs:     { name: 'Defense (Abs)', base: 0,   step: 2,     baseCost: 20,  costMult: 1.20, isPct: false },
+        defPct:     { name: 'Defense (%)',   base: 0,   step: 0.01,  baseCost: 100, costMult: 1.35, isPct: true,  max: 0.75, reqUnlock: true, unlockCost: 500 },
+        lifesteal:  { name: 'Lifesteal',     base: 0,   step: 0.005, baseCost: 200, costMult: 1.40, isPct: true,  max: 0.5, reqUnlock: true, unlockCost: 1000 },
+        thorns:     { name: 'Thorns Dmg',    base: 0,   step: 0.1,   baseCost: 50,  costMult: 1.35, isPct: true, reqUnlock: true, unlockCost: 300 }
     },
     utility: {
-        cashBonus:  { name: 'Cash Bonus',    base: 1,   step: 0.05,  baseCost: 50,  costMult: 1.30, isPct: false },
-        coinsWave:  { name: 'Coins / Wave',  base: 0,   step: 1,     baseCost: 250, costMult: 1.60, isPct: false },
-        freeUpg:    { name: 'Free Upgrade',  base: 0,   step: 0.005, baseCost: 500, costMult: 1.80, isPct: true,  max: 0.5 }
+        cashBonus:      { name: 'Cash Bonus',       base: 1,   step: 0.05,  baseCost: 50,  costMult: 1.30, isPct: true, reqUnlock: true, unlockCost: 150 },
+        cashWave:       { name: 'Cash / Wave',      base: 0,   step: 5,     baseCost: 100, costMult: 1.35, isPct: false, reqUnlock: true, unlockCost: 300 },
+        coinBonus:      { name: 'Coin Bonus',       base: 1,   step: 0.02,  baseCost: 500, costMult: 1.50, isPct: true, reqUnlock: true, unlockCost: 1000 },
+        coinsWave:      { name: 'Coins / Wave',     base: 0,   step: 1,     baseCost: 200, costMult: 1.45, isPct: false, reqUnlock: true, unlockCost: 500 },
+        freeUpgOffense: { name: 'Free Offense Upg', base: 0,   step: 0.005, baseCost: 500, costMult: 1.60, isPct: true,  max: 0.5, reqUnlock: true, unlockCost: 2000 },
+        freeUpgDefense: { name: 'Free Defense Upg', base: 0,   step: 0.005, baseCost: 500, costMult: 1.60, isPct: true,  max: 0.5, reqUnlock: true, unlockCost: 2000 },
+        freeUpgUtility: { name: 'Free Utility Upg', base: 0,   step: 0.005, baseCost: 500, costMult: 1.60, isPct: true,  max: 0.5, reqUnlock: true, unlockCost: 2000 }
     }
 };
 
@@ -49,9 +51,9 @@ export function calcStat(category, id, wsLvl, runLvl) {
 
 export function calcCost(category, id, level, isWorkshop) {
     const def = UPGRADES[category][id];
-    // Workshop costs Coins and scales much harder. In-run costs Cash.
-    const base = isWorkshop ? def.baseCost * 2 : def.baseCost;
-    const mult = isWorkshop ? def.costMult * 1.1 : def.costMult;
+    // Workshop is permanently kept, so it scales much more aggressively.
+    const base = isWorkshop ? def.baseCost * 3 : def.baseCost;
+    const mult = isWorkshop ? def.costMult * 1.15 : def.costMult;
     return Math.floor(base * Math.pow(mult, level));
 }
 

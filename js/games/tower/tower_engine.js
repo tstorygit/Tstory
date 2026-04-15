@@ -8,8 +8,8 @@ export class TowerEngine {
         this.cy = 0;
         this.enemies = [];
         this.projectiles = [];
-        this.enemyProjectiles =[];
-        this.floatTexts =[];
+        this.enemyProjectiles = [];
+        this.floatTexts = [];
         
         this.state = 'STOPPED';
         this.lastTime = 0;
@@ -43,10 +43,10 @@ export class TowerEngine {
         this.stats = stats;
         this.wave = startWave;
         this.diff = diff;
-        this.enemies =[];
+        this.enemies = [];
         this.projectiles = [];
         this.enemyProjectiles = [];
-        this.floatTexts =[];
+        this.floatTexts = [];
         this.state = 'IDLE';
         this.attackCooldown = 0;
         this.buffs = { barrage: 0, aegis: 0 };
@@ -104,10 +104,10 @@ export class TowerEngine {
         this.rafId = null;
     }
 
-    spawnFloatText(text, color, isCenter = false) {
+    spawnFloatText(text, color, isCenter = false, x = null, y = null) {
         this.floatTexts.push({
-            x: this.cx + (isCenter ? 0 : (Math.random() - 0.5) * 40),
-            y: this.cy - 30 + (isCenter ? 0 : (Math.random() - 0.5) * 40),
+            x: x !== null ? x : this.cx + (isCenter ? 0 : (Math.random() - 0.5) * 40),
+            y: y !== null ? y : this.cy - 30 + (isCenter ? 0 : (Math.random() - 0.5) * 40),
             text: text,
             color: color,
             life: 1.0,
@@ -136,11 +136,12 @@ export class TowerEngine {
             else if (rand < fastChance + tankChance + rangedChance) { type = 'ranged'; hpMult = 0.8; spdMult = 0.8; cashMult = 1.5; color = '#9b59b6'; }
         }
 
-        const baseHp = 10 * Math.pow(1.08, this.wave) * this.diff;
-        const baseDmg = 1 * Math.pow(1.06, this.wave) * this.diff;
+        // Drastically increased exponential growth to ensure rounds end sooner rather than later
+        const baseHp = 10 * Math.pow(1.15, this.wave) * this.diff;
+        const baseDmg = 2 * Math.pow(1.12, this.wave) * this.diff;
         
         let relic1Mult = this.callbacks.hasRelic && this.callbacks.hasRelic(1) && type === 'boss' ? 3 : 1;
-        const baseCash = 5 * Math.pow(1.04, this.wave) * this.diff * this.stats.cashBonus * cashMult * relic1Mult;
+        const baseCash = 5 * Math.pow(1.08, this.wave) * this.diff * this.stats.cashBonus * cashMult * relic1Mult;
 
         this.enemies.push({
             id: Math.random().toString(36),
@@ -150,7 +151,7 @@ export class TowerEngine {
             hp: baseHp * hpMult,
             maxHp: baseHp * hpMult,
             dmg: baseDmg * dmgMult,
-            speed: Math.min(80, 20 + this.wave * 0.5) * spdMult,
+            speed: Math.min(100, 25 + this.wave * 0.8) * spdMult,
             cash: baseCash,
             color: color,
             radius: type === 'boss' ? 18 : type === 'tank' ? 12 : type === 'fast' ? 8 : 10,
@@ -244,7 +245,7 @@ export class TowerEngine {
                         isCrit: isCrit,
                         speed: 500,
                         vx: 0, vy: 0,
-                        hitIds:[],
+                        hitIds: [],
                         chainBounces: this.stats.synergyChain ? 2 : 0,
                         pierces: this.stats.synergyPierce ? 3 : 0
                     });
@@ -296,7 +297,7 @@ export class TowerEngine {
 
             if (hitTarget) {
                 hitTarget.hp -= p.dmg;
-                if (p.isCrit) this.spawnFloatText(Math.floor(p.dmg), '#f1c40f');
+                if (p.isCrit) this.spawnFloatText(Math.floor(p.dmg), '#f1c40f', false, hitTarget.x, hitTarget.y - 10);
                 p.hitIds.push(hitTarget.id);
 
                 if (this.stats.synergyChain && p.chainBounces > 0) {
@@ -339,7 +340,9 @@ export class TowerEngine {
             const e = this.enemies[i];
             
             if (e.hp <= 0) {
-                this.callbacks.onEnemyKill(e.cash);
+                this.spawnFloatText(`+$${Math.floor(e.cash)}`, '#2ecc71', false, e.x, e.y);
+                this.callbacks.onEnemyKill(e.cash, e.x, e.y);
+                
                 if (this.stats.lifesteal > 0 && this.stats.currentHp < this.stats.health) {
                     const heal = this.stats.damage * this.stats.lifesteal;
                     this.stats.currentHp = Math.min(this.stats.health, this.stats.currentHp + heal);
@@ -423,7 +426,7 @@ export class TowerEngine {
 
         const pulse = Math.abs(Math.sin(time / 250)); // 0 to 1
 
-        const AA =[];
+        const AA = [];
         const B5B = [5, 5];
 
         // Draw Range Circle
