@@ -47,6 +47,72 @@ export const RELICS = {
     5: { name: 'Master Crown',  desc: 'Knowledge stack value doubled.' }
 };
 
+export const QUEST_TEMPLATES =[
+    { id: 'kill_bosses', desc: 'Kill Bosses', max: 20, rewardType: 'gems', rewardAmount: 10 },
+    { id: 'answer_vocab', desc: 'Answer Vocab Correctly', max: 50, rewardType: 'gems', rewardAmount: 15 },
+    { id: 'reach_wave_no_def', desc: 'Reach Wave without buying Defense', max: 30, rewardType: 'gems', rewardAmount: 20, type: 'highest_wave' },
+    { id: 'play_runs', desc: 'Play Runs', max: 3, rewardType: 'coins', rewardAmount: 500 },
+    { id: 'kill_spawners', desc: 'Destroy Swarm Spawners', max: 10, rewardType: 'gems', rewardAmount: 5 }
+];
+
+export const CARDS = {
+    // Basic Multipliers (1-7)
+    dmg:    { name: 'Damage',       desc: '+% Damage',       base: 0.15, step: 0.15 },
+    spd:    { name: 'Attack Speed', desc: '+% Atk Speed',    base: 0.10, step: 0.05 },
+    hp:     { name: 'Health',       desc: '+% Health',       base: 0.20, step: 0.20 },
+    rng:    { name: 'Range',        desc: '+% Range',        base: 0.10, step: 0.05 },
+    cash:   { name: 'Cash Bonus',   desc: '+% Cash',         base: 0.15, step: 0.15 },
+    coin:   { name: 'Coin Bonus',   desc: '+% Coins',        base: 0.10, step: 0.10 },
+    slow:   { name: 'Slow Aura',    desc: '-% Enemy Speed',  base: 0.05, step: 0.02, maxLevel: 7 },
+    
+    // Offense (8-11)
+    critC:  { name: 'Crit Chance',  desc: '+% Crit Chance',  base: 0.02, step: 0.01 },
+    critM:  { name: 'Crit Factor',  desc: '+% Crit Factor',  base: 0.20, step: 0.10 },
+    bounce: { name: 'Bounce Shot',  desc: '+% Bounce Chance',base: 0.05, step: 0.02 },
+    dmgM:   { name: 'Damage/Meter', desc: '+% Dmg/Meter',    base: 0.01, step: 0.005 },
+    
+    // Defense (12-18)
+    regen:  { name: 'Health Regen', desc: '+X Regen',        base: 2,    step: 1, isFlat: true },
+    defA:   { name: 'Defense Abs',  desc: '+X Def Abs',      base: 5,    step: 2, isFlat: true },
+    defP:   { name: 'Defense %',    desc: '+% Defense',      base: 0.05, step: 0.02, maxLevel: 10 },
+    life:   { name: 'Lifesteal',    desc: '+% Lifesteal',    base: 0.02, step: 0.01, maxLevel: 10 },
+    thorns: { name: 'Thorns Dmg',   desc: '+% Thorns Dmg',   base: 0.20, step: 0.10 },
+    kb:     { name: 'Knockback',    desc: '+% Knockback',    base: 0.05, step: 0.02 },
+    death:  { name: 'Defy Death',   desc: '+% Defy Death',   base: 0.02, step: 0.01, maxLevel: 5 },
+    
+    // Utility & Progression (19-25)
+    cashW:  { name: 'Cash / Wave',  desc: '+X Cash/Wave',    base: 20,   step: 10, isFlat: true },
+    coinW:  { name: 'Coins / Wave', desc: '+X Coin/Wave',    base: 5,    step: 2,  isFlat: true },
+    int:    { name: 'Interest',     desc: '+% Int./Wave',    base: 0.01, step: 0.005, maxLevel: 5 },
+    freeO:  { name: 'Free Offense', desc: '+% Free Off. Upg',base: 0.02, step: 0.01, maxLevel: 10 },
+    freeD:  { name: 'Free Defense', desc: '+% Free Def. Upg',base: 0.02, step: 0.01, maxLevel: 10 },
+    freeU:  { name: 'Free Utility', desc: '+% Free Utl. Upg',base: 0.02, step: 0.01, maxLevel: 10 },
+    know:   { name: 'Knowledge+',   desc: '+% Know. Buff',   base: 0.10, step: 0.05 }
+};
+
+export const SLOT_COSTS =[
+    { coins: 0, gems: 0 },         
+    { coins: 1000, gems: 50 },     
+    { coins: 5000, gems: 100 },    
+    { coins: 25000, gems: 250 },   
+    { coins: 100000, gems: 500 }   
+];
+
+export function getCardLevelInfo(count) {
+    // Require 1 to unlock. Then +2, +4, +8, +16, +32, +64 to level up.
+    const reqs =[1, 3, 7, 15, 31, 63, 127]; 
+    let lvl = 0;
+    for (let i = 0; i < reqs.length; i++) {
+        if (count >= reqs[i]) lvl = i + 1;
+        else break;
+    }
+    let nextReq = lvl < reqs.length ? reqs[lvl] : null;
+    let currentBase = lvl > 0 ? reqs[lvl - 1] : 0;
+    let progress = nextReq ? (count - currentBase) : 0;
+    let goal = nextReq ? (nextReq - currentBase) : 1;
+    return { level: lvl, progress, goal, isMax: !nextReq };
+}
+
 export function calcStat(category, id, wsLvl, runLvl) {
     const def = UPGRADES[category][id];
     let val = def.base + (wsLvl * def.step) + (runLvl * def.step);
@@ -56,7 +122,6 @@ export function calcStat(category, id, wsLvl, runLvl) {
 
 export function calcCost(category, id, level, isWorkshop) {
     const def = UPGRADES[category][id];
-    // Workshop is permanently kept, so it scales much more aggressively.
     const base = isWorkshop ? def.baseCost * 3 : def.baseCost;
     const mult = isWorkshop ? def.costMult * 1.15 : def.costMult;
     return Math.floor(base * Math.pow(mult, level));
