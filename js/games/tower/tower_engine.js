@@ -1,5 +1,3 @@
-// main/js/games/tower/tower_engine.js
-
 export class TowerEngine {
     constructor(canvas, callbacks) {
         this.canvas = canvas;
@@ -414,6 +412,18 @@ export class TowerEngine {
             
             if (dist <= 15 + step) {
                 this._dealDamageToTower(ep.dmg, 'ranged');
+                
+                if (this.stats.thorns > 0 && ep.sourceId) {
+                    let shooter = this.enemies.find(en => en.id === ep.sourceId);
+                    if (shooter) {
+                        let thornsDmg = ep.dmg * this.stats.thorns;
+                        if (shooter.type === 'shielded') thornsDmg = 1;
+                        shooter.hp -= thornsDmg;
+                        this.runStats.dmgDealt += thornsDmg;
+                        this.spawnFloatText(`-${Math.floor(thornsDmg)}`, '#e74c3c', false, shooter.x, shooter.y - 15);
+                    }
+                }
+
                 this.enemyProjectiles.splice(i, 1);
                 if (this.state === 'STOPPED') return;
             } else {
@@ -472,7 +482,7 @@ export class TowerEngine {
                 } else {
                     e.attackCooldown -= dt;
                     if (e.attackCooldown <= 0) {
-                        this.enemyProjectiles.push({ x: e.x, y: e.y, dmg: e.dmg, speed: 150 });
+                        this.enemyProjectiles.push({ sourceId: e.id, x: e.x, y: e.y, dmg: e.dmg, speed: 150 });
                         e.attackCooldown = e.atkSpeed;
                     }
                 }

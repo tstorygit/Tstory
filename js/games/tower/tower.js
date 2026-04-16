@@ -1,5 +1,3 @@
-// main/js/games/tower/tower.js
-
 import { mountVocabSelector } from '../../vocab_selector.js';
 import { GameVocabManager } from '../../game_vocab_mgr.js';
 import { showGameQuiz, poolSourceLabel, renderVocabSettings, setGvmTheme } from '../../game_vocab_mgr_ui.js';
@@ -30,7 +28,8 @@ let _run = {
     vocabCorrect: 0,
     failedWords: {},
     boughtDefense: false,
-    levels: { offense: {}, defense: {}, utility: {} }
+    levels: { offense: {}, defense: {}, utility: {} },
+    autoBuy: { offense: false, defense: false, utility: false }
 };
 
 function _defaultSave() {
@@ -465,7 +464,8 @@ export function init(screens, onExit) {
                 active: false, wave: 1, diff: 1, cash: 0, earnedCoinsDrops: 0, earnedCoinsWave: 0,
                 knowledgeStacks: 0, combo: 0, abilityCharge: 0, targetMode: 'closest',
                 vocabQuestions: 0, vocabCorrect: 0, failedWords: {}, boughtDefense: false,
-                levels: { offense: {}, defense: {}, utility: {} }
+                levels: { offense: {}, defense: {}, utility: {} },
+                autoBuy: { offense: false, defense: false, utility: false }
             };
             _saveGame(); _showHub(); 
         }
@@ -593,6 +593,7 @@ export function init(screens, onExit) {
     });
 
     setInterval(_labTicker, 1000);
+    setInterval(_autoBuyTicker, 250);
     init._updateDiffUI = updateDiffUI;
 }
 
@@ -1065,10 +1066,22 @@ function _renderCards() {
         }
     }
 
+    const rarityOrder = { 'ssr': 5, 'mythic': 4, 'epic': 3, 'rare': 2, 'common': 1 };
+    const unequipped = [];
     for (const id in _save.cards.owned) {
         if (!_save.cards.equipped.includes(id)) {
-            invEl.appendChild(_makeCardEl(id, _save.cards.owned[id], false, -1));
+            unequipped.push(id);
         }
+    }
+    unequipped.sort((a, b) => {
+        let rA = rarityOrder[CARDS[a].rarity] || 0;
+        let rB = rarityOrder[CARDS[b].rarity] || 0;
+        if (rA !== rB) return rB - rA;
+        return a.localeCompare(b);
+    });
+
+    for (const id of unequipped) {
+        invEl.appendChild(_makeCardEl(id, _save.cards.owned[id], false, -1));
     }
 }
 
@@ -1384,6 +1397,7 @@ function _resumeRun() {
     
     _run = JSON.parse(JSON.stringify(_save.currentRun));
     _run.active = true;
+    if (!_run.autoBuy) _run.autoBuy = { offense: false, defense: false, utility: false };
     
     _screens.setup.style.display = 'none';
     _screens.game.style.display = 'flex';
@@ -1421,6 +1435,8 @@ function _startRun() {
     _run.vocabCorrect = 0;
     _run.failedWords = {};
     _run.boughtDefense = false;
+    _run.currentHp = undefined; 
+    _run.autoBuy = { offense: false, defense: false, utility: false };
     
     for (const cat of ['offense', 'defense', 'utility']) {
         for (const id in UPGRADES[cat]) {
@@ -1435,6 +1451,7 @@ function _startRun() {
 
     _vocabMgr.seedInitialWords(5);
     
+    if (_engine) _engine.stats = {}; // Ensure _getTowerStats uses full health logic
     _engine.startRun(_getTowerStats(), _run.wave, _run.diff);
     _engine.setTargetMode(_run.targetMode);
     
@@ -1507,6 +1524,7 @@ function _startNextWave() {
             
             _engine.stats = _getTowerStats();
             _updateRunHUD();
+            _renderRunUpgrades(); 
             
             _vocabMgr.resume();
             _engine.resume();
@@ -1515,6 +1533,10 @@ function _startNextWave() {
             _engine.startWave(_run.wave);
         },
         onEmpty: () => {
+            _engine.stats = _getTowerStats(); 
+            _updateRunHUD();
+            _renderRunUpgrades(); 
+
             _vocabMgr.resume();
             _engine.resume();
             
@@ -1658,6 +1680,21 @@ function _renderRunUpgrades() {
         const container = _screens.game.querySelector(`#tw-run-${cat}`);
         container.innerHTML = '';
         
+        const autoWrap = document.createElement('div');
+        autoWrap.style.cssText = "display:flex; justify-content:flex-end; margin-bottom:8px;";
+        const autoBtn = document.createElement('button');
+        autoBtn.className = 'tw-play-btn';
+        const isOn = _run.autoBuy && _run.autoBuy[cat];
+        autoBtn.style.cssText = `padding: 6px 12px; font-size: 11px; width: auto; background: ${isOn ? '#2ecc71' : 'transparent'}; border: 1px solid ${isOn ? '#2ecc71' : '#555'}; color: ${isOn ? '#000' : '#aaa'};`;
+        autoBtn.textContent = isOn ? 'Auto-Upgrade: ON' : 'Auto-Upgrade: OFF';
+        autoBtn.onclick = () => {
+            if (!_run.autoBuy) _run.autoBuy = {};
+            _run.autoBuy[cat] = !_run.autoBuy[cat];
+            _renderRunUpgrades();
+        };
+        autoWrap.appendChild(autoBtn);
+        container.appendChild(autoWrap);
+        
         for (const id in UPGRADES[cat]) {
             const def = UPGRADES[cat][id];
             
@@ -1678,6 +1715,26 @@ function _renderRunUpgrades() {
             const maxLvl = getUpgradeMaxLevel(cat, id);
             const lvlStr = maxLvl ? `Lvl ${runLvl} (Total: ${runLvl + wsLvl}/${maxLvl})` : `Lvl ${runLvl}`;
             
+            let displayVal = def.isPct ? (val*100).toFixed(2)+'%' : parseFloat(val.toFixed(3)).toString();
+            
+            if (id === 'coinsWave') {
+                let base = (_run.wave * _run.diff);
+                let coinMult1 = (_engine.stats?.coinBonus || 1);
+                let labYield = (1 + (_save.lab.levels.coinYield || 0) * 0.1);
+                let mult = coinMult1 * labYield;
+                let total = Math.floor(base + val);
+                total = Math.floor(total * coinMult1);
+                total = Math.floor(total * labYield);
+                displayVal = `<span style="color:#f1c40f;font-weight:bold;">${total}</span> <span style="font-size:9px;color:#aaa;">(${base} + ${val.toFixed(0)}) &times;${mult.toFixed(2)}</span>`;
+            } else if (id === 'cashWave') {
+                let interest = Math.floor(_run.cash * (_engine.stats?.interest || 0));
+                let total = val + interest;
+                displayVal = `<span style="color:#2ecc71;font-weight:bold;">${total}</span> <span style="font-size:9px;color:#aaa;">(${val.toFixed(0)} + Int:${interest})</span>`;
+            } else if (id === 'interest') {
+                let interest = Math.floor(_run.cash * val);
+                displayVal = `${(val*100).toFixed(2)}% <span style="font-size:9px;color:#aaa;">(= $${interest})</span>`;
+            }
+
             const row = document.createElement('div');
             row.className = 'tw-upg-row';
             row.innerHTML = `
@@ -1689,7 +1746,7 @@ function _renderRunUpgrades() {
                         <span class="${reqMult==='10'?'active':''}" data-val="10">x10</span>
                         <span class="${reqMult==='MAX'?'active':''}" data-val="MAX">Max</span>
                     </div>
-                    <div class="tw-upg-val">${def.isPct ? (val*100).toFixed(2)+'%' : val.toFixed(2)}</div>
+                    <div class="tw-upg-val">${displayVal}</div>
                 </div>
                 <button class="tw-upg-buy" ${(buyInfo.maxed || _run.cash < buyInfo.cost) ? 'disabled' : ''}>
                     ${buyInfo.maxed ? 'MAX' : `$ ${buyInfo.cost}<br><span style="font-size:10px;color:#ccc;">(+${buyInfo.count})</span>`}
@@ -1728,6 +1785,61 @@ function _renderRunUpgrades() {
                 }
             };
             container.appendChild(row);
+        }
+    }
+}
+
+function _autoBuyTicker() {
+    if (!_run || !_run.active || !_run.autoBuy) return;
+    if (_engine && _engine.state === 'PAUSED') return;
+
+    let candidates = [];
+    for (const cat of ['offense', 'defense', 'utility']) {
+        if (_run.autoBuy[cat]) {
+            for (const id in UPGRADES[cat]) {
+                const def = UPGRADES[cat][id];
+                if (def.reqUnlock && !_save.workshop.unlocks[id]) continue;
+
+                const runLvl = _run.levels[cat][id] || 0;
+                const wsLvl = _save.workshop[cat][id] || 0;
+
+                if (def.max !== undefined) {
+                    if (calcStat(cat, id, wsLvl, runLvl) >= def.max) continue; 
+                }
+                
+                let reqMult = _save.runMults[id] || '1';
+                const buyInfo = getMultiBuy(cat, id, runLvl, reqMult, _run.cash, false);
+                
+                if (!buyInfo.maxed && buyInfo.count > 0 && _run.cash >= buyInfo.cost) {
+                    let freeChance = 0;
+                    if (cat === 'offense') freeChance = _engine.stats.freeUpgOffense || 0;
+                    else if (cat === 'defense') freeChance = _engine.stats.freeUpgDefense || 0;
+                    else if (cat === 'utility') freeChance = _engine.stats.freeUpgUtility || 0;
+
+                    candidates.push({ cat, id, cost: buyInfo.cost, count: buyInfo.count, freeChance });
+                }
+            }
+        }
+    }
+
+    if (candidates.length > 0) {
+        candidates.sort((a, b) => a.cost - b.cost);
+        let best = candidates[0];
+        
+        if (_run.cash >= best.cost) {
+            let isFree = Math.random() < best.freeChance;
+            if (!isFree) {
+                _run.cash -= best.cost;
+            } else {
+                if (_engine) _engine.spawnFloatText('FREE!', '#f1c40f', true);
+            }
+            _run.levels[best.cat][best.id] = (_run.levels[best.cat][best.id] || 0) + best.count;
+            
+            if (best.cat === 'defense') _run.boughtDefense = true;
+
+            if (_engine) _engine.stats = _getTowerStats();
+            _updateRunHUD();
+            _renderRunUpgrades();
         }
     }
 }

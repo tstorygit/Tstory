@@ -153,6 +153,20 @@ function _injectStyles() {
             border-radius:4px; text-align:center; background:var(--bg-color,#fff);
             color:var(--text-main,#333); font-weight:bold;
         }
+        /* ── Pre-Quiz Animation ───────────────────────────────────────────────── */
+        .gvm-pre-anim {
+            position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 10;
+        }
+        .gvm-ring {
+            position: absolute; border-radius: 50%; border: 4px solid rgba(241,196,15,0.8);
+            animation: gvmRingAnim 0.5s ease-out forwards;
+        }
+        .gvm-ring:nth-child(2) { animation-delay: 0.1s; border-color: rgba(241,196,15,0.5); }
+        .gvm-ring:nth-child(3) { animation-delay: 0.2s; border-color: rgba(241,196,15,0.2); }
+        @keyframes gvmRingAnim {
+            0% { width: 0; height: 0; opacity: 1; }
+            100% { width: 300px; height: 300px; opacity: 0; }
+        }
     `;
     document.head.appendChild(style);
 }
@@ -245,7 +259,15 @@ export function showGameQuiz(vocabMgr, options = {}) {
     const resolve = (v) => typeof v === 'function' ? v(isUnscheduled, type) : v;
 
     const badge      = _badgeFor(type);
-    const title      = resolve(options.title)      ?? badge.label;
+    
+    // Add SRS due count to badge if scheduling is active
+    let badgeLabel   = badge.label;
+    if (vocabMgr.isGlobalSrs || vocabMgr.getMode() !== 'random') {
+        const dueCount = vocabMgr.getDueCount();
+        if (dueCount > 0) badgeLabel += ` (${dueCount} due)`;
+    }
+    
+    const title      = resolve(options.title)      ?? badgeLabel;
     const titleColor = resolve(options.titleColor) ?? 'var(--text-main, #333)';
     const subtitle   = options.subtitle !== undefined
         ? resolve(options.subtitle)
@@ -259,11 +281,14 @@ export function showGameQuiz(vocabMgr, options = {}) {
 
     const cols = _gridCols(answerOpts.length);
 
+    // Prevent immediate misclicks by blocking interaction and animating rings first
+    const showAnim = vocabMgr.config.preQuizAnim !== false;
+
     const overlay = document.createElement('div');
     overlay.className = `gvm-overlay ${_forcedTheme === 'dark' ? 'gvm-dark' : ''}`;
     overlay.innerHTML = `
-        <div class="gvm-modal">
-            <div class="gvm-badge ${badge.cls}">${badge.label}</div>
+        <div class="gvm-modal" style="${showAnim ? 'display:none;' : ''}">
+            <div class="gvm-badge ${badge.cls}">${badgeLabel}</div>
             <h3 class="gvm-title" style="color:${titleColor};">${title}</h3>
             ${subtitle ? `<p class="gvm-subtitle">${subtitle}</p>` : ''}
             ${dotsHtml}
@@ -277,9 +302,30 @@ export function showGameQuiz(vocabMgr, options = {}) {
                 ).join('')}
             </div>
         </div>
+        ${showAnim ? `
+        <div class="gvm-pre-anim">
+            <div class="gvm-ring"></div>
+            <div class="gvm-ring"></div>
+            <div class="gvm-ring"></div>
+        </div>
+        ` : ''}
     `;
 
     options.container.appendChild(overlay);
+
+    if (showAnim) {
+        const animEl = overlay.querySelector('.gvm-pre-anim');
+        const modalEl = overlay.querySelector('.gvm-modal');
+        setTimeout(() => {
+            if (animEl) animEl.remove();
+            if (modalEl) {
+                modalEl.style.display = 'flex';
+                modalEl.style.animation = 'none';
+                modalEl.offsetHeight; // trigger reflow
+                modalEl.style.animation = 'gvmPopIn 0.2s cubic-bezier(0.175,0.885,0.32,1.275)';
+            }
+        }, 450);
+    }
 
     const btns = overlay.querySelectorAll('.gvm-btn');
     btns.forEach(btn => {

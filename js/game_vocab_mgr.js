@@ -63,6 +63,8 @@ export class GameVocabManager {
      *   Wrong-answer count before a word is flagged as a leech. Default 20.
      * @param {number} config.autoNewWordBatchSize
      *   How many new words to introduce per auto-event in 'auto' mode. Default 1.
+     * @param {boolean} config.preQuizAnim
+     *   Shows a short expanding animation before the quiz appears to prevent misclicks. Default true.
      * @param {Object} config.autoThresholds
      *   Controls when 'auto' mode introduces new vocabulary.
      * @param {number} config.autoThresholds.minDueTime
@@ -82,6 +84,7 @@ export class GameVocabManager {
             initialEase:         1.5,
             leechThreshold:      20,
             autoNewWordBatchSize: 1,
+            preQuizAnim:         true,
             ...config,
             autoThresholds: thresholds   // always the merged object, never the raw config value
         };
@@ -219,6 +222,14 @@ export class GameVocabManager {
             return;
         }
         this.config.mode = mode;
+    }
+
+    /**
+     * Change whether the pre-quiz click-blocking animation plays.
+     * @param {boolean} active 
+     */
+    setPreQuizAnimation(active) {
+        this.config.preQuizAnim = !!active;
     }
 
     /** Returns the current pedagogical mode without exposing config internals. */
@@ -841,6 +852,7 @@ export class GameVocabManager {
             initialEase:          1.5,      // SM-2 ease multiplier
             leechThreshold:       20,       // wrong-answer count to flag a leech
             autoNewWordBatchSize: 1,        // words introduced per auto-event
+            preQuizAnim:          true,     // prevent immediate misclicks via animation overlay
             minDueTime:           10,       // seconds with no due cards before auto-introducing
             minAccuracy:          0.80,     // recent accuracy required before auto-introducing
         };
