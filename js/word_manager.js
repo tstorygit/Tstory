@@ -78,6 +78,11 @@ export function renderVocabList() {
             const intB = b.interval ?? -1;
             return intB - intA;
         }
+        if (sortVal === 'ai_updated_asc') {
+            const timeA = a.aiUpdated ? new Date(a.aiUpdated).getTime() : 0;
+            const timeB = b.aiUpdated ? new Date(b.aiUpdated).getTime() : 0;
+            return timeA - timeB;
+        }
         
         return 0;
     });
@@ -126,15 +131,21 @@ export function renderVocabList() {
             srsBadge = `<span class="vocab-srs-badge" title="SRS interval ${intLabel} · ${dueLabel}">⏱ ${intLabel} · ${dueLabel}</span>`;
         }
 
+        const aiDateText = w.aiUpdated ? new Date(w.aiUpdated).toLocaleDateString() : 'Unenriched';
+
         row.innerHTML = `
             <div class="vocab-status-dot" style="background-color:${statusColors[w.status]||'#ccc'}"></div>
             <div class="vocab-info">
                 <div class="vocab-main-line">
                     <span class="vocab-word">${w.word}</span>
-                    <span class="vocab-furi">${w.furi || ''}</span>
+                    ${w.base && w.base !== w.word ? `<span style="font-size:12px; color:var(--text-muted); font-weight:normal; margin-left:4px;">(${w.base})</span>` : ''}
+                    <span class="vocab-furi" style="margin-left:4px;">${w.furi || ''}</span>
                     ${srsBadge}
                 </div>
-                <div class="vocab-trans">${w.translation || 'No translation'}</div>
+                <div class="vocab-trans">
+                    ${w.translation || 'No translation'}
+                    <span style="font-size:10px; color:var(--text-muted); margin-left:8px;" title="AI Enriched Date">✨ ${aiDateText}</span>
+                </div>
             </div>
             <div class="vocab-actions">
                 <button class="vocab-edit-btn" title="Edit Reading" aria-label="Edit Reading">⚙️</button>
@@ -165,7 +176,7 @@ export function renderVocabList() {
 function _openPopupForWord(wordData) {
     const token = {
         surface:       wordData.word,
-        base:          wordData.word,
+        base:          wordData.base || wordData.word,
         furi:          wordData.furi        || '',
         roma:          '',
         trans_base:    wordData.translation || '',

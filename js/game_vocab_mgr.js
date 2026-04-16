@@ -55,6 +55,8 @@ export class GameVocabManager {
      *   auto   — SRS-ordered; introduces new words automatically when thresholds are met.
      *   manual — SRS-ordered (due first); new words must be introduced via learnNewWord().
      *   random — Picks words at random from the full pool; no SRS scheduling.
+     * @param {'mixed'|'furigana'|'kanji'|'kana'} config.questionFormat
+     *   Determines how the Japanese word is displayed in the quiz. Default 'mixed'.
      * @param {number} config.initialInterval
      *   Seconds before a newly introduced word is shown again (Local mode). Default 8.
      * @param {number} config.initialEase
@@ -80,6 +82,7 @@ export class GameVocabManager {
         };
         this.config = {
             mode:                'auto',
+            questionFormat:      'mixed',
             initialInterval:     8,
             initialEase:         1.5,
             leechThreshold:      20,
@@ -225,6 +228,18 @@ export class GameVocabManager {
     }
 
     /**
+     * Change the question format at runtime.
+     * @param {'mixed'|'furigana'|'kanji'|'kana'} format 
+     */
+    setQuestionFormat(format) {
+        if (!['mixed', 'furigana', 'kanji', 'kana'].includes(format)) {
+            console.warn(`[GameVocabManager] Unknown format "${format}". Defaults to mixed.`);
+            return;
+        }
+        this.config.questionFormat = format;
+    }
+
+    /**
      * Change whether the pre-quiz click-blocking animation plays.
      * @param {boolean} active 
      */
@@ -268,7 +283,7 @@ export class GameVocabManager {
      *                                   the returned options array will be shorter —
      *                                   callers must handle this gracefully.
      *
-     * @returns {{ refId, type, wordObj, options, correctIdx } | null}
+     * @returns {{ refId, type, wordObj, options, correctIdx, displayMode } | null}
      */
     getNextWord(forceMode = null, optionCount = 4) {
         if (this._pool.length === 0) return null;
@@ -391,6 +406,13 @@ export class GameVocabManager {
 
         if (!selectedWordObj) return null;
 
+        // ─── DETERMINE DISPLAY MODE ───
+        let displayMode = this.config.questionFormat || 'mixed';
+        if (displayMode === 'mixed') {
+            const modes = ['furigana', 'kanji', 'kana'];
+            displayMode = modes[Math.floor(Math.random() * modes.length)];
+        }
+
         // ─── SMART DISTRACTORS ───
         // Build exactly `distractorCount` distractors using priority ordering.
         const correctEng    = selectedWordObj.eng;
@@ -432,10 +454,7 @@ export class GameVocabManager {
         const refId = generateRefId();
         this._pendingPulls.set(refId, { wordId: selectedWordObj.id, type });
 
-        // optionCount reflects how many were actually generated (may be < requested
-        // if the pool was too small — callers should use options.length, not the
-        // requested optionCount, when building their UI)
-        return { refId, type, wordObj: selectedWordObj, options, correctIdx };
+        return { refId, type, wordObj: selectedWordObj, options, correctIdx, displayMode };
     }
 
     gradeWord(refId, grade) {
@@ -848,6 +867,7 @@ export class GameVocabManager {
     static defaultConfig() {
         return {
             mode:                 'auto',   // 'auto' | 'manual' | 'random'
+            questionFormat:       'mixed',  // 'mixed' | 'furigana' | 'kanji' | 'kana'
             initialInterval:      8,        // seconds before first re-review
             initialEase:          1.5,      // SM-2 ease multiplier
             leechThreshold:       20,       // wrong-answer count to flag a leech

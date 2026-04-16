@@ -14,6 +14,10 @@
  *   ease:         2.5,            // SM-2 ease factor
  *   dueDate:      "2023-10-28T...",  // ISO date when next due
  *   reviewCount:  0,              // total times reviewed via the SRS deck
+ *
+ *   // AI Enrichment fields (added for base form matching):
+ *   base:         "日本語",
+ *   aiUpdated:    "2023-10-27T...",
  * }
  *
  * LingQ status ↔ interval thresholds (used when srsAutoStatus is enabled):
@@ -42,7 +46,9 @@ function _persist(words) {
 
 export function saveWord(wordObj) {
     const words = getAllWords();
+    const existing = words[wordObj.word] || {};
     words[wordObj.word] = {
+        ...existing,
         ...wordObj,
         lastUpdated: new Date().toISOString()
     };
@@ -50,7 +56,69 @@ export function saveWord(wordObj) {
 }
 
 export function getWord(wordText) {
-    return getAllWords()[wordText] || null;
+    const words = getAllWords();
+    if (words[wordText]) return words[wordText];
+    
+    // Fallback: search by baseform if key doesn't match directly
+    for (const key in words) {
+        if (words[key].base === wordText) {
+            return words[key];
+        }
+    }
+    return null;
+}
+
+// ─── MERGE DUPLICATES ────────────────────────────────────────────────────────
+
+export function mergeWords(keeperWord, loserWordsArray) {
+    const words = getAllWords();
+    let changed = false;
+
+    if (!words[keeperWord]) return false;
+
+    for (const loser of loserWordsArray) {
+        if (words[loser] && loser !== keeperWord) {
+            delete words[loser];
+            changed = true;
+        }
+    }
+
+    if (changed) {
+        _persist(words);
+        return true;
+    }
+    return false;
+}
+
+// ─── AI ENRICHMENT BATCH PROCESSING ──────────────────────────────────────────
+
+/**
+ * Returns a list of words prioritizing those that haven't been enriched yet.
+ */
+export function getWordsNeedingEnrichment(limit = 50) {
+    let words = Object.values(getAllWords());
+    words.sort((a, b) => {
+        const timeA = a.aiUpdated ? new Date(a.aiUpdated).getTime() : 0;
+        const timeB = b.aiUpdated ? new Date(b.aiUpdated).getTime() : 0;
+        return timeA - timeB; // Oldest/0 first
+    });
+    return words.slice(0, limit);
+}
+
+/**
+ * Applies a batch of base form updates returned by the AI.
+ * @param {Array<{key: string, base: string}>} updates
+ */
+export function batchUpdateBases(updates) {
+    const words = getAllWords();
+    const now = new Date().toISOString();
+    for (const { key, base } of updates) {
+        if (words[key]) {
+            words[key].base = base;
+            words[key].aiUpdated = now;
+        }
+    }
+    _persist(words);
 }
 
 // ─── STATUS ──────────────────────────────────────────────────────────────────

@@ -16,6 +16,10 @@
  *   setGvmTheme(theme)                           — Forces 'dark' or 'light' theme.
  */
 
+import { speakText, stopSpeech } from './tts_api.js';
+
+const SPEAKER_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>`;
+
 let _forcedTheme = null;
 
 /**
@@ -253,7 +257,7 @@ export function showGameQuiz(vocabMgr, options = {}) {
         return null;
     }
 
-    const { wordObj, options: answerOpts, correctIdx, type } = challenge;
+    const { wordObj, options: answerOpts, correctIdx, type, displayMode } = challenge;
     const isUnscheduled = type === 'unscheduled';
 
     const resolve = (v) => typeof v === 'function' ? v(isUnscheduled, type) : v;
@@ -284,6 +288,20 @@ export function showGameQuiz(vocabMgr, options = {}) {
     // Prevent immediate misclicks by blocking interaction and animating rings first
     const showAnim = vocabMgr.config.preQuizAnim !== false;
 
+    // Build Word Block based on Display Mode
+    let displayFuri = '';
+    let displayMain = wordObj.kanji;
+    
+    if (displayMode === 'kana') {
+        displayMain = wordObj.kana;
+    } else if (displayMode === 'kanji') {
+        displayMain = wordObj.kanji;
+    } else { // furigana
+        if (showFurigana && wordObj.kana !== wordObj.kanji) {
+            displayFuri = wordObj.kana;
+        }
+    }
+
     const overlay = document.createElement('div');
     overlay.className = `gvm-overlay ${_forcedTheme === 'dark' ? 'gvm-dark' : ''}`;
     overlay.innerHTML = `
@@ -293,8 +311,8 @@ export function showGameQuiz(vocabMgr, options = {}) {
             ${subtitle ? `<p class="gvm-subtitle">${subtitle}</p>` : ''}
             ${dotsHtml}
             <div class="gvm-word-block">
-                <div class="gvm-furi">${showFurigana && wordObj.kana !== wordObj.kanji ? wordObj.kana : ''}</div>
-                <div class="gvm-kanji">${wordObj.kanji}</div>
+                <div class="gvm-furi">${displayFuri}</div>
+                <div class="gvm-kanji">${displayMain}</div>
             </div>
             <div class="gvm-grid" style="grid-template-columns:${cols};">
                 ${answerOpts.map((opt, i) =>
@@ -342,10 +360,56 @@ export function showGameQuiz(vocabMgr, options = {}) {
 
             const result = vocabMgr.gradeWord(challenge.refId, isCorrect);
 
-            setTimeout(() => {
-                overlay.remove();
-                if (options.onAnswer) options.onAnswer(isCorrect, wordObj, result);
-            }, isCorrect ? 600 : 1200);
+            if (isCorrect) {
+                setTimeout(() => {
+                    overlay.remove();
+                    if (options.onAnswer) options.onAnswer(isCorrect, wordObj, result);
+                }, 600);
+            } else {
+                // CORRECTION SCREEN
+                setTimeout(() => {
+                    const modalEl = overlay.querySelector('.gvm-modal');
+                    if (!modalEl) return;
+                    
+                    modalEl.innerHTML = `
+                        <div class="gvm-badge gvm-badge-leech">❌ Incorrect</div>
+                        <h3 class="gvm-title" style="color: #e74c3c; margin-top: 5px;">Let's review!</h3>
+                        
+                        <div style="background: var(--bg-color, #f9f9f9); border: 1px solid var(--border-color, #ccc); border-radius: 12px; padding: 20px; margin: 15px 0;">
+                            <div style="font-size: 14px; color: var(--text-muted, #888); min-height: 20px; margin-bottom: 4px;">
+                                ${wordObj.kana !== wordObj.kanji ? wordObj.kana : ''}
+                            </div>
+                            <div style="font-size: 42px; font-weight: 900; color: var(--text-main, #333); line-height: 1.1; letter-spacing: -1px; margin-bottom: 15px;">
+                                ${wordObj.kanji}
+                            </div>
+                            <div style="font-size: 18px; color: var(--primary-color, #4A90E2); font-weight: bold; padding-top: 15px; border-top: 1px dashed var(--border-color, #ccc);">
+                                ${wordObj.eng}
+                            </div>
+                        </div>
+                        
+                        <div style="display: flex; gap: 10px;">
+                            <button id="gvm-correction-speak" class="gvm-btn" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                                ${SPEAKER_ICON} Audio
+                            </button>
+                            <button id="gvm-correction-continue" class="gvm-btn" style="flex: 2; background: var(--primary-color, #4A90E2); color: white; border-color: var(--primary-color, #4A90E2);">
+                                Continue &rarr;
+                            </button>
+                        </div>
+                    `;
+                    
+                    const speakBtn = modalEl.querySelector('#gvm-correction-speak');
+                    speakBtn.addEventListener('click', () => {
+                        speakText(wordObj.kanji);
+                    });
+                    
+                    const continueBtn = modalEl.querySelector('#gvm-correction-continue');
+                    continueBtn.addEventListener('click', () => {
+                        stopSpeech();
+                        overlay.remove();
+                        if (options.onAnswer) options.onAnswer(isCorrect, wordObj, result);
+                    });
+                }, 800); // 800ms gives them enough time to see what they clicked vs what was correct
+            }
         });
     });
 
@@ -466,6 +530,21 @@ export function renderVocabSettings(vocabMgr, container, onSave, poolSource = 'c
                 </div>
             </div>
 
+            <div class="gvm-settings-row">
+                <div style="flex:1;">
+                    <strong style="color:var(--text-main,#333);">👁️ Question Format</strong>
+                    <div style="font-size:11px; color:var(--text-muted,#888);">
+                        How words are displayed during the quiz.
+                    </div>
+                </div>
+                <select id="gvm-cfg-qformat" style="width:auto; padding:6px; border:1px solid var(--border-color,#ccc); border-radius:4px; background:var(--bg-color,#fff); color:var(--text-main,#333);">
+                    <option value="mixed"    ${cfg.questionFormat === 'mixed' ? 'selected' : ''}>Mixed (Random)</option>
+                    <option value="furigana" ${cfg.questionFormat === 'furigana' ? 'selected' : ''}>Kanji + Furigana</option>
+                    <option value="kanji"    ${cfg.questionFormat === 'kanji' ? 'selected' : ''}>Kanji Only</option>
+                    <option value="kana"     ${cfg.questionFormat === 'kana' ? 'selected' : ''}>Kana Only</option>
+                </select>
+            </div>
+
             <div class="gvm-settings-row" id="gvm-row-batch">
                 <div>
                     <strong style="color:var(--text-main,#333);">📚 Bootstrap Threshold</strong>
@@ -583,6 +662,8 @@ export function renderVocabSettings(vocabMgr, container, onSave, poolSource = 'c
 
     container.querySelector('#gvm-btn-save').addEventListener('click', () => {
         const newMode = selectedMode;
+        
+        const qFormat = container.querySelector('#gvm-cfg-qformat').value;
 
         const newWordThreshold      = clamp(parseInt(container.querySelector('#gvm-cfg-threshold').value) || 10, 1, 100);
         const newWordBatchBootstrap = clamp(parseInt(container.querySelector('#gvm-cfg-batch-bootstrap').value) || 5, 1, 20);
@@ -603,6 +684,7 @@ export function renderVocabSettings(vocabMgr, container, onSave, poolSource = 'c
         }
 
         vocabMgr.config.mode = newMode;
+        vocabMgr.config.questionFormat = qFormat;
         vocabMgr.config.newWordThreshold = newWordThreshold;
         vocabMgr.config.newWordBatchBootstrap = newWordBatchBootstrap;
         vocabMgr.config.newWordBatchNormal = newWordBatchNormal;
@@ -617,6 +699,7 @@ export function renderVocabSettings(vocabMgr, container, onSave, poolSource = 'c
         if (onSave) {
             onSave({
                 mode: newMode,
+                questionFormat: qFormat,
                 newWordThreshold,
                 newWordBatchBootstrap,
                 newWordBatchNormal,

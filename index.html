@@ -94,6 +94,7 @@
                         <option value="due_desc">Due Date (Latest)</option>
                         <option value="interval_desc">Interval (Longest)</option>
                         <option value="interval_asc">Interval (Shortest)</option>
+                        <option value="ai_updated_asc">AI Base Form (Oldest)</option>
                     </select>
                 </div>
                 <div style="margin-top: 5px; font-size: 12px; color: var(--text-muted); text-align: right;">
@@ -280,6 +281,30 @@
                 <h2>Data</h2>
             </header>
             <div class="content-scroll" id="data-content">
+
+                <div class="data-panel">
+                    <div class="data-panel-header">
+                        <span class="data-panel-icon">✨</span>
+                        <div>
+                            <h3>Enrich Vocabulary Data</h3>
+                            <p class="data-panel-sub">Use AI to identify base forms for 50 words at a time. This improves matching in stories and games.</p>
+                        </div>
+                    </div>
+                    <button class="primary-btn" id="btn-enrich-vocab">✨ Enrich 50 Words</button>
+                    <div id="enrich-status" class="status-message" style="display:none;"></div>
+                </div>
+
+                <div class="data-panel">
+                    <div class="data-panel-header">
+                        <span class="data-panel-icon">🔗</span>
+                        <div>
+                            <h3>Merge Duplicates</h3>
+                            <p class="data-panel-sub">Find and merge vocabulary entries that share the same base form.</p>
+                        </div>
+                    </div>
+                    <button class="primary-btn" id="btn-merge-vocab">🔗 Find Duplicates</button>
+                    <div id="merge-status" class="status-message" style="display:none;"></div>
+                </div>
 
                 <div class="data-panel">
                     <div class="data-panel-header">
