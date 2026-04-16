@@ -482,20 +482,17 @@ export class GameVocabManager {
         if (this.isGlobalSrs) {
             // ─── GLOBAL SRS PASSTHROUGH ───
             // 'unscheduled' = word is not due (drill) or no due cards exist (random fallback).
-            //   • Correct answer → do NOT update SRS interval (not a real review).
+            //   • Correct answer → do NOT update SRS interval (not a real review), but update lastUpdated.
             //   • Wrong answer   → DO update interval (you still need to learn it).
             const isUnscheduled = pull.type === 'unscheduled';
 
-            let newIntervalSecs = 0;
-            if (!isUnscheduled || !isCorrect) {
-                // Only write to srsDb when it should actually count
-                const updated = srsDb.gradeWordInGame({
-                    word: wordObj.kanji,
-                    furi: wordObj.kana,
-                    translation: wordObj.eng
-                }, sm2Grade, true);
-                newIntervalSecs = updated ? Math.round((updated.interval || 0) * 86400) : 0;
-            }
+            // Always call srsDb.gradeWordInGame so it can update lastUpdated for the "Least Recently Seen" drill queue
+            const updated = srsDb.gradeWordInGame({
+                word: wordObj.kanji,
+                furi: wordObj.kana,
+                translation: wordObj.eng
+            }, sm2Grade, true);
+            const newIntervalSecs = updated ? Math.round((updated.interval || 0) * 86400) : 0;
 
             return {
                 wordId:           pull.wordId,

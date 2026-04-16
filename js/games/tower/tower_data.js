@@ -1,3 +1,5 @@
+// main/js/games/tower/tower_data.js
+
 export const UPGRADES = {
     offense: {
         damage:     { name: 'Damage',        base: 5,   step: 2,     baseCost: 10,  costMult: 1.15, isPct: false },
@@ -30,13 +32,32 @@ export const UPGRADES = {
     }
 };
 
+export const LAB_RESEARCH_CATEGORIES = {
+    offense: ['damageMult', 'critChance', 'rangeMult', 'vocabMastery'],
+    defense: ['healthMult', 'regenMult', 'defPct', 'thornsMult', 'lifesteal'],
+    utility: ['knowledge', 'gameSpeed', 'coinYield', 'cashBonusMult', 'startingCash', 'synergy', 'freeUpg']
+};
+
 export const LAB_RESEARCH = {
+    // Offense
+    damageMult:   { name: 'Damage Multiplier',desc: '+2% Base Damage.', baseCost: 100, costMult: 1.5, baseTimeSec: 120 },
+    critChance:   { name: 'Crit Chance',      desc: '+0.5% Crit Chance.', baseCost: 500, costMult: 1.6, baseTimeSec: 600, max: 30 },
+    rangeMult:    { name: 'Range Multiplier', desc: '+1% Range.', baseCost: 200, costMult: 1.4, baseTimeSec: 240, max: 50 },
+    vocabMastery: { name: 'Vocab Mastery',    desc: '+0.01% Base Dmg per unique correct word.', baseCost: 100, costMult: 2.5, baseTimeSec: 600, max: 1 },
+    // Defense
+    healthMult:   { name: 'Health Multiplier',desc: '+5% Base Health.', baseCost: 100, costMult: 1.4, baseTimeSec: 120 },
+    regenMult:    { name: 'Regen Multiplier', desc: '+2% Health Regen.', baseCost: 150, costMult: 1.5, baseTimeSec: 180 },
+    defPct:       { name: 'Defense %',        desc: '+0.5% Defense.', baseCost: 400, costMult: 2.0, baseTimeSec: 600, max: 20 },
+    thornsMult:   { name: 'Thorns Multiplier',desc: '+2% Thorns Damage.', baseCost: 300, costMult: 1.6, baseTimeSec: 360 },
+    lifesteal:    { name: 'Lifesteal',        desc: '+0.2% Lifesteal.', baseCost: 800, costMult: 2.5, baseTimeSec: 1200, max: 25 },
+    // Utility
     knowledge:    { name: 'Vocab Multiplier', desc: '+0.5% Buff per correct vocab answer.', baseCost: 10, costMult: 2.0, baseTimeSec: 60 },
-    gameSpeed:    { name: 'Game Speed',       desc: '+10% Simulation speed.',               baseCost: 25, costMult: 2.5, baseTimeSec: 180, max: 10 },
-    coinYield:    { name: 'Coin Yield',       desc: '+10% Coins dropped upon death.',       baseCost: 50, costMult: 2.0, baseTimeSec: 300 },
-    startingCash: { name: 'Starting Cash',    desc: 'Start runs with +50 Cash. Lvl 5 unlocks 2% Cash Interest/wave.', baseCost: 15, costMult: 1.8, baseTimeSec: 120 },
-    vocabMastery: { name: 'Vocab Mastery',    desc: '+0.01% Base Damage per unique correct word.', baseCost: 100, costMult: 2.5, baseTimeSec: 600, max: 1 },
-    synergy:      { name: 'Linguistic Synergy', desc: 'Unlocks Pierce at x2.0 Knowledge, Chain at x3.0.', baseCost: 500, costMult: 1, baseTimeSec: 1200, max: 1 }
+    gameSpeed:    { name: 'Game Speed',       desc: '+10% Simulation speed.', baseCost: 25, costMult: 2.5, baseTimeSec: 180, max: 10 },
+    coinYield:    { name: 'Coin Yield',       desc: '+10% Coins dropped.', baseCost: 50, costMult: 2.0, baseTimeSec: 300 },
+    cashBonusMult:{ name: 'Cash Bonus Mult',  desc: '+5% Cash Earned.', baseCost: 150, costMult: 1.5, baseTimeSec: 240 },
+    startingCash: { name: 'Starting Cash',    desc: 'Start runs with +50 Cash.', baseCost: 15, costMult: 1.8, baseTimeSec: 120 },
+    synergy:      { name: 'Linguistic Synergy', desc: 'Unlocks Pierce at x2.0 Knowledge, Chain at x3.0.', baseCost: 500, costMult: 1, baseTimeSec: 1200, max: 1 },
+    freeUpg:      { name: 'Free Upgrades',    desc: '+0.5% Global Free Upgrade Chance.', baseCost: 1000, costMult: 3.0, baseTimeSec: 3600, max: 10 }
 };
 
 export const RELICS = {
@@ -56,38 +77,40 @@ export const QUEST_TEMPLATES =[
 ];
 
 export const CARDS = {
-    // Basic Multipliers (1-7)
-    dmg:    { name: 'Damage',       desc: '+% Damage',       base: 0.15, step: 0.15 },
-    spd:    { name: 'Attack Speed', desc: '+% Atk Speed',    base: 0.10, step: 0.05 },
-    hp:     { name: 'Health',       desc: '+% Health',       base: 0.20, step: 0.20 },
-    rng:    { name: 'Range',        desc: '+% Range',        base: 0.10, step: 0.05 },
-    cash:   { name: 'Cash Bonus',   desc: '+% Cash',         base: 0.15, step: 0.15 },
-    coin:   { name: 'Coin Bonus',   desc: '+% Coins',        base: 0.10, step: 0.10 },
-    slow:   { name: 'Slow Aura',    desc: '-% Enemy Speed',  base: 0.05, step: 0.02, maxLevel: 7 },
+    // Common (50%)
+    dmg:    { name: 'Damage',       desc: '+% Damage',       base: 0.15, step: 0.15, rarity: 'common' },
+    hp:     { name: 'Health',       desc: '+% Health',       base: 0.20, step: 0.20, rarity: 'common' },
+    regen:  { name: 'Health Regen', desc: '+X Regen',        base: 2,    step: 1, isFlat: true, rarity: 'common' },
+    cashW:  { name: 'Cash / Wave',  desc: '+X Cash/Wave',    base: 20,   step: 10, isFlat: true, rarity: 'common' },
+    coinW:  { name: 'Coins / Wave', desc: '+X Coin/Wave',    base: 5,    step: 2,  isFlat: true, rarity: 'common' },
     
-    // Offense (8-11)
-    critC:  { name: 'Crit Chance',  desc: '+% Crit Chance',  base: 0.02, step: 0.01 },
-    critM:  { name: 'Crit Factor',  desc: '+% Crit Factor',  base: 0.20, step: 0.10 },
-    bounce: { name: 'Bounce Shot',  desc: '+% Bounce Chance',base: 0.05, step: 0.02 },
-    dmgM:   { name: 'Damage/Meter', desc: '+% Dmg/Meter',    base: 0.01, step: 0.005 },
+    // Rare (25%)
+    spd:    { name: 'Attack Speed', desc: '+% Atk Speed',    base: 0.10, step: 0.05, rarity: 'rare' },
+    rng:    { name: 'Range',        desc: '+% Range',        base: 0.10, step: 0.05, rarity: 'rare' },
+    defA:   { name: 'Defense Abs',  desc: '+X Def Abs',      base: 5,    step: 2, isFlat: true, rarity: 'rare' },
+    defP:   { name: 'Defense %',    desc: '+% Defense',      base: 0.05, step: 0.02, maxLevel: 10, rarity: 'rare' },
+    kb:     { name: 'Knockback',    desc: '+% Knockback',    base: 0.05, step: 0.02, rarity: 'rare' },
+    thorns: { name: 'Thorns Dmg',   desc: '+% Thorns Dmg',   base: 0.20, step: 0.10, rarity: 'rare' },
     
-    // Defense (12-18)
-    regen:  { name: 'Health Regen', desc: '+X Regen',        base: 2,    step: 1, isFlat: true },
-    defA:   { name: 'Defense Abs',  desc: '+X Def Abs',      base: 5,    step: 2, isFlat: true },
-    defP:   { name: 'Defense %',    desc: '+% Defense',      base: 0.05, step: 0.02, maxLevel: 10 },
-    life:   { name: 'Lifesteal',    desc: '+% Lifesteal',    base: 0.02, step: 0.01, maxLevel: 10 },
-    thorns: { name: 'Thorns Dmg',   desc: '+% Thorns Dmg',   base: 0.20, step: 0.10 },
-    kb:     { name: 'Knockback',    desc: '+% Knockback',    base: 0.05, step: 0.02 },
-    death:  { name: 'Defy Death',   desc: '+% Defy Death',   base: 0.02, step: 0.01, maxLevel: 5 },
+    // Epic (15%)
+    critC:  { name: 'Crit Chance',  desc: '+% Crit Chance',  base: 0.02, step: 0.01, rarity: 'epic' },
+    critM:  { name: 'Crit Factor',  desc: '+% Crit Factor',  base: 0.20, step: 0.10, rarity: 'epic' },
+    life:   { name: 'Lifesteal',    desc: '+% Lifesteal',    base: 0.02, step: 0.01, maxLevel: 10, rarity: 'epic' },
+    cash:   { name: 'Cash Bonus',   desc: '+% Cash',         base: 0.15, step: 0.15, rarity: 'epic' },
+    coin:   { name: 'Coin Bonus',   desc: '+% Coins',        base: 0.10, step: 0.10, rarity: 'epic' },
+    slow:   { name: 'Slow Aura',    desc: '-% Enemy Speed',  base: 0.05, step: 0.02, maxLevel: 7, rarity: 'epic' },
+    bounce: { name: 'Bounce Shot',  desc: '+% Bounce Chance',base: 0.05, step: 0.02, rarity: 'epic' },
     
-    // Utility & Progression (19-25)
-    cashW:  { name: 'Cash / Wave',  desc: '+X Cash/Wave',    base: 20,   step: 10, isFlat: true },
-    coinW:  { name: 'Coins / Wave', desc: '+X Coin/Wave',    base: 5,    step: 2,  isFlat: true },
-    int:    { name: 'Interest',     desc: '+% Int./Wave',    base: 0.01, step: 0.005, maxLevel: 5 },
-    freeO:  { name: 'Free Offense', desc: '+% Free Off. Upg',base: 0.02, step: 0.01, maxLevel: 10 },
-    freeD:  { name: 'Free Defense', desc: '+% Free Def. Upg',base: 0.02, step: 0.01, maxLevel: 10 },
-    freeU:  { name: 'Free Utility', desc: '+% Free Utl. Upg',base: 0.02, step: 0.01, maxLevel: 10 },
-    know:   { name: 'Knowledge+',   desc: '+% Know. Buff',   base: 0.10, step: 0.05 }
+    // Mythic (8%)
+    freeO:  { name: 'Free Offense', desc: '+% Free Off. Upg',base: 0.02, step: 0.01, maxLevel: 10, rarity: 'mythic' },
+    freeD:  { name: 'Free Defense', desc: '+% Free Def. Upg',base: 0.02, step: 0.01, maxLevel: 10, rarity: 'mythic' },
+    freeU:  { name: 'Free Utility', desc: '+% Free Utl. Upg',base: 0.02, step: 0.01, maxLevel: 10, rarity: 'mythic' },
+    dmgM:   { name: 'Damage/Meter', desc: '+% Dmg/Meter',    base: 0.01, step: 0.005, rarity: 'mythic' },
+    int:    { name: 'Interest',     desc: '+% Int./Wave',    base: 0.01, step: 0.005, maxLevel: 5, rarity: 'mythic' },
+    
+    // SSR (2%)
+    death:  { name: 'Defy Death',   desc: '+% Defy Death',   base: 0.02, step: 0.01, maxLevel: 5, rarity: 'ssr' },
+    know:   { name: 'Knowledge+',   desc: '+% Know. Buff',   base: 0.10, step: 0.05, rarity: 'ssr' }
 };
 
 export const SLOT_COSTS =[
@@ -98,9 +121,13 @@ export const SLOT_COSTS =[
     { coins: 100000, gems: 500 }   
 ];
 
-export function getCardLevelInfo(count) {
-    // Require 1 to unlock. Then +2, +4, +8, +16, +32, +64 to level up.
-    const reqs =[1, 3, 7, 15, 31, 63, 127]; 
+export function getCardLevelInfo(count, maxLevel = 7) {
+    const reqs = [];
+    let cur = 0;
+    for(let i=0; i<maxLevel; i++) {
+        cur += Math.pow(2, i); 
+        reqs.push(cur);
+    }
     let lvl = 0;
     for (let i = 0; i < reqs.length; i++) {
         if (count >= reqs[i]) lvl = i + 1;
@@ -110,7 +137,7 @@ export function getCardLevelInfo(count) {
     let currentBase = lvl > 0 ? reqs[lvl - 1] : 0;
     let progress = nextReq ? (count - currentBase) : 0;
     let goal = nextReq ? (nextReq - currentBase) : 1;
-    return { level: lvl, progress, goal, isMax: !nextReq };
+    return { level: lvl, progress, goal, isMax: !nextReq, maxCards: reqs[reqs.length-1] };
 }
 
 export function calcStat(category, id, wsLvl, runLvl) {
@@ -120,11 +147,52 @@ export function calcStat(category, id, wsLvl, runLvl) {
     return val;
 }
 
+export function getUpgradeMaxLevel(category, id) {
+    const def = UPGRADES[category][id];
+    if (def.max !== undefined) {
+        return Math.round((def.max - def.base) / def.step);
+    }
+    return null;
+}
+
 export function calcCost(category, id, level, isWorkshop) {
     const def = UPGRADES[category][id];
     const base = isWorkshop ? def.baseCost * 3 : def.baseCost;
     const mult = isWorkshop ? def.costMult * 1.15 : def.costMult;
     return Math.floor(base * Math.pow(mult, level));
+}
+
+export function getMultiBuy(category, id, startLvl, requestMode, currentCurrency, isWorkshop) {
+    const def = UPGRADES[category][id];
+    let totalCost = 0;
+    let count = 0;
+    let limit = 1;
+    
+    if (requestMode === '5') limit = 5;
+    if (requestMode === '10') limit = 10;
+    if (requestMode === 'MAX') limit = Infinity;
+    
+    let lvl = startLvl;
+    
+    while (count < limit) {
+        let statVal = calcStat(category, id, isWorkshop ? lvl : 0, isWorkshop ? 0 : lvl);
+        if (def.max !== undefined && statVal >= def.max) break; 
+        
+        let c = calcCost(category, id, lvl, isWorkshop);
+        if (totalCost + c > currentCurrency) break; 
+        
+        totalCost += c;
+        count++;
+        lvl++;
+    }
+    
+    if (count === 0) {
+        let statVal = calcStat(category, id, isWorkshop ? lvl : 0, isWorkshop ? 0 : lvl);
+        let isMaxed = def.max !== undefined && statVal >= def.max;
+        return { cost: calcCost(category, id, lvl, isWorkshop), count: 1, maxed: isMaxed };
+    }
+    
+    return { cost: totalCost, count: count, maxed: false };
 }
 
 export function calcLabCost(id, level) {

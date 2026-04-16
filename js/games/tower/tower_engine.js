@@ -1,3 +1,5 @@
+// main/js/games/tower/tower_engine.js
+
 export class TowerEngine {
     constructor(canvas, callbacks) {
         this.canvas = canvas;
@@ -46,6 +48,7 @@ export class TowerEngine {
     }
 
     startRun(stats, startWave, diff) {
+        this.stop();
         this.stats = stats;
         this.wave = startWave;
         this.diff = diff;
@@ -81,8 +84,9 @@ export class TowerEngine {
     }
 
     startWave(waveNum) {
-        this.wave = waveNum;
+        this.wave = waveNum || 1;
         this.enemiesToSpawn = Math.floor(10 + this.wave * 2);
+        if (isNaN(this.enemiesToSpawn) || this.enemiesToSpawn <= 0) this.enemiesToSpawn = 10;
         this.spawnTimer = 0;
         this.state = 'PLAYING';
         this.lastTime = performance.now();
@@ -107,8 +111,10 @@ export class TowerEngine {
 
     stop() {
         this.state = 'STOPPED';
-        cancelAnimationFrame(this.rafId);
-        this.rafId = null;
+        if (this.rafId) {
+            cancelAnimationFrame(this.rafId);
+            this.rafId = null;
+        }
     }
 
     spawnFloatText(text, color, isCenter = false, x = null, y = null) {

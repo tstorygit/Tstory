@@ -3,7 +3,7 @@
 import { mountVocabSelector } from '../../vocab_selector.js';
 import { GameVocabManager } from '../../game_vocab_mgr.js';
 import { showGameQuiz, poolSourceLabel, renderVocabSettings, setGvmTheme } from '../../game_vocab_mgr_ui.js';
-import { UPGRADES, LAB_RESEARCH, RELICS, QUEST_TEMPLATES, CARDS, SLOT_COSTS, getCardLevelInfo, calcStat, calcCost, calcLabCost, calcLabTimeMs } from './tower_data.js';
+import { UPGRADES, LAB_RESEARCH_CATEGORIES, LAB_RESEARCH, RELICS, QUEST_TEMPLATES, CARDS, SLOT_COSTS, getCardLevelInfo, calcStat, calcCost, getMultiBuy, calcLabCost, calcLabTimeMs, getUpgradeMaxLevel } from './tower_data.js';
 import { TowerEngine } from './tower_engine.js';
 
 let _screens = null;
@@ -16,6 +16,7 @@ let _save = null;
 let _speedMult = 1;
 
 let _run = {
+    active: false,
     wave: 1,
     diff: 1,
     cash: 0,
@@ -29,7 +30,8 @@ let _run = {
     vocabCorrect: 0,
     failedWords: {},
     boughtDefense: false,
-    levels: { offense: {}, defense: {}, utility: {} }
+    levels: { offense: {}, defense: {}, utility: {} },
+    mults: {} 
 };
 
 function _defaultSave() {
@@ -39,15 +41,17 @@ function _defaultSave() {
         highestWave: 0,
         highestWavePerDiff: {},
         maxDiff: 1,
+        currentRun: null,
         workshop: {
             unlocks: {},
             offense: { damage:0, atkSpeed:0, range:0, critChance:0, critMult:0, dmgMeter:0, bounce:0 },
             defense: { health:0, regen:0, defAbs:0, defPct:0, lifesteal:0, thorns:0, knockback:0, defyDeath:0 },
             utility: { cashBonus:0, cashWave:0, coinBonus:0, coinsWave:0, interest:0, freeUpgOffense:0, freeUpgDefense:0, freeUpgUtility:0 }
         },
+        workshopMults: {},
         lab: {
             active: null,
-            levels: { knowledge:0, gameSpeed:0, coinYield:0, startingCash:0, vocabMastery:0, synergy:0 }
+            levels: { damageMult:0, critChance:0, rangeMult:0, vocabMastery:0, healthMult:0, regenMult:0, defPct:0, thornsMult:0, lifesteal:0, knowledge:0, gameSpeed:0, coinYield:0, cashBonusMult:0, startingCash:0, synergy:0, freeUpg:0 }
         },
         cards: { owned: {}, equipped: [null], unlockedSlots: 1 },
         vocabConfig: GameVocabManager.defaultConfig(),
@@ -79,6 +83,7 @@ export function init(screens, onExit) {
                 <button class="tw-tab-btn" data-tab="tw-hub-cards">Cards</button>
                 <button class="tw-tab-btn" data-tab="tw-hub-login">Daily</button>
                 <button class="tw-tab-btn" data-tab="tw-hub-quests">Quests</button>
+                <button class="tw-tab-btn" data-tab="tw-hub-relics">Relics</button>
                 <button class="tw-tab-btn" data-tab="tw-hub-stats">Stats</button>
                 <button class="tw-tab-btn" data-tab="tw-hub-data">Data</button>
                 <button class="tw-tab-btn" data-tab="tw-hub-vocab">Vocab</button>
@@ -91,33 +96,53 @@ export function init(screens, onExit) {
                     <div class="tw-tower-base"></div>
                 </div>
                 <div class="tw-stage-card">
-                    <h3 style="color:#00ffff; margin-top:0;">Select Difficulty</h3>
-                    <div class="tw-stage-controls">
-                        <button class="tw-diff-btn" id="tw-diff-prev">❮</button>
-                        <div class="tw-diff-label">Tier <span id="tw-diff-val">1</span></div>
-                        <button class="tw-diff-btn" id="tw-diff-next">❯</button>
-                    </div>
-                    <div class="tw-target-wave">Complete Wave <span id="tw-target-val">10</span> to unlock next tier.</div>
-                    
-                    <div style="background:rgba(0,0,0,0.4); border-radius:8px; padding:10px; margin-bottom:15px; font-size:12px; color:#aaa;">
-                        <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-                            <span>Highest Wave (Tier <span id="tw-diff-lbl-num">1</span>):</span>
-                            <span id="tw-diff-highest" style="color:#fff; font-weight:bold;">0</span>
+                    <div id="tw-new-run-setup">
+                        <h3 style="color:#00ffff; margin-top:0;">Select Difficulty</h3>
+                        <div class="tw-stage-controls">
+                            <button class="tw-diff-btn" id="tw-diff-prev">❮</button>
+                            <div class="tw-diff-label">Tier <span id="tw-diff-val">1</span></div>
+                            <button class="tw-diff-btn" id="tw-diff-next">❯</button>
                         </div>
-                        <div style="display:flex; justify-content:space-between;">
-                            <span>Coin Multiplier:</span>
-                            <span><span style="color:#f1c40f; font-weight:bold;" id="tw-diff-coin-mult">x1.00</span> <span style="font-size:10px;">(Base x<span id="tw-diff-base-mult">1</span>)</span></span>
+                        <div class="tw-target-wave">Complete Wave <span id="tw-target-val">10</span> to unlock next tier.</div>
+                        
+                        <div style="background:rgba(0,0,0,0.4); border-radius:8px; padding:10px; margin-bottom:15px; font-size:12px; color:#aaa;">
+                            <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                                <span>Highest Wave (Tier <span id="tw-diff-lbl-num">1</span>):</span>
+                                <span id="tw-diff-highest" style="color:#fff; font-weight:bold;">0</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span>Coin Multiplier:</span>
+                                <div style="display:flex; align-items:center;">
+                                    <span style="color:#f1c40f; font-weight:bold;" id="tw-diff-coin-mult">x1.00</span>
+                                    <span id="tw-mult-info-btn" style="cursor:pointer; background:#333; color:#fff; border-radius:50%; width:16px; height:16px; display:inline-flex; align-items:center; justify-content:center; font-size:10px; margin-left:6px;">i</span>
+                                </div>
+                            </div>
                         </div>
+
+                        <button class="tw-play-btn" id="tw-start-run">BATTLE</button>
                     </div>
 
-                    <button class="tw-play-btn" id="tw-start-run">BATTLE</button>
+                    <div id="tw-resume-run-setup" style="display:none; text-align:center;">
+                        <h3 style="color:#f1c40f; margin-top:0;">Run in Progress</h3>
+                        <div style="font-size:14px; margin-bottom:20px; color:#fff;">Tier <span id="tw-resume-tier" style="font-weight:bold; color:#00ffff;">1</span> - Wave <span id="tw-resume-wave" style="font-weight:bold; color:#00ffff;">1</span></div>
+                        <div style="display:flex; flex-direction:column; gap:10px;">
+                            <button class="tw-play-btn" id="tw-resume-run" style="background:#2ecc71; color:#fff;">RESUME RUN</button>
+                            <button class="tw-play-btn" id="tw-abandon-run" style="background:transparent; border:1px solid #e74c3c; color:#e74c3c; font-size:14px; padding:12px;">ABANDON RUN</button>
+                        </div>
+                    </div>
                 </div>
                 <button id="tw-exit-game" style="width:100%; padding:12px; background:none; border:1px solid #555; color:#aaa; border-radius:8px; margin-top:20px; cursor:pointer;">Exit to App</button>
             </div>
             
             <div class="tw-screen tw-scroll-content" id="tw-hub-workshop">
-                <p style="font-size:12px; color:#888; text-align:center;">Permanent upgrades bought with Coins.</p>
-                <div id="tw-ws-list"></div>
+                <div class="tw-subtab-bar">
+                    <button class="tw-subtab-btn active" data-subtab="tw-ws-offense">Offense</button>
+                    <button class="tw-subtab-btn" data-subtab="tw-ws-defense">Defense</button>
+                    <button class="tw-subtab-btn" data-subtab="tw-ws-utility">Utility</button>
+                </div>
+                <div class="tw-subtab-content active" id="tw-ws-offense"></div>
+                <div class="tw-subtab-content" id="tw-ws-defense"></div>
+                <div class="tw-subtab-content" id="tw-ws-utility"></div>
             </div>
             
             <div class="tw-screen tw-scroll-content" id="tw-hub-lab">
@@ -125,13 +150,23 @@ export function init(screens, onExit) {
                     <div style="font-size:12px; color:#2ecc71; font-weight:bold; margin-bottom:4px;">Researching: <span id="tw-lab-active-name"></span></div>
                     <div style="font-family:monospace; font-size:16px; color:#fff;" id="tw-lab-countdown">00:00:00</div>
                 </div>
-                <div id="tw-lab-list"></div>
+                <div class="tw-subtab-bar">
+                    <button class="tw-subtab-btn active" data-subtab="tw-lab-offense">Offense</button>
+                    <button class="tw-subtab-btn" data-subtab="tw-lab-defense">Defense</button>
+                    <button class="tw-subtab-btn" data-subtab="tw-lab-utility">Utility</button>
+                </div>
+                <div class="tw-subtab-content active" id="tw-lab-offense"></div>
+                <div class="tw-subtab-content" id="tw-lab-defense"></div>
+                <div class="tw-subtab-content" id="tw-lab-utility"></div>
             </div>
 
             <div class="tw-screen tw-scroll-content" id="tw-hub-cards">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
                     <h3 style="color:#00ffff; margin:0;">Equipped Cards</h3>
-                    <button id="tw-buy-card-btn" style="background:#e74c3c; color:#fff; border:none; padding:8px 12px; border-radius:6px; font-weight:bold; cursor:pointer;">Buy Card (20 💎)</button>
+                    <div style="display:flex; gap:10px;">
+                        <button id="tw-buy-card-1-btn" style="background:#00a8ff; color:#fff; border:none; padding:8px 12px; border-radius:6px; font-weight:bold; cursor:pointer;">Pull 1 (20 💎)</button>
+                        <button id="tw-buy-card-10-btn" style="background:#9b59b6; color:#fff; border:none; padding:8px 12px; border-radius:6px; font-weight:bold; cursor:pointer;">Pull 10 (200 💎)</button>
+                    </div>
                 </div>
                 <div id="tw-cards-slots" style="display:flex; gap:10px; margin-bottom:20px; overflow-x:auto; padding-bottom:5px;"></div>
                 <button id="tw-unlock-slot-btn" style="width:100%; margin-bottom:20px; padding:10px; background:transparent; border:1px dashed #f1c40f; color:#f1c40f; border-radius:8px; font-weight:bold; cursor:pointer; display:none;"></button>
@@ -148,15 +183,20 @@ export function init(screens, onExit) {
             </div>
 
             <div class="tw-screen tw-scroll-content" id="tw-hub-quests">
-                <h3 style="color:#e74c3c; margin-top:0;">Daily Quests</h3>
+                <h3 style="color:#00a8ff; margin-top:0;">Daily Quests</h3>
                 <p style="font-size:12px; color:#aaa;">Complete missions for Gems and Coins. Resets daily.</p>
                 <div id="tw-quests-list"></div>
+            </div>
+
+            <div class="tw-screen tw-scroll-content" id="tw-hub-relics">
+                <h3 style="color:#f1c40f; margin-top:0;">Relics</h3>
+                <p style="font-size:12px; color:#aaa;">Unlock relics by beating target waves on new difficulty tiers.</p>
+                <div id="tw-relics-content"></div>
             </div>
 
             <div class="tw-screen tw-scroll-content" id="tw-hub-stats">
                 <h3 style="color:#00ffff; margin-top:0;">Session & Lifetime Stats</h3>
                 <div id="tw-stats-content"></div>
-                <div id="tw-relics-content" style="margin-top:20px;"></div>
             </div>
 
             <div class="tw-screen tw-scroll-content" id="tw-hub-data">
@@ -178,12 +218,45 @@ export function init(screens, onExit) {
             </div>
         </div>
 
-        <div id="tw-daily-popup" class="tw-modal" style="display:none; position:absolute; inset:0 0 80px 0; z-index:1000;">
+        <div id="tw-daily-popup" class="tw-modal" style="display:none; position:absolute; inset:0; z-index:1000;">
             <div style="background:#1a1a2e; padding:30px; border-radius:12px; text-align:center; border:2px solid #f1c40f; max-width:80%;">
                 <h2 style="color:#f1c40f; margin-top:0;">Daily Login Bonus!</h2>
                 <div style="font-size:14px; color:#fff; margin-bottom:15px;">Day <span id="tw-login-day" style="font-weight:bold;color:#00ffff;"></span></div>
                 <div id="tw-login-reward" style="font-size:24px; font-family:monospace; margin-bottom:20px;"></div>
                 <button id="tw-login-claim" class="tw-play-btn">Claim</button>
+            </div>
+        </div>
+
+        <div id="tw-card-pull-modal" class="tw-modal" style="display:none; position:absolute; inset:0; z-index:1000; background:rgba(0,0,0,0.98);">
+            <h2 style="color:#00a8ff; margin-top:20px;">Card Pack Opened!</h2>
+            <div id="tw-card-pull-container" class="tw-card-reveal-wrap"></div>
+            <button id="tw-card-pull-close" class="tw-play-btn" style="width:200px; margin-top:20px; display:none;">Awesome!</button>
+        </div>
+        
+        <div id="tw-end-run-modal" class="tw-modal" style="display:none; position:absolute; inset:0; z-index:1000;">
+            <div style="background:#1a1a2e; padding:30px; border-radius:12px; text-align:center; border:2px solid #e74c3c; max-width:80%;">
+                <h2 style="color:#e74c3c; margin-top:0;">Pause or End Run?</h2>
+                <div style="font-size:14px; color:#aaa; margin-bottom:20px;">Pause to return later, or end now to claim your coins.</div>
+                <div style="display:flex; flex-direction:column; gap:10px;">
+                    <button id="tw-end-run-pause" class="tw-play-btn" style="background:#3498db; color:#fff;">Pause & Leave</button>
+                    <button id="tw-end-run-yes" class="tw-play-btn" style="background:#e74c3c; color:#fff;">End Run & Claim</button>
+                    <button id="tw-end-run-no" class="tw-play-btn" style="background:#555; color:#fff; margin-top:10px;">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="tw-mult-info-modal" class="tw-modal" style="display:none; position:absolute; inset:0; z-index:1000;">
+            <div style="background:#1a1a2e; padding:20px; border-radius:12px; border:2px solid #00ffff; width:80%; max-width:300px;">
+                <h3 style="color:#00ffff; margin-top:0; text-align:center;">Multiplier Breakdown</h3>
+                <div style="display:flex; flex-direction:column; gap:8px; font-size:13px; color:#ccc; font-family:monospace;">
+                    <div style="display:flex; justify-content:space-between;"><span>Base:</span><span>x1.00</span></div>
+                    <div style="display:flex; justify-content:space-between;"><span>Tier Difficulty:</span><span id="tw-mi-tier">x1.00</span></div>
+                    <div style="display:flex; justify-content:space-between;"><span>Lab Research:</span><span id="tw-mi-lab" style="color:#2ecc71;">+0%</span></div>
+                    <div style="display:flex; justify-content:space-between;"><span>Card Bonus:</span><span id="tw-mi-card" style="color:#9b59b6;">+0%</span></div>
+                    <hr style="border:0; border-top:1px solid #333; margin:5px 0;">
+                    <div style="display:flex; justify-content:space-between; font-weight:bold; color:#f1c40f; font-size:15px;"><span>Total:</span><span id="tw-mi-total">x1.00</span></div>
+                </div>
+                <button id="tw-mult-info-close" class="tw-play-btn" style="margin-top:20px; font-size:14px; padding:10px;">Close</button>
             </div>
         </div>
     `;
@@ -196,12 +269,13 @@ export function init(screens, onExit) {
                     <div style="display:flex; gap:10px; font-family:monospace; font-weight:bold;">
                         <div class="tw-run-cash" style="color:#2ecc71;">$ <span id="tw-run-cash-val">0</span></div>
                         <div class="tw-coins" style="color:#f1c40f;">🪙 <span id="tw-run-coins-val">0</span></div>
-                        <div class="tw-gems" style="color:#e74c3c;">💎 <span id="tw-run-gems-val">0</span></div>
+                        <div class="tw-gems" style="color:#00a8ff;">💎 <span id="tw-run-gems-val">0</span></div>
                     </div>
                 </div>
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                <div style="display:flex; align-items:center; margin-bottom:4px;">
                     <div style="font-size:12px; font-weight:bold; color:#9b59b6;">🧠 ×<span id="tw-run-know">1.00</span><span id="tw-run-combo" class="tw-combo-text"></span></div>
-                    <button class="tw-speed-btn" id="tw-btn-speed" style="margin-left:0;">⚡ 1x</button>
+                    <button class="tw-speed-btn" id="tw-btn-speed">⚡ 1x</button>
+                    <button class="tw-end-run-btn" id="tw-btn-end-run">End Run</button>
                 </div>
                 <div class="tw-targeting">
                     <button class="tw-target-btn active" data-target="closest">Closest</button>
@@ -235,8 +309,8 @@ export function init(screens, onExit) {
                 <div class="tw-subtab-content" id="tw-run-utility"></div>
             </div>
 
-            <div id="tw-death-screen" class="tw-screen tw-modal" style="display:none; position:absolute; inset:0 0 80px 0; z-index:1000; padding:20px;">
-                <h1 style="color:#e74c3c; margin-bottom:5px;">Tower Destroyed</h1>
+            <div id="tw-death-screen" class="tw-screen tw-modal" style="display:none; position:absolute; inset:0; z-index:1000; padding:20px;">
+                <h1 style="color:#e74c3c; margin-bottom:5px;">Run Ended</h1>
                 <div style="font-size:18px; color:#00ffff; margin-bottom:15px;">Reached Wave <span id="tw-ds-wave"></span></div>
                 
                 <div class="tw-death-grid">
@@ -258,6 +332,7 @@ export function init(screens, onExit) {
         </div>
     `;
 
+    // Hub Tab wiring
     _screens.setup.querySelectorAll('.tw-tab-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             _screens.setup.querySelectorAll('.tw-tab-btn').forEach(b => b.classList.remove('active'));
@@ -265,20 +340,27 @@ export function init(screens, onExit) {
             btn.classList.add('active');
             _screens.setup.querySelector(`#${btn.dataset.tab}`).classList.add('active');
             if (btn.dataset.tab === 'tw-hub-stats') _renderStats();
+            if (btn.dataset.tab === 'tw-hub-relics') _renderRelics();
             if (btn.dataset.tab === 'tw-hub-quests') _renderQuests();
             if (btn.dataset.tab === 'tw-hub-cards') _renderCards();
             if (btn.dataset.tab === 'tw-hub-login') _renderLoginTab();
         });
     });
 
-    _screens.game.querySelectorAll('.tw-subtab-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            _screens.game.querySelectorAll('.tw-subtab-btn').forEach(b => b.classList.remove('active'));
-            _screens.game.querySelectorAll('.tw-subtab-content').forEach(s => s.classList.remove('active'));
-            btn.classList.add('active');
-            _screens.game.querySelector(`#${btn.dataset.subtab}`).classList.add('active');
+    // Subtab wiring (Hub Workshop, Hub Lab, Game)
+    const _wireSubtabs = (container) => {
+        container.querySelectorAll('.tw-subtab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                container.querySelectorAll('.tw-subtab-btn').forEach(b => b.classList.remove('active'));
+                container.querySelectorAll('.tw-subtab-content').forEach(s => s.classList.remove('active'));
+                btn.classList.add('active');
+                container.querySelector(`#${btn.dataset.subtab}`).classList.add('active');
+            });
         });
-    });
+    };
+    _wireSubtabs(_screens.setup.querySelector('#tw-hub-workshop'));
+    _wireSubtabs(_screens.setup.querySelector('#tw-hub-lab'));
+    _wireSubtabs(_screens.game.querySelector('.tw-battle-upgrades'));
 
     _screens.game.querySelectorAll('.tw-target-btn').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -297,6 +379,27 @@ export function init(screens, onExit) {
         if (_engine) _engine.speedMult = _speedMult;
     });
 
+    _screens.game.querySelector('#tw-btn-end-run').addEventListener('click', () => {
+        _engine.pause();
+        const modal = _screens.setup.querySelector('#tw-end-run-modal');
+        modal.style.display = 'flex';
+        
+        modal.querySelector('#tw-end-run-pause').onclick = () => {
+            modal.style.display = 'none';
+            _engine.stop();
+            _showHub();
+        };
+        modal.querySelector('#tw-end-run-yes').onclick = () => {
+            modal.style.display = 'none';
+            _engine.stop();
+            _handleDeath();
+        };
+        modal.querySelector('#tw-end-run-no').onclick = () => {
+            modal.style.display = 'none';
+            _engine.resume();
+        };
+    });
+
     ['barrage', 'nova', 'aegis'].forEach(abil => {
         _screens.game.querySelector(`#tw-abil-${abil}`).addEventListener('click', () => {
             if (_run.abilityCharge >= 100) {
@@ -307,6 +410,14 @@ export function init(screens, onExit) {
         });
     });
 
+    // Info Modal Wiring
+    _screens.setup.querySelector('#tw-mult-info-btn').onclick = () => {
+        _screens.setup.querySelector('#tw-mult-info-modal').style.display = 'flex';
+    };
+    _screens.setup.querySelector('#tw-mult-info-close').onclick = () => {
+        _screens.setup.querySelector('#tw-mult-info-modal').style.display = 'none';
+    };
+
     // Wipe Data Handlers
     _screens.setup.querySelector('#tw-wipe-coins').onclick = () => {
         if(confirm('Reset Coins & Gems?')) { _save.coins = 0; _save.gems = 0; _saveGame(); _showHub(); }
@@ -314,6 +425,7 @@ export function init(screens, onExit) {
     _screens.setup.querySelector('#tw-wipe-workshop').onclick = () => {
         if(confirm('Reset Workshop Upgrades?')) { 
             _save.workshop = _defaultSave().workshop; 
+            _save.workshopMults = {};
             _saveGame(); _showHub(); 
         }
     };
@@ -346,12 +458,21 @@ export function init(screens, onExit) {
             const savedVocab = _save.vocabConfig;
             _save = _defaultSave();
             _save.vocabConfig = savedVocab; 
+            _run = null;
             _saveGame(); _showHub(); 
         }
     };
 
     _screens.setup.querySelector('#tw-exit-game').onclick = () => _onExit();
     _screens.setup.querySelector('#tw-start-run').onclick = () => _startRun();
+    _screens.setup.querySelector('#tw-resume-run').onclick = () => _resumeRun();
+    _screens.setup.querySelector('#tw-abandon-run').onclick = () => {
+        if(confirm('Abandon this run? You will lose all unbanked coins!')) {
+            _save.currentRun = null;
+            _saveGame();
+            _showHub();
+        }
+    };
     _screens.setup.querySelector('#tw-change-deck-btn').onclick = () => _openDeckSelector();
 
     let selectedDiff = 1;
@@ -366,18 +487,39 @@ export function init(screens, onExit) {
         targetVal.textContent = Math.round(26 * Math.log(selectedDiff) + 10);
         prevBtn.disabled = selectedDiff <= 1;
         nextBtn.disabled = selectedDiff >= (_save ? _save.maxDiff : 1);
-        _run.diff = selectedDiff;
+        if (_run) _run.diff = selectedDiff;
 
         if (_save) {
             const hWave = _save.highestWavePerDiff ? (_save.highestWavePerDiff[selectedDiff] || 0) : 0;
             _screens.setup.querySelector('#tw-diff-highest').textContent = hWave;
 
-            const baseStats = _getTowerStats();
-            const cBonus = baseStats.coinBonus || 1;
-            const labYield = 1 + ((_save.lab.levels.coinYield || 0) * 0.1);
+            let cardCoinBonus = 0;
+            if (_save && _save.cards) {
+                for (let i = 0; i < _save.cards.unlockedSlots; i++) {
+                    const cardId = _save.cards.equipped[i];
+                    if (cardId === 'coin') {
+                        const count = _save.cards.owned[cardId];
+                        const cDef = CARDS[cardId];
+                        const lvlInfo = getCardLevelInfo(count, cDef.maxLevel);
+                        let actualLvl = lvlInfo.level;
+                        if (cDef.maxLevel && actualLvl > cDef.maxLevel) actualLvl = cDef.maxLevel;
+                        cardCoinBonus += cDef.base + (actualLvl - 1) * cDef.step;
+                    }
+                }
+            }
+
+            const cBonus = 1 + cardCoinBonus;
+            const labYieldBonus = (_save.lab.levels.coinYield || 0) * 0.1;
+            const labYield = 1 + labYieldBonus;
             const totalMult = selectedDiff * cBonus * labYield;
 
-            _screens.setup.querySelector('#tw-diff-base-mult').textContent = selectedDiff;
+            _screens.setup.querySelector('#tw-mi-tier').textContent = `x${selectedDiff.toFixed(2)}`;
+            _screens.setup.querySelector('#tw-mi-lab').textContent = `+${Math.round(labYieldBonus * 100)}%`;
+            _screens.setup.querySelector('#tw-mi-card').textContent = `+${Math.round(cardCoinBonus * 100)}%`;
+            _screens.setup.querySelector('#tw-mi-total').textContent = `x${totalMult.toFixed(2)}`;
+
+            const diffBaseSpan = _screens.setup.querySelector('#tw-diff-base-mult');
+            if (diffBaseSpan) diffBaseSpan.textContent = selectedDiff;
             _screens.setup.querySelector('#tw-diff-coin-mult').textContent = 'x' + totalMult.toFixed(2);
         }
     };
@@ -450,6 +592,7 @@ export function launch() {
     _save = JSON.parse(localStorage.getItem(SAVE_KEY)) || _defaultSave();
     
     if (!_save.gems) _save.gems = 0;
+    if (_save.currentRun === undefined) _save.currentRun = null;
     if (!_save.highestWavePerDiff) {
         _save.highestWavePerDiff = {};
         if (_save.highestWave > 0) {
@@ -461,12 +604,8 @@ export function launch() {
     if (!_save.cards) _save.cards = { owned: {}, equipped: [null], unlockedSlots: 1 };
     
     if (!_save.workshop.unlocks) _save.workshop.unlocks = {};
-    if (_save.lab.levels.startingCash === undefined) _save.lab.levels.startingCash = 0;
-    if (_save.lab.levels.vocabMastery === undefined) _save.lab.levels.vocabMastery = 0;
-    if (_save.lab.levels.synergy === undefined) _save.lab.levels.synergy = 0;
-    if (!_save.stats) _save.stats = { totalCorrect: 0, sessionCorrect: 0, highestStreak: 0, wordsMastered:[] };
-    if (!_save.relics) _save.relics =[];
     if (!_save.workshop.offense) _save = _defaultSave();
+    if (!_save.workshopMults) _save.workshopMults = {};
     
     if (_save.workshop.offense.dmgMeter === undefined) _save.workshop.offense.dmgMeter = 0;
     if (_save.workshop.offense.bounce === undefined) _save.workshop.offense.bounce = 0;
@@ -490,6 +629,23 @@ export function launch() {
         if (_save.workshop.utility.freeUpgUtility === undefined) _save.workshop.utility.freeUpgUtility = 0;
     }
 
+    if (_save.lab.levels.startingCash === undefined) _save.lab.levels.startingCash = 0;
+    if (_save.lab.levels.synergy === undefined) _save.lab.levels.synergy = 0;
+    if (_save.lab.levels.freeUpg === undefined) _save.lab.levels.freeUpg = 0;
+    if (_save.lab.levels.damageMult === undefined) _save.lab.levels.damageMult = 0;
+    if (_save.lab.levels.critChance === undefined) _save.lab.levels.critChance = 0;
+    if (_save.lab.levels.rangeMult === undefined) _save.lab.levels.rangeMult = 0;
+    if (_save.lab.levels.vocabMastery === undefined) _save.lab.levels.vocabMastery = 0;
+    if (_save.lab.levels.healthMult === undefined) _save.lab.levels.healthMult = 0;
+    if (_save.lab.levels.regenMult === undefined) _save.lab.levels.regenMult = 0;
+    if (_save.lab.levels.defPct === undefined) _save.lab.levels.defPct = 0;
+    if (_save.lab.levels.thornsMult === undefined) _save.lab.levels.thornsMult = 0;
+    if (_save.lab.levels.lifesteal === undefined) _save.lab.levels.lifesteal = 0;
+    if (_save.lab.levels.cashBonusMult === undefined) _save.lab.levels.cashBonusMult = 0;
+
+    if (!_save.stats) _save.stats = { totalCorrect: 0, sessionCorrect: 0, highestStreak: 0, wordsMastered:[] };
+    if (!_save.relics) _save.relics =[];
+    
     _save.stats.sessionCorrect = 0;
 
     setGvmTheme('dark');
@@ -514,18 +670,43 @@ function _saveGame() {
     localStorage.setItem(SAVE_KEY, JSON.stringify(_save));
 }
 
+function _saveRunSnapshot() {
+    if (!_run || !_run.active) return;
+    _run.currentHp = _engine.stats ? _engine.stats.currentHp : undefined;
+    _save.currentRun = JSON.parse(JSON.stringify(_run));
+    _saveGame();
+}
+
 function _showHub() {
+    // Reset run multipliers for accurate hub stats
+    if (_run) {
+        _run.knowledgeStacks = 0;
+        _run.combo = 0;
+        _run.diff = _save.maxDiff || 1;
+    }
+
     _screens.setup.style.display = 'block';
     _screens.game.style.display = 'none';
     
     _screens.setup.querySelector('#tw-hub-coins').textContent = Math.floor(_save.coins);
     _screens.setup.querySelector('#tw-hub-gems').textContent = Math.floor(_save.gems);
     
+    if (_save.currentRun && _save.currentRun.active) {
+        _screens.setup.querySelector('#tw-new-run-setup').style.display = 'none';
+        _screens.setup.querySelector('#tw-resume-run-setup').style.display = 'block';
+        _screens.setup.querySelector('#tw-resume-tier').textContent = _save.currentRun.diff;
+        _screens.setup.querySelector('#tw-resume-wave').textContent = _save.currentRun.wave;
+    } else {
+        _screens.setup.querySelector('#tw-new-run-setup').style.display = 'block';
+        _screens.setup.querySelector('#tw-resume-run-setup').style.display = 'none';
+    }
+
     if (typeof init._updateDiffUI === 'function') init._updateDiffUI();
 
     _renderWorkshop();
     _renderLab();
     _renderStats();
+    _renderRelics();
     _renderQuests();
     _renderCards();
     _renderLoginTab();
@@ -561,7 +742,7 @@ function _checkDailyLogin() {
         popup.querySelector('#tw-login-day').textContent = _save.login.streakDays;
         
         if (rewardGems > 0) {
-            rwdEl.innerHTML = `<span style="color:#e74c3c">+${rewardGems} 💎</span>`;
+            rwdEl.innerHTML = `<span style="color:#00a8ff">+${rewardGems} 💎</span>`;
             _save.gems += rewardGems;
         } else {
             rwdEl.innerHTML = `<span style="color:#f1c40f">+${rewardCoins} 🪙</span>`;
@@ -604,7 +785,7 @@ function _renderLoginTab() {
             
             let icon = rewGems ? '💎' : '🪙';
             let amt = rewGems || rewCoins;
-            let color = rewGems ? '#e74c3c' : '#f1c40f';
+            let color = rewGems ? '#00a8ff' : '#f1c40f';
 
             html += `<div style="flex:1; border:1px solid; border-radius:6px; padding:8px 0; text-align:center; ${bg}">
                 <div style="font-size:10px; color:#aaa; margin-bottom:4px;">Day ${day}</div>
@@ -689,26 +870,125 @@ function _renderQuests() {
 
 // ─── CARDS & WORKSHOP ───────────────────────────────────────────────────────
 
+function _pullCards(amount) {
+    if (_save.gems < 20 * amount) return;
+    
+    let availableCards = [];
+    for (let id in CARDS) {
+        let cDef = CARDS[id];
+        let owned = _save.cards.owned[id] || 0;
+        let maxLvl = cDef.maxLevel || 7;
+        let maxCards = (1 << maxLvl) - 1; 
+        if (owned < maxCards) {
+            availableCards.push({ id, rarity: cDef.rarity });
+        }
+    }
+    
+    if (availableCards.length === 0) {
+        alert("All cards are currently maxed out!");
+        return;
+    }
+
+    _save.gems -= 20 * amount;
+    const rarityWeights = { 'common': 50, 'rare': 25, 'epic': 15, 'mythic': 8, 'ssr': 2 };
+    
+    let pulled = [];
+    
+    for (let i = 0; i < amount; i++) {
+        let currentWeights = { 'common': 0, 'rare': 0, 'epic': 0, 'mythic': 0, 'ssr': 0 };
+        let validRarities = new Set(availableCards.map(c => c.rarity));
+        let totalWeight = 0;
+        
+        for (let r of validRarities) {
+            currentWeights[r] = rarityWeights[r];
+            totalWeight += rarityWeights[r];
+        }
+
+        let roll = Math.random() * totalWeight;
+        let selectedRarity = 'common';
+        let cum = 0;
+        for (let r in currentWeights) {
+            if (currentWeights[r] > 0) {
+                cum += currentWeights[r];
+                if (roll <= cum) {
+                    selectedRarity = r;
+                    break;
+                }
+            }
+        }
+
+        let cardsOfRarity = availableCards.filter(c => c.rarity === selectedRarity);
+        let pickedId = cardsOfRarity[Math.floor(Math.random() * cardsOfRarity.length)].id;
+        pulled.push(pickedId);
+        
+        _save.cards.owned[pickedId] = (_save.cards.owned[pickedId] || 0) + 1;
+        
+        let cDef = CARDS[pickedId];
+        let maxLvl = cDef.maxLevel || 7;
+        let maxCards = (1 << maxLvl) - 1;
+        if (_save.cards.owned[pickedId] >= maxCards) {
+            availableCards = availableCards.filter(c => c.id !== pickedId);
+            if (availableCards.length === 0 && i < amount - 1) {
+                break; 
+            }
+        }
+    }
+    
+    _saveGame();
+    _showHub();
+
+    const modal = _screens.setup.querySelector('#tw-card-pull-modal');
+    const container = modal.querySelector('#tw-card-pull-container');
+    const closeBtn = modal.querySelector('#tw-card-pull-close');
+    
+    container.innerHTML = '';
+    closeBtn.style.display = 'none';
+    modal.style.display = 'flex';
+
+    pulled.forEach((id, idx) => {
+        const cDef = CARDS[id];
+        const el = document.createElement('div');
+        el.className = 'tw-card-flip-container';
+        el.innerHTML = `
+            <div class="tw-card-flipper" id="flipper-${idx}">
+                <div class="tw-card-back">?</div>
+                <div class="tw-card-front tw-card" data-rarity="${cDef.rarity}" style="min-height:100%;">
+                    <div class="tw-card-name">${cDef.name}</div>
+                    <div class="tw-card-desc">${cDef.desc.replace('%', '')}</div>
+                </div>
+            </div>
+        `;
+        container.appendChild(el);
+        
+        setTimeout(() => {
+            el.querySelector(`#flipper-${idx}`).classList.add('flipped');
+            if (idx === pulled.length - 1) {
+                setTimeout(() => { closeBtn.style.display = 'block'; }, 500);
+            }
+        }, 300 + (idx * 200));
+    });
+
+    closeBtn.onclick = () => {
+        modal.style.display = 'none';
+        _renderCards();
+    };
+}
+
 function _renderCards() {
     const slotsEl = _screens.setup.querySelector('#tw-cards-slots');
     const invEl = _screens.setup.querySelector('#tw-cards-inv');
-    const buyBtn = _screens.setup.querySelector('#tw-buy-card-btn');
+    const btn1 = _screens.setup.querySelector('#tw-buy-card-1-btn');
+    const btn10 = _screens.setup.querySelector('#tw-buy-card-10-btn');
     const unlockBtn = _screens.setup.querySelector('#tw-unlock-slot-btn');
     
     slotsEl.innerHTML = '';
     invEl.innerHTML = '';
     
-    buyBtn.disabled = _save.gems < 20;
-    buyBtn.onclick = () => {
-        if (_save.gems >= 20) {
-            _save.gems -= 20;
-            const keys = Object.keys(CARDS);
-            const rId = keys[Math.floor(Math.random() * keys.length)];
-            _save.cards.owned[rId] = (_save.cards.owned[rId] || 0) + 1;
-            _saveGame();
-            _showHub();
-        }
-    };
+    btn1.disabled = _save.gems < 20;
+    btn1.onclick = () => _pullCards(1);
+
+    btn10.disabled = _save.gems < 200;
+    btn10.onclick = () => _pullCards(10);
 
     if (_save.cards.unlockedSlots < SLOT_COSTS.length) {
         const cost = SLOT_COSTS[_save.cards.unlockedSlots];
@@ -731,7 +1011,7 @@ function _renderCards() {
 
     const _makeCardEl = (id, count, isEquipped, slotIdx) => {
         const cDef = CARDS[id];
-        const lvlInfo = getCardLevelInfo(count);
+        const lvlInfo = getCardLevelInfo(count, cDef.maxLevel);
         let actualLvl = lvlInfo.level;
         if (cDef.maxLevel && actualLvl > cDef.maxLevel) actualLvl = cDef.maxLevel;
         
@@ -739,12 +1019,13 @@ function _renderCards() {
         let desc = cDef.isFlat ? cDef.desc.replace('X', Math.floor(val)) : cDef.desc.replace('%', (val * 100).toFixed(0) + '%');
 
         const el = document.createElement('div');
-        el.className = `tw-card ${isEquipped ? 'equipped' : ''}`;
+        el.className = `tw-card ${isEquipped ? 'equipped' : ''} ${lvlInfo.isMax ? 'maxed' : ''}`;
+        el.setAttribute('data-rarity', cDef.rarity);
         el.innerHTML = `
             <div class="tw-card-name">${cDef.name}</div>
             <div class="tw-card-desc">${desc}</div>
-            <div class="tw-card-lvl">Lvl ${actualLvl}${actualLvl === cDef.maxLevel ? ' (MAX)' : ''}</div>
-            ${actualLvl !== cDef.maxLevel ? `
+            <div class="tw-card-lvl">Lvl ${actualLvl}${lvlInfo.isMax ? ' (MAX)' : ''}</div>
+            ${!lvlInfo.isMax ? `
                 <div class="tw-card-prog"><div class="tw-card-prog-fill" style="width:${(lvlInfo.progress/lvlInfo.goal)*100}%"></div></div>
             ` : ''}
         `;
@@ -783,12 +1064,9 @@ function _renderCards() {
 }
 
 function _renderWorkshop() {
-    const list = _screens.setup.querySelector('#tw-ws-list');
-    list.innerHTML = '';
-    
     for (const cat of ['offense', 'defense', 'utility']) {
-        const catDiv = document.createElement('div');
-        catDiv.innerHTML = `<div class="tw-upg-cat-title">${cat}</div>`;
+        const container = _screens.setup.querySelector(`#tw-ws-${cat}`);
+        container.innerHTML = '';
         
         for (const id in UPGRADES[cat]) {
             const def = UPGRADES[cat][id];
@@ -813,88 +1091,109 @@ function _renderWorkshop() {
                         _save.coins -= def.unlockCost;
                         _save.workshop.unlocks[id] = true;
                         _saveGame();
-                        _showHub(); 
+                        _renderWorkshop(); 
+                        _screens.setup.querySelector('#tw-hub-coins').textContent = Math.floor(_save.coins);
                     }
                 };
             } else {
                 if (def.max !== undefined && lvl >= def.max) continue; 
                 
-                const cost = calcCost(cat, id, lvl, true);
+                let reqMult = _save.workshopMults[id] || '1';
+                const buyInfo = getMultiBuy(cat, id, lvl, reqMult, _save.coins, true);
                 const val = calcStat(cat, id, lvl, 0);
+                
+                const maxLvl = getUpgradeMaxLevel(cat, id);
+                const lvlStr = maxLvl ? `Lvl ${lvl}/${maxLvl}` : `Lvl ${lvl}`;
                 
                 row.innerHTML = `
                     <div class="tw-upg-info">
-                        <div class="tw-upg-name">${def.name} <span style="font-size:10px;color:#777;">Lvl ${lvl}</span></div>
+                        <div class="tw-upg-name">${def.name} <span style="font-size:10px;color:#777;">${lvlStr}</span></div>
+                        <div class="tw-mini-mults" data-id="${id}">
+                            <span class="${reqMult==='1'?'active':''}" data-val="1">x1</span>
+                            <span class="${reqMult==='5'?'active':''}" data-val="5">x5</span>
+                            <span class="${reqMult==='10'?'active':''}" data-val="10">x10</span>
+                            <span class="${reqMult==='MAX'?'active':''}" data-val="MAX">Max</span>
+                        </div>
                         <div class="tw-upg-val">${def.isPct ? (val*100).toFixed(2)+'%' : val.toFixed(2)}</div>
                     </div>
-                    <button class="tw-upg-buy" ${(_save.coins < cost || (def.max && lvl >= def.max)) ? 'disabled' : ''}>
-                        ${(def.max && lvl >= def.max) ? 'MAX' : '🪙 ' + cost}
+                    <button class="tw-upg-buy" ${(buyInfo.maxed || _save.coins < buyInfo.cost) ? 'disabled' : ''}>
+                        ${buyInfo.maxed ? 'MAX' : `🪙 ${buyInfo.cost}<br><span style="font-size:10px;color:#ccc;">(+${buyInfo.count})</span>`}
                     </button>
                 `;
                 
-                row.querySelector('button').onclick = () => {
-                    if (_save.coins >= cost) {
-                        _save.coins -= cost;
-                        _save.workshop[cat][id] = lvl + 1;
+                row.querySelectorAll('.tw-mini-mults span').forEach(span => {
+                    span.onclick = (e) => {
+                        _save.workshopMults[id] = e.target.dataset.val;
+                        _renderWorkshop();
+                    };
+                });
+
+                row.querySelector('.tw-upg-buy').onclick = () => {
+                    if (!buyInfo.maxed && _save.coins >= buyInfo.cost && buyInfo.count > 0) {
+                        _save.coins -= buyInfo.cost;
+                        _save.workshop[cat][id] = lvl + buyInfo.count;
                         _saveGame();
-                        _showHub();
+                        _screens.setup.querySelector('#tw-hub-coins').textContent = Math.floor(_save.coins);
+                        _renderWorkshop();
+                        if (typeof init._updateDiffUI === 'function') init._updateDiffUI();
                     }
                 };
             }
-            catDiv.appendChild(row);
+            container.appendChild(row);
         }
-        list.appendChild(catDiv);
     }
 }
 
 function _renderLab() {
-    const list = _screens.setup.querySelector('#tw-lab-list');
-    list.innerHTML = '';
-    
-    for (const id in LAB_RESEARCH) {
-        const def = LAB_RESEARCH[id];
-        const lvl = _save.lab.levels[id];
-        const cost = calcLabCost(id, lvl);
-        const timeMs = calcLabTimeMs(id, lvl);
-        const isMax = def.max && lvl >= def.max;
+    for (const cat in LAB_RESEARCH_CATEGORIES) {
+        const container = _screens.setup.querySelector(`#tw-lab-${cat}`);
+        container.innerHTML = '';
         
-        let timeStr = '';
-        if (timeMs < 60000) timeStr = `${timeMs/1000}s`;
-        else if (timeMs < 3600000) timeStr = `${Math.floor(timeMs/60000)}m`;
-        else timeStr = `${(timeMs/3600000).toFixed(1)}h`;
+        LAB_RESEARCH_CATEGORIES[cat].forEach(id => {
+            const def = LAB_RESEARCH[id];
+            const lvl = _save.lab.levels[id] || 0;
+            const cost = calcLabCost(id, lvl);
+            const timeMs = calcLabTimeMs(id, lvl);
+            const isMax = def.max && lvl >= def.max;
+            
+            let timeStr = '';
+            if (timeMs < 60000) timeStr = `${timeMs/1000}s`;
+            else if (timeMs < 3600000) timeStr = `${Math.floor(timeMs/60000)}m`;
+            else timeStr = `${(timeMs/3600000).toFixed(1)}h`;
 
-        const row = document.createElement('div');
-        row.className = 'tw-lab-row';
-        row.innerHTML = `
-            <div class="tw-lab-header">
-                <span class="tw-lab-name">${def.name} <span style="font-size:10px;color:#777;">Lvl ${lvl}</span></span>
-                <span class="tw-lab-time">⏱ ${timeStr}</span>
-            </div>
-            <div class="tw-lab-desc">${def.desc}</div>
-            <div class="tw-lab-actions">
-                <span style="font-size:12px;color:#aaa;">Cost: 🪙 ${cost}</span>
-                <button class="tw-lab-buy" ${(_save.coins < cost || isMax || _save.lab.active) ? 'disabled' : ''}>
-                    ${isMax ? 'MAX' : 'Research'}
-                </button>
-            </div>
-        `;
-        
-        row.querySelector('button').onclick = () => {
-            if (_save.coins >= cost && !_save.lab.active) {
-                _save.coins -= cost;
-                _save.lab.active = { id: id, endTime: Date.now() + timeMs };
-                _saveGame();
-                _showHub();
-            }
-        };
-        list.appendChild(row);
+            const row = document.createElement('div');
+            row.className = 'tw-lab-row';
+            row.innerHTML = `
+                <div class="tw-lab-header">
+                    <span class="tw-lab-name">${def.name} <span style="font-size:10px;color:#777;">Lvl ${lvl}</span></span>
+                    <span class="tw-lab-time">⏱ ${timeStr}</span>
+                </div>
+                <div class="tw-lab-desc">${def.desc}</div>
+                <div class="tw-lab-actions">
+                    <span style="font-size:12px;color:#aaa;">Cost: 🪙 ${cost}</span>
+                    <button class="tw-lab-buy" ${(_save.coins < cost || isMax || _save.lab.active) ? 'disabled' : ''}>
+                        ${isMax ? 'MAX' : 'Research'}
+                    </button>
+                </div>
+            `;
+            
+            row.querySelector('.tw-lab-buy').onclick = () => {
+                if (_save.coins >= cost && !_save.lab.active) {
+                    _save.coins -= cost;
+                    _save.lab.active = { id: id, endTime: Date.now() + timeMs };
+                    _saveGame();
+                    _screens.setup.querySelector('#tw-hub-coins').textContent = Math.floor(_save.coins);
+                    _renderLab();
+                    if (typeof init._updateDiffUI === 'function') init._updateDiffUI();
+                }
+            };
+            container.appendChild(row);
+        });
     }
 }
 
 function _renderStats() {
     const statsContent = _screens.setup.querySelector('#tw-stats-content');
-    const relicsContent = _screens.setup.querySelector('#tw-relics-content');
-    
     statsContent.innerHTML = `
         <div style="display:flex; flex-direction:column; gap:8px;">
             <div class="tw-upg-row"><div class="tw-upg-name">Session Correct</div><div class="tw-upg-val">${_save.stats.sessionCorrect}</div></div>
@@ -905,8 +1204,11 @@ function _renderStats() {
             <div class="tw-upg-row"><div class="tw-upg-name">Max Tier</div><div class="tw-upg-val">${_save.maxDiff}</div></div>
         </div>
     `;
-    
-    relicsContent.innerHTML = `<h3 style="color:#f1c40f; margin-bottom:10px;">Relics</h3><div style="display:flex; flex-direction:column; gap:8px;">`;
+}
+
+function _renderRelics() {
+    const relicsContent = _screens.setup.querySelector('#tw-relics-content');
+    relicsContent.innerHTML = `<div style="display:flex; flex-direction:column; gap:8px;">`;
     if (_save.relics.length === 0) {
         relicsContent.innerHTML += `<div style="color:#777; font-size:12px;">No relics unlocked. Beat target waves to earn them!</div>`;
     } else {
@@ -939,7 +1241,7 @@ function _labTicker() {
     const remain = lab.endTime - Date.now();
     
     if (remain <= 0) {
-        _save.lab.levels[lab.id]++;
+        _save.lab.levels[lab.id] = (_save.lab.levels[lab.id] || 0) + 1;
         _save.lab.active = null;
         _saveGame();
         _showHub();
@@ -948,7 +1250,8 @@ function _labTicker() {
     
     const activeDiv = _screens.setup.querySelector('#tw-lab-active');
     activeDiv.style.display = 'block';
-    _screens.setup.querySelector('#tw-lab-active-name').textContent = LAB_RESEARCH[lab.id].name;
+    const def = LAB_RESEARCH[lab.id];
+    _screens.setup.querySelector('#tw-lab-active-name').textContent = def ? def.name : 'Researching...';
     
     const h = Math.floor(remain / 3600000).toString().padStart(2, '0');
     const m = Math.floor((remain % 3600000) / 60000).toString().padStart(2, '0');
@@ -964,7 +1267,7 @@ function _getTowerStats() {
             if (cardId === 'know') {
                 const count = _save.cards.owned[cardId];
                 const cDef = CARDS[cardId];
-                const lvlInfo = getCardLevelInfo(count);
+                const lvlInfo = getCardLevelInfo(count, cDef.maxLevel);
                 let actualLvl = lvlInfo.level;
                 if (cDef.maxLevel && actualLvl > cDef.maxLevel) actualLvl = cDef.maxLevel;
                 knowCardBuff += cDef.base + (actualLvl - 1) * cDef.step;
@@ -976,23 +1279,37 @@ function _getTowerStats() {
     if (_save.relics.includes(5)) kMult *= 2; 
     kMult *= (1 + knowCardBuff);
     
-    const kBuff = 1 + (_run.knowledgeStacks * kMult);
+    const kBuff = 1 + ((_run ? _run.knowledgeStacks : 0) * kMult);
     const masteryBuff = 1 + (_save.stats.wordsMastered.length * 0.0001); 
     
+    let labDmgMult = 1 + ((_save.lab.levels.damageMult || 0) * 0.02);
+    let labHpMult = 1 + ((_save.lab.levels.healthMult || 0) * 0.05);
+
     let stats = {};
     for (const cat of ['offense', 'defense', 'utility']) {
         for (const id in UPGRADES[cat]) {
-            let val = calcStat(cat, id, _save.workshop[cat][id] || 0, _run.levels[cat][id] || 0);
+            let val = calcStat(cat, id, _save.workshop[cat][id] || 0, _run ? (_run.levels[cat][id] || 0) : 0);
             
             if (['damage', 'health', 'regen', 'cashBonus', 'cashWave', 'coinBonus', 'coinsWave', 'atkSpeed'].includes(id)) {
                 val *= kBuff;
             }
-            if (id === 'damage') {
-                val *= masteryBuff;
+            if (id === 'damage') val *= masteryBuff * labDmgMult;
+            if (id === 'health') val *= labHpMult;
+
+            if (id === 'atkSpeed') {
+                if (_save.relics.includes(4)) val *= 1.2; 
             }
-            if (id === 'atkSpeed' && _save.relics.includes(4)) {
-                val *= 1.2; 
+            if (id === 'critChance') val += (_save.lab.levels.critChance || 0) * 0.005;
+            if (id === 'range') val *= 1 + ((_save.lab.levels.rangeMult || 0) * 0.01);
+            if (id === 'regen') val *= 1 + ((_save.lab.levels.regenMult || 0) * 0.02);
+            if (id === 'defPct') val += (_save.lab.levels.defPct || 0) * 0.005;
+            if (id === 'thorns') val *= 1 + ((_save.lab.levels.thornsMult || 0) * 0.02);
+            if (id === 'lifesteal') val += (_save.lab.levels.lifesteal || 0) * 0.002;
+            if (id === 'cashBonus') val *= 1 + ((_save.lab.levels.cashBonusMult || 0) * 0.05);
+            if (id === 'freeUpgOffense' || id === 'freeUpgDefense' || id === 'freeUpgUtility') {
+                val += (_save.lab.levels.freeUpg || 0) * 0.005;
             }
+
             stats[id] = val;
         }
     }
@@ -1004,7 +1321,7 @@ function _getTowerStats() {
             if (cardId) {
                 const count = _save.cards.owned[cardId];
                 const cDef = CARDS[cardId];
-                const lvlInfo = getCardLevelInfo(count);
+                const lvlInfo = getCardLevelInfo(count, cDef.maxLevel);
                 let actualLvl = lvlInfo.level;
                 if (cDef.maxLevel && actualLvl > cDef.maxLevel) actualLvl = cDef.maxLevel;
                 
@@ -1039,8 +1356,8 @@ function _getTowerStats() {
         }
     }
 
-    stats.currentHp = _engine.stats ? (_engine.stats.currentHp || stats.health) : stats.health;
-    if (_engine.stats && stats.health > _engine.stats.health) {
+    stats.currentHp = _engine && _engine.stats ? (_engine.stats.currentHp || stats.health) : stats.health;
+    if (_engine && _engine.stats && stats.health > _engine.stats.health) {
         stats.currentHp += (stats.health - _engine.stats.health);
     }
     stats.gameSpeed = 1 + ((_save.lab ? _save.lab.levels.gameSpeed : 0) * 0.1);
@@ -1052,7 +1369,37 @@ function _getTowerStats() {
     return stats;
 }
 
+function _resumeRun() {
+    if (!_save.currentRun || !_save.currentRun.active) return;
+    
+    _run = JSON.parse(JSON.stringify(_save.currentRun));
+    _run.active = true;
+    
+    _screens.setup.style.display = 'none';
+    _screens.game.style.display = 'flex';
+    _engine._resize();
+    _engine.speedMult = _speedMult;
+
+    let stats = _getTowerStats();
+    if (_run.currentHp !== undefined) stats.currentHp = _run.currentHp;
+    
+    _engine.startRun(stats, _run.wave, _run.diff);
+    _engine.setTargetMode(_run.targetMode);
+
+    _screens.game.querySelectorAll('.tw-target-btn').forEach(b => {
+        b.classList.remove('active');
+        if (b.dataset.target === _run.targetMode) b.classList.add('active');
+    });
+
+    _updateRunHUD();
+    _updateAbilitiesUI();
+    _renderRunUpgrades();
+    
+    _engine.startWave(_run.wave);
+}
+
 function _startRun() {
+    _run.active = true;
     _run.wave = 1;
     _run.cash = 50 + (50 * _save.lab.levels.startingCash);
     _run.earnedCoinsDrops = 0;
@@ -1064,6 +1411,7 @@ function _startRun() {
     _run.vocabCorrect = 0;
     _run.failedWords = {};
     _run.boughtDefense = false;
+    _run.mults = {};
     
     for (const cat of ['offense', 'defense', 'utility']) {
         for (const id in UPGRADES[cat]) {
@@ -1152,11 +1500,15 @@ function _startNextWave() {
             
             _vocabMgr.resume();
             _engine.resume();
+            
+            _saveRunSnapshot();
             _engine.startWave(_run.wave);
         },
         onEmpty: () => {
             _vocabMgr.resume();
             _engine.resume();
+            
+            _saveRunSnapshot();
             _engine.startWave(_run.wave);
         }
     });
@@ -1185,6 +1537,9 @@ function _checkUnlock() {
 }
 
 function _handleDeath() {
+    _run.active = false;
+    _save.currentRun = null;
+    
     const totalCoins = _run.earnedCoinsDrops + _run.earnedCoinsWave;
     _save.coins += totalCoins;
     
@@ -1242,7 +1597,7 @@ function _updateRunHUD() {
             if (cardId === 'know') {
                 const count = _save.cards.owned[cardId];
                 const cDef = CARDS[cardId];
-                const lvlInfo = getCardLevelInfo(count);
+                const lvlInfo = getCardLevelInfo(count, cDef.maxLevel);
                 let actualLvl = lvlInfo.level;
                 if (cDef.maxLevel && actualLvl > cDef.maxLevel) actualLvl = cDef.maxLevel;
                 knowCardBuff += cDef.base + (actualLvl - 1) * cDef.step;
@@ -1306,35 +1661,52 @@ function _renderRunUpgrades() {
                 if (totalVal >= def.max) continue; 
             }
             
-            const cost = calcCost(cat, id, runLvl, false);
+            let reqMult = _run.mults[id] || '1';
+            const buyInfo = getMultiBuy(cat, id, runLvl, reqMult, _run.cash, false);
             const val = calcStat(cat, id, wsLvl, runLvl);
+            
+            const maxLvl = getUpgradeMaxLevel(cat, id);
+            const lvlStr = maxLvl ? `Lvl ${runLvl} (Total: ${runLvl + wsLvl}/${maxLvl})` : `Lvl ${runLvl}`;
             
             const row = document.createElement('div');
             row.className = 'tw-upg-row';
             row.innerHTML = `
                 <div class="tw-upg-info">
-                    <div class="tw-upg-name">${def.name} <span style="font-size:10px;color:#777;">Lvl ${runLvl}</span></div>
+                    <div class="tw-upg-name">${def.name} <span style="font-size:10px;color:#777;">${lvlStr}</span></div>
+                    <div class="tw-mini-mults" data-id="${id}">
+                        <span class="${reqMult==='1'?'active':''}" data-val="1">x1</span>
+                        <span class="${reqMult==='5'?'active':''}" data-val="5">x5</span>
+                        <span class="${reqMult==='10'?'active':''}" data-val="10">x10</span>
+                        <span class="${reqMult==='MAX'?'active':''}" data-val="MAX">Max</span>
+                    </div>
                     <div class="tw-upg-val">${def.isPct ? (val*100).toFixed(2)+'%' : val.toFixed(2)}</div>
                 </div>
-                <button class="tw-upg-buy" ${(_run.cash < cost) ? 'disabled' : ''}>
-                    $ ${cost}
+                <button class="tw-upg-buy" ${(buyInfo.maxed || _run.cash < buyInfo.cost) ? 'disabled' : ''}>
+                    ${buyInfo.maxed ? 'MAX' : `$ ${buyInfo.cost}<br><span style="font-size:10px;color:#ccc;">(+${buyInfo.count})</span>`}
                 </button>
             `;
             
+            row.querySelectorAll('.tw-mini-mults span').forEach(span => {
+                span.onclick = (e) => {
+                    _run.mults[id] = e.target.dataset.val;
+                    _renderRunUpgrades();
+                };
+            });
+
             let freeChance = 0;
             if (cat === 'offense') freeChance = _engine.stats.freeUpgOffense || 0;
             else if (cat === 'defense') freeChance = _engine.stats.freeUpgDefense || 0;
             else if (cat === 'utility') freeChance = _engine.stats.freeUpgUtility || 0;
 
-            row.querySelector('button').onclick = () => {
-                if (_run.cash >= cost) {
+            row.querySelector('.tw-upg-buy').onclick = () => {
+                if (!buyInfo.maxed && _run.cash >= buyInfo.cost && buyInfo.count > 0) {
                     let isFree = Math.random() < freeChance;
                     if (!isFree) {
-                        _run.cash -= cost;
+                        _run.cash -= buyInfo.cost;
                     } else {
                         _engine.spawnFloatText('FREE!', '#f1c40f', true);
                     }
-                    _run.levels[cat][id] = runLvl + 1;
+                    _run.levels[cat][id] = runLvl + buyInfo.count;
                     
                     if (cat === 'defense') _run.boughtDefense = true;
 
