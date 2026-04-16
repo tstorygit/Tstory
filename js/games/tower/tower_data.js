@@ -40,24 +40,24 @@ export const LAB_RESEARCH_CATEGORIES = {
 
 export const LAB_RESEARCH = {
     // Offense
-    damageMult:   { name: 'Damage Multiplier',desc: '+2% Base Damage.', baseCost: 100, costMult: 1.5, baseTimeSec: 120 },
-    critChance:   { name: 'Crit Chance',      desc: '+0.5% Crit Chance.', baseCost: 500, costMult: 1.6, baseTimeSec: 600, max: 30 },
-    rangeMult:    { name: 'Range Multiplier', desc: '+1% Range.', baseCost: 200, costMult: 1.4, baseTimeSec: 240, max: 50 },
-    vocabMastery: { name: 'Vocab Mastery',    desc: '+0.01% Base Dmg per unique correct word.', baseCost: 100, costMult: 2.5, baseTimeSec: 600, max: 1 },
+    damageMult:   { name: 'Damage Multiplier',desc: '+2% Base Damage.', baseCost: 200, costMult: 1.8, baseTimeSec: 120, max: 50 },
+    critChance:   { name: 'Crit Chance',      desc: '+0.5% Crit Chance.', baseCost: 500, costMult: 2.0, baseTimeSec: 600, max: 30 },
+    rangeMult:    { name: 'Range Multiplier', desc: '+1% Range.', baseCost: 250, costMult: 1.6, baseTimeSec: 240, max: 30 },
+    vocabMastery: { name: 'Vocab Mastery',    desc: '+0.01% Base Dmg per unique correct word.', baseCost: 500, costMult: 5.0, baseTimeSec: 1200, max: 5 },
     // Defense
-    healthMult:   { name: 'Health Multiplier',desc: '+5% Base Health.', baseCost: 100, costMult: 1.4, baseTimeSec: 120 },
-    regenMult:    { name: 'Regen Multiplier', desc: '+2% Health Regen.', baseCost: 150, costMult: 1.5, baseTimeSec: 180 },
-    defPct:       { name: 'Defense %',        desc: '+0.5% Defense.', baseCost: 400, costMult: 2.0, baseTimeSec: 600, max: 20 },
-    thornsMult:   { name: 'Thorns Multiplier',desc: '+2% Thorns Damage.', baseCost: 300, costMult: 1.6, baseTimeSec: 360 },
-    lifesteal:    { name: 'Lifesteal',        desc: '+0.2% Lifesteal.', baseCost: 800, costMult: 2.5, baseTimeSec: 1200, max: 25 },
+    healthMult:   { name: 'Health Multiplier',desc: '+5% Base Health.', baseCost: 200, costMult: 1.6, baseTimeSec: 120, max: 50 },
+    regenMult:    { name: 'Regen Multiplier', desc: '+2% Health Regen.', baseCost: 250, costMult: 1.7, baseTimeSec: 180, max: 50 },
+    defPct:       { name: 'Defense %',        desc: '+0.5% Defense.', baseCost: 800, costMult: 2.5, baseTimeSec: 600, max: 20 },
+    thornsMult:   { name: 'Thorns Multiplier',desc: '+2% Thorns Damage.', baseCost: 400, costMult: 1.8, baseTimeSec: 360, max: 50 },
+    lifesteal:    { name: 'Lifesteal',        desc: '+0.2% Lifesteal.', baseCost: 1000, costMult: 3.0, baseTimeSec: 1200, max: 25 },
     // Utility
-    knowledge:    { name: 'Vocab Multiplier', desc: '+0.5% Buff per correct vocab answer.', baseCost: 10, costMult: 2.0, baseTimeSec: 60 },
-    gameSpeed:    { name: 'Game Speed',       desc: '+10% Simulation speed.', baseCost: 25, costMult: 2.5, baseTimeSec: 180, max: 10 },
-    coinYield:    { name: 'Coin Yield',       desc: '+10% Coins dropped.', baseCost: 50, costMult: 2.0, baseTimeSec: 300 },
-    cashBonusMult:{ name: 'Cash Bonus Mult',  desc: '+5% Cash Earned.', baseCost: 150, costMult: 1.5, baseTimeSec: 240 },
-    startingCash: { name: 'Starting Cash',    desc: 'Start runs with +50 Cash.', baseCost: 15, costMult: 1.8, baseTimeSec: 120 },
-    synergy:      { name: 'Linguistic Synergy', desc: 'Unlocks Pierce at x2.0 Knowledge, Chain at x3.0.', baseCost: 500, costMult: 1, baseTimeSec: 1200, max: 1 },
-    freeUpg:      { name: 'Free Upgrades',    desc: '+0.5% Global Free Upgrade Chance.', baseCost: 1000, costMult: 3.0, baseTimeSec: 3600, max: 10 }
+    knowledge:    { name: 'Vocab Multiplier', desc: '+0.5% Buff per correct vocab answer.', baseCost: 500, costMult: 2.5, baseTimeSec: 300, max: 20 },
+    gameSpeed:    { name: 'Game Speed',       desc: '+10% Simulation speed.', baseCost: 100, costMult: 3.0, baseTimeSec: 180, max: 10 },
+    coinYield:    { name: 'Coin Yield',       desc: '+10% Coins dropped.', baseCost: 300, costMult: 2.2, baseTimeSec: 300, max: 50 },
+    cashBonusMult:{ name: 'Cash Bonus Mult',  desc: '+5% Cash Earned.', baseCost: 250, costMult: 1.8, baseTimeSec: 240, max: 50 },
+    startingCash: { name: 'Starting Cash',    desc: 'Start runs with +50 Cash.', baseCost: 150, costMult: 1.8, baseTimeSec: 120, max: 50 },
+    synergy:      { name: 'Linguistic Synergy', desc: 'Unlocks Pierce at x2.0 Knowledge, Chain at x3.0.', baseCost: 2500, costMult: 1, baseTimeSec: 1800, max: 1 },
+    freeUpg:      { name: 'Free Upgrades',    desc: '+0.5% Global Free Upgrade Chance.', baseCost: 1500, costMult: 3.0, baseTimeSec: 3600, max: 10 }
 };
 
 export const RELICS = {

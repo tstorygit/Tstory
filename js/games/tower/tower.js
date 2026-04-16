@@ -30,8 +30,7 @@ let _run = {
     vocabCorrect: 0,
     failedWords: {},
     boughtDefense: false,
-    levels: { offense: {}, defense: {}, utility: {} },
-    mults: {} 
+    levels: { offense: {}, defense: {}, utility: {} }
 };
 
 function _defaultSave() {
@@ -49,6 +48,7 @@ function _defaultSave() {
             utility: { cashBonus:0, cashWave:0, coinBonus:0, coinsWave:0, interest:0, freeUpgOffense:0, freeUpgDefense:0, freeUpgUtility:0 }
         },
         workshopMults: {},
+        runMults: {},
         lab: {
             active: null,
             levels: { damageMult:0, critChance:0, rangeMult:0, vocabMastery:0, healthMult:0, regenMult:0, defPct:0, thornsMult:0, lifesteal:0, knowledge:0, gameSpeed:0, coinYield:0, cashBonusMult:0, startingCash:0, synergy:0, freeUpg:0 }
@@ -232,18 +232,6 @@ export function init(screens, onExit) {
             <div id="tw-card-pull-container" class="tw-card-reveal-wrap"></div>
             <button id="tw-card-pull-close" class="tw-play-btn" style="width:200px; margin-top:20px; display:none;">Awesome!</button>
         </div>
-        
-        <div id="tw-end-run-modal" class="tw-modal" style="display:none; position:absolute; inset:0; z-index:1000;">
-            <div style="background:#1a1a2e; padding:30px; border-radius:12px; text-align:center; border:2px solid #e74c3c; max-width:80%;">
-                <h2 style="color:#e74c3c; margin-top:0;">Pause or End Run?</h2>
-                <div style="font-size:14px; color:#aaa; margin-bottom:20px;">Pause to return later, or end now to claim your coins.</div>
-                <div style="display:flex; flex-direction:column; gap:10px;">
-                    <button id="tw-end-run-pause" class="tw-play-btn" style="background:#3498db; color:#fff;">Pause & Leave</button>
-                    <button id="tw-end-run-yes" class="tw-play-btn" style="background:#e74c3c; color:#fff;">End Run & Claim</button>
-                    <button id="tw-end-run-no" class="tw-play-btn" style="background:#555; color:#fff; margin-top:10px;">Cancel</button>
-                </div>
-            </div>
-        </div>
 
         <div id="tw-mult-info-modal" class="tw-modal" style="display:none; position:absolute; inset:0; z-index:1000;">
             <div style="background:#1a1a2e; padding:20px; border-radius:12px; border:2px solid #00ffff; width:80%; max-width:300px;">
@@ -272,10 +260,12 @@ export function init(screens, onExit) {
                         <div class="tw-gems" style="color:#00a8ff;">💎 <span id="tw-run-gems-val">0</span></div>
                     </div>
                 </div>
-                <div style="display:flex; align-items:center; margin-bottom:4px;">
-                    <div style="font-size:12px; font-weight:bold; color:#9b59b6;">🧠 ×<span id="tw-run-know">1.00</span><span id="tw-run-combo" class="tw-combo-text"></span></div>
-                    <button class="tw-speed-btn" id="tw-btn-speed">⚡ 1x</button>
-                    <button class="tw-end-run-btn" id="tw-btn-end-run">End Run</button>
+                <div style="display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:4px;">
+                    <div style="font-size:12px; font-weight:bold; color:#9b59b6; white-space:nowrap; flex-shrink:0;">🧠 ×<span id="tw-run-know">1.00</span><span id="tw-run-combo" class="tw-combo-text"></span></div>
+                    <div style="display:flex; gap:6px; margin-left:auto; flex-wrap:wrap; justify-content:flex-end;">
+                        <button class="tw-speed-btn" id="tw-btn-speed">⚡ 1x</button>
+                        <button class="tw-end-run-btn" id="tw-btn-end-run" style="margin-left:0 !important;">Pause / End</button>
+                    </div>
                 </div>
                 <div class="tw-targeting">
                     <button class="tw-target-btn active" data-target="closest">Closest</button>
@@ -329,6 +319,18 @@ export function init(screens, onExit) {
 
                 <button id="tw-death-return" class="tw-play-btn" style="width:200px;">Return to Hub</button>
             </div>
+
+            <div id="tw-end-run-modal" class="tw-modal" style="display:none; position:absolute; inset:0; z-index:1000;">
+                <div style="background:#1a1a2e; padding:30px; border-radius:12px; text-align:center; border:2px solid #e74c3c; max-width:80%;">
+                    <h2 style="color:#e74c3c; margin-top:0;">Pause or End Run?</h2>
+                    <div style="font-size:14px; color:#aaa; margin-bottom:20px;">Pause to return later, or end now to claim your coins.</div>
+                    <div style="display:flex; flex-direction:column; gap:10px;">
+                        <button id="tw-end-run-pause" class="tw-play-btn" style="background:#3498db; color:#fff;">Pause & Leave</button>
+                        <button id="tw-end-run-yes" class="tw-play-btn" style="background:#e74c3c; color:#fff;">End Run & Claim</button>
+                        <button id="tw-end-run-no" class="tw-play-btn" style="background:#555; color:#fff; margin-top:10px;">Cancel</button>
+                    </div>
+                </div>
+            </div>
         </div>
     `;
 
@@ -381,12 +383,13 @@ export function init(screens, onExit) {
 
     _screens.game.querySelector('#tw-btn-end-run').addEventListener('click', () => {
         _engine.pause();
-        const modal = _screens.setup.querySelector('#tw-end-run-modal');
+        const modal = _screens.game.querySelector('#tw-end-run-modal');
         modal.style.display = 'flex';
         
         modal.querySelector('#tw-end-run-pause').onclick = () => {
             modal.style.display = 'none';
             _engine.stop();
+            _saveRunSnapshot();
             _showHub();
         };
         modal.querySelector('#tw-end-run-yes').onclick = () => {
@@ -458,7 +461,12 @@ export function init(screens, onExit) {
             const savedVocab = _save.vocabConfig;
             _save = _defaultSave();
             _save.vocabConfig = savedVocab; 
-            _run = null;
+            _run = {
+                active: false, wave: 1, diff: 1, cash: 0, earnedCoinsDrops: 0, earnedCoinsWave: 0,
+                knowledgeStacks: 0, combo: 0, abilityCharge: 0, targetMode: 'closest',
+                vocabQuestions: 0, vocabCorrect: 0, failedWords: {}, boughtDefense: false,
+                levels: { offense: {}, defense: {}, utility: {} }
+            };
             _saveGame(); _showHub(); 
         }
     };
@@ -606,6 +614,7 @@ export function launch() {
     if (!_save.workshop.unlocks) _save.workshop.unlocks = {};
     if (!_save.workshop.offense) _save = _defaultSave();
     if (!_save.workshopMults) _save.workshopMults = {};
+    if (!_save.runMults) _save.runMults = {};
     
     if (_save.workshop.offense.dmgMeter === undefined) _save.workshop.offense.dmgMeter = 0;
     if (_save.workshop.offense.bounce === undefined) _save.workshop.offense.bounce = 0;
@@ -672,7 +681,7 @@ function _saveGame() {
 
 function _saveRunSnapshot() {
     if (!_run || !_run.active) return;
-    _run.currentHp = _engine.stats ? _engine.stats.currentHp : undefined;
+    _run.currentHp = _engine && _engine.stats ? _engine.stats.currentHp : undefined;
     _save.currentRun = JSON.parse(JSON.stringify(_run));
     _saveGame();
 }
@@ -1124,6 +1133,7 @@ function _renderWorkshop() {
                 row.querySelectorAll('.tw-mini-mults span').forEach(span => {
                     span.onclick = (e) => {
                         _save.workshopMults[id] = e.target.dataset.val;
+                        _saveGame();
                         _renderWorkshop();
                     };
                 });
@@ -1411,7 +1421,6 @@ function _startRun() {
     _run.vocabCorrect = 0;
     _run.failedWords = {};
     _run.boughtDefense = false;
-    _run.mults = {};
     
     for (const cat of ['offense', 'defense', 'utility']) {
         for (const id in UPGRADES[cat]) {
@@ -1435,6 +1444,7 @@ function _startRun() {
     
     _updateQuest('play_runs', 1);
     
+    _saveRunSnapshot();
     _startNextWave();
 }
 
@@ -1661,7 +1671,7 @@ function _renderRunUpgrades() {
                 if (totalVal >= def.max) continue; 
             }
             
-            let reqMult = _run.mults[id] || '1';
+            let reqMult = _save.runMults[id] || '1';
             const buyInfo = getMultiBuy(cat, id, runLvl, reqMult, _run.cash, false);
             const val = calcStat(cat, id, wsLvl, runLvl);
             
@@ -1688,7 +1698,8 @@ function _renderRunUpgrades() {
             
             row.querySelectorAll('.tw-mini-mults span').forEach(span => {
                 span.onclick = (e) => {
-                    _run.mults[id] = e.target.dataset.val;
+                    _save.runMults[id] = e.target.dataset.val;
+                    _saveGame();
                     _renderRunUpgrades();
                 };
             });
@@ -1712,6 +1723,7 @@ function _renderRunUpgrades() {
 
                     _engine.stats = _getTowerStats();
                     _updateRunHUD();
+                    _saveRunSnapshot();
                     _renderRunUpgrades();
                 }
             };
