@@ -1,3 +1,5 @@
+// main/js/games/tower/tower.js
+
 import { mountVocabSelector } from '../../vocab_selector.js';
 import { GameVocabManager } from '../../game_vocab_mgr.js';
 import { showGameQuiz, poolSourceLabel, renderVocabSettings, setGvmTheme } from '../../game_vocab_mgr_ui.js';
@@ -42,7 +44,7 @@ function _defaultSave() {
         currentRun: null,
         workshop: {
             unlocks: {},
-            offense: { damage:0, atkSpeed:0, range:0, critChance:0, critMult:0, dmgMeter:0, bounce:0 },
+            offense: { damage:0, atkSpeed:0, range:0, critChance:0, critMult:0, dmgMeter:0, bounce:0, splashDmg:0 },
             defense: { health:0, regen:0, defAbs:0, defPct:0, lifesteal:0, thorns:0, knockback:0, defyDeath:0 },
             utility: { cashBonus:0, cashWave:0, coinBonus:0, coinsWave:0, interest:0, freeUpgOffense:0, freeUpgDefense:0, freeUpgUtility:0 }
         },
@@ -624,6 +626,7 @@ export function launch() {
     
     if (_save.workshop.offense.dmgMeter === undefined) _save.workshop.offense.dmgMeter = 0;
     if (_save.workshop.offense.bounce === undefined) _save.workshop.offense.bounce = 0;
+    if (_save.workshop.offense.splashDmg === undefined) _save.workshop.offense.splashDmg = 0;
     if (_save.workshop.defense.knockback === undefined) _save.workshop.defense.knockback = 0;
     if (_save.workshop.defense.defyDeath === undefined) _save.workshop.defense.defyDeath = 0;
     
@@ -888,7 +891,7 @@ function _renderQuests() {
 function _pullCards(amount) {
     if (_save.gems < 20 * amount) return;
     
-    let availableCards = [];
+    let availableCards =[];
     for (let id in CARDS) {
         let cDef = CARDS[id];
         let owned = _save.cards.owned[id] || 0;
@@ -907,7 +910,7 @@ function _pullCards(amount) {
     _save.gems -= 20 * amount;
     const rarityWeights = { 'common': 50, 'rare': 25, 'epic': 15, 'mythic': 8, 'ssr': 2 };
     
-    let pulled = [];
+    let pulled =[];
     
     for (let i = 0; i < amount; i++) {
         let currentWeights = { 'common': 0, 'rare': 0, 'epic': 0, 'mythic': 0, 'ssr': 0 };
@@ -1074,7 +1077,7 @@ function _renderCards() {
     }
 
     // ── Collection: one row per rarity, all cards shown ───────────────
-    const RARITIES = [
+    const RARITIES =[
         { key: 'ssr',    label: 'SSR',    color: '#ff6ef7' },
         { key: 'mythic', label: 'Mythic', color: '#e74c3c' },
         { key: 'epic',   label: 'Epic',   color: '#9b59b6' },
@@ -1126,7 +1129,7 @@ function _renderCards() {
 }
 
 function _renderWorkshop() {
-    for (const cat of ['offense', 'defense', 'utility']) {
+    for (const cat of['offense', 'defense', 'utility']) {
         const container = _screens.setup.querySelector(`#tw-ws-${cat}`);
         container.innerHTML = '';
         
@@ -1349,7 +1352,7 @@ function _getTowerStats() {
     let labHpMult = 1 + ((_save.lab.levels.healthMult || 0) * 0.05);
 
     let stats = {};
-    for (const cat of ['offense', 'defense', 'utility']) {
+    for (const cat of['offense', 'defense', 'utility']) {
         for (const id in UPGRADES[cat]) {
             let val = calcStat(cat, id, _save.workshop[cat][id] || 0, _run ? (_run.levels[cat][id] || 0) : 0);
             
@@ -1401,6 +1404,7 @@ function _getTowerStats() {
                 if (cardId === 'critC') stats.critChance += val;
                 if (cardId === 'critM') stats.critMult += val;
                 if (cardId === 'bounce') stats.bounce += val;
+                if (cardId === 'splash') stats.splashDmg = (stats.splashDmg || 0) + val;
                 if (cardId === 'dmgM') stats.dmgMeter += val;
                 if (cardId === 'regen') stats.regen += val;
                 if (cardId === 'defA') stats.defAbs += val;
@@ -1834,7 +1838,7 @@ function _autoBuyTicker() {
     if (_engine && _engine.state === 'PAUSED') return;
 
     let candidates = [];
-    for (const cat of ['offense', 'defense', 'utility']) {
+    for (const cat of['offense', 'defense', 'utility']) {
         if (_run.autoBuy[cat]) {
             for (const id in UPGRADES[cat]) {
                 const def = UPGRADES[cat][id];

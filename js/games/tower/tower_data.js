@@ -5,6 +5,7 @@ export const UPGRADES = {
         damage:     { name: 'Damage',        base: 5,   step: 2,     baseCost: 10,  costMult: 1.15, isPct: false },
         atkSpeed:   { name: 'Attack Speed',  base: 1.0, step: 0.1,   baseCost: 15,  costMult: 1.18, isPct: false, max: 10 },
         range:      { name: 'Range',         base: 120, step: 4,     baseCost: 20,  costMult: 1.18, isPct: false, max: 300 },
+        splashDmg:  { name: 'Splash Damage', base: 0,   step: 0.05,  baseCost: 200, costMult: 1.40, isPct: true,  max: 1.0, reqUnlock: true, unlockCost: 500 },
         dmgMeter:   { name: 'Damage/Meter',  base: 0,   step: 0.001, baseCost: 100, costMult: 1.30, isPct: true,  max: 0.2, reqUnlock: true, unlockCost: 400 },
         bounce:     { name: 'Bounce Shot',   base: 0,   step: 0.05,  baseCost: 150, costMult: 1.5, isPct: true,  max: 0.8, reqUnlock: true, unlockCost: 500 },
         critChance: { name: 'Crit Chance',   base: 0,   step: 0.02,  baseCost: 50,  costMult: 1.45, isPct: true,  max: 0.8, reqUnlock: true, unlockCost: 200 },
@@ -33,9 +34,9 @@ export const UPGRADES = {
 };
 
 export const LAB_RESEARCH_CATEGORIES = {
-    offense: ['damageMult', 'critChance', 'rangeMult', 'vocabMastery'],
-    defense: ['healthMult', 'regenMult', 'defPct', 'thornsMult', 'lifesteal'],
-    utility: ['knowledge', 'gameSpeed', 'coinYield', 'cashBonusMult', 'startingCash', 'synergy', 'freeUpg']
+    offense:['damageMult', 'critChance', 'rangeMult', 'vocabMastery'],
+    defense:['healthMult', 'regenMult', 'defPct', 'thornsMult', 'lifesteal'],
+    utility:['knowledge', 'gameSpeed', 'coinYield', 'cashBonusMult', 'startingCash', 'synergy', 'freeUpg']
 };
 
 export const LAB_RESEARCH = {
@@ -97,6 +98,7 @@ export const CARDS = {
     critC:  { name: 'Crit Chance',  desc: '+% Crit Chance',  base: 0.02, step: 0.01, rarity: 'epic' },
     critM:  { name: 'Crit Factor',  desc: '+% Crit Factor',  base: 0.20, step: 0.10, rarity: 'epic' },
     thorns: { name: 'Thorns Dmg',   desc: '+% Thorns Dmg',   base: 0.20, step: 0.10, rarity: 'epic' },
+    splash: { name: 'Splash Dmg',   desc: '+% Splash Dmg',   base: 0.05, step: 0.02, maxLevel: 10, rarity: 'epic' },
     
     // Mythic (8%)
     freeO:  { name: 'Free Offense', desc: '+% Free Off. Upg',base: 0.02, step: 0.01, maxLevel: 10, rarity: 'mythic' },
@@ -122,7 +124,7 @@ export const SLOT_COSTS =[
 ];
 
 export function getCardLevelInfo(count, maxLevel = 7) {
-    const reqs = [];
+    const reqs =[];
     let cur = 0;
     for(let i=0; i<maxLevel; i++) {
         cur += Math.pow(2, i); 
