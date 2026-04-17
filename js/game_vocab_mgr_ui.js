@@ -1,689 +1,726 @@
-export class TowerEngine {
-    constructor(canvas, callbacks) {
-        this.canvas = canvas;
-        this.ctx = canvas.getContext('2d', { alpha: false });
-        this.callbacks = callbacks;
-        
-        this.cx = 0;
-        this.cy = 0;
-        this.enemies =[];
-        this.projectiles =[];
-        this.enemyProjectiles = [];
-        this.floatTexts =[];
-        
-        this.state = 'STOPPED';
-        this.lastTime = 0;
-        this.rafId = null;
-        
-        this.stats = {}; 
-        this.wave = 1;
-        this.diff = 1;
-        
-        this.spawnTimer = 0;
-        this.enemiesToSpawn = 0;
-        this.attackCooldown = 0;
-        
-        this.targetMode = 'closest';
-        this.buffs = { barrage: 0, aegis: 0 };
-        this.speedMult = 1;
-        
-        this.runStats = {
-            dmgDealt: 0,
-            dmgTakenBoss: 0,
-            dmgTakenBasic: 0
-        };
+/**
+ * game_vocab_mgr_ui.js — Standardized quiz UI components for GameVocabManager
+ *
+ * Drop-in UI layer for any game that uses GameVocabManager. All components
+ * are self-contained: they create their own overlay, wire up events, call
+ * vocabMgr.getNextWord() / gradeWord() internally, then invoke a callback.
+ *
+ * ── Exported functions ────────────────────────────────────────────────────────
+ *   showGameQuiz(vocabMgr, options)              — The central quiz window.
+ *   showStandardQuiz(vocabMgr, options)          — Thin wrapper for generic quizzes.
+ *   showQuizSequence(vocabMgr, count, options)   — Multi-question sequence.
+ *   renderVocabSettings(vocabMgr, container, cb) — Standardized settings panel.
+ *   injectVocabBadgeStyles()                     — Idempotent style injection.
+ *   poolSourceLabel(poolSource)                  — Human-readable label.
+ *   poolSourceDescription(poolSource)            — Infobox description.
+ *   setGvmTheme(theme)                           — Forces 'dark' or 'light' theme.
+ */
 
-        this._resize();
-        window.addEventListener('resize', () => this._resize());
+import { speakText, stopSpeech } from './tts_api.js';
+
+const SPEAKER_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>`;
+
+let _forcedTheme = null;
+
+/**
+ * Forces the UI components to render in a specific theme regardless of the global app theme.
+ * Useful for games like Tower Defense that are inherently dark-themed.
+ * @param {'dark'|'light'|null} theme 
+ */
+export function setGvmTheme(theme) {
+    _forcedTheme = theme;
+}
+
+// ─── STYLES ───────────────────────────────────────────────────────────────────
+
+function _injectStyles() {
+    if (document.getElementById('gvm-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'gvm-styles';
+    style.textContent = `
+        /* ── Theme variables ────────────────────────────────────────────────── */
+        .gvm-dark {
+            --surface-color: #1e1e2e !important;
+            --bg-color: #151520 !important;
+            --text-main: #eeeeee !important;
+            --text-muted: #888888 !important;
+            --border-color: #444444 !important;
+        }
+
+        /* ── Overlay backdrop ───────────────────────────────────────────────── */
+        .gvm-overlay {
+            position: absolute; inset: 0;
+            background: rgba(0,0,0,0.88);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 10000; padding: 20px;
+            backdrop-filter: blur(6px);
+            pointer-events: auto;
+            transition: background 0.25s ease, backdrop-filter 0.25s ease;
+        }
+        .gvm-overlay.gvm-anim-phase {
+            background: rgba(0,0,0,0);
+            backdrop-filter: blur(0px);
+        }
+        /* ── Modal shell ────────────────────────────────────────────────────── */
+        .gvm-modal {
+            background: var(--surface-color, #ffffff);
+            border-radius: 16px;
+            width: 100%; max-width: 420px;
+            padding: 22px 20px 28px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06);
+            display: flex; flex-direction: column; gap: 14px;
+            text-align: center;
+            color: var(--text-main, #333333);
+            animation: gvmPopIn 0.2s cubic-bezier(0.175,0.885,0.32,1.275);
+        }
+        @keyframes gvmPopIn {
+            0%   { opacity:0; transform:scale(0.85); }
+            100% { opacity:1; transform:scale(1); }
+        }
+        /* ── Badge pill ─────────────────────────────────────────────────────── */
+        .gvm-badge {
+            display: inline-flex; align-self: flex-start;
+            font-size: 10px; font-weight: 800;
+            letter-spacing: 1.5px; text-transform: uppercase;
+            padding: 3px 10px; border-radius: 20px;
+        }
+        .gvm-badge-real  { background:rgba(39,174,96,0.15);  color:#2ecc71; border:1px solid rgba(39,174,96,0.4); }
+        .gvm-badge-new   { background:rgba(52,152,219,0.15); color:#3498db; border:1px solid rgba(52,152,219,0.4); }
+        .gvm-badge-drill { background:rgba(241,196,15,0.15); color:#f1c40f; border:1px solid rgba(241,196,15,0.4); }
+        .gvm-badge-leech { background:rgba(192,57,43,0.15);  color:#e74c3c; border:1px solid rgba(192,57,43,0.4); }
+        .gvm-badge-unscheduled {
+            background: linear-gradient(90deg,
+                rgba(255,100,100,0.15), rgba(255,200,50,0.15),
+                rgba(80,220,120,0.15),  rgba(80,160,255,0.15));
+            border: 1px solid rgba(180,180,255,0.35);
+            color: #888;
+            background-size: 200% 100%;
+            animation: gvmRainbowShift 3s linear infinite;
+        }
+        .gvm-dark .gvm-badge-unscheduled { color: #bbb; }
+        @keyframes gvmRainbowShift {
+            0%   { background-position:0% 50%; }
+            100% { background-position:200% 50%; }
+        }
+        /* ── Title / subtitle ───────────────────────────────────────────────── */
+        .gvm-title    { margin:0; font-size:20px; font-weight:800; letter-spacing:-0.3px; }
+        .gvm-subtitle { margin:0; font-size:13px; color:var(--text-muted,#888); line-height:1.4; }
+        /* ── Word block ─────────────────────────────────────────────────────── */
+        .gvm-word-block { text-align:center; padding:6px 0; }
+        .gvm-kanji { font-size:52px; font-weight:900; color:var(--text-main,#333); line-height:1.1; letter-spacing:-1px; }
+        .gvm-furi  { font-size:15px; color:var(--text-muted,#888); min-height:20px; margin-bottom:4px; }
+        /* ── Progress dots ───────────────────────────────────────────────────── */
+        .gvm-seq-dots { display:flex; justify-content:center; gap:12px; }
+        .gvm-dot {
+            width:18px; height:18px; border-radius:50%;
+            border:2px solid rgba(155,89,182,0.45);
+            background:transparent; transition:all 0.2s;
+        }
+        .gvm-dot.filled { background:#9b59b6; border-color:#c39bd3; box-shadow:0 0 10px rgba(155,89,182,0.6); }
+        .gvm-dot.failed { background:#e74c3c; border-color:#c0392b; box-shadow:0 0 8px rgba(231,76,60,0.5); }
+        /* ── Answer grid ────────────────────────────────────────────────────── */
+        .gvm-grid { display:grid; gap:8px; }
+        .gvm-btn {
+            padding:14px 10px; border-radius:10px;
+            border:2px solid var(--border-color,#ccc);
+            background:var(--bg-color,#f9f9f9); color:var(--text-main,#333);
+            font-size:13px; font-weight:600; cursor:pointer;
+            transition:all 0.12s; line-height:1.3;
+        }
+        .gvm-btn:hover:not(:disabled) {
+            border-color:var(--primary-color,#4A90E2);
+            background:rgba(74,144,226,0.08);
+            transform:scale(1.02);
+        }
+        .gvm-btn:active:not(:disabled) { transform:scale(0.97); }
+        .gvm-btn.correct {
+            border-color:#27ae60 !important; background:rgba(39,174,96,0.18) !important;
+            color:#2ecc71 !important; animation:gvmFlashCorrect 0.65s ease;
+        }
+        .gvm-btn.wrong {
+            border-color:#c0392b !important; background:rgba(192,57,43,0.18) !important;
+            color:#e74c3c !important; animation:gvmFlashWrong 0.65s ease;
+        }
+        @keyframes gvmFlashCorrect {
+            0%  { box-shadow:0 0 0 0 rgba(39,174,96,0.6); }
+            50% { box-shadow:0 0 0 8px rgba(39,174,96,0); }
+            100%{ box-shadow:none; }
+        }
+        @keyframes gvmFlashWrong {
+            0%,20%,40% { transform:translateX(-4px); }
+            10%,30%    { transform:translateX(4px); }
+            50%,100%   { transform:translateX(0); }
+        }
+        /* ── Settings ───────────────────────────────────────────────────────── */
+        .gvm-settings-row {
+            display:flex; justify-content:space-between; align-items:center;
+            padding:10px 0; border-bottom:1px solid var(--border-color,#eee);
+            text-align:left;
+        }
+        .gvm-settings-input {
+            width:60px; padding:6px; border:1px solid var(--border-color,#ccc);
+            border-radius:4px; text-align:center; background:var(--bg-color,#fff);
+            color:var(--text-main,#333); font-weight:bold;
+        }
+        /* ── Pre-Quiz Animation ───────────────────────────────────────────────── */
+        .gvm-pre-anim {
+            position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 10;
+        }
+        .gvm-ring {
+            position: absolute; border-radius: 50%; border: 4px solid rgba(241,196,15,0.8);
+            animation: gvmRingAnim 0.5s ease-out forwards;
+        }
+        .gvm-ring:nth-child(2) { animation-delay: 0.1s; border-color: rgba(241,196,15,0.5); }
+        .gvm-ring:nth-child(3) { animation-delay: 0.2s; border-color: rgba(241,196,15,0.2); }
+        @keyframes gvmRingAnim {
+            0% { width: 0; height: 0; opacity: 1; }
+            100% { width: 300px; height: 300px; opacity: 0; }
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+/** Public export — inject GVM styles without importing the full quiz components. */
+export function injectVocabBadgeStyles() { _injectStyles(); }
+
+/**
+ * Returns a human-readable label for a pool source value.
+ * @param {'srs'|'custom'|'mixed'} poolSource
+ * @returns {string}
+ */
+export function poolSourceLabel(poolSource) {
+    return {
+        srs:    'Your SRS library',
+        custom: 'Custom deck',
+        mixed:  'SRS + Custom deck',
+    }[poolSource] ?? 'Your SRS library';
+}
+
+/**
+ * Returns a one-line summary description for a pool source.
+ * @param {'srs'|'custom'|'mixed'} poolSource
+ * @returns {string}
+ */
+export function poolSourceDescription(poolSource) {
+    return {
+        srs:    'Live SRS reviews — answers update your real flashcard schedule. 🌈 = unscheduled (correct won\'t count).',
+        custom: 'Local SM-2 — progress is self-contained and exported at session end.',
+        mixed:  'SRS + custom deck — all answers update your real flashcard schedule.',
+    }[poolSource] ?? '';
+}
+
+// ─── HELPERS ─────────────────────────────────────────────────────────────────
+
+const TYPE_BADGE = {
+    due:          { cls: 'gvm-badge-real',         label: '🟢 Review'       },
+    new:          { cls: 'gvm-badge-new',           label: '🔵 New Word'     },
+    drill:        { cls: 'gvm-badge-drill',         label: '🟡 Drill'        },
+    leech:        { cls: 'gvm-badge-leech',         label: '🩸 Leech'        },
+    unscheduled:  { cls: 'gvm-badge-unscheduled',   label: '🌈 Unscheduled'  },
+    random:       { cls: 'gvm-badge-real',          label: '🟢 Review'       },
+};
+function _badgeFor(type) { return TYPE_BADGE[type] ?? TYPE_BADGE.due; }
+
+function _gridCols(n) {
+    if (n <= 3)  return '1fr';
+    if (n === 4) return '1fr 1fr';
+    if (n <= 6)  return '1fr 1fr 1fr';
+    if (n <= 8)  return '1fr 1fr 1fr 1fr';
+    return '1fr 1fr 1fr 1fr';
+}
+
+// ─── showGameQuiz ─────────────────────────────────────────────────────────────
+
+/**
+ * The central, reusable quiz window for all games.
+ * Renders inside options.container as a full-screen overlay.
+ * 
+ * @param {GameVocabManager} vocabMgr
+ * @param {Object} options
+ * @param {HTMLElement} options.container
+ * @param {string|Function} [options.title]
+ * @param {string|Function} [options.titleColor]
+ * @param {string|Function} [options.subtitle]
+ * @param {boolean} [options.showFurigana=true]
+ * @param {number} [options.optionCount=4]
+ * @param {string} [options.forceMode]
+ * @param {number[]|null} [options.dots]
+ * @param {Function} [options.onAnswer] (isCorrect, wordObj, result) => void
+ * @param {Function} [options.onEmpty] () => void
+ * @returns {{ challenge, overlay } | null}
+ */
+export function showGameQuiz(vocabMgr, options = {}) {
+    _injectStyles();
+
+    const optionCount  = options.optionCount  ?? 4;
+    const showFurigana = options.showFurigana !== false;
+
+    const challenge = vocabMgr.getNextWord(options.forceMode ?? null, optionCount);
+    if (!challenge) {
+        if (options.onEmpty)  options.onEmpty();
+        else if (options.onAnswer) options.onAnswer(true, null, null);
+        return null;
     }
 
-    _resize() {
-        if (!this.canvas || !this.canvas.parentElement) return;
-        this.canvas.width = this.canvas.parentElement.clientWidth;
-        this.canvas.height = this.canvas.parentElement.clientHeight;
-        this.cx = this.canvas.width / 2;
-        this.cy = this.canvas.height / 2;
+    const { wordObj, options: answerOpts, correctIdx, type, displayMode } = challenge;
+    const isUnscheduled = type === 'unscheduled';
+
+    const resolve = (v) => typeof v === 'function' ? v(isUnscheduled, type) : v;
+
+    const badge      = _badgeFor(type);
+    
+    // Add SRS due count to badge if scheduling is active
+    let badgeLabel   = badge.label;
+    if (vocabMgr.isGlobalSrs || vocabMgr.getMode() !== 'random') {
+        const dueCount = vocabMgr.getDueCount();
+        if (dueCount > 0) badgeLabel += ` (${dueCount} due)`;
+    }
+    
+    const title      = resolve(options.title)      ?? badgeLabel;
+    const titleColor = resolve(options.titleColor) ?? 'var(--text-main, #333)';
+    const subtitle   = options.subtitle !== undefined
+        ? resolve(options.subtitle)
+        : (isUnscheduled ? 'Not scheduled — correct answers won\'t update your SRS interval.' : '');
+
+    const dotsHtml = options.dots
+        ? `<div class="gvm-seq-dots">${options.dots.map(s =>
+              `<div class="gvm-dot${s === 1 ? ' filled' : s === -1 ? ' failed' : ''}"></div>`
+          ).join('')}</div>`
+        : '';
+
+    const cols = _gridCols(answerOpts.length);
+
+    // Prevent immediate misclicks by blocking interaction and animating rings first
+    const showAnim = vocabMgr.config.preQuizAnim !== false;
+
+    // Build Word Block based on Display Mode
+    let displayFuri = '';
+    let displayMain = wordObj.kanji;
+    
+    if (displayMode === 'kana') {
+        displayMain = wordObj.kana;
+    } else if (displayMode === 'kanji') {
+        displayMain = wordObj.kanji;
+    } else { // furigana
+        if (showFurigana && wordObj.kana !== wordObj.kanji) {
+            displayFuri = wordObj.kana;
+        }
     }
 
-    startRun(stats, startWave, diff) {
-        this.stop();
-        this.stats = stats;
-        this.wave = startWave;
-        this.diff = diff;
-        this.enemies =[];
-        this.projectiles = [];
-        this.enemyProjectiles =[];
-        this.floatTexts =[];
-        this.state = 'IDLE';
-        this.attackCooldown = 0;
-        this.buffs = { barrage: 0, aegis: 0 };
-        this.runStats = { dmgDealt: 0, dmgTakenBoss: 0, dmgTakenBasic: 0 };
-    }
+    const overlay = document.createElement('div');
+    overlay.className = `gvm-overlay ${_forcedTheme === 'dark' ? 'gvm-dark' : ''}`;
+    overlay.innerHTML = `
+        <div class="gvm-modal" style="${showAnim ? 'display:none;' : ''}">
+            <div class="gvm-badge ${badge.cls}">${badgeLabel}</div>
+            <h3 class="gvm-title" style="color:${titleColor};">${title}</h3>
+            ${subtitle ? `<p class="gvm-subtitle">${subtitle}</p>` : ''}
+            ${dotsHtml}
+            <div class="gvm-word-block">
+                <div class="gvm-furi">${displayFuri}</div>
+                <div class="gvm-kanji">${displayMain}</div>
+            </div>
+            <div class="gvm-grid" style="grid-template-columns:${cols};">
+                ${answerOpts.map((opt, i) =>
+                    `<button class="gvm-btn" data-idx="${i}">${opt}</button>`
+                ).join('')}
+            </div>
+        </div>
+        ${showAnim ? `
+        <div class="gvm-pre-anim">
+            <div class="gvm-ring"></div>
+            <div class="gvm-ring"></div>
+            <div class="gvm-ring"></div>
+        </div>
+        ` : ''}
+    `;
 
-    setTargetMode(mode) {
-        this.targetMode = mode;
-    }
+    options.container.appendChild(overlay);
 
-    activateAbility(type) {
-        if (type === 'barrage') {
-            this.buffs.barrage = 5.0; 
-            this.spawnFloatText('BARRAGE!', '#9b59b6');
-        } else if (type === 'nova') {
-            for (const e of this.enemies) {
-                e.hp = 0;
+    if (showAnim) {
+        // Keep overlay transparent while rings play so the tower remains visible underneath
+        overlay.classList.add('gvm-anim-phase');
+
+        const animEl = overlay.querySelector('.gvm-pre-anim');
+        const modalEl = overlay.querySelector('.gvm-modal');
+        setTimeout(() => {
+            if (animEl) animEl.remove();
+            // Fade in the dark backdrop now that the modal is about to appear
+            overlay.classList.remove('gvm-anim-phase');
+            if (modalEl) {
+                modalEl.style.display = 'flex';
+                modalEl.style.animation = 'none';
+                modalEl.offsetHeight; // trigger reflow
+                modalEl.style.animation = 'gvmPopIn 0.2s cubic-bezier(0.175,0.885,0.32,1.275)';
             }
-            this.spawnFloatText('NOVA!', '#9b59b6');
-            this.ctx.fillStyle = 'rgba(155, 89, 182, 0.6)';
-            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-        } else if (type === 'aegis') {
-            this.buffs.aegis = 3;
-            this.spawnFloatText('AEGIS SHIELD!', '#3498db');
-        }
+        }, 450);
     }
 
-    startWave(waveNum) {
-        this.wave = waveNum || 1;
-        this.enemiesToSpawn = Math.floor(10 + this.wave * 2);
-        if (isNaN(this.enemiesToSpawn) || this.enemiesToSpawn <= 0) this.enemiesToSpawn = 10;
-        this.spawnTimer = 0;
-        this.state = 'PLAYING';
-        this.lastTime = performance.now();
-        if (!this.rafId) {
-            this.rafId = requestAnimationFrame((t) => this._loop(t));
-        }
-    }
+    const btns = overlay.querySelectorAll('.gvm-btn');
+    btns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (btn.disabled) return;
+            btns.forEach(b => b.disabled = true);
 
-    pause() {
-        if (this.state === 'PLAYING' || this.state === 'IDLE') this.state = 'PAUSED';
-    }
-
-    resume() {
-        if (this.state === 'PAUSED' || this.state === 'IDLE') {
-            this.state = 'PLAYING';
-            this.lastTime = performance.now();
-            if (!this.rafId) {
-                this.rafId = requestAnimationFrame((t) => this._loop(t));
+            const isCorrect = parseInt(btn.dataset.idx) === correctIdx;
+            btn.classList.add(isCorrect ? 'correct' : 'wrong');
+            if (!isCorrect) {
+                const correctBtn = overlay.querySelector(`.gvm-btn[data-idx="${correctIdx}"]`);
+                if (correctBtn) correctBtn.classList.add('correct');
             }
-        }
-    }
 
-    stop() {
-        this.state = 'STOPPED';
-        if (this.rafId) {
-            cancelAnimationFrame(this.rafId);
-            this.rafId = null;
-        }
-    }
+            const result = vocabMgr.gradeWord(challenge.refId, isCorrect);
 
-    spawnFloatText(text, color, isCenter = false, x = null, y = null) {
-        this.floatTexts.push({
-            x: x !== null ? x : this.cx + (isCenter ? 0 : (Math.random() - 0.5) * 40),
-            y: y !== null ? y : this.cy - 30 + (isCenter ? 0 : (Math.random() - 0.5) * 40),
-            text: text,
-            color: color,
-            life: 1.0,
-            vy: -30
-        });
-    }
-
-    _spawnEnemy() {
-        const angle = Math.random() * Math.PI * 2;
-        const radius = Math.max(this.canvas.width, this.canvas.height) / 2 + 30;
-        
-        let type = 'basic';
-        let hpMult = 1, spdMult = 1, dmgMult = 1, cashMult = 1;
-        let color = '#FF00FF';
-        let atkSpeed = 1.0;
-
-        if (this.wave % 10 === 0 && this.enemiesToSpawn === 1) {
-            type = 'boss'; hpMult = 10; spdMult = 0.4; dmgMult = 5; cashMult = 20; color = '#e74c3c'; atkSpeed = 1.5;
-        } else {
-            const advChance = Math.min(0.3, this.wave / 100); 
-            const rand = Math.random();
-            
-            if (this.wave > 15 && rand < advChance) {
-                let subRand = Math.random();
-                if (subRand < 0.33) {
-                    type = 'healer'; hpMult = 2.0; spdMult = 0.7; color = '#2ecc71'; cashMult = 3;
-                } else if (subRand < 0.66) {
-                    type = 'spawner'; hpMult = 3.0; spdMult = 0.3; color = '#e67e22'; cashMult = 4;
-                } else {
-                    type = 'shielded'; hpMult = 0.1; spdMult = 0.9; color = '#00ffff'; cashMult = 3; atkSpeed = 1.2;
-                }
+            if (isCorrect) {
+                setTimeout(() => {
+                    overlay.remove();
+                    if (options.onAnswer) options.onAnswer(isCorrect, wordObj, result);
+                }, 600);
             } else {
-                let fastChance = 0.05 + Math.min(0.25, (this.wave / 50) * 0.25);
-                let tankChance = 0.05 + Math.min(0.20, (this.wave / 50) * 0.20);
-                let rangedChance = 0.05 + Math.min(0.15, (this.wave / 50) * 0.15);
-                
-                const typeRand = Math.random();
-                if (typeRand < fastChance) { type = 'fast'; hpMult = 0.5; spdMult = 1.8; color = '#f1c40f'; atkSpeed = 0.5; }
-                else if (typeRand < fastChance + tankChance) { type = 'tank'; hpMult = 3.0; spdMult = 0.6; cashMult = 2; color = '#3498db'; atkSpeed = 2.0; }
-                else if (typeRand < fastChance + tankChance + rangedChance) { type = 'ranged'; hpMult = 0.8; spdMult = 0.8; cashMult = 1.5; color = '#9b59b6'; atkSpeed = 2.0; }
-            }
-        }
-
-        let baseHp = 10 * Math.pow(1.15, this.wave) * this.diff;
-        if (type === 'shielded') baseHp = 10 + (2 * this.wave); 
-        
-        const baseDmg = 2 * Math.pow(1.12, this.wave) * this.diff;
-        let relic1Mult = this.callbacks.hasRelic && this.callbacks.hasRelic(1) && type === 'boss' ? 3 : 1;
-        const baseCash = 5 * Math.pow(1.08, this.wave) * this.diff * (this.stats.cashBonus || 1) * cashMult * relic1Mult;
-        
-        const finalSpeed = Math.min(100, 25 + this.wave * 0.8) * spdMult * (this.stats.enemySpeedMult || 1.0);
-
-        this.enemies.push({
-            id: Math.random().toString(36),
-            type: type,
-            x: this.cx + Math.cos(angle) * radius,
-            y: this.cy + Math.sin(angle) * radius,
-            hp: baseHp * hpMult,
-            maxHp: baseHp * hpMult,
-            dmg: baseDmg * dmgMult,
-            speed: finalSpeed,
-            atkSpeed: atkSpeed,
-            attackCooldown: atkSpeed,
-            kb: 0,
-            cash: baseCash,
-            color: color,
-            radius: type === 'boss' ? 18 : type === 'tank' || type === 'spawner' ? 14 : type === 'fast' ? 8 : type === 'shielded' ? 12 : 10,
-            tickTimer: 0 
-        });
-    }
-
-    _spawnSwarm(x, y) {
-        if (this.enemies.filter(e => e.type === 'swarm').length > 30) return;
-        
-        const baseDmg = 2 * Math.pow(1.12, this.wave) * this.diff * 0.5;
-        const finalSpeed = Math.min(150, 40 + this.wave * 1.5) * (this.stats.enemySpeedMult || 1.0);
-
-        this.enemies.push({
-            id: Math.random().toString(36),
-            type: 'swarm',
-            x: x + (Math.random() - 0.5) * 20,
-            y: y + (Math.random() - 0.5) * 20,
-            hp: 1, maxHp: 1,
-            dmg: baseDmg,
-            speed: finalSpeed,
-            atkSpeed: 0.5, attackCooldown: 0.5,
-            kb: 0, cash: 0, color: '#e74c3c', radius: 5, tickTimer: 0
-        });
-    }
-
-    _dealDamageToTower(rawDmg, enemyType) {
-        if (this.buffs.aegis > 0) {
-            this.buffs.aegis--;
-            this.spawnFloatText('BLOCKED', '#3498db', true);
-            return;
-        }
-        
-        const mitigated = rawDmg * (1 - (this.stats.defPct || 0)) - (this.stats.defAbs || 0);
-        const finalDmg = Math.max(1, mitigated);
-        
-        if (enemyType === 'boss') this.runStats.dmgTakenBoss += finalDmg;
-        else this.runStats.dmgTakenBasic += finalDmg;
-
-        if (this.stats.currentHp - finalDmg <= 0) {
-            if (this.stats.defyDeath > 0 && Math.random() < this.stats.defyDeath) {
-                this.stats.currentHp = this.stats.health * 0.3; 
-                this.spawnFloatText('DEFY DEATH!', '#f1c40f', true);
-                this.callbacks.onHpUpdate();
-                return;
-            }
-        }
-        
-        this.stats.currentHp -= finalDmg;
-        this.spawnFloatText(`-${Math.floor(finalDmg)}`, '#e74c3c', true);
-        
-        this.callbacks.onHpUpdate();
-
-        if (this.stats.currentHp <= 0) {
-            this.state = 'STOPPED';
-            this._draw(performance.now());
-            this.callbacks.onPlayerDie();
-        }
-    }
-
-    _loop(time) {
-        if (this.state !== 'PLAYING') {
-            this.rafId = null;
-            return;
-        }
-
-        let dt = (time - this.lastTime) / 1000;
-        this.lastTime = time;
-        if (dt > 0.1) dt = 0.1;
-        dt *= (this.stats.gameSpeed || 1) * this.speedMult; 
-
-        if (this.stats.regen > 0 && this.stats.currentHp < this.stats.health) {
-            this.stats.currentHp = Math.min(this.stats.health, this.stats.currentHp + this.stats.regen * dt);
-            this.callbacks.onHpUpdate();
-        }
-
-        if (this.enemiesToSpawn > 0) {
-            this.spawnTimer -= dt;
-            if (this.spawnTimer <= 0) {
-                this._spawnEnemy();
-                this.enemiesToSpawn--;
-                this.spawnTimer = Math.max(0.2, 1.2 - this.wave * 0.01);
-            }
-        }
-
-        let currentAtkSpeed = this.stats.atkSpeed;
-        if (this.buffs.barrage > 0) {
-            this.buffs.barrage -= dt;
-            currentAtkSpeed *= 10;
-        }
-
-        this.attackCooldown -= dt;
-        if (this.attackCooldown <= 0 && this.enemies.length > 0) {
-            let candidates = this.enemies.filter(e => Math.hypot(e.x - this.cx, e.y - this.cy) - e.radius <= this.stats.range);
-            
-            if (candidates.length > 0) {
-                let target = null;
-                if (this.targetMode === 'closest') {
-                    target = candidates.reduce((a, b) => Math.hypot(a.x - this.cx, a.y - this.cy) < Math.hypot(b.x - this.cx, b.y - this.cy) ? a : b);
-                } else if (this.targetMode === 'farthest') {
-                    target = candidates.reduce((a, b) => Math.hypot(a.x - this.cx, a.y - this.cy) > Math.hypot(b.x - this.cx, b.y - this.cy) ? a : b);
-                } else if (this.targetMode === 'boss') {
-                    let bosses = candidates.filter(e => e.type === 'boss');
-                    target = bosses.length > 0 ? bosses[0] : candidates[0];
-                } else if (this.targetMode === 'fast') {
-                    let fasts = candidates.filter(e => e.type === 'fast' || e.type === 'swarm');
-                    target = fasts.length > 0 ? fasts[0] : candidates[0];
-                }
-                
-                if (target) {
-                    const isCrit = Math.random() < this.stats.critChance;
-                    let dmg = isCrit ? this.stats.damage * this.stats.critMult : this.stats.damage;
+                // CORRECTION SCREEN
+                setTimeout(() => {
+                    const modalEl = overlay.querySelector('.gvm-modal');
+                    if (!modalEl) return;
                     
-                    const dist = Math.hypot(target.x - this.cx, target.y - this.cy);
-                    const meterMult = 1 + (dist * (this.stats.dmgMeter || 0));
-                    dmg *= meterMult;
+                    modalEl.innerHTML = `
+                        <div class="gvm-badge gvm-badge-leech">❌ Incorrect</div>
+                        <h3 class="gvm-title" style="color: #e74c3c; margin-top: 5px;">Let's review!</h3>
+                        
+                        <div style="background: var(--bg-color, #f9f9f9); border: 1px solid var(--border-color, #ccc); border-radius: 12px; padding: 20px; margin: 15px 0;">
+                            <div style="font-size: 14px; color: var(--text-muted, #888); min-height: 20px; margin-bottom: 4px;">
+                                ${wordObj.kana !== wordObj.kanji ? wordObj.kana : ''}
+                            </div>
+                            <div style="font-size: 42px; font-weight: 900; color: var(--text-main, #333); line-height: 1.1; letter-spacing: -1px; margin-bottom: 15px;">
+                                ${wordObj.kanji}
+                            </div>
+                            <div style="font-size: 18px; color: var(--primary-color, #4A90E2); font-weight: bold; padding-top: 15px; border-top: 1px dashed var(--border-color, #ccc);">
+                                ${wordObj.eng}
+                            </div>
+                        </div>
+                        
+                        <div style="display: flex; gap: 10px;">
+                            <button id="gvm-correction-speak" class="gvm-btn" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                                ${SPEAKER_ICON} Audio
+                            </button>
+                            <button id="gvm-correction-continue" class="gvm-btn" style="flex: 2; background: var(--primary-color, #4A90E2); color: white; border-color: var(--primary-color, #4A90E2);">
+                                Continue &rarr;
+                            </button>
+                        </div>
+                    `;
                     
-                    this.projectiles.push({
-                        x: this.cx, y: this.cy,
-                        targetId: target.id,
-                        dmg: dmg,
-                        isCrit: isCrit,
-                        speed: 500,
-                        vx: 0, vy: 0,
-                        hitIds:[],
-                        chainBounces: this.stats.synergyChain ? 2 : 0,
-                        pierces: this.stats.synergyPierce ? 3 : 0,
-                        hasBounced: false
+                    const speakBtn = modalEl.querySelector('#gvm-correction-speak');
+                    speakBtn.addEventListener('click', () => {
+                        // Strictly enforce ONLY the target term, stripping out parentheses or extraneous formatting
+                        const textToSpeak = String(wordObj.kanji).replace(/[（\(].*?[）\)]/g, '').trim();
+                        speakText(textToSpeak);
                     });
                     
-                    this.attackCooldown = 1 / currentAtkSpeed;
-                }
+                    const continueBtn = modalEl.querySelector('#gvm-correction-continue');
+                    continueBtn.addEventListener('click', () => {
+                        stopSpeech();
+                        overlay.remove();
+                        if (options.onAnswer) options.onAnswer(isCorrect, wordObj, result);
+                    });
+                }, 800); // 800ms gives them enough time to see what they clicked vs what was correct
             }
+        });
+    });
+
+    return { challenge, overlay };
+}
+
+// ─── showStandardQuiz ─────────────────────────────────────────────────────────
+
+export function showStandardQuiz(vocabMgr, options) {
+    showGameQuiz(vocabMgr, options);
+}
+
+// ─── showQuizSequence ─────────────────────────────────────────────────────────
+
+export function showQuizSequence(vocabMgr, count, options) {
+    let step         = 0;
+    const stepStates = Array(count).fill(0);
+
+    function next() {
+        if (step >= count) {
+            const successes = stepStates.filter(s => s === 1).length;
+            if (options.onComplete) options.onComplete(successes, count - successes);
+            return;
         }
 
-        for (let i = this.projectiles.length - 1; i >= 0; i--) {
-            const p = this.projectiles[i];
-            let hitTarget = null;
-            let step = p.speed * dt;
-
-            if (p.targetId) {
-                const target = this.enemies.find(e => e.id === p.targetId);
-                if (target) {
-                    const dx = target.x - p.x;
-                    const dy = target.y - p.y;
-                    const dist = Math.hypot(dx, dy);
-                    if (dist > 0) { p.vx = (dx/dist)*p.speed; p.vy = (dy/dist)*p.speed; }
-
-                    if (dist <= step + target.radius) {
-                        hitTarget = target;
-                    }
-                } else {
-                    p.targetId = null; 
-                }
-            }
-
-            if (!hitTarget) {
-                p.x += p.vx * dt;
-                p.y += p.vy * dt;
-                
-                // Cull in game-world space: remove if > 2x range from tower (can't hit anything useful)
-                if (Math.hypot(p.x - this.cx, p.y - this.cy) > (this.stats.range || 100) * 2.5) {
-                    this.projectiles.splice(i, 1);
-                    continue;
-                }
-
-                for (const e of this.enemies) {
-                    if (p.hitIds.includes(e.id)) continue;
-                    if (Math.hypot(e.x - p.x, e.y - p.y) < e.radius + 10) {
-                        hitTarget = e;
-                        break;
-                    }
-                }
-            }
-
-            if (hitTarget) {
-                let actualDmg = p.dmg;
-                if (hitTarget.type === 'shielded') actualDmg = 1;
-                
-                hitTarget.hp -= actualDmg;
-                this.runStats.dmgDealt += actualDmg;
-
-                if (p.isCrit && hitTarget.type !== 'shielded') {
-                    this.spawnFloatText(Math.floor(p.dmg), '#f1c40f', false, hitTarget.x, hitTarget.y - 10);
-                } else if (hitTarget.type === 'shielded') {
-                    this.spawnFloatText('1', '#00ffff', false, hitTarget.x, hitTarget.y - 10);
-                }
-                
-                p.hitIds.push(hitTarget.id);
-
-                if (this.stats.knockback > 0 && Math.random() < this.stats.knockback) {
-                    hitTarget.kb = hitTarget.type === 'boss' ? 10 : 40;
-                }
-
-                let bounceProc = (this.stats.bounce > 0 && Math.random() < this.stats.bounce);
-
-                if (this.stats.synergyChain && p.chainBounces > 0) {
-                    p.chainBounces--;
-                    let nextTarget = this.enemies.find(en => !p.hitIds.includes(en.id) && Math.hypot(en.x - p.x, en.y - p.y) < 150);
-                    if (nextTarget) {
-                        p.targetId = nextTarget.id;
-                    } else {
-                        this.projectiles.splice(i, 1);
-                    }
-                } else if (bounceProc && p.chainBounces === 0 && !p.hasBounced) {
-                    p.hasBounced = true; 
-                    let nextTarget = this.enemies.find(en => !p.hitIds.includes(en.id) && Math.hypot(en.x - p.x, en.y - p.y) < 150);
-                    if (nextTarget) {
-                        p.targetId = nextTarget.id;
-                    } else {
-                        this.projectiles.splice(i, 1);
-                    }
-                } else if (this.stats.synergyPierce && p.pierces > 0) {
-                    p.pierces--;
-                    p.targetId = null;
-                } else {
-                    this.projectiles.splice(i, 1);
-                }
-            }
-        }
-
-        for (let i = this.enemyProjectiles.length - 1; i >= 0; i--) {
-            const ep = this.enemyProjectiles[i];
-            const dx = this.cx - ep.x;
-            const dy = this.cy - ep.y;
-            const dist = Math.hypot(dx, dy);
-            const step = ep.speed * dt;
-            
-            if (dist <= 15 + step) {
-                this._dealDamageToTower(ep.dmg, 'ranged');
-                
-                if (this.stats.thorns > 0 && ep.sourceId) {
-                    let shooter = this.enemies.find(en => en.id === ep.sourceId);
-                    if (shooter) {
-                        let thornsDmg = ep.dmg * this.stats.thorns;
-                        if (shooter.type === 'shielded') thornsDmg = 1;
-                        shooter.hp -= thornsDmg;
-                        this.runStats.dmgDealt += thornsDmg;
-                        this.spawnFloatText(`-${Math.floor(thornsDmg)}`, '#e74c3c', false, shooter.x, shooter.y - 15);
-                    }
-                }
-
-                this.enemyProjectiles.splice(i, 1);
-                if (this.state === 'STOPPED') return;
-            } else {
-                ep.x += (dx / dist) * step;
-                ep.y += (dy / dist) * step;
-            }
-        }
-
-        for (let i = this.enemies.length - 1; i >= 0; i--) {
-            const e = this.enemies[i];
-            
-            if (e.hp <= 0 && !e.dead) {
-                e.dead = true;
-                if (e.cash > 0) {
-                    this.spawnFloatText(`+$${Math.floor(e.cash)}`, '#2ecc71', false, e.x, e.y);
-                }
-                this.callbacks.onEnemyKill(e.cash, e.x, e.y, e.type);
-                
-                if (this.stats.lifesteal > 0 && this.stats.currentHp < this.stats.health) {
-                    const heal = this.stats.damage * this.stats.lifesteal;
-                    this.stats.currentHp = Math.min(this.stats.health, this.stats.currentHp + heal);
-                    this.callbacks.onHpUpdate();
-                }
-                this.enemies.splice(i, 1);
-                continue;
-            }
-
-            e.tickTimer += dt;
-            if (e.type === 'healer' && e.tickTimer > 2.0) {
-                e.tickTimer = 0;
-                let healed = false;
-                for (const other of this.enemies) {
-                    if (other.id !== e.id && other.hp < other.maxHp && Math.hypot(other.x - e.x, other.y - e.y) < 100) {
-                        other.hp = Math.min(other.maxHp, other.hp + (other.maxHp * 0.1));
-                        healed = true;
-                    }
-                }
-                if (healed) this.spawnFloatText('+HP', '#2ecc71', false, e.x, e.y - 20);
-            }
-            if (e.type === 'spawner' && e.tickTimer > 4.0) {
-                e.tickTimer = 0;
-                this._spawnSwarm(e.x, e.y);
-                this._spawnSwarm(e.x, e.y);
-            }
-
-            const dx = this.cx - e.x;
-            const dy = this.cy - e.y;
-            const dist = Math.hypot(dx, dy);
-            const step = e.speed * dt;
-
-            if (e.type === 'ranged') {
-                if (dist > (this.stats.range || 100) * 0.7) {
-                    e.x += (dx / dist) * step;
-                    e.y += (dy / dist) * step;
-                    e.attackCooldown = e.atkSpeed; 
-                } else {
-                    e.attackCooldown -= dt;
-                    if (e.attackCooldown <= 0) {
-                        this.enemyProjectiles.push({ sourceId: e.id, x: e.x, y: e.y, dmg: e.dmg, speed: 150 });
-                        e.attackCooldown = e.atkSpeed;
-                    }
-                }
-            } else {
-                if (dist - e.radius <= 15) {
-                    e.attackCooldown -= dt;
-                    if (e.attackCooldown <= 0) {
-                        this._dealDamageToTower(e.dmg, e.type);
-                        if (this.state === 'STOPPED') return;
-                        
-                        if (this.stats.thorns > 0) {
-                            let thornsDmg = e.dmg * this.stats.thorns;
-                            if (e.type === 'shielded') thornsDmg = 1;
-                            e.hp -= thornsDmg;
-                            this.runStats.dmgDealt += thornsDmg;
-                            this.spawnFloatText(`-${Math.floor(thornsDmg)}`, '#e74c3c', false, e.x, e.y - 15);
-                        }
-                        e.attackCooldown = e.atkSpeed;
-                    }
-                } else {
-                    if (e.kb > 0) {
-                        const kbStep = 200 * dt; 
-                        e.x -= (dx / dist) * kbStep;
-                        e.y -= (dy / dist) * kbStep;
-                        e.kb -= kbStep;
-                        e.attackCooldown = e.atkSpeed;
-                        // Leash: prevent knockback from pushing enemies beyond 1.5x attack range
-                        const leashDist = (this.stats.range || 100) * 1.5;
-                        if (dist > leashDist) {
-                            e.x = this.cx - (dx / dist) * leashDist;
-                            e.y = this.cy - (dy / dist) * leashDist;
-                            e.kb = 0;
-                        }
-                    } else {
-                        e.x += (dx / dist) * step;
-                        e.y += (dy / dist) * step;
-                        e.attackCooldown = e.atkSpeed; 
-                    }
-                }
-            }
-        }
-
-        for (let i = this.floatTexts.length - 1; i >= 0; i--) {
-            const ft = this.floatTexts[i];
-            ft.y += ft.vy * dt;
-            ft.life -= dt;
-            if (ft.life <= 0) this.floatTexts.splice(i, 1);
-        }
-
-        if (this.enemiesToSpawn <= 0 && this.enemies.length === 0) {
-            this.state = 'IDLE';
-            this.callbacks.onWaveComplete();
-        }
-
-        this._draw(time);
-        
-        if (this.state === 'PLAYING') {
-            this.rafId = requestAnimationFrame((t) => this._loop(t));
-        } else {
-            this.rafId = null;
-        }
+        showGameQuiz(vocabMgr, {
+            ...options,
+            dots: [...stepStates],
+            onEmpty: () => {
+                const successes = stepStates.filter(s => s === 1).length;
+                if (options.onComplete) options.onComplete(successes, count - successes);
+            },
+            onAnswer: (isCorrect, wordObj, result) => {
+                stepStates[step] = isCorrect ? 1 : -1;
+                if (options.onStepAnswer) options.onStepAnswer(isCorrect, wordObj, result, step);
+                step++;
+                next();
+            },
+        });
     }
 
-    _drawPolygon(x, y, radius, sides, color, fill = false, lineWidth = 2) {
-        this.ctx.beginPath();
-        for (let i = 0; i < sides; i++) {
-            const a = (Math.PI * 2 / sides) * i - Math.PI / 2;
-            this.ctx.lineTo(x + radius * Math.cos(a), y + radius * Math.sin(a));
-        }
-        this.ctx.closePath();
-        if (fill) {
-            this.ctx.fillStyle = color;
-            this.ctx.fill();
-        } else {
-            this.ctx.strokeStyle = color;
-            this.ctx.lineWidth = lineWidth;
-            this.ctx.stroke();
-        }
-    }
+    next();
+}
 
-    _draw(time) {
-        time = time || performance.now();
-        this.ctx.fillStyle = '#050510';
-        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+// ─── renderVocabSettings ─────────────────────────────────────────────────────
 
-        // ── Autozoom: scale battlefield so attack range + 10% always fits ──
-        const range = this.stats.range || 100;
-        const viewRadius = range * 1.1;            // desired visible radius
-        const halfW = this.canvas.width  / 2;
-        const halfH = this.canvas.height / 2;
-        const fitRadius = Math.min(halfW, halfH);  // largest circle that fits canvas
-        this._zoom = fitRadius / viewRadius;        // zoom < 1 zooms out, > 1 zooms in
-        // translate so logical cx/cy maps to canvas centre, then scale around that
-        this.ctx.save();
-        this.ctx.translate(halfW - this.cx * this._zoom, halfH - this.cy * this._zoom);
-        this.ctx.scale(this._zoom, this._zoom);
+/**
+ * Generates the HTML for a settings menu to configure the VocabManager.
+ * Injects into a provided container element. Uses limits from GameVocabManager.
+ *
+ * @param {GameVocabManager} vocabMgr
+ * @param {HTMLElement} container
+ * @param {Function} onSave - Callback triggered when the player hits Save
+ * @param {'srs'|'custom'|'mixed'} [poolSource='custom']
+ */
+export function renderVocabSettings(vocabMgr, container, onSave, poolSource = 'custom') {
+    _injectStyles();
 
-        const pulse = Math.abs(Math.sin(time / 250)); 
+    const cfg       = vocabMgr.config;
+    const isSrs     = poolSource === 'srs';
+    const isMixed   = poolSource === 'mixed';
+    const isCustom  = poolSource === 'custom';
+    const isSrsOnly = isSrs;
+    
+    // Safely fetch limits dynamically
+    const limits = vocabMgr.constructor.configLimits || {};
+    const getLim = (key, fallbackMin, fallbackMax) => {
+        const l = limits[key];
+        return { min: l?.min ?? fallbackMin, max: l?.max ?? fallbackMax };
+    };
 
-        const AA =[];
-        const B5B =[5, 5];
+    const limInterval = getLim('initialInterval', 1, 300);
+    const limEase     = getLim('initialEase', 1.1, 5.0);
+    const limLeech    = getLim('leechThreshold', 3, 100);
+    const limDue      = getLim('minDueTime', 5, 120);
+    const limAcc      = getLim('minAccuracy', 0.5, 1.0);
 
-        this.ctx.beginPath();
-        this.ctx.arc(this.cx, this.cy, this.stats.range || 100, 0, Math.PI * 2);
-        this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
-        this.ctx.lineWidth = 1;
+    const modeLabels = { auto: '🤖 Auto', manual: '📋 Order', random: '🎲 Random' };
+    const modeDescs  = {
+        auto:   'Introduces new words automatically when accuracy and idle-time thresholds are met.',
+        manual: 'SRS-ordered (due first), but new words must be introduced manually.',
+        random: 'Picks words at random from the full pool — no SRS scheduling.'
+    };
+
+    const renderModeButtons = () => ['auto','manual','random'].map(m => `
+        <button class="gvm-mode-btn${cfg.mode === m ? ' active' : ''}" data-mode="${m}" style="
+            padding:7px 13px; border-radius:8px; border:2px solid var(--border-color,#ccc);
+            background:${cfg.mode === m ? 'var(--primary-color,#4A90E2)' : 'var(--bg-color,#f4f6f8)'};
+            color:${cfg.mode === m ? '#fff' : 'var(--text-main,#333)'}; font-size:13px;
+            font-weight:bold; cursor:pointer; transition:all 0.15s;">
+            ${modeLabels[m]}
+        </button>`).join('');
+
+    container.innerHTML = `
+        <div class="${_forcedTheme === 'dark' ? 'gvm-dark' : ''}" style="display:flex; flex-direction:column; gap:14px; font-size:13px;">
+
+            <div style="display:flex; align-items:center; gap:10px; padding:10px 12px;
+                        background:${isSrs ? 'rgba(74,144,226,0.08)' : isMixed ? 'rgba(155,89,182,0.08)' : 'rgba(39,174,96,0.08)'};
+                        border:1px solid ${isSrs ? 'var(--primary-color,#4A90E2)' : isMixed ? 'rgba(155,89,182,0.5)' : 'rgba(39,174,96,0.4)'};
+                        border-radius:8px; font-size:12px; color:var(--text-main,#333);">
+                <div style="font-size:22px; flex-shrink:0;">${isSrs ? '🌍' : isMixed ? '🔀' : '📦'}</div>
+                <div>
+                    <strong style="color:var(--text-main,#333);">${isSrs ? 'Global SRS' : isMixed ? 'Mixed Pool' : 'Custom Deck'}</strong>
+                    <div style="color:var(--text-muted,#888); margin-top:2px; line-height:1.4;">
+                        ${poolSourceDescription(poolSource)}
+                    </div>
+                </div>
+            </div>
+
+            <div class="gvm-settings-row" style="flex-direction:column; align-items:flex-start; gap:8px;
+                 ${isSrsOnly ? 'opacity:0.45; pointer-events:none;' : ''}">
+                <strong style="color:var(--text-main,#333);">🧠 Learning Mode ${isSrsOnly ? '<span style="font-size:10px;font-weight:normal;color:var(--text-muted,#888);margin-left:4px;">(controlled by SRS)</span>' : ''}</strong>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;" id="gvm-mode-btns">
+                    ${renderModeButtons()}
+                </div>
+                <div id="gvm-mode-desc" style="font-size:11px; color:var(--text-muted,#888);">
+                    ${isSrsOnly ? 'Your SRS schedule controls which words appear. Mode selection is only relevant when mixing SRS with custom decks.' : modeDescs[cfg.mode]}
+                </div>
+            </div>
+
+            <div class="gvm-settings-row">
+                <div style="flex:1;">
+                    <strong style="color:var(--text-main,#333);">👁️ Question Format</strong>
+                    <div style="font-size:11px; color:var(--text-muted,#888);">
+                        How words are displayed during the quiz.
+                    </div>
+                </div>
+                <select id="gvm-cfg-qformat" style="width:auto; padding:6px; border:1px solid var(--border-color,#ccc); border-radius:4px; background:var(--bg-color,#fff); color:var(--text-main,#333);">
+                    <option value="mixed"    ${cfg.questionFormat === 'mixed' ? 'selected' : ''}>Mixed (Random)</option>
+                    <option value="furigana" ${cfg.questionFormat === 'furigana' ? 'selected' : ''}>Kanji + Furigana</option>
+                    <option value="kanji"    ${cfg.questionFormat === 'kanji' ? 'selected' : ''}>Kanji Only</option>
+                    <option value="kana"     ${cfg.questionFormat === 'kana' ? 'selected' : ''}>Kana Only</option>
+                </select>
+            </div>
+
+            <div class="gvm-settings-row" id="gvm-row-batch">
+                <div>
+                    <strong style="color:var(--text-main,#333);">📚 Bootstrap Threshold</strong>
+                    <div style="font-size:11px; color:var(--text-muted,#888);">
+                        While fewer than this many words are active, use the bootstrap batch size.
+                    </div>
+                </div>
+                <input type="number" id="gvm-cfg-threshold" class="gvm-settings-input"
+                       value="${cfg.newWordThreshold ?? 10}" min="1" max="100">
+            </div>
+            <div class="gvm-settings-row" id="gvm-row-batch-bootstrap">
+                <div>
+                    <strong style="color:var(--text-main,#333);">➕ Bootstrap Batch</strong>
+                    <div style="font-size:11px; color:var(--text-muted,#888);">
+                        New words introduced at once when below the threshold (fast ramp-up).
+                    </div>
+                </div>
+                <input type="number" id="gvm-cfg-batch-bootstrap" class="gvm-settings-input"
+                       value="${cfg.newWordBatchBootstrap ?? 5}" min="1" max="20">
+            </div>
+            <div class="gvm-settings-row" id="gvm-row-batch-normal">
+                <div>
+                    <strong style="color:var(--text-main,#333);">➕ Normal Batch</strong>
+                    <div style="font-size:11px; color:var(--text-muted,#888);">
+                        New words introduced at once when at or above the threshold (steady pace).
+                    </div>
+                </div>
+                <input type="number" id="gvm-cfg-batch-normal" class="gvm-settings-input"
+                       value="${cfg.newWordBatchNormal ?? 1}" min="1" max="20">
+            </div>
+
+            <div id="gvm-auto-only">
+                <div class="gvm-settings-row">
+                    <div>
+                        <strong style="color:var(--text-main,#333);">⏱️ Idle Time Before New Word</strong>
+                        <div style="font-size:11px; color:var(--text-muted,#888);">Seconds with no due cards before auto-introducing.</div>
+                    </div>
+                    <input type="number" id="gvm-cfg-duetime" class="gvm-settings-input"
+                           value="${cfg.autoThresholds.minDueTime}" min="${limDue.min}" max="${limDue.max}">
+                </div>
+                <div class="gvm-settings-row">
+                    <div>
+                        <strong style="color:var(--text-main,#333);">🎯 Min Accuracy for New Words</strong>
+                        <div style="font-size:11px; color:var(--text-muted,#888);">Recent accuracy % required before auto-introducing.</div>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:4px;">
+                        <input type="number" id="gvm-cfg-accuracy" class="gvm-settings-input"
+                               value="${Math.round(cfg.autoThresholds.minAccuracy * 100)}" min="${Math.round(limAcc.min*100)}" max="${Math.round(limAcc.max*100)}">
+                        <span style="color:var(--text-muted,#888);">%</span>
+                    </div>
+                </div>
+            </div>
+
+            ${isCustom || isMixed ? `
+            <div class="gvm-settings-row">
+                <div>
+                    <strong style="color:var(--text-main,#333);">🩸 Leech Threshold</strong>
+                    <div style="font-size:11px; color:var(--text-muted,#888);">Wrong answers before a word is quarantined.</div>
+                </div>
+                <input type="number" id="gvm-cfg-leech" class="gvm-settings-input"
+                       value="${cfg.leechThreshold}" min="${limLeech.min}" max="${limLeech.max}">
+            </div>
+            <div class="gvm-settings-row">
+                <div>
+                    <strong style="color:var(--text-main,#333);">⏱️ Initial Interval</strong>
+                    <div style="font-size:11px; color:var(--text-muted,#888);">Seconds before a newly learned word reappears.</div>
+                </div>
+                <input type="number" id="gvm-cfg-interval" class="gvm-settings-input"
+                       value="${cfg.initialInterval}" min="${limInterval.min}" max="${limInterval.max}">
+            </div>
+            <div class="gvm-settings-row">
+                <div>
+                    <strong style="color:var(--text-main,#333);">📐 Ease Factor</strong>
+                    <div style="font-size:11px; color:var(--text-muted,#888);">Interval growth multiplier. Higher = faster spacing.</div>
+                </div>
+                <input type="number" id="gvm-cfg-ease" class="gvm-settings-input"
+                       step="0.1" value="${cfg.initialEase}" min="${limEase.min}" max="${limEase.max}">
+            </div>` : ''}
+
+            <button id="gvm-btn-save" style="padding:12px; background:var(--primary-color,#4A90E2);
+                    color:white; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">
+                💾 Save Settings
+            </button>
+        </div>
+    `;
+
+    let selectedMode = cfg.mode;
+
+    const syncVisibility = (mode) => {
+        selectedMode = mode;
+        const isRandom = mode === 'random';
+        const isAuto   = mode === 'auto';
+        const hideDisplay = isRandom ? 'none' : '';
+        container.querySelector('#gvm-row-batch').style.display            = hideDisplay;
+        container.querySelector('#gvm-row-batch-bootstrap').style.display  = hideDisplay;
+        container.querySelector('#gvm-row-batch-normal').style.display     = hideDisplay;
+        container.querySelector('#gvm-auto-only').style.display = isAuto ? '' : 'none';
+        container.querySelector('#gvm-mode-desc').textContent   = modeDescs[mode] || '';
+    };
+    syncVisibility(cfg.mode);
+
+    container.querySelectorAll('.gvm-mode-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            container.querySelectorAll('.gvm-mode-btn').forEach(b => {
+                const active = b.dataset.mode === btn.dataset.mode;
+                b.style.background  = active ? 'var(--primary-color,#4A90E2)' : 'var(--bg-color,#f4f6f8)';
+                b.style.color       = active ? '#fff' : 'var(--text-main,#333)';
+                b.style.borderColor = active ? 'var(--primary-color,#4A90E2)' : 'var(--border-color,#ccc)';
+            });
+            syncVisibility(btn.dataset.mode);
+        });
+    });
+
+    const clamp = (val, min, max) => Math.max(min, Math.min(max, val));
+
+    container.querySelector('#gvm-btn-save').addEventListener('click', () => {
+        const newMode = selectedMode;
         
-        this.ctx['setLineDash'](B5B);
-        this.ctx.stroke();
-        this.ctx['setLineDash'](AA);
+        const qFormat = container.querySelector('#gvm-cfg-qformat').value;
 
-        let glowColor = '#00ffff';
-        let blur = 10;
-        if (this.stats.kBuff >= 3.0) { glowColor = '#ffffff'; blur = 30; }
-        else if (this.stats.kBuff >= 2.0) { glowColor = '#9b59b6'; blur = 20; }
-        
-        this.ctx.shadowBlur = blur * (0.5 + pulse * 0.5); 
-        this.ctx.shadowColor = glowColor;
-        this._drawPolygon(this.cx, this.cy, 16, 6, glowColor);
-        
-        if (this.buffs.aegis > 0) {
-            this.ctx.beginPath();
-            this.ctx.arc(this.cx, this.cy, 22, 0, Math.PI * 2);
-            this.ctx.strokeStyle = '#3498db';
-            this.ctx.lineWidth = 3;
-            this.ctx.stroke();
-        }
-        this.ctx.shadowBlur = 0;
+        const newWordThreshold      = clamp(parseInt(container.querySelector('#gvm-cfg-threshold').value) || 10, 1, 100);
+        const newWordBatchBootstrap = clamp(parseInt(container.querySelector('#gvm-cfg-batch-bootstrap').value) || 5, 1, 20);
+        const newWordBatchNormal    = clamp(parseInt(container.querySelector('#gvm-cfg-batch-normal').value) || 1, 1, 20);
 
-        for (const e of this.enemies) {
-            let sides = 4;
-            if (e.type === 'fast') sides = 3;
-            if (e.type === 'swarm') sides = 3;
-            if (e.type === 'tank') sides = 5;
-            if (e.type === 'boss') sides = 8;
-            if (e.type === 'ranged') sides = 6;
-            if (e.type === 'healer') sides = 12;
-            if (e.type === 'spawner') sides = 4;
-            if (e.type === 'shielded') sides = 5;
-            
-            if (e.type === 'healer') {
-                this.ctx.beginPath();
-                this.ctx.arc(e.x, e.y, 100, 0, Math.PI * 2);
-                this.ctx.fillStyle = 'rgba(46, 204, 113, 0.05)';
-                this.ctx.fill();
-            }
+        const minDueTime = clamp(parseInt(container.querySelector('#gvm-cfg-duetime').value) || 10, limDue.min, limDue.max);
+        const minAccRaw  = parseInt(container.querySelector('#gvm-cfg-accuracy').value) || 80;
+        const minAccuracy = clamp(minAccRaw / 100, limAcc.min, limAcc.max);
 
-            if (e.hp < e.maxHp || e.type === 'boss') {
-                this.ctx.shadowBlur = (e.type === 'boss' ? 15 : 8) * (0.8 + pulse * 0.2);
-                this.ctx.shadowColor = e.color;
-            }
+        let leechThreshold = cfg.leechThreshold;
+        let initialInterval = cfg.initialInterval;
+        let initialEase = cfg.initialEase;
 
-            if (e.type === 'shielded') {
-                this._drawPolygon(e.x, e.y, e.radius, sides, e.color, false, 3);
-            } else {
-                this._drawPolygon(e.x, e.y, e.radius, sides, e.color);
-            }
-            this.ctx.shadowBlur = 0;
-            
-            if (e.hp < e.maxHp ||['boss','tank','spawner','healer'].includes(e.type)) {
-                const w = e.radius * 2;
-                const hpPct = Math.max(0, e.hp / e.maxHp);
-                this.ctx.fillStyle = '#333';
-                this.ctx.fillRect(e.x - w/2, e.y - e.radius - 8, w, 4);
-                this.ctx.fillStyle = e.color;
-                this.ctx.fillRect(e.x - w/2, e.y - e.radius - 8, w * hpPct, 4);
-            }
+        if (isCustom || isMixed) {
+            leechThreshold  = clamp(parseInt(container.querySelector('#gvm-cfg-leech').value) || 20, limLeech.min, limLeech.max);
+            initialInterval = clamp(parseInt(container.querySelector('#gvm-cfg-interval').value) || 8, limInterval.min, limInterval.max);
+            initialEase     = clamp(parseFloat(container.querySelector('#gvm-cfg-ease').value) || 1.5, limEase.min, limEase.max);
         }
 
-        for (const p of this.projectiles) {
-            this.ctx.beginPath();
-            this.ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
-            this.ctx.fillStyle = p.isCrit ? '#f1c40f' : (this.stats.synergyPierce || this.stats.synergyChain ? '#9b59b6' : '#00ffff');
-            this.ctx.shadowBlur = 8;
-            this.ctx.shadowColor = this.ctx.fillStyle;
-            this.ctx.fill();
-            this.ctx.shadowBlur = 0;
+        vocabMgr.config.mode = newMode;
+        vocabMgr.config.questionFormat = qFormat;
+        vocabMgr.config.newWordThreshold = newWordThreshold;
+        vocabMgr.config.newWordBatchBootstrap = newWordBatchBootstrap;
+        vocabMgr.config.newWordBatchNormal = newWordBatchNormal;
+        vocabMgr.config.autoThresholds.minDueTime = minDueTime;
+        vocabMgr.config.autoThresholds.minAccuracy = minAccuracy;
+        if (isCustom || isMixed) {
+            vocabMgr.config.leechThreshold = leechThreshold;
+            vocabMgr.config.initialInterval = initialInterval;
+            vocabMgr.config.initialEase = initialEase;
         }
 
-        for (const ep of this.enemyProjectiles) {
-            this.ctx.beginPath();
-            this.ctx.arc(ep.x, ep.y, 4, 0, Math.PI * 2);
-            this.ctx.fillStyle = '#e74c3c';
-            this.ctx.shadowBlur = 6;
-            this.ctx.shadowColor = '#e74c3c';
-            this.ctx.fill();
-            this.ctx.shadowBlur = 0;
+        if (onSave) {
+            onSave({
+                mode: newMode,
+                questionFormat: qFormat,
+                newWordThreshold,
+                newWordBatchBootstrap,
+                newWordBatchNormal,
+                minDueTime,
+                minAccuracy,
+                leechThreshold,
+                initialInterval,
+                initialEase
+            });
         }
-
-        this.ctx.textAlign = 'center';
-        this.ctx.textBaseline = 'middle';
-        for (const ft of this.floatTexts) {
-            this.ctx.font = `bold ${Math.round(12 / this._zoom)}px monospace`;
-            this.ctx.fillStyle = ft.color;
-            this.ctx.globalAlpha = Math.max(0, ft.life);
-            this.ctx.fillText(ft.text, ft.x, ft.y);
-        }
-        this.ctx.globalAlpha = 1.0;
-
-        // Restore transform — everything above was in zoomed world space
-        this.ctx.restore();
-    }
+    });
 }
