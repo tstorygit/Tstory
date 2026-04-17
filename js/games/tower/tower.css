@@ -285,22 +285,6 @@
     text-shadow: 0 0 4px #2ecc71;
     line-height: 1;
 }
-/* in-collection: equipped cards get a subtle green tint + cursor icon */
-.tw-card-in-equipped {
-    border-color: #2ecc71 !important;
-    box-shadow: 0 0 8px rgba(46, 204, 113, 0.4) !important;
-    animation: none !important;
-    cursor: pointer;
-}
-.tw-card-in-equipped::after {
-    content: '▲';
-    position: absolute;
-    bottom: 2px;
-    right: 3px;
-    font-size: 7px;
-    color: #2ecc71;
-    opacity: 0.8;
-}
 
 /* Ghost card for unowned */
 .tw-card-ghost {
@@ -324,7 +308,6 @@
     line-height: 1.2;
 }
 
-.tw-card.equipped { border-color: #2ecc71 !important; box-shadow: 0 0 10px rgba(46, 204, 113, 0.5) !important; animation: none !important; }
 .tw-card-name { font-size: 9px; font-weight: bold; color: #fff; margin-bottom: 2px; line-height: 1.1;}
 .tw-card-desc { font-size: 8px; color: #00ffff; font-family: monospace; line-height: 1.1;}
 .tw-card-lvl { font-size: 9px; font-weight: bold; color: #f1c40f; margin-top: auto; }
@@ -337,6 +320,23 @@
 .tw-card[data-rarity="mythic"] { border-color: #e74c3c; }
 .tw-card[data-rarity="ssr"]    { animation: twRainbowBorder 2s linear infinite; }
 .tw-card.maxed { border-color: #f1c40f !important; box-shadow: 0 0 15px #f1c40f !important; animation: none !important; }
+
+/* in-collection: equipped cards get a subtle green tint + cursor icon */
+.tw-card.tw-card-in-equipped {
+    border-color: #2ecc71 !important;
+    box-shadow: 0 0 8px rgba(46, 204, 113, 0.4) !important;
+    animation: none !important;
+    cursor: pointer;
+}
+.tw-card.tw-card-in-equipped::after {
+    content: '▲';
+    position: absolute;
+    bottom: 2px;
+    right: 3px;
+    font-size: 7px;
+    color: #2ecc71;
+    opacity: 0.8;
+}
 
 #tw-cards-slots .tw-card { flex: 1; min-width: 0; max-width: 20%; height: 80px; }
 .tw-card-slot {
