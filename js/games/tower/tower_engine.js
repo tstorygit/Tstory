@@ -33,7 +33,12 @@ export class TowerEngine {
         this.runStats = {
             dmgDealt: 0,
             dmgTakenBoss: 0,
-            dmgTakenBasic: 0
+            dmgTakenBasic: 0,
+            dmgBase: 0,
+            dmgCrit: 0,
+            dmgSplash: 0,
+            dmgThorns: 0,
+            dmgAbility: 0
         };
 
         this._resize();
@@ -61,7 +66,10 @@ export class TowerEngine {
         this.state = 'IDLE';
         this.attackCooldown = 0;
         this.buffs = { barrage: 0, aegis: 0 };
-        this.runStats = { dmgDealt: 0, dmgTakenBoss: 0, dmgTakenBasic: 0 };
+        this.runStats = { 
+            dmgDealt: 0, dmgTakenBoss: 0, dmgTakenBasic: 0,
+            dmgBase: 0, dmgCrit: 0, dmgSplash: 0, dmgThorns: 0, dmgAbility: 0
+        };
     }
 
     setTargetMode(mode) {
@@ -74,6 +82,8 @@ export class TowerEngine {
             this.spawnFloatText('BARRAGE!', '#9b59b6');
         } else if (type === 'nova') {
             for (const e of this.enemies) {
+                this.runStats.dmgAbility += e.hp;
+                this.runStats.dmgDealt += e.hp;
                 e.hp = 0;
             }
             this.spawnFloatText('NOVA!', '#9b59b6');
@@ -241,7 +251,7 @@ export class TowerEngine {
         });
     }
 
-    _dealDamageToEnemy(e, rawDmg, isCrit, textOffset = 10) {
+    _dealDamageToEnemy(e, rawDmg, isCrit, textOffset = 10, source = 'base') {
         let actualDmg = rawDmg;
 
         if (e.type === 'shielded') actualDmg = 1;
@@ -255,6 +265,12 @@ export class TowerEngine {
 
         e.hp -= actualDmg;
         this.runStats.dmgDealt += actualDmg;
+
+        if (source === 'base') this.runStats.dmgBase += actualDmg;
+        else if (source === 'crit') this.runStats.dmgCrit += actualDmg;
+        else if (source === 'splash') this.runStats.dmgSplash += actualDmg;
+        else if (source === 'thorns') this.runStats.dmgThorns += actualDmg;
+        else if (source === 'ability') this.runStats.dmgAbility += actualDmg;
 
         if (isCrit && e.type !== 'shielded' && (!e.affixes || !e.affixes.includes('armored') || e.armorStacks <= 0)) {
             this.spawnFloatText(Math.floor(rawDmg), '#f1c40f', false, e.x, e.y - textOffset);
@@ -420,14 +436,15 @@ export class TowerEngine {
             }
 
             if (hitTarget) {
-                let actualDmg = this._dealDamageToEnemy(hitTarget, p.dmg, p.isCrit);
+                let source = p.isCrit ? 'crit' : 'base';
+                let actualDmg = this._dealDamageToEnemy(hitTarget, p.dmg, p.isCrit, 10, source);
                 
                 if (this.stats.splashDmg > 0) {
                     let splashRadius = 50;
                     let splashDamage = p.dmg * this.stats.splashDmg;
                     for (const e of this.enemies) {
                         if (e.id !== hitTarget.id && Math.hypot(e.x - hitTarget.x, e.y - hitTarget.y) <= splashRadius + e.radius) {
-                            this._dealDamageToEnemy(e, splashDamage, false);
+                            this._dealDamageToEnemy(e, splashDamage, false, 10, 'splash');
                         }
                     }
                     this.explosions.push({ x: hitTarget.x, y: hitTarget.y, radius: splashRadius, life: 0.2, color: `rgba(243, 156, 18, 0.5)` });
@@ -479,7 +496,7 @@ export class TowerEngine {
                 
                 if (this.stats.thorns > 0 && shooter) {
                     let thornsDmg = ep.dmg * this.stats.thorns;
-                    this._dealDamageToEnemy(shooter, thornsDmg, false, 15);
+                    this._dealDamageToEnemy(shooter, thornsDmg, false, 15, 'thorns');
                 }
 
                 this.enemyProjectiles.splice(i, 1);
@@ -573,7 +590,7 @@ export class TowerEngine {
                         
                         if (this.stats.thorns > 0) {
                             let thornsDmg = e.dmg * this.stats.thorns;
-                            this._dealDamageToEnemy(e, thornsDmg, false, 15);
+                            this._dealDamageToEnemy(e, thornsDmg, false, 15, 'thorns');
                         }
                         e.attackCooldown = e.atkSpeed;
                     }

@@ -1,10 +1,18 @@
-// main/js/games/tower/tower.js
-
 import { mountVocabSelector } from '../../vocab_selector.js';
 import { GameVocabManager } from '../../game_vocab_mgr.js';
 import { showGameQuiz, poolSourceLabel, renderVocabSettings, setGvmTheme } from '../../game_vocab_mgr_ui.js';
 import { UPGRADES, LAB_RESEARCH_CATEGORIES, LAB_RESEARCH, RELICS, QUEST_TEMPLATES, CARDS, SLOT_COSTS, getCardLevelInfo, calcStat, calcCost, getMultiBuy, calcLabCost, calcLabTimeMs, getUpgradeMaxLevel } from './tower_data.js';
 import { TowerEngine } from './tower_engine.js';
+
+const ACHIEVEMENTS = {
+    first_boss: { id: 'first_boss', name: 'First Blood', desc: 'Defeat your first Boss enemy.', title: 'Novice' },
+    vocab_100: { id: 'vocab_100', name: 'Linguist', desc: 'Answer 100 vocab questions correctly (Lifetime).', title: 'Linguist' },
+    vocab_1000: { id: 'vocab_1000', name: 'Polyglot', desc: 'Answer 1,000 vocab questions correctly (Lifetime).', title: 'Polyglot' },
+    wave_50: { id: 'wave_50', name: 'Survivor', desc: 'Reach Wave 50 in any difficulty.', title: 'Survivor' },
+    wave_100: { id: 'wave_100', name: 'Centurion', desc: 'Reach Wave 100 in any difficulty.', title: 'Centurion' },
+    no_def_30: { id: 'no_def_30', name: 'Glass Cannon', desc: 'Reach Wave 30 without buying any Defense upgrades.', title: 'Glass Cannon' },
+    max_cards: { id: 'max_cards', name: 'Collector', desc: 'Unlock all 5 card slots.', title: 'Collector' }
+};
 
 let _screens = null;
 let _onExit = null;
@@ -56,8 +64,10 @@ function _defaultSave() {
         },
         cards: { owned: {}, equipped: [null], unlockedSlots: 1 },
         vocabConfig: GameVocabManager.defaultConfig(),
-        stats: { totalCorrect: 0, sessionCorrect: 0, highestStreak: 0, wordsMastered:[] },
+        stats: { totalCorrect: 0, sessionCorrect: 0, highestStreak: 0, wordsMastered:[], bossesKilled: 0, highestWaveNoDef: 0 },
         relics:[],
+        achievements: {},
+        equippedTitle: null,
         login: { lastDate: null, streakDays: 0 },
         quests: { date: null, active:[] }
     };
@@ -71,7 +81,11 @@ export function init(screens, onExit) {
     _screens.setup.innerHTML = `
         <div class="tw-root">
             <div class="tw-header">
-                <h2 class="tw-header-title">Polyglot Tower</h2>
+                <div style="display:flex; align-items:center;">
+                    <h2 class="tw-header-title" style="margin-right:10px;">Polyglot Tower</h2>
+                    <span id="tw-equipped-title" style="font-size:10px; color:#c39bd3; text-transform:uppercase; border:1px solid #c39bd3; padding:2px 4px; border-radius:4px; display:none; white-space:nowrap;"></span>
+                    <button id="tw-info-btn" style="background:#333; color:#00ffff; border:1px solid #00ffff; border-radius:50%; width:22px; height:22px; cursor:pointer; font-weight:bold; margin-left:10px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">i</button>
+                </div>
                 <div class="tw-header-currencies">
                     <div class="tw-coins">🪙 <span id="tw-hub-coins">0</span></div>
                     <div class="tw-gems">💎 <span id="tw-hub-gems">0</span></div>
@@ -82,6 +96,7 @@ export function init(screens, onExit) {
                 <button class="tw-tab-btn" data-tab="tw-hub-workshop">Workshop</button>
                 <button class="tw-tab-btn" data-tab="tw-hub-lab">Lab</button>
                 <button class="tw-tab-btn" data-tab="tw-hub-cards">Cards</button>
+                <button class="tw-tab-btn" data-tab="tw-hub-achievements">Trophies</button>
                 <button class="tw-tab-btn" data-tab="tw-hub-login">Daily</button>
                 <button class="tw-tab-btn" data-tab="tw-hub-quests">Quests</button>
                 <button class="tw-tab-btn" data-tab="tw-hub-relics">Relics</button>
@@ -162,7 +177,6 @@ export function init(screens, onExit) {
             </div>
 
             <div class="tw-screen" id="tw-hub-cards">
-                <!-- Compact top: slots + pull buttons -->
                 <div class="tw-cards-top">
                     <div class="tw-cards-top-row">
                         <span class="tw-cards-top-label">Equipped</span>
@@ -174,10 +188,18 @@ export function init(screens, onExit) {
                     <div id="tw-cards-slots" class="tw-cards-equipped-row"></div>
                     <button id="tw-unlock-slot-btn" class="tw-unlock-slot-btn" style="display:none;"></button>
                 </div>
-                <!-- Scrollable rarity rows -->
                 <div class="tw-cards-collection">
                     <div id="tw-cards-inv"></div>
                 </div>
+            </div>
+
+            <div class="tw-screen tw-scroll-content" id="tw-hub-achievements">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <h3 style="color:#f1c40f; margin-top:0;">Achievements & Titles</h3>
+                    <div style="font-size:12px; color:#2ecc71; font-weight:bold;">Global Buff: +<span id="tw-ach-buff-val">0</span>% Damage</div>
+                </div>
+                <p style="font-size:12px; color:#aaa; margin-bottom:15px;">Unlock achievements to gain a permanent +1% Base Damage per achievement, and collect unique titles!</p>
+                <div id="tw-achievements-list" style="display:flex; flex-direction:column; gap:10px;"></div>
             </div>
 
             <div class="tw-screen tw-scroll-content" id="tw-hub-login">
@@ -221,6 +243,29 @@ export function init(screens, onExit) {
             <div class="tw-screen tw-scroll-content" id="tw-hub-vocab">
                 <div id="tw-vocab-settings-mount"></div>
                 <button id="tw-change-deck-btn" style="width:100%; margin-top:20px; padding:12px; border:1px solid #00ffff; background:rgba(0,255,255,0.05); color:#00ffff; border-radius:8px; font-weight:bold; cursor:pointer;">Change Vocabulary Deck</button>
+            </div>
+        </div>
+
+        <div id="tw-info-modal" class="tw-modal" style="display:none; position:absolute; inset:0; z-index:1000; padding:20px; background:rgba(0,0,0,0.95);">
+            <div style="background:#1a1a2e; padding:20px; border-radius:12px; border:2px solid #00ffff; width:100%; max-width:500px; max-height:80vh; overflow-y:auto; box-sizing:border-box;">
+                <h3 style="color:#00ffff; margin-top:0; text-align:center;">Mechanics Guide</h3>
+                <div style="color:#ccc; font-size:13px; line-height:1.5;">
+                    <h4 style="color:#f1c40f; margin-bottom:5px;">🧠 Knowledge System</h4>
+                    <p style="margin-top:0;">Between waves, you'll answer Vocabulary questions. Each correct answer gives you a <b>Knowledge Stack</b>. Knowledge acts as a powerful global multiplier for your Damage, Health, Regen, Cash, and Coins.</p>
+                    
+                    <h4 style="color:#f1c40f; margin-bottom:5px;">🔥 Combo Multiplier</h4>
+                    <p style="margin-top:0;">Consecutive correct answers build your Combo. Higher combos multiply the Knowledge Stacks gained per answer: <br>• 3+ Streak: <b>x1.5</b><br>• 5+ Streak: <b>x2.0</b><br>• 10+ Streak: <b>x3.0</b></p>
+                    
+                    <h4 style="color:#f1c40f; margin-bottom:5px;">✨ Abilities</h4>
+                    <p style="margin-top:0;">Correct answers charge your Abilities. Once fully charged (100%), you can activate powerful skills like Barrage (massive attack speed), Nova (board wipe), or Aegis (blocks next 3 hits).</p>
+                    
+                    <h4 style="color:#f1c40f; margin-bottom:5px;">🧬 Linguistic Synergy</h4>
+                    <p style="margin-top:0;">Unlocked in the Lab, this provides permanent run buffs based on your current Knowledge multiplier:<br>• at <b>x2.0</b> Knowledge: Projectiles Pierce up to 3 enemies.<br>• at <b>x3.0</b> Knowledge: Projectiles Chain to 2 nearby enemies.</p>
+                    
+                    <h4 style="color:#f1c40f; margin-bottom:5px;">🏆 Achievements & Titles</h4>
+                    <p style="margin-top:0;">Unlock achievements to earn permanent global Damage buffs (+1% Base Damage per achievement) and equip unique Titles to show off your prowess!</p>
+                </div>
+                <button id="tw-info-close" class="tw-play-btn" style="margin-top:20px;">Got it!</button>
             </div>
         </div>
 
@@ -305,17 +350,43 @@ export function init(screens, onExit) {
                 <div class="tw-subtab-content" id="tw-run-utility"></div>
             </div>
 
-            <div id="tw-death-screen" class="tw-screen tw-modal" style="display:none; position:absolute; inset:0; z-index:1000; padding:20px;">
-                <h1 style="color:#e74c3c; margin-bottom:5px;">Run Ended</h1>
-                <div style="font-size:18px; color:#00ffff; margin-bottom:15px;">Reached Wave <span id="tw-ds-wave"></span></div>
+            <div id="tw-death-screen" class="tw-screen tw-modal" style="display:none; position:absolute; inset:0; z-index:1000; padding:15px; overflow-y:auto;">
+                <h1 style="color:#e74c3c; margin-bottom:5px; margin-top:20px;">Run Ended</h1>
+                <div style="font-size:18px; color:#00ffff; margin-bottom:10px;">Reached Wave <span id="tw-ds-wave"></span></div>
                 
-                <div class="tw-death-grid">
-                    <div class="tw-death-grid-item">Damage Dealt<div class="tw-death-val" id="tw-ds-dmg" style="color:#2ecc71;">0</div></div>
-                    <div class="tw-death-grid-item">Vocab Accuracy<div class="tw-death-val" id="tw-ds-acc" style="color:#3498db;">0%</div></div>
+                <div style="display:flex; gap:10px; margin: 10px 0; width:100%; max-width:600px;">
+                    <div style="flex:1; background:rgba(255,255,255,0.05); padding:10px; border-radius:8px;">
+                        <h4 style="margin:0 0 10px; color:#e74c3c; font-size:13px; text-align:center;">Damage Dealt</h4>
+                        <div style="font-size:11px; color:#ccc; display:flex; flex-direction:column; gap:4px; font-family:monospace;">
+                            <div style="display:flex; justify-content:space-between;"><span>Base:</span><span id="tw-ds-dmg-base">0</span></div>
+                            <div style="display:flex; justify-content:space-between;"><span>Crit:</span><span id="tw-ds-dmg-crit">0</span></div>
+                            <div style="display:flex; justify-content:space-between;"><span>Splash:</span><span id="tw-ds-dmg-splash">0</span></div>
+                            <div style="display:flex; justify-content:space-between;"><span>Thorns:</span><span id="tw-ds-dmg-thorns">0</span></div>
+                            <div style="display:flex; justify-content:space-between;"><span>Ability:</span><span id="tw-ds-dmg-abil">0</span></div>
+                            <hr style="border:0; border-top:1px solid #555; margin:4px 0;">
+                            <div style="display:flex; justify-content:space-between; font-weight:bold; color:#2ecc71;"><span>Total:</span><span id="tw-ds-dmg-total">0</span></div>
+                        </div>
+                    </div>
+                    <div style="flex:1; display:flex; flex-direction:column; gap:10px;">
+                        <div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:8px;">
+                            <h4 style="margin:0 0 10px; color:#f1c40f; font-size:13px; text-align:center;">Economy</h4>
+                            <div style="font-size:11px; color:#ccc; display:flex; flex-direction:column; gap:4px; font-family:monospace;">
+                                <div style="display:flex; justify-content:space-between;"><span>Enemy Drops:</span><span id="tw-ds-eco-drops">0</span></div>
+                                <div style="display:flex; justify-content:space-between;"><span>Wave Bonus:</span><span id="tw-ds-eco-wave">0</span></div>
+                                <hr style="border:0; border-top:1px solid #555; margin:4px 0;">
+                                <div style="display:flex; justify-content:space-between; font-weight:bold; color:#f1c40f;"><span>Total Coins:</span><span id="tw-ds-eco-total">0</span></div>
+                            </div>
+                        </div>
+                        <div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:8px; text-align:center;">
+                            <h4 style="margin:0 0 5px; color:#3498db; font-size:13px;">Vocab Accuracy</h4>
+                            <div id="tw-ds-acc" style="font-size:16px; font-weight:bold; color:#3498db;">0%</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tw-death-grid" style="margin:0 0 15px 0;">
                     <div class="tw-death-grid-item">Boss Dmg Taken<div class="tw-death-val" id="tw-ds-bossdmg" style="color:#e74c3c;">0</div></div>
                     <div class="tw-death-grid-item">Mob Dmg Taken<div class="tw-death-val" id="tw-ds-mobdmg" style="color:#e67e22;">0</div></div>
-                    <div class="tw-death-grid-item">Coins (Drops)<div class="tw-death-val" id="tw-ds-cdrops" style="color:#f1c40f;">0</div></div>
-                    <div class="tw-death-grid-item">Coins (Wave)<div class="tw-death-val" id="tw-ds-cint" style="color:#f1c40f;">0</div></div>
                 </div>
 
                 <div style="width:100%; max-width:400px; margin-bottom:20px; background:rgba(0,0,0,0.5); padding:10px; border-radius:8px;">
@@ -352,6 +423,7 @@ export function init(screens, onExit) {
             if (btn.dataset.tab === 'tw-hub-quests') _renderQuests();
             if (btn.dataset.tab === 'tw-hub-cards') _renderCards();
             if (btn.dataset.tab === 'tw-hub-login') _renderLoginTab();
+            if (btn.dataset.tab === 'tw-hub-achievements') _renderAchievements();
         });
     });
 
@@ -419,7 +491,14 @@ export function init(screens, onExit) {
         });
     });
 
-    // Info Modal Wiring
+    // Info Modals
+    _screens.setup.querySelector('#tw-info-btn').onclick = () => {
+        _screens.setup.querySelector('#tw-info-modal').style.display = 'flex';
+    };
+    _screens.setup.querySelector('#tw-info-close').onclick = () => {
+        _screens.setup.querySelector('#tw-info-modal').style.display = 'none';
+    };
+
     _screens.setup.querySelector('#tw-mult-info-btn').onclick = () => {
         _screens.setup.querySelector('#tw-mult-info-modal').style.display = 'flex';
     };
@@ -451,7 +530,7 @@ export function init(screens, onExit) {
         }
     };
     _screens.setup.querySelector('#tw-wipe-stats').onclick = () => {
-        if(confirm('Reset Stats, Quests & Relics?')) { 
+        if(confirm('Reset Stats, Achievements, Quests & Relics?')) { 
             const def = _defaultSave();
             _save.stats = def.stats; 
             _save.highestWave = def.highestWave;
@@ -459,6 +538,8 @@ export function init(screens, onExit) {
             _save.maxDiff = def.maxDiff;
             _save.relics = def.relics;
             _save.quests = def.quests;
+            _save.achievements = def.achievements;
+            _save.equippedTitle = null;
             _saveGame(); _showHub(); 
         }
     };
@@ -549,6 +630,7 @@ export function init(screens, onExit) {
             let coinDrop = 0;
             if (type === 'boss') {
                 coinDrop = 5 * _run.diff;
+                _save.stats.bossesKilled = (_save.stats.bossesKilled || 0) + 1;
                 _updateQuest('kill_bosses', 1);
             } else {
                 let chance = 0.02;
@@ -566,6 +648,7 @@ export function init(screens, onExit) {
                 _engine.spawnFloatText(`+${finalDrop} 🪙`, '#f1c40f', false, x, y - 20);
             }
             
+            _checkAchievements();
             _updateRunHUD();
             _renderRunUpgrades();
         },
@@ -593,6 +676,7 @@ export function init(screens, onExit) {
                 _run.cash = Math.floor(_run.cash * 1.02);
             }
             _checkUnlock();
+            _checkAchievements();
             _startNextWave();
         },
         onPlayerDie: () => _handleDeath(),
@@ -617,7 +701,7 @@ export function launch() {
     }
     if (!_save.login) _save.login = { lastDate: null, streakDays: 0 };
     if (!_save.quests) _save.quests = { date: null, active:[] };
-    if (!_save.cards) _save.cards = { owned: {}, equipped: [null], unlockedSlots: 1 };
+    if (!_save.cards) _save.cards = { owned: {}, equipped:[null], unlockedSlots: 1 };
     
     if (!_save.workshop.unlocks) _save.workshop.unlocks = {};
     if (!_save.workshop.offense) _save = _defaultSave();
@@ -661,8 +745,12 @@ export function launch() {
     if (_save.lab.levels.lifesteal === undefined) _save.lab.levels.lifesteal = 0;
     if (_save.lab.levels.cashBonusMult === undefined) _save.lab.levels.cashBonusMult = 0;
 
-    if (!_save.stats) _save.stats = { totalCorrect: 0, sessionCorrect: 0, highestStreak: 0, wordsMastered:[] };
+    if (!_save.stats) _save.stats = { totalCorrect: 0, sessionCorrect: 0, highestStreak: 0, wordsMastered:[], bossesKilled: 0, highestWaveNoDef: 0 };
+    if (_save.stats.bossesKilled === undefined) _save.stats.bossesKilled = 0;
+    if (_save.stats.highestWaveNoDef === undefined) _save.stats.highestWaveNoDef = 0;
     if (!_save.relics) _save.relics =[];
+    if (!_save.achievements) _save.achievements = {};
+    if (_save.equippedTitle === undefined) _save.equippedTitle = null;
     
     _save.stats.sessionCorrect = 0;
 
@@ -675,6 +763,7 @@ export function launch() {
         _vocabMgr.setPool(srsPool, 'tower_banned', { globalSrs: true });
         _checkDailyLogin();
         _generateDailyQuests();
+        _checkAchievements();
         _showHub();
     } else {
         _openDeckSelector();
@@ -706,6 +795,8 @@ function _showHub() {
     _screens.setup.style.display = 'block';
     _screens.game.style.display = 'none';
     
+    _updateEquippedTitleUI();
+
     _screens.setup.querySelector('#tw-hub-coins').textContent = Math.floor(_save.coins);
     _screens.setup.querySelector('#tw-hub-gems').textContent = Math.floor(_save.gems);
     
@@ -728,6 +819,7 @@ function _showHub() {
     _renderQuests();
     _renderCards();
     _renderLoginTab();
+    _renderAchievements();
     
     renderVocabSettings(
         _vocabMgr,
@@ -738,6 +830,43 @@ function _showHub() {
         },
         _vocabMgr.getPoolSource()
     );
+}
+
+function _updateEquippedTitleUI() {
+    const el = _screens.setup.querySelector('#tw-equipped-title');
+    if (_save && _save.equippedTitle) {
+        el.textContent = _save.equippedTitle;
+        el.style.display = 'inline-block';
+    } else {
+        el.style.display = 'none';
+    }
+}
+
+function _checkAchievements() {
+    if (!_save.achievements) _save.achievements = {};
+    let unlocked = false;
+
+    const check = (id, cond) => {
+        if (!_save.achievements[id] && cond()) {
+            _save.achievements[id] = true;
+            unlocked = true;
+            if (_engine) _engine.spawnFloatText('ACHIEVEMENT UNLOCKED!', '#f1c40f', true);
+        }
+    };
+
+    check('first_boss', () => _save.stats.bossesKilled > 0);
+    check('vocab_100', () => _save.stats.totalCorrect >= 100);
+    check('vocab_1000', () => _save.stats.totalCorrect >= 1000);
+    check('wave_50', () => _save.highestWave >= 50);
+    check('wave_100', () => _save.highestWave >= 100);
+    check('no_def_30', () => _save.stats.highestWaveNoDef >= 30);
+    check('max_cards', () => _save.cards && _save.cards.unlockedSlots >= 5);
+
+    if (unlocked) {
+        _saveGame();
+        if (typeof init._updateDiffUI === 'function') init._updateDiffUI();
+        if (_screens.setup.style.display !== 'none') _renderAchievements();
+    }
 }
 
 // ─── DAILY LOGIN & QUESTS ───────────────────────────────────────────────────
@@ -953,6 +1082,7 @@ function _pullCards(amount) {
     }
     
     _saveGame();
+    _checkAchievements();
     _showHub();
 
     const modal = _screens.setup.querySelector('#tw-card-pull-modal');
@@ -1019,6 +1149,7 @@ function _renderCards() {
                 _save.cards.unlockedSlots++;
                 _save.cards.equipped.push(null);
                 _saveGame();
+                _checkAchievements();
                 _showHub();
             }
         };
@@ -1026,8 +1157,7 @@ function _renderCards() {
         unlockBtn.style.display = 'none';
     }
 
-    // ── helper: build a real card element ──────────────────────────────
-    const _makeCardEl = (id, count, isEquippedSlotIdx /* -1 = not in slot */) => {
+    const _makeCardEl = (id, count, isEquippedSlotIdx) => {
         const cDef = CARDS[id];
         const lvlInfo = getCardLevelInfo(count, cDef.maxLevel);
         let actualLvl = lvlInfo.level;
@@ -1063,7 +1193,6 @@ function _renderCards() {
         return el;
     };
 
-    // ── Equipped slots bar ─────────────────────────────────────────────
     for (let i = 0; i < _save.cards.unlockedSlots; i++) {
         const id = _save.cards.equipped[i];
         if (id) {
@@ -1076,7 +1205,6 @@ function _renderCards() {
         }
     }
 
-    // ── Collection: one row per rarity, all cards shown ───────────────
     const RARITIES =[
         { key: 'ssr',    label: 'SSR',    color: '#ff6ef7' },
         { key: 'mythic', label: 'Mythic', color: '#e74c3c' },
@@ -1109,11 +1237,9 @@ function _renderCards() {
 
             if (isOwned) {
                 const cardEl = _makeCardEl(id, count, equippedIdx);
-                // dim slightly if equipped (visual cue it's "in use")
                 if (equippedIdx >= 0) cardEl.classList.add('tw-card-in-equipped');
                 row.appendChild(cardEl);
             } else {
-                // Ghost card for unowned
                 const ghost = document.createElement('div');
                 ghost.className = 'tw-card tw-card-ghost';
                 ghost.setAttribute('data-rarity', key);
@@ -1125,6 +1251,48 @@ function _renderCards() {
         header.querySelector('.tw-rarity-count').textContent = `${ownedCount}/${cardsOfRarity.length}`;
         section.appendChild(row);
         invEl.appendChild(section);
+    }
+}
+
+function _renderAchievements() {
+    if (!_save.achievements) _save.achievements = {};
+    const list = _screens.setup.querySelector('#tw-achievements-list');
+    const buffVal = _screens.setup.querySelector('#tw-ach-buff-val');
+    
+    let unlockedCount = Object.keys(_save.achievements).length;
+    if(buffVal) buffVal.textContent = unlockedCount;
+    
+    if (list) {
+        list.innerHTML = '';
+        
+        for (const key in ACHIEVEMENTS) {
+            const ach = ACHIEVEMENTS[key];
+            const isUnlocked = !!_save.achievements[key];
+            const isEquipped = _save.equippedTitle === ach.title;
+            
+            const row = document.createElement('div');
+            row.style.cssText = `background: rgba(20,20,30,0.8); border: 1px solid ${isUnlocked ? '#f1c40f' : '#333'}; border-radius: 8px; padding: 12px; display:flex; justify-content:space-between; align-items:center; opacity: ${isUnlocked ? '1' : '0.5'}`;
+            
+            row.innerHTML = `
+                <div>
+                    <div style="font-size:14px; font-weight:bold; color:${isUnlocked ? '#f1c40f' : '#888'};">${ach.name}</div>
+                    <div style="font-size:11px; color:#aaa; margin-top:4px;">${ach.desc}</div>
+                    ${isUnlocked ? `<div style="font-size:10px; color:#c39bd3; margin-top:6px; font-weight:bold;">Title: [${ach.title}]</div>` : ''}
+                </div>
+                ${isUnlocked ? `<button class="tw-play-btn" style="width:auto; padding:6px 12px; font-size:11px; background:${isEquipped ? '#2ecc71' : 'transparent'}; border:1px solid ${isEquipped ? '#2ecc71' : '#c39bd3'}; color:${isEquipped ? '#fff' : '#c39bd3'};">${isEquipped ? 'Equipped' : 'Equip Title'}</button>` : '<div style="font-size:24px;">🔒</div>'}
+            `;
+            
+            if (isUnlocked) {
+                const btn = row.querySelector('button');
+                btn.onclick = () => {
+                    _save.equippedTitle = ach.title;
+                    _saveGame();
+                    _renderAchievements();
+                    _updateEquippedTitleUI();
+                };
+            }
+            list.appendChild(row);
+        }
     }
 }
 
@@ -1266,6 +1434,7 @@ function _renderStats() {
             <div class="tw-upg-row"><div class="tw-upg-name">Total Correct</div><div class="tw-upg-val">${_save.stats.totalCorrect}</div></div>
             <div class="tw-upg-row"><div class="tw-upg-name">Highest Streak</div><div class="tw-upg-val">${_save.stats.highestStreak}</div></div>
             <div class="tw-upg-row"><div class="tw-upg-name">Words Mastered</div><div class="tw-upg-val">${_save.stats.wordsMastered.length}</div></div>
+            <div class="tw-upg-row"><div class="tw-upg-name">Bosses Defeated</div><div class="tw-upg-val">${_save.stats.bossesKilled || 0}</div></div>
             <div class="tw-upg-row"><div class="tw-upg-name">Highest Wave</div><div class="tw-upg-val">${_save.highestWave}</div></div>
             <div class="tw-upg-row"><div class="tw-upg-name">Max Tier</div><div class="tw-upg-val">${_save.maxDiff}</div></div>
         </div>
@@ -1348,6 +1517,9 @@ function _getTowerStats() {
     const kBuff = 1 + ((_run ? _run.knowledgeStacks : 0) * kMult);
     const masteryBuff = 1 + (_save.stats.wordsMastered.length * 0.0001); 
     
+    let achCount = Object.keys(_save.achievements || {}).length;
+    let achBuff = 1 + (achCount * 0.01);
+    
     let labDmgMult = 1 + ((_save.lab.levels.damageMult || 0) * 0.02);
     let labHpMult = 1 + ((_save.lab.levels.healthMult || 0) * 0.05);
 
@@ -1359,7 +1531,7 @@ function _getTowerStats() {
             if (['damage', 'health', 'regen', 'cashBonus', 'cashWave', 'coinBonus', 'coinsWave', 'atkSpeed'].includes(id)) {
                 val *= kBuff;
             }
-            if (id === 'damage') val *= masteryBuff * labDmgMult;
+            if (id === 'damage') val *= masteryBuff * labDmgMult * achBuff;
             if (id === 'health') val *= labHpMult;
 
             if (id === 'atkSpeed') {
@@ -1495,7 +1667,7 @@ function _startRun() {
 
     _vocabMgr.seedInitialWords(5);
     
-    if (_engine) _engine.stats = {}; // Ensure _getTowerStats uses full health logic
+    if (_engine) _engine.stats = {};
     _engine.startRun(_getTowerStats(), _run.wave, _run.diff);
     _engine.setTargetMode(_run.targetMode);
     
@@ -1573,6 +1745,7 @@ function _startNextWave() {
             _vocabMgr.resume();
             _engine.resume();
             
+            _checkAchievements();
             _saveRunSnapshot();
             _engine.startWave(_run.wave);
         },
@@ -1618,10 +1791,16 @@ function _handleDeath() {
     
     const totalCoins = _run.earnedCoinsDrops + _run.earnedCoinsWave;
     _save.coins += totalCoins;
+
+    if (!_run.boughtDefense && _run.wave > (_save.stats.highestWaveNoDef || 0)) {
+        _save.stats.highestWaveNoDef = _run.wave;
+    }
     
     if (_vocabMgr && !_vocabMgr.isGlobalSrs) {
         _vocabMgr.exportToAppSrs(null, 'skip');
     }
+    
+    _checkAchievements();
     _saveGame();
     
     const acc = _run.vocabQuestions > 0 ? Math.round((_run.vocabCorrect / _run.vocabQuestions) * 100) : 0;
@@ -1629,12 +1808,21 @@ function _handleDeath() {
     const deathScreen = _screens.game.querySelector('#tw-death-screen');
     
     deathScreen.querySelector('#tw-ds-wave').textContent = _run.wave;
-    deathScreen.querySelector('#tw-ds-dmg').textContent = Math.floor(_engine.runStats.dmgDealt).toLocaleString();
+
+    deathScreen.querySelector('#tw-ds-dmg-base').textContent = Math.floor(_engine.runStats.dmgBase || 0).toLocaleString();
+    deathScreen.querySelector('#tw-ds-dmg-crit').textContent = Math.floor(_engine.runStats.dmgCrit || 0).toLocaleString();
+    deathScreen.querySelector('#tw-ds-dmg-splash').textContent = Math.floor(_engine.runStats.dmgSplash || 0).toLocaleString();
+    deathScreen.querySelector('#tw-ds-dmg-thorns').textContent = Math.floor(_engine.runStats.dmgThorns || 0).toLocaleString();
+    deathScreen.querySelector('#tw-ds-dmg-abil').textContent = Math.floor(_engine.runStats.dmgAbility || 0).toLocaleString();
+    deathScreen.querySelector('#tw-ds-dmg-total').textContent = Math.floor(_engine.runStats.dmgDealt || 0).toLocaleString();
+    
+    deathScreen.querySelector('#tw-ds-eco-drops').textContent = _run.earnedCoinsDrops.toLocaleString();
+    deathScreen.querySelector('#tw-ds-eco-wave').textContent = _run.earnedCoinsWave.toLocaleString();
+    deathScreen.querySelector('#tw-ds-eco-total').textContent = (_run.earnedCoinsDrops + _run.earnedCoinsWave).toLocaleString();
+
     deathScreen.querySelector('#tw-ds-acc').textContent = acc + '%';
-    deathScreen.querySelector('#tw-ds-bossdmg').textContent = Math.floor(_engine.runStats.dmgTakenBoss).toLocaleString();
-    deathScreen.querySelector('#tw-ds-mobdmg').textContent = Math.floor(_engine.runStats.dmgTakenBasic).toLocaleString();
-    deathScreen.querySelector('#tw-ds-cdrops').textContent = _run.earnedCoinsDrops;
-    deathScreen.querySelector('#tw-ds-cint').textContent = _run.earnedCoinsWave;
+    deathScreen.querySelector('#tw-ds-bossdmg').textContent = Math.floor(_engine.runStats.dmgTakenBoss || 0).toLocaleString();
+    deathScreen.querySelector('#tw-ds-mobdmg').textContent = Math.floor(_engine.runStats.dmgTakenBasic || 0).toLocaleString();
 
     const wordsDiv = deathScreen.querySelector('#tw-ds-words');
     wordsDiv.innerHTML = '';
@@ -1720,7 +1908,7 @@ function _updateAbilitiesUI() {
 }
 
 function _renderRunUpgrades() {
-    for (const cat of ['offense', 'defense', 'utility']) {
+    for (const cat of['offense', 'defense', 'utility']) {
         const container = _screens.game.querySelector(`#tw-run-${cat}`);
         container.innerHTML = '';
         
@@ -1838,7 +2026,7 @@ function _autoBuyTicker() {
     if (_engine && _engine.state === 'PAUSED') return;
 
     let candidates = [];
-    for (const cat of['offense', 'defense', 'utility']) {
+    for (const cat of ['offense', 'defense', 'utility']) {
         if (_run.autoBuy[cat]) {
             for (const id in UPGRADES[cat]) {
                 const def = UPGRADES[cat][id];
