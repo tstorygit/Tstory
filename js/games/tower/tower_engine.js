@@ -343,7 +343,8 @@ export class TowerEngine {
                 p.x += p.vx * dt;
                 p.y += p.vy * dt;
                 
-                if (p.x < 0 || p.x > this.canvas.width || p.y < 0 || p.y > this.canvas.height) {
+                // Cull in game-world space: remove if > 2x range from tower (can't hit anything useful)
+                if (Math.hypot(p.x - this.cx, p.y - this.cy) > (this.stats.range || 100) * 2.5) {
                     this.projectiles.splice(i, 1);
                     continue;
                 }
@@ -508,7 +509,14 @@ export class TowerEngine {
                         e.x -= (dx / dist) * kbStep;
                         e.y -= (dy / dist) * kbStep;
                         e.kb -= kbStep;
-                        e.attackCooldown = e.atkSpeed; 
+                        e.attackCooldown = e.atkSpeed;
+                        // Leash: prevent knockback from pushing enemies beyond 1.5x attack range
+                        const leashDist = (this.stats.range || 100) * 1.5;
+                        if (dist > leashDist) {
+                            e.x = this.cx - (dx / dist) * leashDist;
+                            e.y = this.cy - (dy / dist) * leashDist;
+                            e.kb = 0;
+                        }
                     } else {
                         e.x += (dx / dist) * step;
                         e.y += (dy / dist) * step;
@@ -560,6 +568,18 @@ export class TowerEngine {
         time = time || performance.now();
         this.ctx.fillStyle = '#050510';
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        // ── Autozoom: scale battlefield so attack range + 10% always fits ──
+        const range = this.stats.range || 100;
+        const viewRadius = range * 1.1;            // desired visible radius
+        const halfW = this.canvas.width  / 2;
+        const halfH = this.canvas.height / 2;
+        const fitRadius = Math.min(halfW, halfH);  // largest circle that fits canvas
+        this._zoom = fitRadius / viewRadius;        // zoom < 1 zooms out, > 1 zooms in
+        // translate so logical cx/cy maps to canvas centre, then scale around that
+        this.ctx.save();
+        this.ctx.translate(halfW - this.cx * this._zoom, halfH - this.cy * this._zoom);
+        this.ctx.scale(this._zoom, this._zoom);
 
         const pulse = Math.abs(Math.sin(time / 250)); 
 
@@ -656,11 +676,14 @@ export class TowerEngine {
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'middle';
         for (const ft of this.floatTexts) {
-            this.ctx.font = 'bold 12px monospace';
+            this.ctx.font = `bold ${Math.round(12 / this._zoom)}px monospace`;
             this.ctx.fillStyle = ft.color;
             this.ctx.globalAlpha = Math.max(0, ft.life);
             this.ctx.fillText(ft.text, ft.x, ft.y);
         }
         this.ctx.globalAlpha = 1.0;
+
+        // Restore transform — everything above was in zoomed world space
+        this.ctx.restore();
     }
 }

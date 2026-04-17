@@ -159,18 +159,23 @@ export function init(screens, onExit) {
                 <div class="tw-subtab-content" id="tw-lab-utility"></div>
             </div>
 
-            <div class="tw-screen tw-scroll-content" id="tw-hub-cards">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                    <h3 style="color:#00ffff; margin:0;">Equipped Cards</h3>
-                    <div style="display:flex; gap:10px;">
-                        <button id="tw-buy-card-1-btn" style="background:#00a8ff; color:#fff; border:none; padding:8px 12px; border-radius:6px; font-weight:bold; cursor:pointer;">Pull 1 (20 💎)</button>
-                        <button id="tw-buy-card-10-btn" style="background:#9b59b6; color:#fff; border:none; padding:8px 12px; border-radius:6px; font-weight:bold; cursor:pointer;">Pull 10 (200 💎)</button>
+            <div class="tw-screen" id="tw-hub-cards">
+                <!-- Compact top: slots + pull buttons -->
+                <div class="tw-cards-top">
+                    <div class="tw-cards-top-row">
+                        <span class="tw-cards-top-label">Equipped</span>
+                        <div style="display:flex; gap:6px;">
+                            <button id="tw-buy-card-1-btn" class="tw-pull-btn tw-pull-btn-1">Pull 1 · 20 💎</button>
+                            <button id="tw-buy-card-10-btn" class="tw-pull-btn tw-pull-btn-10">Pull 10 · 200 💎</button>
+                        </div>
                     </div>
+                    <div id="tw-cards-slots" class="tw-cards-equipped-row"></div>
+                    <button id="tw-unlock-slot-btn" class="tw-unlock-slot-btn" style="display:none;"></button>
                 </div>
-                <div id="tw-cards-slots" style="display:flex; gap:10px; margin-bottom:20px; overflow-x:auto; padding-bottom:5px;"></div>
-                <button id="tw-unlock-slot-btn" style="width:100%; margin-bottom:20px; padding:10px; background:transparent; border:1px dashed #f1c40f; color:#f1c40f; border-radius:8px; font-weight:bold; cursor:pointer; display:none;"></button>
-                <h3 style="color:#aaa; font-size:12px; margin-bottom:5px; text-transform:uppercase;">Inventory</h3>
-                <div id="tw-cards-inv" class="tw-card-grid"></div>
+                <!-- Scrollable rarity rows -->
+                <div class="tw-cards-collection">
+                    <div id="tw-cards-inv"></div>
+                </div>
             </div>
 
             <div class="tw-screen tw-scroll-content" id="tw-hub-login">
@@ -990,20 +995,19 @@ function _renderCards() {
     const btn1 = _screens.setup.querySelector('#tw-buy-card-1-btn');
     const btn10 = _screens.setup.querySelector('#tw-buy-card-10-btn');
     const unlockBtn = _screens.setup.querySelector('#tw-unlock-slot-btn');
-    
+
     slotsEl.innerHTML = '';
     invEl.innerHTML = '';
-    
+
     btn1.disabled = _save.gems < 20;
     btn1.onclick = () => _pullCards(1);
-
     btn10.disabled = _save.gems < 200;
     btn10.onclick = () => _pullCards(10);
 
     if (_save.cards.unlockedSlots < SLOT_COSTS.length) {
         const cost = SLOT_COSTS[_save.cards.unlockedSlots];
         unlockBtn.style.display = 'block';
-        unlockBtn.textContent = `Unlock New Slot (🪙 ${cost.coins} & 💎 ${cost.gems})`;
+        unlockBtn.textContent = `Unlock Slot · 🪙 ${cost.coins}  💎 ${cost.gems}`;
         unlockBtn.disabled = _save.coins < cost.coins || _save.gems < cost.gems;
         unlockBtn.onclick = () => {
             if (_save.coins >= cost.coins && _save.gems >= cost.gems) {
@@ -1019,29 +1023,31 @@ function _renderCards() {
         unlockBtn.style.display = 'none';
     }
 
-    const _makeCardEl = (id, count, isEquipped, slotIdx) => {
+    // ── helper: build a real card element ──────────────────────────────
+    const _makeCardEl = (id, count, isEquippedSlotIdx /* -1 = not in slot */) => {
         const cDef = CARDS[id];
         const lvlInfo = getCardLevelInfo(count, cDef.maxLevel);
         let actualLvl = lvlInfo.level;
         if (cDef.maxLevel && actualLvl > cDef.maxLevel) actualLvl = cDef.maxLevel;
-        
         let val = cDef.base + (actualLvl - 1) * cDef.step;
-        let desc = cDef.isFlat ? cDef.desc.replace('X', Math.floor(val)) : cDef.desc.replace('%', (val * 100).toFixed(0) + '%');
+        let desc = cDef.isFlat
+            ? cDef.desc.replace('X', Math.floor(val))
+            : cDef.desc.replace('%', (val * 100).toFixed(0) + '%');
 
+        const isEquipped = isEquippedSlotIdx >= 0;
         const el = document.createElement('div');
         el.className = `tw-card ${isEquipped ? 'equipped' : ''} ${lvlInfo.isMax ? 'maxed' : ''}`;
         el.setAttribute('data-rarity', cDef.rarity);
         el.innerHTML = `
+            ${isEquipped ? '<div class="tw-card-equipped-badge">✦</div>' : ''}
             <div class="tw-card-name">${cDef.name}</div>
             <div class="tw-card-desc">${desc}</div>
-            <div class="tw-card-lvl">Lvl ${actualLvl}${lvlInfo.isMax ? ' (MAX)' : ''}</div>
-            ${!lvlInfo.isMax ? `
-                <div class="tw-card-prog"><div class="tw-card-prog-fill" style="width:${(lvlInfo.progress/lvlInfo.goal)*100}%"></div></div>
-            ` : ''}
+            <div class="tw-card-lvl">Lv${actualLvl}${lvlInfo.isMax ? ' ★' : ''}</div>
+            ${!lvlInfo.isMax ? `<div class="tw-card-prog"><div class="tw-card-prog-fill" style="width:${(lvlInfo.progress/lvlInfo.goal)*100}%"></div></div>` : ''}
         `;
         el.onclick = () => {
             if (isEquipped) {
-                _save.cards.equipped[slotIdx] = null;
+                _save.cards.equipped[isEquippedSlotIdx] = null;
             } else {
                 let firstEmpty = _save.cards.equipped.indexOf(null);
                 if (firstEmpty !== -1 && !_save.cards.equipped.includes(id)) {
@@ -1054,10 +1060,11 @@ function _renderCards() {
         return el;
     };
 
+    // ── Equipped slots bar ─────────────────────────────────────────────
     for (let i = 0; i < _save.cards.unlockedSlots; i++) {
         const id = _save.cards.equipped[i];
         if (id) {
-            slotsEl.appendChild(_makeCardEl(id, _save.cards.owned[id], true, i));
+            slotsEl.appendChild(_makeCardEl(id, _save.cards.owned[id], i));
         } else {
             const empty = document.createElement('div');
             empty.className = 'tw-card-slot';
@@ -1066,22 +1073,55 @@ function _renderCards() {
         }
     }
 
-    const rarityOrder = { 'ssr': 5, 'mythic': 4, 'epic': 3, 'rare': 2, 'common': 1 };
-    const unequipped = [];
-    for (const id in _save.cards.owned) {
-        if (!_save.cards.equipped.includes(id)) {
-            unequipped.push(id);
-        }
-    }
-    unequipped.sort((a, b) => {
-        let rA = rarityOrder[CARDS[a].rarity] || 0;
-        let rB = rarityOrder[CARDS[b].rarity] || 0;
-        if (rA !== rB) return rB - rA;
-        return a.localeCompare(b);
-    });
+    // ── Collection: one row per rarity, all cards shown ───────────────
+    const RARITIES = [
+        { key: 'ssr',    label: 'SSR',    color: '#ff6ef7' },
+        { key: 'mythic', label: 'Mythic', color: '#e74c3c' },
+        { key: 'epic',   label: 'Epic',   color: '#9b59b6' },
+        { key: 'rare',   label: 'Rare',   color: '#3498db' },
+        { key: 'common', label: 'Common', color: '#bdc3c7' }
+    ];
 
-    for (const id of unequipped) {
-        invEl.appendChild(_makeCardEl(id, _save.cards.owned[id], false, -1));
+    for (const { key, label, color } of RARITIES) {
+        const cardsOfRarity = Object.entries(CARDS).filter(([, def]) => def.rarity === key);
+        if (cardsOfRarity.length === 0) continue;
+
+        const section = document.createElement('div');
+        section.className = 'tw-rarity-section';
+
+        const header = document.createElement('div');
+        header.className = 'tw-rarity-header';
+        header.innerHTML = `<span style="color:${color}">${label}</span><span class="tw-rarity-count" style="color:${color}"></span>`;
+        section.appendChild(header);
+
+        const row = document.createElement('div');
+        row.className = 'tw-rarity-row';
+
+        let ownedCount = 0;
+        for (const [id, cDef] of cardsOfRarity) {
+            const count = _save.cards.owned[id] || 0;
+            const equippedIdx = _save.cards.equipped.indexOf(id);
+            const isOwned = count > 0;
+            ownedCount += isOwned ? 1 : 0;
+
+            if (isOwned) {
+                const cardEl = _makeCardEl(id, count, equippedIdx);
+                // dim slightly if equipped (visual cue it's "in use")
+                if (equippedIdx >= 0) cardEl.classList.add('tw-card-in-equipped');
+                row.appendChild(cardEl);
+            } else {
+                // Ghost card for unowned
+                const ghost = document.createElement('div');
+                ghost.className = 'tw-card tw-card-ghost';
+                ghost.setAttribute('data-rarity', key);
+                ghost.innerHTML = `<div class="tw-card-ghost-q">?</div><div class="tw-card-ghost-name">${cDef.name}</div>`;
+                row.appendChild(ghost);
+            }
+        }
+
+        header.querySelector('.tw-rarity-count').textContent = `${ownedCount}/${cardsOfRarity.length}`;
+        section.appendChild(row);
+        invEl.appendChild(section);
     }
 }
 
