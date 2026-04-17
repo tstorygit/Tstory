@@ -683,7 +683,7 @@ export class TowerEngine {
         this.ctx.stroke();
         this.ctx['setLineDash'](AA);
 
-        let glowColor = '#00ffff';
+        let glowColor = this.stats.towerColor || '#00ffff';
         let blur = 10;
         if (this.stats.kBuff >= 3.0) { glowColor = '#ffffff'; blur = 30; }
         else if (this.stats.kBuff >= 2.0) { glowColor = '#9b59b6'; blur = 20; }
@@ -762,7 +762,7 @@ export class TowerEngine {
         for (const p of this.projectiles) {
             this.ctx.beginPath();
             this.ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
-            this.ctx.fillStyle = p.isCrit ? '#f1c40f' : (this.stats.synergyPierce || this.stats.synergyChain ? '#9b59b6' : '#00ffff');
+            this.ctx.fillStyle = p.isCrit ? '#f1c40f' : (this.stats.synergyPierce || this.stats.synergyChain ? '#9b59b6' : (this.stats.towerColor || '#00ffff'));
             this.ctx.shadowBlur = 8;
             this.ctx.shadowColor = this.ctx.fillStyle;
             this.ctx.fill();

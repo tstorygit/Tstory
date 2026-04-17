@@ -69,6 +69,43 @@ export const RELICS = {
     5: { name: 'Master Crown',  desc: 'Knowledge stack value doubled.' }
 };
 
+export const TOWER_BASES = {
+    default: {
+        id: 'default', name: 'Standard Base', color: '#00ffff',
+        desc: 'A balanced tower with no strengths or weaknesses.',
+        getModifiers: (lvl) => ({})
+    },
+    sniper: {
+        id: 'sniper', name: 'Sniper Base', color: '#2ecc71',
+        desc: 'Incredible range and precision, but fires slowly.',
+        getModifiers: (lvl) => ({
+            rangeMult: 0.5 + (lvl * 0.1),       // +50% to +150%
+            critChanceAdd: 0.5 + (lvl * 0.05),  // +50% to +100%
+            atkSpeedMult: -0.5 + (lvl * 0.04)   // -50% to -10%
+        }),
+        maxLevel: 10
+    },
+    mage: {
+        id: 'mage', name: 'Mage Base', color: '#9b59b6',
+        desc: 'Attacks deal Splash Damage, but cannot Bounce.',
+        getModifiers: (lvl) => ({
+            splashDmgAdd: 0.5 + (lvl * 0.1),    // +50% to +150%
+            disableBounce: true,
+            damageMult: 0 + (lvl * 0.1)         // +0% to +100%
+        }),
+        maxLevel: 10
+    },
+    banker: {
+        id: 'banker', name: 'Banker Base', color: '#f1c40f',
+        desc: 'Massive economic gains, but reduced damage.',
+        getModifiers: (lvl) => ({
+            coinCashMult: 1.0 + (lvl * 0.2),    // +100% to +300%
+            damageMult: -0.3 + (lvl * 0.03)     // -30% to 0%
+        }),
+        maxLevel: 10
+    }
+};
+
 export const QUEST_TEMPLATES =[
     { id: 'kill_bosses', desc: 'Kill Bosses', max: 20, rewardType: 'gems', rewardAmount: 10 },
     { id: 'answer_vocab', desc: 'Answer Vocab Correctly', max: 50, rewardType: 'gems', rewardAmount: 15 },

@@ -1,7 +1,9 @@
+// main/js/games/tower/tower.js
+
 import { mountVocabSelector } from '../../vocab_selector.js';
 import { GameVocabManager } from '../../game_vocab_mgr.js';
 import { showGameQuiz, poolSourceLabel, renderVocabSettings, setGvmTheme } from '../../game_vocab_mgr_ui.js';
-import { UPGRADES, LAB_RESEARCH_CATEGORIES, LAB_RESEARCH, RELICS, QUEST_TEMPLATES, CARDS, SLOT_COSTS, getCardLevelInfo, calcStat, calcCost, getMultiBuy, calcLabCost, calcLabTimeMs, getUpgradeMaxLevel } from './tower_data.js';
+import { UPGRADES, LAB_RESEARCH_CATEGORIES, LAB_RESEARCH, RELICS, TOWER_BASES, QUEST_TEMPLATES, CARDS, SLOT_COSTS, getCardLevelInfo, calcStat, calcCost, getMultiBuy, calcLabCost, calcLabTimeMs, getUpgradeMaxLevel } from './tower_data.js';
 import { TowerEngine } from './tower_engine.js';
 
 const ACHIEVEMENTS = {
@@ -62,6 +64,8 @@ function _defaultSave() {
             active: null,
             levels: { damageMult:0, critChance:0, rangeMult:0, vocabMastery:0, healthMult:0, regenMult:0, defPct:0, thornsMult:0, lifesteal:0, knowledge:0, gameSpeed:0, coinYield:0, cashBonusMult:0, startingCash:0, synergy:0, freeUpg:0 }
         },
+        bases: { unlocked: ['default'], equipped: 'default', levels: { default: 0, sniper: 0, mage: 0, banker: 0 } },
+        ascension: { points: 0, timesAscended: 0 },
         cards: { owned: {}, equipped: [null], unlockedSlots: 1 },
         vocabConfig: GameVocabManager.defaultConfig(),
         stats: { totalCorrect: 0, sessionCorrect: 0, highestStreak: 0, wordsMastered:[], bossesKilled: 0, highestWaveNoDef: 0 },
@@ -95,6 +99,7 @@ export function init(screens, onExit) {
                 <button class="tw-tab-btn active" data-tab="tw-hub-play">Play</button>
                 <button class="tw-tab-btn" data-tab="tw-hub-workshop">Workshop</button>
                 <button class="tw-tab-btn" data-tab="tw-hub-lab">Lab</button>
+                <button class="tw-tab-btn" data-tab="tw-hub-towers">Towers</button>
                 <button class="tw-tab-btn" data-tab="tw-hub-cards">Cards</button>
                 <button class="tw-tab-btn" data-tab="tw-hub-achievements">Trophies</button>
                 <button class="tw-tab-btn" data-tab="tw-hub-login">Daily</button>
@@ -174,6 +179,17 @@ export function init(screens, onExit) {
                 <div class="tw-subtab-content active" id="tw-lab-offense"></div>
                 <div class="tw-subtab-content" id="tw-lab-defense"></div>
                 <div class="tw-subtab-content" id="tw-lab-utility"></div>
+            </div>
+
+            <div class="tw-screen tw-scroll-content" id="tw-hub-towers">
+                <h3 style="color:#00ffff; margin-top:0;">Tower Bases</h3>
+                <div id="tw-ascension-banner" style="background:rgba(155, 89, 182, 0.2); border:1px solid #9b59b6; border-radius:8px; padding:15px; margin-bottom:15px; text-align:center;">
+                    <div style="font-size:14px; color:#c39bd3; font-weight:bold; margin-bottom:5px;">Ascension</div>
+                    <div style="font-size:12px; color:#aaa; margin-bottom:10px;">Reach Tier 15 to Ascend. Reset Workshop & Lab progress for Ascension Points (AP) to upgrade your Tower Bases!</div>
+                    <div style="font-size:14px; color:#fff; font-weight:bold; margin-bottom:10px;">Your AP: <span id="tw-ap-val">0</span></div>
+                    <button id="tw-ascend-btn" class="tw-play-btn" style="background:#9b59b6; color:#fff; width:auto; padding:8px 16px; font-size:14px;">Ascend Now (+<span id="tw-ap-gain">0</span> AP)</button>
+                </div>
+                <div id="tw-bases-list" style="display:flex; flex-direction:column; gap:10px;"></div>
             </div>
 
             <div class="tw-screen" id="tw-hub-cards">
@@ -264,6 +280,9 @@ export function init(screens, onExit) {
                     
                     <h4 style="color:#f1c40f; margin-bottom:5px;">🏆 Achievements & Titles</h4>
                     <p style="margin-top:0;">Unlock achievements to earn permanent global Damage buffs (+1% Base Damage per achievement) and equip unique Titles to show off your prowess!</p>
+
+                    <h4 style="color:#f1c40f; margin-bottom:5px;">🌌 Ascension</h4>
+                    <p style="margin-top:0;">Available once you unlock Tier 15. Ascending resets your Workshop, Lab, Highest Wave, and Max Tier back to 1. In return, you earn <b>Ascension Points (AP)</b> which you can use to upgrade the unique modifiers of unlocked Tower Bases!</p>
                 </div>
                 <button id="tw-info-close" class="tw-play-btn" style="margin-top:20px;">Got it!</button>
             </div>
@@ -424,6 +443,7 @@ export function init(screens, onExit) {
             if (btn.dataset.tab === 'tw-hub-cards') _renderCards();
             if (btn.dataset.tab === 'tw-hub-login') _renderLoginTab();
             if (btn.dataset.tab === 'tw-hub-achievements') _renderAchievements();
+            if (btn.dataset.tab === 'tw-hub-towers') _renderTowers();
         });
     });
 
@@ -751,6 +771,9 @@ export function launch() {
     if (!_save.relics) _save.relics =[];
     if (!_save.achievements) _save.achievements = {};
     if (_save.equippedTitle === undefined) _save.equippedTitle = null;
+
+    if (!_save.bases) _save.bases = { unlocked: ['default'], equipped: 'default', levels: { default: 0, sniper: 0, mage: 0, banker: 0 } };
+    if (!_save.ascension) _save.ascension = { points: 0, timesAscended: 0 };
     
     _save.stats.sessionCorrect = 0;
 
@@ -796,6 +819,7 @@ function _showHub() {
     _screens.game.style.display = 'none';
     
     _updateEquippedTitleUI();
+    _updateTowerVisual();
 
     _screens.setup.querySelector('#tw-hub-coins').textContent = Math.floor(_save.coins);
     _screens.setup.querySelector('#tw-hub-gems').textContent = Math.floor(_save.gems);
@@ -820,6 +844,7 @@ function _showHub() {
     _renderCards();
     _renderLoginTab();
     _renderAchievements();
+    _renderTowers();
     
     renderVocabSettings(
         _vocabMgr,
@@ -866,6 +891,176 @@ function _checkAchievements() {
         _saveGame();
         if (typeof init._updateDiffUI === 'function') init._updateDiffUI();
         if (_screens.setup.style.display !== 'none') _renderAchievements();
+    }
+}
+
+function _getNextBaseCost() {
+    let bought = _save.bases.unlocked.length - 1; 
+    let mult = Math.pow(2, bought);
+    return { coins: 100000 * mult, gems: 125 * mult };
+}
+
+function _formatMods(mods) {
+    let s = '';
+    if (mods.rangeMult) s += `Range: ${mods.rangeMult > 0 ? '+' : ''}${Math.round(mods.rangeMult*100)}%<br>`;
+    if (mods.critChanceAdd) s += `Crit Chance: +${Math.round(mods.critChanceAdd*100)}%<br>`;
+    if (mods.atkSpeedMult) s += `Atk Speed: ${mods.atkSpeedMult > 0 ? '+' : ''}${Math.round(mods.atkSpeedMult*100)}%<br>`;
+    if (mods.splashDmgAdd) s += `Splash Dmg: +${Math.round(mods.splashDmgAdd*100)}%<br>`;
+    if (mods.disableBounce) s += `Cannot Bounce<br>`;
+    if (mods.damageMult) s += `Damage: ${mods.damageMult > 0 ? '+' : ''}${Math.round(mods.damageMult*100)}%<br>`;
+    if (mods.coinCashMult) s += `Coins/Cash: +${Math.round(mods.coinCashMult*100)}%<br>`;
+    return s || 'None';
+}
+
+function _ascend(apGain) {
+    _save.ascension.points += apGain;
+    _save.ascension.timesAscended++;
+    
+    const def = _defaultSave();
+    _save.workshop = def.workshop;
+    _save.workshopMults = def.workshopMults;
+    _save.runMults = def.runMults;
+    _save.lab = def.lab;
+    _save.highestWave = 0;
+    _save.highestWavePerDiff = {};
+    _save.maxDiff = 1;
+    _save.currentRun = null;
+    
+    _saveGame();
+    _showHub();
+    alert(`Ascension Complete! You gained ${apGain} Ascension Points.`);
+}
+
+function _updateTowerVisual() {
+    const baseId = _save.bases.equipped || 'default';
+    const baseDef = TOWER_BASES[baseId];
+    if (baseDef) {
+        const crystal = _screens.setup.querySelector('.tw-tower-crystal');
+        const tBody = _screens.setup.querySelector('.tw-tower-body');
+        const tBase = _screens.setup.querySelector('.tw-tower-base');
+        
+        if (crystal) crystal.style.textShadow = `0 0 25px ${baseDef.color}`;
+        if (tBody) {
+            tBody.style.borderColor = baseDef.color;
+            tBody.style.boxShadow = `inset 0 0 15px ${baseDef.color}33, 0 0 10px ${baseDef.color}1a`;
+        }
+        if (tBase) {
+            tBase.style.borderColor = baseDef.color;
+            tBase.style.boxShadow = `0 0 15px ${baseDef.color}4d`;
+        }
+    }
+}
+
+function _renderTowers() {
+    const apVal = _screens.setup.querySelector('#tw-ap-val');
+    const apGain = _screens.setup.querySelector('#tw-ap-gain');
+    const ascendBtn = _screens.setup.querySelector('#tw-ascend-btn');
+    const list = _screens.setup.querySelector('#tw-bases-list');
+
+    if (!apVal || !list) return;
+
+    apVal.textContent = _save.ascension.points;
+    
+    let possibleGain = Math.max(0, _save.maxDiff - 14);
+    apGain.textContent = possibleGain;
+    ascendBtn.disabled = possibleGain <= 0;
+    
+    ascendBtn.onclick = () => {
+        if (possibleGain > 0) {
+            if (confirm(`Ascend now to gain ${possibleGain} Ascension Points?\n\nThis will RESET your Workshop, Lab, Highest Wave, and Max Tier back to 1. You will KEEP your Coins, Gems, Cards, Relics, Stats, and Unlocked Towers.`)) {
+                _ascend(possibleGain);
+            }
+        }
+    };
+
+    list.innerHTML = '';
+    
+    let unlockCost = _getNextBaseCost();
+
+    for (const id in TOWER_BASES) {
+        const def = TOWER_BASES[id];
+        const isUnlocked = _save.bases.unlocked.includes(id);
+        const isEquipped = _save.bases.equipped === id;
+        const lvl = _save.bases.levels[id] || 0;
+        const isMax = def.maxLevel && lvl >= def.maxLevel;
+        
+        const mods = def.getModifiers(lvl);
+        const nextMods = !isMax && def.maxLevel ? def.getModifiers(lvl + 1) : null;
+
+        const row = document.createElement('div');
+        row.style.cssText = `background:rgba(20,20,30,0.8); border:1px solid ${def.color}; border-radius:8px; padding:12px;`;
+        
+        let html = `<div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div>
+                <div style="font-size:15px; font-weight:bold; color:${def.color};">${def.name} ${isUnlocked && def.maxLevel ? `<span style="font-size:11px; color:#aaa;">Lv${lvl}/${def.maxLevel}</span>` : ''}</div>
+                <div style="font-size:11px; color:#bbb; margin-top:4px;">${def.desc}</div>
+            </div>
+        `;
+
+        if (isUnlocked) {
+            html += `<button class="tw-play-btn" style="width:auto; padding:6px 12px; font-size:12px; background:${isEquipped ? '#2ecc71' : 'transparent'}; border:1px solid ${isEquipped ? '#2ecc71' : def.color}; color:${isEquipped ? '#fff' : def.color};">${isEquipped ? 'Equipped' : 'Equip'}</button>`;
+        } else {
+            html += `<button class="tw-play-btn tw-buy-base-btn" style="width:auto; padding:6px 12px; font-size:12px; background:transparent; border:1px solid #f1c40f; color:#f1c40f;" ${(_save.coins < unlockCost.coins || _save.gems < unlockCost.gems) ? 'disabled' : ''}>Unlock<br><span style="font-size:10px;">🪙${unlockCost.coins} 💎${unlockCost.gems}</span></button>`;
+        }
+        html += `</div>`;
+
+        if (isUnlocked && def.maxLevel) {
+            html += `<div style="margin-top:10px; background:rgba(0,0,0,0.5); padding:8px; border-radius:6px; font-size:11px; color:#ccc; display:flex; justify-content:space-between; align-items:center;">
+                <div style="flex:1;">${_formatMods(mods)}</div>
+                ${!isMax ? `<div style="flex:1; color:#2ecc71;">Next Lvl:<br>${_formatMods(nextMods)}</div>` : '<div style="flex:1; color:#f1c40f; font-weight:bold; text-align:center;">MAX LEVEL</div>'}
+            </div>`;
+            
+            if (!isMax) {
+                html += `<div style="margin-top:10px; text-align:right;">
+                    <button class="tw-play-btn tw-upg-base-btn" style="width:auto; padding:6px 12px; font-size:12px; background:#9b59b6; color:#fff;" ${_save.ascension.points < 1 ? 'disabled' : ''}>Upgrade (1 AP)</button>
+                </div>`;
+            }
+        } else if (isUnlocked && !def.maxLevel) {
+             html += `<div style="margin-top:10px; font-size:11px; color:#777;">No upgradeable modifiers.</div>`;
+        }
+
+        row.innerHTML = html;
+        
+        if (isUnlocked) {
+            const eqBtn = row.querySelector('button');
+            if (eqBtn && !eqBtn.classList.contains('tw-upg-base-btn')) {
+                eqBtn.onclick = () => {
+                    _save.bases.equipped = id;
+                    _saveGame();
+                    _renderTowers();
+                    _updateTowerVisual();
+                };
+            }
+            const upgBtn = row.querySelector('.tw-upg-base-btn');
+            if (upgBtn) {
+                upgBtn.onclick = () => {
+                    if (_save.ascension.points >= 1) {
+                        _save.ascension.points -= 1;
+                        _save.bases.levels[id]++;
+                        _saveGame();
+                        _renderTowers();
+                    }
+                };
+            }
+        } else {
+            const buyBtn = row.querySelector('.tw-buy-base-btn');
+            if (buyBtn) {
+                buyBtn.onclick = () => {
+                    if (_save.coins >= unlockCost.coins && _save.gems >= unlockCost.gems) {
+                        _save.coins -= unlockCost.coins;
+                        _save.gems -= unlockCost.gems;
+                        _save.bases.unlocked.push(id);
+                        _save.bases.levels[id] = 0;
+                        _saveGame();
+                        _screens.setup.querySelector('#tw-hub-coins').textContent = Math.floor(_save.coins);
+                        _screens.setup.querySelector('#tw-hub-gems').textContent = Math.floor(_save.gems);
+                        _renderTowers();
+                    }
+                };
+            }
+        }
+
+        list.appendChild(row);
     }
 }
 
@@ -1595,6 +1790,25 @@ function _getTowerStats() {
         }
     }
 
+    const baseId = _save.bases ? (_save.bases.equipped || 'default') : 'default';
+    const baseDef = TOWER_BASES[baseId];
+    if (baseDef) {
+        const baseLvl = _save.bases.levels[baseId] || 0;
+        const mods = baseDef.getModifiers(baseLvl);
+        
+        if (mods.rangeMult) stats.range *= (1 + mods.rangeMult);
+        if (mods.critChanceAdd) stats.critChance += mods.critChanceAdd;
+        if (mods.atkSpeedMult) stats.atkSpeed *= (1 + mods.atkSpeedMult);
+        if (mods.splashDmgAdd) stats.splashDmg = (stats.splashDmg || 0) + mods.splashDmgAdd;
+        if (mods.disableBounce) stats.bounce = 0;
+        if (mods.damageMult) stats.damage *= (1 + mods.damageMult);
+        if (mods.coinCashMult) {
+            stats.coinBonus *= (1 + mods.coinCashMult);
+            stats.cashBonus *= (1 + mods.coinCashMult);
+        }
+        stats.towerColor = baseDef.color || '#00ffff';
+    }
+
     stats.currentHp = _engine && _engine.stats ? (_engine.stats.currentHp || stats.health) : stats.health;
     if (_engine && _engine.stats && stats.health > _engine.stats.health) {
         stats.currentHp += (stats.health - _engine.stats.health);
@@ -1654,7 +1868,7 @@ function _startRun() {
     _run.currentHp = undefined; 
     _run.autoBuy = { offense: false, defense: false, utility: false };
     
-    for (const cat of ['offense', 'defense', 'utility']) {
+    for (const cat of['offense', 'defense', 'utility']) {
         for (const id in UPGRADES[cat]) {
             _run.levels[cat][id] = 0;
         }
@@ -2026,7 +2240,7 @@ function _autoBuyTicker() {
     if (_engine && _engine.state === 'PAUSED') return;
 
     let candidates = [];
-    for (const cat of ['offense', 'defense', 'utility']) {
+    for (const cat of['offense', 'defense', 'utility']) {
         if (_run.autoBuy[cat]) {
             for (const id in UPGRADES[cat]) {
                 const def = UPGRADES[cat][id];
