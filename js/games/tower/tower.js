@@ -236,11 +236,18 @@ export function init(screens, onExit) {
 
             <div class="tw-screen tw-scroll-content" id="tw-hub-towers">
                 <h3 style="color:#00ffff; margin-top:0;">Tower Bases</h3>
-                <div id="tw-ascension-banner" style="background:rgba(155, 89, 182, 0.2); border:1px solid #9b59b6; border-radius:8px; padding:15px; margin-bottom:15px; text-align:center;">
-                    <div style="font-size:14px; color:#c39bd3; font-weight:bold; margin-bottom:5px;">Ascension</div>
-                    <div style="font-size:12px; color:#aaa; margin-bottom:10px;">Reach Tier 15 to Ascend. Reset Workshop & Lab progress for Ascension Points (AP) to upgrade your Tower Bases!</div>
-                    <div style="font-size:14px; color:#fff; font-weight:bold; margin-bottom:10px;">Your AP: <span id="tw-ap-val">0</span></div>
-                    <button id="tw-ascend-btn" class="tw-play-btn" style="background:#9b59b6; color:#fff; width:auto; padding:8px 16px; font-size:14px;">Ascend Now (+<span id="tw-ap-gain">0</span> AP)</button>
+                <div id="tw-ascension-banner" style="background:rgba(155, 89, 182, 0.2); border:1px solid #9b59b6; border-radius:8px; padding:15px; margin-bottom:15px;">
+                    <div style="font-size:14px; color:#c39bd3; font-weight:bold; margin-bottom:8px; text-align:center;">⚗️ Ascension</div>
+                    <div style="font-size:12px; color:#ccc; margin-bottom:10px; line-height:1.6;">
+                        Ascending <b style="color:#fff;">resets</b> your Workshop, Lab, Highest Wave and Max Tier back to 1 — but you <b style="color:#2ecc71;">keep</b> Coins, Gems, Cards, Relics, Stats and unlocked Towers.<br><br>
+                        In return you earn <b style="color:#c39bd3;">Ascension Points (AP)</b>. Each AP is spent to upgrade a Tower Base by 1 level (max 10), permanently boosting its unique modifiers.<br><br>
+                        <span style="color:#f1c40f;">AP gained = Max Tier unlocked − 14.</span> Ascending later at a higher tier means more AP in one go.
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.3); padding:8px 12px; border-radius:6px; margin-bottom:10px; font-size:13px;">
+                        <span style="color:#aaa;">Available AP:</span>
+                        <span style="color:#c39bd3; font-weight:bold; font-size:16px;" id="tw-ap-val">0</span>
+                    </div>
+                    <button id="tw-ascend-btn" class="tw-play-btn" style="background:#9b59b6; color:#fff; width:100%; padding:10px; font-size:14px;">Ascend Now — Gain <span id="tw-ap-gain">0</span> AP</button>
                 </div>
                 <div id="tw-bases-list" style="display:flex; flex-direction:column; gap:10px;"></div>
             </div>
@@ -959,16 +966,35 @@ function _getNextBaseCost() {
     return { coins: 100000 * mult, gems: 125 * mult };
 }
 
-function _formatMods(mods) {
+function _formatMods(mods, nextMods) {
+    const keys = [
+        { key: 'rangeMult',     label: 'Range',        pct: true  },
+        { key: 'critChanceAdd', label: 'Crit Chance',  pct: true  },
+        { key: 'atkSpeedMult',  label: 'Atk Speed',    pct: true  },
+        { key: 'splashDmgAdd',  label: 'Splash Dmg',   pct: true  },
+        { key: 'damageMult',    label: 'Damage',       pct: true  },
+        { key: 'coinCashMult',  label: 'Coins and Cash', pct: true },
+        { key: 'disableBounce', label: 'Cannot Bounce',pct: false },
+    ];
     let s = '';
-    if (mods.rangeMult) s += `Range: ${mods.rangeMult > 0 ? '+' : ''}${Math.round(mods.rangeMult*100)}%<br>`;
-    if (mods.critChanceAdd) s += `Crit Chance: +${Math.round(mods.critChanceAdd*100)}%<br>`;
-    if (mods.atkSpeedMult) s += `Atk Speed: ${mods.atkSpeedMult > 0 ? '+' : ''}${Math.round(mods.atkSpeedMult*100)}%<br>`;
-    if (mods.splashDmgAdd) s += `Splash Dmg: +${Math.round(mods.splashDmgAdd*100)}%<br>`;
-    if (mods.disableBounce) s += `Cannot Bounce<br>`;
-    if (mods.damageMult) s += `Damage: ${mods.damageMult > 0 ? '+' : ''}${Math.round(mods.damageMult*100)}%<br>`;
-    if (mods.coinCashMult) s += `Coins/Cash: +${Math.round(mods.coinCashMult*100)}%<br>`;
-    return s || 'None';
+    for (const spec of keys) {
+        const cur = mods[spec.key];
+        const nxt = nextMods ? nextMods[spec.key] : undefined;
+        if (cur === undefined && nxt === undefined) continue;
+        if (spec.key === 'disableBounce') { s += 'Cannot Bounce<br>'; continue; }
+        const val = cur !== undefined ? cur : 0;
+        const sign = val >= 0 ? '+' : '';
+        const display = spec.pct ? (sign + Math.round(val * 100) + '%') : String(val);
+        if (nextMods !== undefined && nxt !== undefined) {
+            const delta = nxt - val;
+            const ds = delta >= 0 ? '+' : '';
+            const dstr = spec.pct ? (ds + Math.round(delta * 100) + '%') : (ds + delta);
+            s += spec.label + ': <b>' + display + '</b> <span style="color:#2ecc71;font-size:10px;">(' + dstr + '/lvl)</span><br>';
+        } else {
+            s += spec.label + ': <b>' + display + '</b><br>';
+        }
+    }
+    return s || 'No modifiers.';
 }
 
 function _ascend(apGain) {
@@ -1019,21 +1045,26 @@ function _renderTowers() {
     if (!apVal || !list) return;
 
     apVal.textContent = _save.ascension.points;
-    
+
     let possibleGain = Math.max(0, _save.maxDiff - 14);
     apGain.textContent = possibleGain;
     ascendBtn.disabled = possibleGain <= 0;
-    
+
     ascendBtn.onclick = () => {
         if (possibleGain > 0) {
-            if (confirm(`Ascend now to gain ${possibleGain} Ascension Points?\n\nThis will RESET your Workshop, Lab, Highest Wave, and Max Tier back to 1. You will KEEP your Coins, Gems, Cards, Relics, Stats, and Unlocked Towers.`)) {
+            if (confirm(
+                'Ascend now to gain ' + possibleGain + ' Ascension Points?\n\n' +
+                'RESETS: Workshop, Lab, Highest Wave, Max Tier.\n' +
+                'KEPT: Coins, Gems, Cards, Relics, Stats, Unlocked Towers.\n\n' +
+                'You will spend AP here to permanently upgrade your Tower Bases.'
+            )) {
                 _ascend(possibleGain);
             }
         }
     };
 
     list.innerHTML = '';
-    
+
     let unlockCost = _getNextBaseCost();
 
     for (const id in TOWER_BASES) {
@@ -1042,81 +1073,105 @@ function _renderTowers() {
         const isEquipped = _save.bases.equipped === id;
         const lvl = _save.bases.levels[id] || 0;
         const isMax = def.maxLevel && lvl >= def.maxLevel;
-        
-        const mods = def.getModifiers(lvl);
-        const nextMods = !isMax && def.maxLevel ? def.getModifiers(lvl + 1) : null;
 
         const row = document.createElement('div');
-        row.style.cssText = `background:rgba(20,20,30,0.8); border:1px solid ${def.color}; border-radius:8px; padding:12px;`;
-        
-        let html = `<div style="display:flex; justify-content:space-between; align-items:flex-start;">
-            <div>
-                <div style="font-size:15px; font-weight:bold; color:${def.color};">${def.name} ${isUnlocked && def.maxLevel ? `<span style="font-size:11px; color:#aaa;">Lv${lvl}/${def.maxLevel}</span>` : ''}</div>
-                <div style="font-size:11px; color:#bbb; margin-top:4px;">${def.desc}</div>
-            </div>
-        `;
+        row.style.cssText = 'background:rgba(20,20,30,0.8); border:1px solid ' + def.color + '; border-radius:8px; padding:12px; opacity:' + (isUnlocked ? '1' : '0.75') + ';';
+
+        // ── header row ──
+        let html = '<div style="display:flex; justify-content:space-between; align-items:flex-start;">';
+        html += '<div>';
+        html += '<div style="font-size:15px; font-weight:bold; color:' + def.color + ';">' + def.name;
+        if (isUnlocked && def.maxLevel) html += ' <span style="font-size:11px; color:#aaa;">Lv' + lvl + '/' + def.maxLevel + '</span>';
+        html += '</div>';
+        html += '<div style="font-size:11px; color:#bbb; margin-top:4px;">' + def.desc + '</div>';
+        html += '</div>';
 
         if (isUnlocked) {
-            html += `<button class="tw-play-btn" style="width:auto; padding:6px 12px; font-size:12px; background:${isEquipped ? '#2ecc71' : 'transparent'}; border:1px solid ${isEquipped ? '#2ecc71' : def.color}; color:${isEquipped ? '#fff' : def.color};">${isEquipped ? 'Equipped' : 'Equip'}</button>`;
-        } else {
-            html += `<button class="tw-play-btn tw-buy-base-btn" style="width:auto; padding:6px 12px; font-size:12px; background:transparent; border:1px solid #f1c40f; color:#f1c40f;" ${(_save.coins < unlockCost.coins || _save.gems < unlockCost.gems) ? 'disabled' : ''}>Unlock<br><span style="font-size:10px;">🪙${unlockCost.coins} 💎${unlockCost.gems}</span></button>`;
-        }
-        html += `</div>`;
-
-        if (isUnlocked && def.maxLevel) {
-            html += `<div style="margin-top:10px; background:rgba(0,0,0,0.5); padding:8px; border-radius:6px; font-size:11px; color:#ccc; display:flex; justify-content:space-between; align-items:center;">
-                <div style="flex:1;">${_formatMods(mods)}</div>
-                ${!isMax ? `<div style="flex:1; color:#2ecc71;">Next Lvl:<br>${_formatMods(nextMods)}</div>` : '<div style="flex:1; color:#f1c40f; font-weight:bold; text-align:center;">MAX LEVEL</div>'}
-            </div>`;
-            
-            if (!isMax) {
-                html += `<div style="margin-top:10px; text-align:right;">
-                    <button class="tw-play-btn tw-upg-base-btn" style="width:auto; padding:6px 12px; font-size:12px; background:#9b59b6; color:#fff;" ${_save.ascension.points < 1 ? 'disabled' : ''}>Upgrade (1 AP)</button>
-                </div>`;
+            if (id !== 'default') {
+                html += '<button class="tw-play-btn tw-equip-base-btn" style="width:auto; padding:6px 12px; font-size:12px; background:' + (isEquipped ? '#2ecc71' : 'transparent') + '; border:1px solid ' + (isEquipped ? '#2ecc71' : def.color) + '; color:' + (isEquipped ? '#fff' : def.color) + ';">' + (isEquipped ? '✔ Equipped' : 'Equip') + '</button>';
+            } else {
+                html += '<button class="tw-play-btn tw-equip-base-btn" style="width:auto; padding:6px 12px; font-size:12px; background:' + (isEquipped ? '#2ecc71' : 'transparent') + '; border:1px solid ' + (isEquipped ? '#2ecc71' : def.color) + '; color:' + (isEquipped ? '#fff' : def.color) + ';">' + (isEquipped ? '✔ Equipped' : 'Equip') + '</button>';
             }
-        } else if (isUnlocked && !def.maxLevel) {
-             html += `<div style="margin-top:10px; font-size:11px; color:#777;">No upgradeable modifiers.</div>`;
+        } else {
+            html += '<button class="tw-play-btn tw-buy-base-btn" style="width:auto; padding:6px 12px; font-size:12px; background:transparent; border:1px solid #f1c40f; color:#f1c40f;" ' + ((_save.coins < unlockCost.coins || _save.gems < unlockCost.gems) ? 'disabled' : '') + '>Unlock<br><span style="font-size:10px;">🪙' + unlockCost.coins + ' 💎' + unlockCost.gems + '</span></button>';
+        }
+        html += '</div>';
+
+        // ── stats panel — show for all bases with modifiers, including locked ──
+        if (def.maxLevel) {
+            const curMods = def.getModifiers(lvl);
+            const nxtMods = !isMax ? def.getModifiers(lvl + 1) : null;
+            // for locked bases show level-1 preview with per-level delta
+            const previewMods = isUnlocked ? curMods : def.getModifiers(1);
+            const previewNext = isUnlocked ? nxtMods : def.getModifiers(2);
+
+            html += '<div style="margin-top:10px; background:rgba(0,0,0,0.4); padding:8px; border-radius:6px; font-size:11px; color:#ccc;">';
+            if (!isUnlocked) {
+                html += '<div style="color:#f1c40f; font-size:10px; margin-bottom:4px;">📋 Stats at max investment (Lv10):</div>';
+                const maxMods = def.getModifiers(10);
+                html += _formatMods(maxMods, undefined);
+            } else if (isMax) {
+                html += '<div style="color:#f1c40f; font-weight:bold; margin-bottom:4px;">★ MAX LEVEL</div>';
+                html += _formatMods(curMods, undefined);
+            } else {
+                html += '<div style="display:flex; gap:12px;">';
+                html += '<div style="flex:1;"><div style="color:#aaa; font-size:10px; margin-bottom:3px;">Current (Lv' + lvl + ')</div>' + _formatMods(curMods, nxtMods) + '</div>';
+                html += '<div style="flex:1;"><div style="color:#2ecc71; font-size:10px; margin-bottom:3px;">After upgrade (Lv' + (lvl + 1) + ')</div>' + _formatMods(nxtMods, undefined) + '</div>';
+                html += '</div>';
+            }
+            html += '</div>';
+
+            // ── upgrade button (only for unlocked, non-max bases) ──
+            if (isUnlocked && !isMax) {
+                const canAfford = _save.ascension.points >= 1;
+                html += '<div style="margin-top:8px; display:flex; justify-content:space-between; align-items:center;">';
+                html += '<span style="font-size:11px; color:#9b59b6;">Cost: <b>1 AP</b> &nbsp;·&nbsp; You have: <b style="color:' + (canAfford ? '#c39bd3' : '#e74c3c') + ';">' + _save.ascension.points + ' AP</b></span>';
+                html += '<button class="tw-play-btn tw-upg-base-btn" style="width:auto; padding:6px 14px; font-size:12px; background:#9b59b6; color:#fff;" ' + (canAfford ? '' : 'disabled') + '>Upgrade</button>';
+                html += '</div>';
+            }
+        } else if (isUnlocked) {
+            html += '<div style="margin-top:8px; font-size:11px; color:#555;">Balanced — no special modifiers.</div>';
         }
 
         row.innerHTML = html;
-        
-        if (isUnlocked) {
-            const eqBtn = row.querySelector('button');
-            if (eqBtn && !eqBtn.classList.contains('tw-upg-base-btn')) {
-                eqBtn.onclick = () => {
-                    _save.bases.equipped = id;
+
+        // ── event listeners ──
+        const eqBtn = row.querySelector('.tw-equip-base-btn');
+        if (eqBtn) {
+            eqBtn.onclick = () => {
+                _save.bases.equipped = id;
+                _saveGame();
+                _renderTowers();
+                _updateTowerVisual();
+            };
+        }
+
+        const upgBtn = row.querySelector('.tw-upg-base-btn');
+        if (upgBtn) {
+            upgBtn.onclick = () => {
+                if (_save.ascension.points >= 1) {
+                    _save.ascension.points -= 1;
+                    _save.bases.levels[id]++;
                     _saveGame();
                     _renderTowers();
-                    _updateTowerVisual();
-                };
-            }
-            const upgBtn = row.querySelector('.tw-upg-base-btn');
-            if (upgBtn) {
-                upgBtn.onclick = () => {
-                    if (_save.ascension.points >= 1) {
-                        _save.ascension.points -= 1;
-                        _save.bases.levels[id]++;
-                        _saveGame();
-                        _renderTowers();
-                    }
-                };
-            }
-        } else {
-            const buyBtn = row.querySelector('.tw-buy-base-btn');
-            if (buyBtn) {
-                buyBtn.onclick = () => {
-                    if (_save.coins >= unlockCost.coins && _save.gems >= unlockCost.gems) {
-                        _save.coins -= unlockCost.coins;
-                        _save.gems -= unlockCost.gems;
-                        _save.bases.unlocked.push(id);
-                        _save.bases.levels[id] = 0;
-                        _saveGame();
-                        _screens.setup.querySelector('#tw-hub-coins').textContent = Math.floor(_save.coins);
-                        _screens.setup.querySelector('#tw-hub-gems').textContent = Math.floor(_save.gems);
-                        _renderTowers();
-                    }
-                };
-            }
+                }
+            };
+        }
+
+        const buyBtn = row.querySelector('.tw-buy-base-btn');
+        if (buyBtn) {
+            buyBtn.onclick = () => {
+                if (_save.coins >= unlockCost.coins && _save.gems >= unlockCost.gems) {
+                    _save.coins -= unlockCost.coins;
+                    _save.gems -= unlockCost.gems;
+                    _save.bases.unlocked.push(id);
+                    _save.bases.levels[id] = 0;
+                    _saveGame();
+                    _screens.setup.querySelector('#tw-hub-coins').textContent = Math.floor(_save.coins);
+                    _screens.setup.querySelector('#tw-hub-gems').textContent = Math.floor(_save.gems);
+                    _renderTowers();
+                }
+            };
         }
 
         list.appendChild(row);
