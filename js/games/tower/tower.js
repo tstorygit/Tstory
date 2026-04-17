@@ -25,6 +25,50 @@ const SAVE_KEY = 'polyglot_tower_save';
 let _save = null;
 let _speedMult = 1;
 
+// ─── MUSIC ───────────────────────────────────────────────────────────────────
+let _audio = null;
+const MUSIC_TRACKS = ['tower1.mp3', 'tower2.mp3', 'tower3.mp3'];
+const MUSIC_PREF_KEY = 'polyglot_tower_muted';
+
+function _getMuted() {
+    return localStorage.getItem(MUSIC_PREF_KEY) === 'true';
+}
+function _setMuted(val) {
+    localStorage.setItem(MUSIC_PREF_KEY, val ? 'true' : 'false');
+    if (_audio) _audio.muted = val;
+    _updateMuteBtn();
+}
+function _updateMuteBtn() {
+    const btn = document.querySelector('#tw-mute-btn');
+    if (!btn) return;
+    const muted = _getMuted();
+    btn.textContent = muted ? '🔇' : '🔊';
+    btn.title = muted ? 'Unmute Music' : 'Mute Music';
+}
+function _pickRandomTrack(exclude) {
+    const available = MUSIC_TRACKS.filter(t => t !== exclude);
+    return available[Math.floor(Math.random() * available.length)];
+}
+function _musicPlay() {
+    if (_audio) { _audio.pause(); _audio = null; }
+    const basePath = './js/games/tower/bgm/';
+    let track = MUSIC_TRACKS[Math.floor(Math.random() * MUSIC_TRACKS.length)];
+    _audio = new Audio(basePath + track);
+    _audio.muted = _getMuted();
+    _audio.volume = 0.5;
+    _audio.addEventListener('ended', () => {
+        const next = _pickRandomTrack(track);
+        track = next;
+        _audio.src = basePath + next;
+        _audio.play().catch(() => {});
+    });
+    _audio.play().catch(() => {});
+}
+function _musicStop() {
+    if (_audio) { _audio.pause(); _audio = null; }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 let _run = {
     active: false,
     wave: 1,
@@ -334,6 +378,7 @@ export function init(screens, onExit) {
                     <div style="font-size:12px; font-weight:bold; color:#9b59b6; white-space:nowrap; flex-shrink:0;">🧠 ×<span id="tw-run-know">1.00</span><span id="tw-run-combo" class="tw-combo-text"></span></div>
                     <div style="display:flex; gap:6px; margin-left:auto; flex-wrap:wrap; justify-content:flex-end;">
                         <button class="tw-speed-btn" id="tw-btn-speed">⚡ 1x</button>
+                        <button id="tw-mute-btn" style="background:transparent; border:1px solid #555; color:#ccc; border-radius:6px; padding:4px 8px; font-size:16px; cursor:pointer; line-height:1;">🔊</button>
                         <button class="tw-end-run-btn" id="tw-btn-end-run" style="margin-left:0 !important;">Pause / End</button>
                     </div>
                 </div>
@@ -477,6 +522,10 @@ export function init(screens, onExit) {
         _speedMult = steps[(idx + 1) % steps.length];
         _screens.game.querySelector('#tw-btn-speed').textContent = `⚡ ${_speedMult}x`;
         if (_engine) _engine.speedMult = _speedMult;
+    });
+
+    _screens.game.querySelector('#tw-mute-btn').addEventListener('click', () => {
+        _setMuted(!_getMuted());
     });
 
     _screens.game.querySelector('#tw-btn-end-run').addEventListener('click', () => {
@@ -817,6 +866,7 @@ function _showHub() {
 
     _screens.setup.style.display = 'block';
     _screens.game.style.display = 'none';
+    _musicStop();
     
     _updateEquippedTitleUI();
     _updateTowerVisual();
@@ -1834,6 +1884,9 @@ function _resumeRun() {
     _engine._resize();
     _engine.speedMult = _speedMult;
 
+    _musicPlay();
+    _updateMuteBtn();
+
     let stats = _getTowerStats();
     if (_run.currentHp !== undefined) stats.currentHp = _run.currentHp;
     
@@ -1878,6 +1931,9 @@ function _startRun() {
     _screens.game.style.display = 'flex';
     _engine._resize();
     _engine.speedMult = _speedMult;
+
+    _musicPlay();
+    _updateMuteBtn();
 
     _vocabMgr.seedInitialWords(5);
     
@@ -2136,6 +2192,7 @@ function _renderRunUpgrades() {
         autoBtn.onclick = () => {
             if (!_run.autoBuy) _run.autoBuy = {};
             _run.autoBuy[cat] = !_run.autoBuy[cat];
+            _saveRunSnapshot();
             _renderRunUpgrades();
         };
         autoWrap.appendChild(autoBtn);
