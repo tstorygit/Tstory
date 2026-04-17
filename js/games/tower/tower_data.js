@@ -90,16 +90,13 @@ export const CARDS = {
     defA:   { name: 'Defense Abs',  desc: '+X Def Abs',      base: 5,    step: 2, isFlat: true, rarity: 'rare' },
     defP:   { name: 'Defense %',    desc: '+% Defense',      base: 0.05, step: 0.02, maxLevel: 10, rarity: 'rare' },
     kb:     { name: 'Knockback',    desc: '+% Knockback',    base: 0.05, step: 0.02, rarity: 'rare' },
-    thorns: { name: 'Thorns Dmg',   desc: '+% Thorns Dmg',   base: 0.20, step: 0.10, rarity: 'rare' },
     
     // Epic (15%)
-    critC:  { name: 'Crit Chance',  desc: '+% Crit Chance',  base: 0.02, step: 0.01, rarity: 'epic' },
-    critM:  { name: 'Crit Factor',  desc: '+% Crit Factor',  base: 0.20, step: 0.10, rarity: 'epic' },
-    life:   { name: 'Lifesteal',    desc: '+% Lifesteal',    base: 0.02, step: 0.01, maxLevel: 10, rarity: 'epic' },
     cash:   { name: 'Cash Bonus',   desc: '+% Cash',         base: 0.15, step: 0.15, rarity: 'epic' },
     coin:   { name: 'Coin Bonus',   desc: '+% Coins',        base: 0.10, step: 0.10, rarity: 'epic' },
-    slow:   { name: 'Slow Aura',    desc: '-% Enemy Speed',  base: 0.05, step: 0.02, maxLevel: 7, rarity: 'epic' },
-    bounce: { name: 'Bounce Shot',  desc: '+% Bounce Chance',base: 0.05, step: 0.02, rarity: 'epic' },
+    critC:  { name: 'Crit Chance',  desc: '+% Crit Chance',  base: 0.02, step: 0.01, rarity: 'epic' },
+    critM:  { name: 'Crit Factor',  desc: '+% Crit Factor',  base: 0.20, step: 0.10, rarity: 'epic' },
+    thorns: { name: 'Thorns Dmg',   desc: '+% Thorns Dmg',   base: 0.20, step: 0.10, rarity: 'epic' },
     
     // Mythic (8%)
     freeO:  { name: 'Free Offense', desc: '+% Free Off. Upg',base: 0.02, step: 0.01, maxLevel: 10, rarity: 'mythic' },
@@ -110,7 +107,10 @@ export const CARDS = {
     
     // SSR (2%)
     death:  { name: 'Defy Death',   desc: '+% Defy Death',   base: 0.02, step: 0.01, maxLevel: 5, rarity: 'ssr' },
-    know:   { name: 'Knowledge+',   desc: '+% Know. Buff',   base: 0.10, step: 0.05, rarity: 'ssr' }
+    know:   { name: 'Knowledge+',   desc: '+% Know. Buff',   base: 0.10, step: 0.05, rarity: 'ssr' },
+    life:   { name: 'Lifesteal',    desc: '+% Lifesteal',    base: 0.02, step: 0.01, maxLevel: 10, rarity: 'ssr' },
+    slow:   { name: 'Slow Aura',    desc: '-% Enemy Speed',  base: 0.05, step: 0.02, maxLevel: 7, rarity: 'ssr' },
+    bounce: { name: 'Bounce Shot',  desc: '+% Bounce Chance',base: 0.05, step: 0.02, rarity: 'ssr' }
 };
 
 export const SLOT_COSTS =[

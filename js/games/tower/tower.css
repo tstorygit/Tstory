@@ -153,11 +153,15 @@
 
 /* ── Cards screen layout ──────────────────────────────────────────── */
 #tw-hub-cards {
-    display: flex;
+    display: none;
     flex-direction: column;
     height: 100%;
     min-height: 0;
     overflow: hidden;
+}
+
+#tw-hub-cards.active {
+    display: flex;
 }
 
 .tw-cards-top {
