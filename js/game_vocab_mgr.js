@@ -37,7 +37,7 @@ import * as srsDb from './srs_db.js';
 function shuffleArray(array) {
     for (let i = array.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
-        [array[i], array[j]] =[array[j], array[i]];
+        [array[i], array[j]] = [array[j], array[i]];
     }
     return array;
 }
@@ -92,7 +92,7 @@ export class GameVocabManager {
             autoThresholds: thresholds   // always the merged object, never the raw config value
         };
 
-        this._pool = [];
+        this._pool = new Array();
         this._pendingPulls = new Map();
         this._isPaused = false;
         this.isGlobalSrs = false; // Set to true by setPool() when the pool contains deckId:'srs' words
@@ -110,7 +110,7 @@ export class GameVocabManager {
                 wrong: 0,
                 combo: 0,
                 highestCombo: 0,
-                recentGrades: []
+                recentGrades: new Array()
             },
             clock: {
                 pauseTimeTotal: 0,
@@ -144,7 +144,7 @@ export class GameVocabManager {
      * @param {Array}   rawVocabArray  - Words from vocab selector or loadSrsPool().
      * @param {string}  bannedKey      - localStorage key for the game's ban list.
      * @param {Object}  [opts]
-     * @param {boolean} [opts.globalSrs=false]
+     * @param {boolean}[opts.globalSrs=false]
      *   When true, forces Global SRS mode regardless of deckId values on individual
      *   words.  Pass this instead of manually tagging every word with deckId:'srs'.
      *   Equivalent to the old pattern:
@@ -166,6 +166,7 @@ export class GameVocabManager {
                 kanji: w.word,
                 kana: w.furi || w.word,
                 eng: w.trans || w.translation || '—',
+                pos: w.pos || 'other',
                 deckId: w.deckId || 'custom'
             }));
 
@@ -187,7 +188,7 @@ export class GameVocabManager {
                     const srsItem = this.state.activeSrs[srsId];
                     this._pool.push({
                         id: srsItem.id, kanji: srsItem.kanji, kana: srsItem.kana,
-                        eng: srsItem.eng, deckId: 'orphan'
+                        eng: srsItem.eng, pos: srsItem.pos || 'other', deckId: 'orphan'
                     });
                     poolIds.add(srsItem.id);
                 }
@@ -315,11 +316,11 @@ export class GameVocabManager {
         if (!selectedWordObj) {
             if (this.isGlobalSrs && mode !== 'random') {
                 // ─── GLOBAL SRS ───
-                // srsDb.getNextGameWord expects objects with {word, furi, trans}.
-                // Our internal pool uses {id, kanji, kana, eng}, so we must translate.
+                // srsDb.getNextGameWord expects objects with {word, furi, trans, pos}.
+                // Our internal pool uses {id, kanji, kana, eng, pos}, so we must translate.
                 const availablePool = this._pool
                     .filter(w => !pendingWordIds.has(w.id))
-                    .map(w => ({ word: w.id, furi: w.kana, trans: w.eng, deckId: w.deckId }));
+                    .map(w => ({ word: w.id, furi: w.kana, trans: w.eng, deckId: w.deckId, pos: w.pos }));
 
                 // 'manual' = SRS-ordered but no auto-introduction of new words → 'srs' mode
                 // 'auto'   = mixed scheduling (due → learning drill → new → mature drill)
@@ -409,22 +410,45 @@ export class GameVocabManager {
         // ─── DETERMINE DISPLAY MODE ───
         let displayMode = this.config.questionFormat || 'mixed';
         if (displayMode === 'mixed') {
-            const modes = ['furigana', 'kanji', 'kana'];
+            const modes =['furigana', 'kanji', 'kana'];
             displayMode = modes[Math.floor(Math.random() * modes.length)];
         }
 
         // ─── SMART DISTRACTORS ───
         // Build exactly `distractorCount` distractors using priority ordering.
         const correctEng    = selectedWordObj.eng;
+        const targetPos     = selectedWordObj.pos || 'other';
         let distractorPool  = this._pool.filter(w => w.id !== selectedWordObj.id && w.eng !== correctEng);
-        let chosenDistractors = [];
+        let chosenDistractors = new Array();
+
+        // Helper to pick distractors, prioritizing matching POS (part of speech)
+        const pickDistractors = (pool, countNeeded) => {
+            if (countNeeded <= 0 || pool.length === 0) return;
+            const samePos = pool.filter(w => w.pos === targetPos && targetPos !== 'other');
+            const diffPos = pool.filter(w => w.pos !== targetPos || targetPos === 'other');
+
+            shuffleArray(samePos);
+            shuffleArray(diffPos);
+
+            const tryPick = (arr) => {
+                while (countNeeded > 0 && arr.length > 0) {
+                    const pick = arr.pop().eng;
+                    if (!chosenDistractors.includes(pick)) {
+                        chosenDistractors.push(pick);
+                        countNeeded--;
+                    }
+                }
+            };
+
+            tryPick(samePos); // Pick matching POS first
+            tryPick(diffPos); // Fill with remaining if necessary
+        };
 
         // Priority 1 — For leeches: prefer other leeches as distractors (forces disambiguation)
         if (type === 'leech') {
             const otherLeechIds    = new Set(this.getLeeches().filter(s => s.id !== selectedWordObj.id).map(s => s.id));
             const leechDistractors = distractorPool.filter(w => otherLeechIds.has(w.id));
-            shuffleArray(leechDistractors);
-            chosenDistractors = leechDistractors.slice(0, distractorCount).map(w => w.eng);
+            pickDistractors(leechDistractors, distractorCount - chosenDistractors.length);
             distractorPool    = distractorPool.filter(w => !chosenDistractors.includes(w.eng));
         }
 
@@ -432,22 +456,16 @@ export class GameVocabManager {
         if (this.isGlobalSrs && chosenDistractors.length < distractorCount) {
             const globalDict     = srsDb.getAllWords();
             let knownDistractors = distractorPool.filter(w => globalDict[w.id] && globalDict[w.id].status > 0);
-            shuffleArray(knownDistractors);
-            while (chosenDistractors.length < distractorCount && knownDistractors.length > 0) {
-                const pick = knownDistractors.pop().eng;
-                if (!chosenDistractors.includes(pick)) chosenDistractors.push(pick);
-            }
+            pickDistractors(knownDistractors, distractorCount - chosenDistractors.length);
             distractorPool = distractorPool.filter(w => !chosenDistractors.includes(w.eng));
         }
 
         // Priority 3 — Fill remaining slots from whatever is left
-        shuffleArray(distractorPool);
-        while (chosenDistractors.length < distractorCount && distractorPool.length > 0) {
-            const pick = distractorPool.pop().eng;
-            if (!chosenDistractors.includes(pick)) chosenDistractors.push(pick);
+        if (chosenDistractors.length < distractorCount) {
+            pickDistractors(distractorPool, distractorCount - chosenDistractors.length);
         }
 
-        const options    = [...chosenDistractors, correctEng];
+        const options = [...chosenDistractors, correctEng];
         shuffleArray(options);
         const correctIdx = options.indexOf(correctEng);
 
@@ -520,7 +538,8 @@ export class GameVocabManager {
             const updated = srsDb.gradeWordInGame({
                 word: wordObj.kanji,
                 furi: wordObj.kana,
-                translation: wordObj.eng
+                translation: wordObj.eng,
+                pos: wordObj.pos
             }, sm2Grade, true);
             const newIntervalSecs = updated ? Math.round((updated.interval || 0) * 86400) : 0;
 
@@ -575,7 +594,7 @@ export class GameVocabManager {
     learnNewWord() {
         if (this.isGlobalSrs) {
             // Pass translated shape that srsDb expects
-            const availablePool = this._pool.map(w => ({ word: w.id, furi: w.kana, trans: w.eng }));
+            const availablePool = this._pool.map(w => ({ word: w.id, furi: w.kana, trans: w.eng, pos: w.pos }));
             const result = srsDb.getNextGameWord(availablePool, 'new');
             if (result && result.wordObj) {
                 const wordId  = result.wordObj.word;
@@ -588,6 +607,7 @@ export class GameVocabManager {
                         kanji:      poolWord?.kanji || wordId,
                         kana:       poolWord?.kana  || wordId,
                         eng:        poolWord?.eng   || '',
+                        pos:        poolWord?.pos   || 'other',
                         wrongCount: 0,
                         isLeech:    false,
                         interval:   this.config.initialInterval,
@@ -610,6 +630,7 @@ export class GameVocabManager {
             kanji:      newWord.kanji,
             kana:       newWord.kana,
             eng:        newWord.eng,
+            pos:        newWord.pos || 'other',
             interval:   this.config.initialInterval,
             ease:       this.config.initialEase,
             nextReview: this.gameNow(),
@@ -650,7 +671,7 @@ export class GameVocabManager {
             this.state.stats.totalLearned = Math.max(0, this.state.stats.totalLearned - 1);
         }
         try {
-            const banned = JSON.parse(localStorage.getItem(bannedKey)) || [];
+            const banned = JSON.parse(localStorage.getItem(bannedKey)) || new Array();
             if (!banned.includes(wordId)) {
                 banned.push(wordId);
                 localStorage.setItem(bannedKey, JSON.stringify(banned));
@@ -768,6 +789,7 @@ export class GameVocabManager {
             word:            s.id,
             furi:            s.kana,
             trans:           s.eng,
+            pos:             s.pos || 'other',
             nekoInterval:    s.interval,
             nekoRemainingMs: Math.max(0, s.nextReview - this.gameNow()),
             ease:            s.ease,
@@ -779,8 +801,8 @@ export class GameVocabManager {
         }
 
         // ── Fallback: write directly to the shared localStorage key ──────────
-        // Used when srsDb isn't available in the current module scope (e.g. the
-        // game was loaded lazily and the main app hasn't injected the module).
+        // Used when srsDb isnt available in the current module scope (e.g. the
+        // game was loaded lazily and the main app hasnt injected the module).
         const STORAGE_KEY = 'ai_reader_srs_data';
         try {
             const existing = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
@@ -793,6 +815,7 @@ export class GameVocabManager {
                         word:        w.word,
                         furi:        w.furi        || '',
                         translation: w.trans       || '',
+                        pos:         w.pos         || 'other',
                         status:      0,
                         interval:    (w.nekoInterval || 0) / 86400, // seconds → fractional days
                         ease:        w.ease        || 2.5,
@@ -824,7 +847,7 @@ export class GameVocabManager {
      *   Pass the live srsDb module if available — it will be used via getAllWords().
      *   If null/undefined the method falls back to reading localStorage directly.
      *
-     * @returns {Array<{word, furi, trans, deckId:'srs'}>}
+     * @returns {Array<{word, furi, trans, deckId:'srs', pos:string}>}
      *   Empty array when no SRS words exist or the store is unreadable.
      */
     static loadSrsPool(srsDbModule = null) {
@@ -839,7 +862,10 @@ export class GameVocabManager {
             // ── Fallback: localStorage ────────────────────────────────────────
             if (!wordDict) {
                 const raw = localStorage.getItem('ai_reader_srs_data');
-                if (!raw) return [];
+                if (!raw) {
+                    const emptyArrFallback1 = new Array();
+                    return emptyArrFallback1;
+                }
                 wordDict = JSON.parse(raw);
             }
 
@@ -847,11 +873,13 @@ export class GameVocabManager {
                 word:   w.word,
                 furi:   w.furi         || w.word,
                 trans:  w.translation  || '—',
+                pos:    w.pos          || 'other',
                 deckId: 'srs',          // signals GameVocabManager to route through global SRS
             }));
         } catch (e) {
             console.warn('[GameVocabManager] loadSrsPool failed:', e);
-            return [];
+            const emptyArrFallback2 = new Array();
+            return emptyArrFallback2;
         }
     }
 

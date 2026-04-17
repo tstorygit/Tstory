@@ -17,6 +17,7 @@
  *
  *   // AI Enrichment fields (added for base form matching):
  *   base:         "日本語",
+ *   pos:          "noun",         // part of speech: noun, verb, etc. (optional)
  *   aiUpdated:    "2023-10-27T...",
  * }
  *
@@ -107,14 +108,15 @@ export function getWordsNeedingEnrichment(limit = 50) {
 
 /**
  * Applies a batch of base form updates returned by the AI.
- * @param {Array<{key: string, base: string}>} updates
+ * @param {Array<{key: string, base: string, pos?: string}>} updates
  */
 export function batchUpdateBases(updates) {
     const words = getAllWords();
     const now = new Date().toISOString();
-    for (const { key, base } of updates) {
+    for (const { key, base, pos } of updates) {
         if (words[key]) {
-            words[key].base = base;
+            if (base) words[key].base = base;
+            if (pos) words[key].pos = pos;
             words[key].aiUpdated = now;
         }
     }
@@ -271,7 +273,7 @@ export function gradeWord(wordText, grade, autoStatus = false) {
 /**
  * Specialized grading for Games (TBB, VocabCraft).
  * Prevents interval explosion for non-due words.
- * @param {object} wordData - {word, furi, translation}
+ * @param {object} wordData - {word, furi, translation, pos}
  * @param {number} grade - 0-3
  * @param {boolean} autoStatus
  */
@@ -287,6 +289,7 @@ export function gradeWordInGame(wordData, grade, autoStatus = false) {
             word: wordData.word,
             furi: wordData.furi || '',
             translation: wordData.trans || wordData.translation || '',
+            pos: wordData.pos || 'other',
             status: 0,
             interval: 0,
             ease: 2.5,
@@ -337,7 +340,7 @@ export function gradeWordInGame(wordData, grade, autoStatus = false) {
  * - 'new': Strictly prefers New -> Drill -> Due
  * - 'mixed': Natural order (Due -> Learning Drill (<7d) -> New -> Mature Drill)
  * 
- * @param {Array} sessionQueue - Array of word objects {word, furi, trans} active in the session
+ * @param {Array} sessionQueue - Array of word objects {word, furi, trans, pos} active in the session
  * @param {string} mode - 'srs', 'new', or 'mixed'
  * @returns {Object} { wordObj, type: 'due'|'drill'|'new' }
  */
@@ -347,8 +350,8 @@ export function getNextGameWord(sessionQueue, mode = 'mixed') {
     const DRILL_THRESHOLD_DAYS = 7;
 
     let due = [];
-    let learningDrill = []; // Not due, interval < 7 days
-    let matureDrill = [];   // Not due, interval >= 7 days
+    let learningDrill =[]; // Not due, interval < 7 days
+    let matureDrill =[];   // Not due, interval >= 7 days
     let brandNew = [];
 
     sessionQueue.forEach(w => {
@@ -426,6 +429,7 @@ export function importFromNeko(nekoWords, existingPolicy = 'skip') {
             if (existingPolicy === 'merge') {
                 if (!words[w.word].furi        && w.furi)  words[w.word].furi        = w.furi;
                 if (!words[w.word].translation && w.trans) words[w.word].translation = w.trans;
+                if (!words[w.word].pos         && w.pos)   words[w.word].pos         = w.pos;
             }
             skipped++;
         } else {
@@ -446,6 +450,7 @@ export function importFromNeko(nekoWords, existingPolicy = 'skip') {
                 word:        w.word,
                 furi:        w.furi  || '',
                 translation: w.trans || '',
+                pos:         w.pos   || 'other',
                 status:      statusFromInterval(intervalDays),
                 interval:    intervalDays,
                 ease:        ease,
