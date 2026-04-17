@@ -29,6 +29,15 @@ let _speedMult = 1;
 let _audio = null;
 const MUSIC_TRACKS = ['tower1.mp3', 'tower2.mp3', 'tower3.mp3'];
 const MUSIC_PREF_KEY = 'polyglot_tower_muted';
+const AUTOBUY_PREF_KEY = 'polyglot_tower_autobuy';
+
+function _loadAutoBuyPref() {
+    try { return JSON.parse(localStorage.getItem(AUTOBUY_PREF_KEY)) || { offense: false, defense: false, utility: false }; }
+    catch(e) { return { offense: false, defense: false, utility: false }; }
+}
+function _saveAutoBuyPref(autoBuy) {
+    localStorage.setItem(AUTOBUY_PREF_KEY, JSON.stringify(autoBuy));
+}
 
 function _getMuted() {
     return localStorage.getItem(MUSIC_PREF_KEY) === 'true';
@@ -624,7 +633,7 @@ export function init(screens, onExit) {
                 levels: { offense: {}, defense: {}, utility: {} },
                 autoBuy: { offense: false, defense: false, utility: false }
             };
-            _saveGame(); _showHub(); 
+            _saveGame(); _saveAutoBuyPref({ offense: false, defense: false, utility: false }); _showHub();
         }
     };
 
@@ -1877,7 +1886,7 @@ function _resumeRun() {
     
     _run = JSON.parse(JSON.stringify(_save.currentRun));
     _run.active = true;
-    if (!_run.autoBuy) _run.autoBuy = { offense: false, defense: false, utility: false };
+    if (!_run.autoBuy) _run.autoBuy = _loadAutoBuyPref();
     
     _screens.setup.style.display = 'none';
     _screens.game.style.display = 'flex';
@@ -1918,9 +1927,9 @@ function _startRun() {
     _run.vocabCorrect = 0;
     _run.failedWords = {};
     _run.boughtDefense = false;
-    _run.currentHp = undefined; 
-    _run.autoBuy = { offense: false, defense: false, utility: false };
-    
+    _run.currentHp = undefined;
+    _run.autoBuy = _loadAutoBuyPref();
+
     for (const cat of['offense', 'defense', 'utility']) {
         for (const id in UPGRADES[cat]) {
             _run.levels[cat][id] = 0;
@@ -2192,6 +2201,7 @@ function _renderRunUpgrades() {
         autoBtn.onclick = () => {
             if (!_run.autoBuy) _run.autoBuy = {};
             _run.autoBuy[cat] = !_run.autoBuy[cat];
+            _saveAutoBuyPref(_run.autoBuy);
             _saveRunSnapshot();
             _renderRunUpgrades();
         };
