@@ -205,13 +205,29 @@
     scrollbar-width: none;
 }
 .tw-cards-equipped-row::-webkit-scrollbar { display: none; }
-/* cards in the equipped bar are a bit taller */
+
+/* Enforce perfectly matching sizing for both the card and empty slot in the top bar */
 .tw-cards-equipped-row .tw-card,
 .tw-cards-equipped-row .tw-card-slot {
-    flex: 0 0 auto;
-    width: 72px;
-    height: 88px;
+    flex: 1;
+    min-width: 68px;
+    max-width: 20%;
+    height: 85px;
     min-height: unset;
+    box-sizing: border-box;
+}
+
+.tw-card-slot {
+    border: 2px dashed #555;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #555;
+    font-size: 24px;
+    cursor: pointer;
+    background: rgba(255, 255, 255, 0.02);
+    box-sizing: border-box;
 }
 
 .tw-unlock-slot-btn {
@@ -272,6 +288,7 @@
     flex-direction: column;
     justify-content: space-between;
     min-height: 72px;
+    box-sizing: border-box;
 }
 .tw-card:active { transform: scale(0.93); }
 
@@ -336,12 +353,6 @@
     font-size: 7px;
     color: #2ecc71;
     opacity: 0.8;
-}
-
-#tw-cards-slots .tw-card { flex: 1; min-width: 0; max-width: 20%; height: 80px; }
-.tw-card-slot {
-    flex: 1; min-width: 0; max-width: 20%; height: 80px; border: 2px dashed #555; border-radius: 8px; 
-    display: flex; align-items: center; justify-content: center; color: #555; font-size: 24px; cursor: pointer;
 }
 
 /* Card Pull Animations */
