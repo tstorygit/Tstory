@@ -1,245 +1,477 @@
-// main/js/games/tower/tower_data.js
+/* main/js/games/tower/tower.css */
 
-export const UPGRADES = {
-    offense: {
-        damage:     { name: 'Damage',        base: 5,   step: 2,     baseCost: 10,  costMult: 1.15, isPct: false },
-        atkSpeed:   { name: 'Attack Speed',  base: 1.0, step: 0.1,   baseCost: 15,  costMult: 1.18, isPct: false, max: 10 },
-        range:      { name: 'Range',         base: 120, step: 4,     baseCost: 20,  costMult: 1.18, isPct: false, max: 300 },
-        splashDmg:  { name: 'Splash Damage', base: 0,   step: 0.05,  baseCost: 200, costMult: 1.40, isPct: true,  max: 1.0, reqUnlock: true, unlockCost: 500 },
-        dmgMeter:   { name: 'Damage/Meter',  base: 0,   step: 0.001, baseCost: 100, costMult: 1.30, isPct: true,  max: 0.2, reqUnlock: true, unlockCost: 400 },
-        bounce:     { name: 'Bounce Shot',   base: 0,   step: 0.05,  baseCost: 150, costMult: 1.5, isPct: true,  max: 0.8, reqUnlock: true, unlockCost: 500 },
-        critChance: { name: 'Crit Chance',   base: 0,   step: 0.02,  baseCost: 50,  costMult: 1.45, isPct: true,  max: 0.8, reqUnlock: true, unlockCost: 200 },
-        critMult:   { name: 'Crit Factor',   base: 1.5, step: 0.2,   baseCost: 50,  costMult: 1.25, isPct: false, reqUnlock: true, unlockCost: 250 }
-    },
-    defense: {
-        health:     { name: 'Health',        base: 50,  step: 15,    baseCost: 10,  costMult: 1.15, isPct: false },
-        regen:      { name: 'Health Regen',  base: 0,   step: 1,     baseCost: 20,  costMult: 1.20, isPct: false },
-        defAbs:     { name: 'Defense (Abs)', base: 0,   step: 2,     baseCost: 20,  costMult: 1.20, isPct: false },
-        defPct:     { name: 'Defense (%)',   base: 0,   step: 0.01,  baseCost: 100, costMult: 1.35, isPct: true,  max: 0.75, reqUnlock: true, unlockCost: 500 },
-        lifesteal:  { name: 'Lifesteal',     base: 0,   step: 0.005, baseCost: 200, costMult: 1.40, isPct: true,  max: 0.5, reqUnlock: true, unlockCost: 1000 },
-        knockback:  { name: 'Knockback',     base: 0,   step: 0.05,  baseCost: 250, costMult: 1.60, isPct: true,  max: 0.8, reqUnlock: true, unlockCost: 800 },
-        thorns:     { name: 'Thorns Dmg',    base: 0,   step: 0.1,   baseCost: 50,  costMult: 1.35, isPct: true, reqUnlock: true, unlockCost: 300 },
-        defyDeath:  { name: 'Defy Death',    base: 0,   step: 0.01,  baseCost: 1000,costMult: 1.60, isPct: true,  max: 0.3, reqUnlock: true, unlockCost: 2500 }
-    },
-    utility: {
-        cashBonus:      { name: 'Cash Bonus',       base: 1,   step: 0.05,  baseCost: 50,  costMult: 1.30, isPct: true, reqUnlock: true, unlockCost: 150 },
-        cashWave:       { name: 'Cash / Wave',      base: 0,   step: 5,     baseCost: 100, costMult: 1.35, isPct: false, reqUnlock: true, unlockCost: 300 },
-        coinBonus:      { name: 'Coin Bonus',       base: 1,   step: 0.02,  baseCost: 500, costMult: 1.50, isPct: true, reqUnlock: true, unlockCost: 1000 },
-        coinsWave:      { name: 'Coins / Wave',     base: 0,   step: 1,     baseCost: 200, costMult: 1.45, isPct: false, reqUnlock: true, unlockCost: 500 },
-        interest:       { name: 'Interest/Wave',    base: 0,   step: 0.005, baseCost: 300, costMult: 1.50, isPct: true,  max: 0.1, reqUnlock: true, unlockCost: 1500 },
-        freeUpgOffense: { name: 'Free Offense Upg', base: 0,   step: 0.005, baseCost: 500, costMult: 1.60, isPct: true,  max: 0.5, reqUnlock: true, unlockCost: 2000 },
-        freeUpgDefense: { name: 'Free Defense Upg', base: 0,   step: 0.005, baseCost: 500, costMult: 1.60, isPct: true,  max: 0.5, reqUnlock: true, unlockCost: 2000 },
-        freeUpgUtility: { name: 'Free Utility Upg', base: 0,   step: 0.005, baseCost: 500, costMult: 1.60, isPct: true,  max: 0.5, reqUnlock: true, unlockCost: 2000 }
-    }
-};
-
-export const LAB_RESEARCH_CATEGORIES = {
-    offense:['damageMult', 'critChance', 'rangeMult', 'vocabMastery'],
-    defense:['healthMult', 'regenMult', 'defPct', 'thornsMult', 'lifesteal'],
-    utility:['knowledge', 'gameSpeed', 'coinYield', 'cashBonusMult', 'startingCash', 'synergy', 'freeUpg']
-};
-
-export const LAB_RESEARCH = {
-    // Offense
-    damageMult:   { name: 'Damage Multiplier',desc: '+2% Base Damage.', baseCost: 200, costMult: 1.8, baseTimeSec: 120, max: 50 },
-    critChance:   { name: 'Crit Chance',      desc: '+0.5% Crit Chance.', baseCost: 500, costMult: 2.0, baseTimeSec: 600, max: 30 },
-    rangeMult:    { name: 'Range Multiplier', desc: '+1% Range.', baseCost: 250, costMult: 1.6, baseTimeSec: 240, max: 30 },
-    vocabMastery: { name: 'Vocab Mastery',    desc: '+0.01% Base Dmg per unique correct word.', baseCost: 500, costMult: 5.0, baseTimeSec: 1200, max: 5 },
-    // Defense
-    healthMult:   { name: 'Health Multiplier',desc: '+5% Base Health.', baseCost: 200, costMult: 1.6, baseTimeSec: 120, max: 50 },
-    regenMult:    { name: 'Regen Multiplier', desc: '+2% Health Regen.', baseCost: 250, costMult: 1.7, baseTimeSec: 180, max: 50 },
-    defPct:       { name: 'Defense %',        desc: '+0.5% Defense.', baseCost: 800, costMult: 2.5, baseTimeSec: 600, max: 20 },
-    thornsMult:   { name: 'Thorns Multiplier',desc: '+2% Thorns Damage.', baseCost: 400, costMult: 1.8, baseTimeSec: 360, max: 50 },
-    lifesteal:    { name: 'Lifesteal',        desc: '+0.2% Lifesteal.', baseCost: 1000, costMult: 3.0, baseTimeSec: 1200, max: 25 },
-    // Utility
-    knowledge:    { name: 'Vocab Multiplier', desc: '+0.5% Buff per correct vocab answer.', baseCost: 500, costMult: 2.5, baseTimeSec: 300, max: 20 },
-    gameSpeed:    { name: 'Game Speed',       desc: '+10% Simulation speed.', baseCost: 100, costMult: 3.0, baseTimeSec: 180, max: 10 },
-    coinYield:    { name: 'Coin Yield',       desc: '+10% Coins dropped.', baseCost: 300, costMult: 2.2, baseTimeSec: 300, max: 50 },
-    cashBonusMult:{ name: 'Cash Bonus Mult',  desc: '+5% Cash Earned.', baseCost: 250, costMult: 1.8, baseTimeSec: 240, max: 50 },
-    startingCash: { name: 'Starting Cash',    desc: 'Start runs with +50 Cash.', baseCost: 150, costMult: 1.8, baseTimeSec: 120, max: 50 },
-    synergy:      { name: 'Linguistic Synergy', desc: 'Unlocks Pierce at x2.0 Knowledge, Chain at x3.0.', baseCost: 2500, costMult: 1, baseTimeSec: 1800, max: 1 },
-    freeUpg:      { name: 'Free Upgrades',    desc: '+0.5% Global Free Upgrade Chance.', baseCost: 1500, costMult: 3.0, baseTimeSec: 3600, max: 10 }
-};
-
-export const RELICS = {
-    1: { name: 'Novice Seal',   desc: 'Bosses drop 3x cash.' },
-    2: { name: 'Scholar Badge', desc: 'First wave has no enemies (free Knowledge).' },
-    3: { name: 'Adept Token',   desc: 'Abilities charge 50% faster.' },
-    4: { name: 'Expert Crest',  desc: 'Base attack speed +20%.' },
-    5: { name: 'Master Crown',  desc: 'Knowledge stack value doubled.' }
-};
-
-export const TOWER_BASES = {
-    default: {
-        id: 'default', name: 'Standard Base', color: '#00ffff',
-        desc: 'A balanced tower with no strengths or weaknesses.',
-        getModifiers: (lvl) => ({})
-    },
-    sniper: {
-        id: 'sniper', name: 'Sniper Base', color: '#2ecc71',
-        desc: 'Incredible range and precision, but fires slowly.',
-        getModifiers: (lvl) => ({
-            rangeMult: 0.5 + (lvl * 0.1),       // +50% to +150%
-            critChanceAdd: 0.5 + (lvl * 0.05),  // +50% to +100%
-            atkSpeedMult: -0.5 + (lvl * 0.04)   // -50% to -10%
-        }),
-        maxLevel: 10
-    },
-    mage: {
-        id: 'mage', name: 'Mage Base', color: '#9b59b6',
-        desc: 'Attacks deal Splash Damage, but cannot Bounce.',
-        getModifiers: (lvl) => ({
-            splashDmgAdd: 0.5 + (lvl * 0.1),    // +50% to +150%
-            disableBounce: true,
-            damageMult: 0 + (lvl * 0.1)         // +0% to +100%
-        }),
-        maxLevel: 10
-    },
-    banker: {
-        id: 'banker', name: 'Banker Base', color: '#f1c40f',
-        desc: 'Massive economic gains, but reduced damage.',
-        getModifiers: (lvl) => ({
-            coinCashMult: 1.0 + (lvl * 0.2),    // +100% to +300%
-            damageMult: -0.3 + (lvl * 0.03)     // -30% to 0%
-        }),
-        maxLevel: 10
-    }
-};
-
-export const QUEST_TEMPLATES =[
-    { id: 'kill_bosses', desc: 'Kill Bosses', max: 20, rewardType: 'gems', rewardAmount: 10 },
-    { id: 'answer_vocab', desc: 'Answer Vocab Correctly', max: 50, rewardType: 'gems', rewardAmount: 15 },
-    { id: 'reach_wave_no_def', desc: 'Reach Wave without buying Defense', max: 30, rewardType: 'gems', rewardAmount: 20, type: 'highest_wave' },
-    { id: 'play_runs', desc: 'Play Runs', max: 3, rewardType: 'coins', rewardAmount: 500 },
-    { id: 'kill_spawners', desc: 'Destroy Swarm Spawners', max: 10, rewardType: 'gems', rewardAmount: 5 }
-];
-
-export const CARDS = {
-    // Common (50%)
-    dmg:    { name: 'Damage',       desc: '+% Damage',       base: 0.15, step: 0.15, rarity: 'common' },
-    hp:     { name: 'Health',       desc: '+% Health',       base: 0.20, step: 0.20, rarity: 'common' },
-    regen:  { name: 'Health Regen', desc: '+X Regen',        base: 2,    step: 1, isFlat: true, rarity: 'common' },
-    cashW:  { name: 'Cash / Wave',  desc: '+X Cash/Wave',    base: 20,   step: 10, isFlat: true, rarity: 'common' },
-    coinW:  { name: 'Coins / Wave', desc: '+X Coin/Wave',    base: 5,    step: 2,  isFlat: true, rarity: 'common' },
-    
-    // Rare (25%)
-    spd:    { name: 'Attack Speed', desc: '+% Atk Speed',    base: 0.10, step: 0.05, rarity: 'rare' },
-    rng:    { name: 'Range',        desc: '+% Range',        base: 0.10, step: 0.05, rarity: 'rare' },
-    defA:   { name: 'Defense Abs',  desc: '+X Def Abs',      base: 5,    step: 2, isFlat: true, rarity: 'rare' },
-    defP:   { name: 'Defense %',    desc: '+% Defense',      base: 0.05, step: 0.02, maxLevel: 10, rarity: 'rare' },
-    kb:     { name: 'Knockback',    desc: '+% Knockback',    base: 0.05, step: 0.02, rarity: 'rare' },
-    
-    // Epic (15%)
-    cash:   { name: 'Cash Bonus',   desc: '+% Cash',         base: 0.15, step: 0.15, rarity: 'epic' },
-    coin:   { name: 'Coin Bonus',   desc: '+% Coins',        base: 0.10, step: 0.10, rarity: 'epic' },
-    critC:  { name: 'Crit Chance',  desc: '+% Crit Chance',  base: 0.02, step: 0.01, rarity: 'epic' },
-    critM:  { name: 'Crit Factor',  desc: '+% Crit Factor',  base: 0.20, step: 0.10, rarity: 'epic' },
-    thorns: { name: 'Thorns Dmg',   desc: '+% Thorns Dmg',   base: 0.20, step: 0.10, rarity: 'epic' },
-    splash: { name: 'Splash Dmg',   desc: '+% Splash Dmg',   base: 0.05, step: 0.02, maxLevel: 10, rarity: 'epic' },
-    
-    // Mythic (8%)
-    freeO:  { name: 'Free Offense', desc: '+% Free Off. Upg',base: 0.02, step: 0.01, maxLevel: 10, rarity: 'mythic' },
-    freeD:  { name: 'Free Defense', desc: '+% Free Def. Upg',base: 0.02, step: 0.01, maxLevel: 10, rarity: 'mythic' },
-    freeU:  { name: 'Free Utility', desc: '+% Free Utl. Upg',base: 0.02, step: 0.01, maxLevel: 10, rarity: 'mythic' },
-    dmgM:   { name: 'Damage/Meter', desc: '+% Dmg/Meter',    base: 0.01, step: 0.005, rarity: 'mythic' },
-    int:    { name: 'Interest',     desc: '+% Int./Wave',    base: 0.01, step: 0.005, maxLevel: 5, rarity: 'mythic' },
-    
-    // SSR (2%)
-    death:  { name: 'Defy Death',   desc: '+% Defy Death',   base: 0.02, step: 0.01, maxLevel: 5, rarity: 'ssr' },
-    know:   { name: 'Knowledge+',   desc: '+% Know. Buff',   base: 0.10, step: 0.05, rarity: 'ssr' },
-    life:   { name: 'Lifesteal',    desc: '+% Lifesteal',    base: 0.02, step: 0.01, maxLevel: 10, rarity: 'ssr' },
-    slow:   { name: 'Slow Aura',    desc: '-% Enemy Speed',  base: 0.05, step: 0.02, maxLevel: 7, rarity: 'ssr' },
-    bounce: { name: 'Bounce Shot',  desc: '+% Bounce Chance',base: 0.05, step: 0.02, rarity: 'ssr' }
-};
-
-export const SLOT_COSTS =[
-    { coins: 0, gems: 0 },         
-    { coins: 1000, gems: 50 },     
-    { coins: 5000, gems: 100 },    
-    { coins: 25000, gems: 250 },   
-    { coins: 100000, gems: 500 }   
-];
-
-export function getCardLevelInfo(count, maxLevel = 7) {
-    const reqs =[];
-    let cur = 0;
-    for(let i=0; i<maxLevel; i++) {
-        cur += Math.pow(2, i); 
-        reqs.push(cur);
-    }
-    let lvl = 0;
-    for (let i = 0; i < reqs.length; i++) {
-        if (count >= reqs[i]) lvl = i + 1;
-        else break;
-    }
-    let nextReq = lvl < reqs.length ? reqs[lvl] : null;
-    let currentBase = lvl > 0 ? reqs[lvl - 1] : 0;
-    let progress = nextReq ? (count - currentBase) : 0;
-    let goal = nextReq ? (nextReq - currentBase) : 1;
-    return { level: lvl, progress, goal, isMax: !nextReq, maxCards: reqs[reqs.length-1] };
+.tw-root {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: #050510;
+    color: #e0e0e0;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    overflow: hidden;
+    position: relative;
+    user-select: none;
+    max-width: 900px;
+    margin: 0 auto;
+    width: 100%;
+    box-sizing: border-box;
+    padding-bottom: 50px;
 }
 
-export function calcStat(category, id, wsLvl, runLvl) {
-    const def = UPGRADES[category][id];
-    let val = def.base + (wsLvl * def.step) + (runLvl * def.step);
-    if (def.max !== undefined && val > def.max) val = def.max;
-    return val;
+.tw-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 16px; background: rgba(20, 20, 30, 0.95);
+    border-bottom: 2px solid #00ffff; box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+    flex-shrink: 0; z-index: 10;
+}
+.tw-header-title { font-size: 18px; font-weight: bold; color: #00ffff; text-shadow: 0 0 5px #00ffff; margin: 0; }
+.tw-header-currencies { display: flex; gap: 15px; }
+.tw-coins { font-family: monospace; font-size: 14px; font-weight: bold; color: #f1c40f; text-shadow: 0 0 5px #f1c40f; }
+.tw-gems { font-family: monospace; font-size: 14px; font-weight: bold; color: #00a8ff; text-shadow: 0 0 5px #00a8ff; }
+
+.tw-tab-bar {
+    display: flex; background: rgba(10, 10, 15, 0.9);
+    border-bottom: 1px solid #333; flex-shrink: 0; overflow-x: auto; scrollbar-width: none;
+}
+.tw-tab-bar::-webkit-scrollbar { display: none; }
+.tw-tab-btn {
+    flex: 1; min-width: 65px; padding: 12px 5px; background: none; border: none;
+    color: #888; font-size: 12px; font-weight: bold; cursor: pointer;
+    border-bottom: 3px solid transparent; transition: all 0.2s; white-space: nowrap;
+}
+.tw-tab-btn.active { color: #fff; border-bottom-color: #00ffff; background: rgba(0, 255, 255, 0.05); }
+
+.tw-subtab-bar { display: flex; background: rgba(0,0,0,0.5); border-bottom: 1px solid #333; flex-shrink: 0; }
+.tw-subtab-btn {
+    flex: 1; padding: 10px 0; background: none; border: none; color: #888;
+    font-size: 11px; font-weight: bold; text-transform: uppercase; cursor: pointer;
+}
+.tw-subtab-btn.active { color: #00ffff; background: rgba(0, 255, 255, 0.1); }
+.tw-subtab-content { flex: 1; overflow-y: auto; padding: 10px; display: none; -webkit-overflow-scrolling: touch; }
+.tw-subtab-content.active { display: block; }
+
+.tw-screen { display: none; flex-direction: column; height: 100%; flex: 1; min-height: 0; }
+.tw-screen.active { display: flex; }
+.tw-scroll-content { flex: 1; overflow-y: auto; padding: 16px; -webkit-overflow-scrolling: touch; }
+
+.tw-tower-visual {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    margin: 10px 0 25px;
+}
+.tw-tower-crystal {
+    font-size: 44px; line-height: 1; text-shadow: 0 0 25px #00ffff;
+    animation: twFloat 3s ease-in-out infinite; margin-bottom: 10px;
+}
+.tw-tower-body {
+    width: 60px; height: 90px; background: linear-gradient(to bottom, #2c3e50, #1a252f);
+    border: 2px solid #00ffff; border-bottom: none; border-radius: 8px 8px 0 0;
+    box-shadow: inset 0 0 15px rgba(0,255,255,0.2), 0 0 10px rgba(0,255,255,0.1);
+    display: flex; flex-direction: column; align-items: center; gap: 12px; padding-top: 15px;
+}
+.tw-tower-window {
+    width: 14px; height: 22px; background: #00ffff; border-radius: 10px;
+    box-shadow: 0 0 10px #00ffff, inset 0 0 4px #fff; opacity: 0.8;
+}
+.tw-tower-base {
+    width: 100px; height: 16px; background: #34495e; border: 2px solid #00ffff;
+    border-radius: 4px; box-shadow: 0 0 15px rgba(0,255,255,0.3);
+}
+@keyframes twFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+
+.tw-stage-card {
+    background: rgba(20, 20, 30, 0.8); border: 1px solid #333;
+    border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 20px;
+}
+.tw-stage-controls { display: flex; align-items: center; justify-content: center; gap: 20px; margin-bottom: 10px; }
+.tw-diff-btn {
+    background: none; border: 2px solid #00ffff; color: #00ffff;
+    border-radius: 50%; width: 36px; height: 36px; font-size: 18px;
+    font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 0 8px rgba(0, 255, 255, 0.3); transition: all 0.15s;
+}
+.tw-diff-btn:active { transform: scale(0.9); }
+.tw-diff-btn:disabled { border-color: #555; color: #555; box-shadow: none; pointer-events: none; }
+.tw-diff-label { font-size: 24px; font-weight: bold; width: 120px; }
+.tw-target-wave { font-size: 12px; color: #aaa; margin-bottom: 20px; }
+
+.tw-play-btn {
+    width: 100%; padding: 16px; border-radius: 10px; border: none;
+    background: #00ffff; color: #000; font-size: 18px; font-weight: bold;
+    cursor: pointer; box-shadow: 0 0 15px rgba(0, 255, 255, 0.6); transition: transform 0.1s;
+}
+.tw-play-btn:active { transform: scale(0.97); }
+
+.tw-upg-cat-title {
+    font-size: 11px; font-weight: bold; color: #00ffff; text-transform: uppercase;
+    letter-spacing: 2px; margin: 16px 0 8px; border-bottom: 1px solid rgba(0, 255, 255, 0.3); padding-bottom: 4px;
+}
+.tw-upg-row {
+    display: flex; justify-content: space-between; align-items: center;
+    background: rgba(20, 20, 30, 0.9); border: 1px solid #333;
+    border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;
+}
+.tw-upg-info { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+.tw-upg-name { font-size: 14px; font-weight: bold; color: #fff; }
+.tw-mini-mults { display: flex; gap: 4px; font-size: 9px; background: rgba(0,0,0,0.5); padding: 2px; border-radius: 4px; width: fit-content; margin-top: 2px; }
+.tw-mini-mults span { padding: 2px 6px; cursor: pointer; border-radius: 2px; color: #888; transition: background 0.1s; }
+.tw-mini-mults span.active { background: #00ffff; color: #000; font-weight: bold; }
+.tw-upg-val { font-size: 12px; color: #aaa; font-family: monospace; margin-top: 2px; }
+
+.tw-upg-buy {
+    background: transparent; border: 1px solid #2ecc71; color: #2ecc71;
+    border-radius: 6px; padding: 8px 12px; font-size: 13px; font-weight: bold; cursor: pointer;
+    min-width: 80px; text-align: center; transition: all 0.15s; font-family: monospace; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.2;
+}
+.tw-upg-buy:hover:not(:disabled) { background: rgba(46, 204, 113, 0.15); box-shadow: 0 0 8px rgba(46, 204, 113, 0.4); }
+.tw-upg-buy:disabled { border-color: #555; color: #777; cursor: not-allowed; }
+
+.tw-lab-row {
+    background: rgba(20, 20, 30, 0.9); border: 1px solid #9b59b6;
+    border-radius: 8px; padding: 12px; margin-bottom: 10px;
+}
+.tw-lab-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.tw-lab-name { font-size: 14px; font-weight: bold; color: #c39bd3; }
+.tw-lab-lvl { font-size: 12px; color: #aaa; }
+.tw-lab-desc { font-size: 11px; color: #888; margin-bottom: 10px; }
+.tw-lab-actions { display: flex; justify-content: space-between; align-items: center; }
+.tw-lab-time { font-size: 12px; font-family: monospace; color: #f1c40f; }
+.tw-lab-buy {
+    background: transparent; border: 1px solid #f1c40f; color: #f1c40f;
+    border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: bold; cursor: pointer;
+}
+.tw-lab-buy:disabled { border-color: #555; color: #777; }
+
+/* Cards Subsystem */
+@keyframes twRainbowBorder {
+    0% { border-color: #ff0000; box-shadow: 0 0 10px #ff0000; }
+    17% { border-color: #ff7f00; box-shadow: 0 0 10px #ff7f00; }
+    33% { border-color: #ffff00; box-shadow: 0 0 10px #ffff00; }
+    50% { border-color: #00ff00; box-shadow: 0 0 10px #00ff00; }
+    67% { border-color: #0000ff; box-shadow: 0 0 10px #0000ff; }
+    83% { border-color: #4b0082; box-shadow: 0 0 10px #4b0082; }
+    100% { border-color: #8b00ff; box-shadow: 0 0 10px #8b00ff; }
 }
 
-export function getUpgradeMaxLevel(category, id) {
-    const def = UPGRADES[category][id];
-    if (def.max !== undefined) {
-        return Math.round((def.max - def.base) / def.step);
-    }
-    return null;
+/* ── Cards screen layout ──────────────────────────────────────────── */
+#tw-hub-cards {
+    display: none;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
 }
 
-export function calcCost(category, id, level, isWorkshop) {
-    const def = UPGRADES[category][id];
-    const base = isWorkshop ? def.baseCost * 3 : def.baseCost;
-    const mult = isWorkshop ? def.costMult * 1.15 : def.costMult;
-    return Math.floor(base * Math.pow(mult, level));
+#tw-hub-cards.active {
+    display: flex;
 }
 
-export function getMultiBuy(category, id, startLvl, requestMode, currentCurrency, isWorkshop) {
-    const def = UPGRADES[category][id];
-    let totalCost = 0;
-    let count = 0;
-    let limit = 1;
-    
-    if (requestMode === '5') limit = 5;
-    if (requestMode === '10') limit = 10;
-    if (requestMode === 'MAX') limit = Infinity;
-    
-    let lvl = startLvl;
-    
-    while (count < limit) {
-        let statVal = calcStat(category, id, isWorkshop ? lvl : 0, isWorkshop ? 0 : lvl);
-        if (def.max !== undefined && statVal >= def.max) break; 
-        
-        let c = calcCost(category, id, lvl, isWorkshop);
-        if (totalCost + c > currentCurrency) break; 
-        
-        totalCost += c;
-        count++;
-        lvl++;
-    }
-    
-    if (count === 0) {
-        let statVal = calcStat(category, id, isWorkshop ? lvl : 0, isWorkshop ? 0 : lvl);
-        let isMaxed = def.max !== undefined && statVal >= def.max;
-        return { cost: calcCost(category, id, lvl, isWorkshop), count: 1, maxed: isMaxed };
-    }
-    
-    return { cost: totalCost, count: count, maxed: false };
+.tw-cards-top {
+    flex-shrink: 0;
+    padding: 8px 10px 6px;
+    background: rgba(10, 10, 20, 0.95);
+    border-bottom: 1px solid #1e3a4a;
 }
 
-export function calcLabCost(id, level) {
-    const def = LAB_RESEARCH[id];
-    return Math.floor(def.baseCost * Math.pow(def.costMult, level));
+.tw-cards-top-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+.tw-cards-top-label {
+    font-size: 11px;
+    font-weight: bold;
+    color: #00ffff;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
 }
 
-export function calcLabTimeMs(id, level) {
-    const def = LAB_RESEARCH[id];
-    return Math.floor(def.baseTimeSec * Math.pow(1.5, level) * 1000);
+.tw-pull-btn {
+    border: none;
+    padding: 5px 10px;
+    border-radius: 5px;
+    font-weight: bold;
+    font-size: 11px;
+    cursor: pointer;
+}
+.tw-pull-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.tw-pull-btn-1  { background: #00a8ff; color: #fff; }
+.tw-pull-btn-10 { background: #9b59b6; color: #fff; }
+
+.tw-cards-equipped-row {
+    display: flex;
+    gap: 6px;
+    padding-bottom: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.tw-cards-equipped-row::-webkit-scrollbar { display: none; }
+
+/* Enforce perfectly matching sizing for both the card and empty slot in the top bar */
+.tw-cards-equipped-row .tw-card,
+.tw-cards-equipped-row .tw-card-slot {
+    flex: 1;
+    min-width: 68px;
+    max-width: 20%;
+    height: 85px;
+    min-height: unset;
+    box-sizing: border-box;
+}
+
+.tw-card-slot {
+    border: 2px dashed #555;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #555;
+    font-size: 24px;
+    cursor: pointer;
+    background: rgba(255, 255, 255, 0.02);
+    box-sizing: border-box;
+}
+
+.tw-unlock-slot-btn {
+    width: 100%;
+    margin-top: 6px;
+    padding: 6px;
+    background: transparent;
+    border: 1px dashed #f1c40f;
+    color: #f1c40f;
+    border-radius: 6px;
+    font-weight: bold;
+    font-size: 11px;
+    cursor: pointer;
+}
+.tw-unlock-slot-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ── Scrollable collection area ───────────────────────────────────── */
+.tw-cards-collection {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 10px 16px;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* ── Rarity sections ──────────────────────────────────────────────── */
+.tw-rarity-section { margin-bottom: 12px; }
+.tw-rarity-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 10px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    padding-bottom: 4px;
+    margin-bottom: 6px;
+}
+.tw-rarity-count { font-size: 10px; opacity: 0.7; }
+
+.tw-rarity-row {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 5px;
+}
+
+/* ── Card base ────────────────────────────────────────────────────── */
+.tw-card {
+    background: #1a252f;
+    border: 2px solid #34495e;
+    border-radius: 8px;
+    padding: 5px 4px 4px;
+    text-align: center;
+    cursor: pointer;
+    position: relative;
+    transition: transform 0.1s;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-height: 72px;
+    box-sizing: border-box;
+}
+.tw-card:active { transform: scale(0.93); }
+
+/* equipped badge — small corner pip */
+.tw-card-equipped-badge {
+    position: absolute;
+    top: 2px;
+    right: 3px;
+    font-size: 8px;
+    color: #2ecc71;
+    text-shadow: 0 0 4px #2ecc71;
+    line-height: 1;
+}
+
+/* Ghost card for unowned */
+.tw-card-ghost {
+    background: rgba(255,255,255,0.03);
+    cursor: default;
+    opacity: 0.45;
+    pointer-events: none;
+}
+.tw-card-ghost-q {
+    font-size: 22px;
+    font-weight: bold;
+    color: #555;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.tw-card-ghost-name {
+    font-size: 8px;
+    color: #444;
+    line-height: 1.2;
+}
+
+.tw-card-name { font-size: 9px; font-weight: bold; color: #fff; margin-bottom: 2px; line-height: 1.1;}
+.tw-card-desc { font-size: 8px; color: #00ffff; font-family: monospace; line-height: 1.1;}
+.tw-card-lvl { font-size: 9px; font-weight: bold; color: #f1c40f; margin-top: auto; }
+.tw-card-prog { width: 100%; height: 4px; background: #000; border-radius: 2px; margin-top: 4px; overflow: hidden; }
+.tw-card-prog-fill { height: 100%; background: #e74c3c; }
+
+.tw-card[data-rarity="common"] { border-color: #6d7880; }
+.tw-card[data-rarity="rare"]   { border-color: #3498db; }
+.tw-card[data-rarity="epic"]   { border-color: #9b59b6; }
+.tw-card[data-rarity="mythic"] { border-color: #e74c3c; }
+.tw-card[data-rarity="ssr"]    { animation: twRainbowBorder 2s linear infinite; }
+.tw-card.maxed { border-color: #f1c40f !important; box-shadow: 0 0 15px #f1c40f !important; animation: none !important; }
+
+/* in-collection: equipped cards get a subtle green tint + cursor icon */
+.tw-card.tw-card-in-equipped {
+    border-color: #2ecc71 !important;
+    box-shadow: 0 0 8px rgba(46, 204, 113, 0.4) !important;
+    animation: none !important;
+    cursor: pointer;
+}
+.tw-card.tw-card-in-equipped::after {
+    content: '▲';
+    position: absolute;
+    bottom: 2px;
+    right: 3px;
+    font-size: 7px;
+    color: #2ecc71;
+    opacity: 0.8;
+}
+
+/* Card Pull Animations */
+.tw-card-reveal-wrap {
+    display: flex; flex-wrap: wrap; gap: 15px; justify-content: center; align-items: center; padding: 20px;
+    max-width: 100%; overflow-y: auto; max-height: 80vh;
+}
+.tw-card-flip-container { perspective: 1000px; width: 100px; height: 130px; }
+.tw-card-flipper { width: 100%; height: 100%; position: relative; transition: transform 0.6s; transform-style: preserve-3d; }
+.tw-card-flipper.flipped { transform: rotateY(180deg); }
+.tw-card-front, .tw-card-back {
+    width: 100%; height: 100%; position: absolute; backface-visibility: hidden; border-radius: 8px;
+    display: flex; flex-direction: column; justify-content: center; align-items: center; border: 2px solid;
+}
+.tw-card-front {
+    background: linear-gradient(135deg, #1a252f, #0f171e); transform: rotateY(180deg); padding: 10px; box-sizing: border-box; text-align: center;
+}
+.tw-card-back {
+    background: #0f171e; border-color: #34495e; color: #34495e; font-size: 30px;
+}
+
+.tw-quest-card {
+    background: rgba(20, 20, 30, 0.9); border: 1px solid #00a8ff;
+    border-radius: 8px; padding: 12px; margin-bottom: 10px;
+    display: flex; justify-content: space-between; align-items: center;
+}
+.tw-quest-info { display: flex; flex-direction: column; gap: 4px; }
+.tw-quest-title { font-size: 14px; font-weight: bold; color: #fff; }
+.tw-quest-prog-wrap { width: 100px; height: 6px; background: #333; border-radius: 3px; overflow: hidden; margin-top:4px; }
+.tw-quest-prog-fill { height: 100%; background: #00a8ff; width: 0%; transition: width 0.3s; }
+.tw-quest-claim {
+    background: #00a8ff; color: #fff; border: none; padding: 8px 12px;
+    border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 12px;
+}
+.tw-quest-claim:disabled { background: #555; color: #888; cursor: not-allowed; }
+
+.tw-battle-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 12px; background: #050510; border-bottom: 1px solid #333; z-index: 10;
+}
+.tw-wave-text { font-size: 16px; font-weight: bold; color: #fff; }
+.tw-run-cash { font-family: monospace; font-size: 14px; font-weight: bold; color: #2ecc71; text-shadow: 0 0 5px rgba(46, 204, 113, 0.5); }
+.tw-hp-bar-wrap { width: 100%; height: 6px; background: rgba(255,255,255,0.1); border-bottom: 1px solid #333; z-index: 10; }
+.tw-hp-fill { height: 100%; background: #00ffff; box-shadow: 0 0 5px #00ffff; transition: width 0.1s linear; }
+.tw-canvas-wrap { flex: 1; min-height: 0; position: relative; background: #000; }
+#tw-canvas { display: block; width: 100%; height: 100%; }
+
+.tw-battle-upgrades {
+    height: 45%; min-height: 250px; border-top: 2px solid #00ffff; background: #0a0a14;
+    display: flex; flex-direction: column; z-index: 10;
+}
+
+#tw-ui-layer { position: absolute; inset: 0; pointer-events: none; z-index: 100; }
+.tw-float-text {
+    position: absolute; pointer-events: none; font-weight: bold; font-family: monospace;
+    font-size: 14px; text-shadow: 1px 1px 2px #000;
+    animation: twFloatUp 0.8s forwards ease-out; z-index: 50;
+}
+@keyframes twFloatUp {
+    0% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -30px) scale(1.2); }
+}
+
+.tw-targeting, .tw-abilities { display: flex; gap: 4px; align-items: center; }
+.tw-target-btn, .tw-abil-btn {
+    flex: 1; padding: 6px; font-size: 11px; font-weight: bold; cursor: pointer; border-radius: 4px;
+    background: rgba(255,255,255,0.05); color: #888; border: 1px solid #333; transition: all 0.2s;
+}
+.tw-target-btn.active { background: rgba(0,255,255,0.2); color: #00ffff; border-color: #00ffff; }
+.tw-speed-btn {
+    padding: 6px 12px; font-size: 11px; font-weight: bold; cursor: pointer; border-radius: 4px;
+    background: rgba(241, 196, 15, 0.1); color: #f1c40f; border: 1px solid #f1c40f;
+    transition: all 0.2s;
+}
+.tw-speed-btn:hover { background: rgba(241, 196, 15, 0.3); }
+
+.tw-end-run-btn {
+    padding: 6px 12px; font-size: 11px; font-weight: bold; cursor: pointer; border-radius: 4px;
+    background: rgba(231, 76, 60, 0.1); color: #e74c3c; border: 1px solid #e74c3c; margin-left: auto;
+    transition: all 0.2s;
+}
+.tw-end-run-btn:hover { background: rgba(231, 76, 60, 0.3); }
+
+.tw-abil-btn { background: rgba(155, 89, 182, 0.1); color: #c39bd3; border-color: #9b59b6; }
+.tw-abil-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.tw-abil-btn.ready { background: rgba(155, 89, 182, 0.5); color: #fff; box-shadow: 0 0 10px #9b59b6; }
+.tw-combo-text { font-size: 12px; font-weight: bold; color: #f39c12; text-shadow: 0 0 5px #f39c12; margin-left: 10px; }
+.tw-ability-bar-wrap { width: 100%; height: 4px; background: rgba(255,255,255,0.1); margin-top: 4px; }
+.tw-ability-fill { height: 100%; background: #9b59b6; transition: width 0.2s; }
+
+.tw-modal { display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,0.95); padding-bottom: 50px; box-sizing: border-box; }
+.tw-death-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 15px; width: 100%; max-width: 400px;
+    margin: 15px 0; font-size: 13px; color: #ccc;
+}
+.tw-death-grid-item { background: rgba(255,255,255,0.05); padding: 10px; border-radius: 6px; text-align: center; }
+.tw-death-val { font-size: 18px; font-weight: bold; font-family: monospace; color: #fff; margin-top: 4px; }
+/* ─── Reward & Card-Pull Animations ─────────────────────────────────────── */
+
+@keyframes tw-reward-flash {
+    0%   { opacity: 1; }
+    100% { opacity: 0; }
+}
+
+@keyframes tw-particle-fly {
+    0%   { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+    80%  { opacity: 0.8; }
+    100% { transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(0.4); opacity: 0; }
+}
+
+@keyframes tw-reward-label {
+    0%   { transform: translate(-50%, -50%) scale(0.6); opacity: 0; }
+    20%  { transform: translate(-50%, -50%) scale(1.2); opacity: 1; }
+    60%  { transform: translate(-50%, -80%) scale(1); opacity: 1; }
+    100% { transform: translate(-50%, -130%) scale(0.8); opacity: 0; }
+}
+
+@keyframes tw-card-burst {
+    0%   { transform: translate(-50%, -50%) scale(0); opacity: 1; }
+    60%  { opacity: 0.8; }
+    100% { transform: translate(-50%, -50%) scale(1); opacity: 0; }
 }

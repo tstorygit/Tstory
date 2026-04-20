@@ -702,13 +702,19 @@ export class TowerEngine {
         this.ctx.shadowBlur = 0;
 
         for (const ex of this.explosions) {
+            const alpha = Math.max(0, ex.life * 5) * 0.55; // overall more subtle
+            const grad = this.ctx.createRadialGradient(ex.x, ex.y, 0, ex.x, ex.y, ex.radius);
+            // Parse base color from ex.color (rgba string) or use orange default
+            const baseRGB = ex.color.startsWith('rgba') ? ex.color : 'rgba(243,156,18,0.5)';
+            const rgb = baseRGB.match(/[\d.]+/g) || ['243','156','18','0.5'];
+            grad.addColorStop(0,   `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})`);
+            grad.addColorStop(0.45, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha * 0.55})`);
+            grad.addColorStop(1,   `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0)`);
             this.ctx.beginPath();
             this.ctx.arc(ex.x, ex.y, ex.radius, 0, Math.PI * 2);
-            this.ctx.globalAlpha = Math.max(0, ex.life * 5);
-            this.ctx.fillStyle = ex.color;
+            this.ctx.fillStyle = grad;
             this.ctx.fill();
         }
-        this.ctx.globalAlpha = 1.0;
 
         for (const e of this.enemies) {
             let sides = 4;

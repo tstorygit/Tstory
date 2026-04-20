@@ -450,3 +450,28 @@
 }
 .tw-death-grid-item { background: rgba(255,255,255,0.05); padding: 10px; border-radius: 6px; text-align: center; }
 .tw-death-val { font-size: 18px; font-weight: bold; font-family: monospace; color: #fff; margin-top: 4px; }
+/* ─── Reward & Card-Pull Animations ─────────────────────────────────────── */
+
+@keyframes tw-reward-flash {
+    0%   { opacity: 1; }
+    100% { opacity: 0; }
+}
+
+@keyframes tw-particle-fly {
+    0%   { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+    80%  { opacity: 0.8; }
+    100% { transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(0.4); opacity: 0; }
+}
+
+@keyframes tw-reward-label {
+    0%   { transform: translate(-50%, -50%) scale(0.6); opacity: 0; }
+    20%  { transform: translate(-50%, -50%) scale(1.2); opacity: 1; }
+    60%  { transform: translate(-50%, -80%) scale(1); opacity: 1; }
+    100% { transform: translate(-50%, -130%) scale(0.8); opacity: 0; }
+}
+
+@keyframes tw-card-burst {
+    0%   { transform: translate(-50%, -50%) scale(0); opacity: 1; }
+    60%  { opacity: 0.8; }
+    100% { transform: translate(-50%, -50%) scale(1); opacity: 0; }
+}

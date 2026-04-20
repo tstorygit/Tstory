@@ -923,6 +923,20 @@ function _showHub() {
     );
 }
 
+// Refreshes currency display and all out-of-battle buy UIs so that spending
+// coins/gems in one panel (e.g. Lab) immediately updates affordability in all
+// other panels (e.g. Workshop) without requiring a full hub reload.
+function _refreshHubCurrencyAndUIs() {
+    _screens.setup.querySelector('#tw-hub-coins').textContent = Math.floor(_save.coins);
+    _screens.setup.querySelector('#tw-hub-gems').textContent = Math.floor(_save.gems);
+    _renderWorkshop();
+    _renderLab();
+    _renderCards();
+    _renderTowers();
+    _renderQuests();
+    if (typeof init._updateDiffUI === 'function') init._updateDiffUI();
+}
+
 function _updateEquippedTitleUI() {
     const el = _screens.setup.querySelector('#tw-equipped-title');
     if (_save && _save.equippedTitle) {
@@ -1167,8 +1181,7 @@ function _renderTowers() {
                     _save.bases.unlocked.push(id);
                     _save.bases.levels[id] = 0;
                     _saveGame();
-                    _screens.setup.querySelector('#tw-hub-coins').textContent = Math.floor(_save.coins);
-                    _screens.setup.querySelector('#tw-hub-gems').textContent = Math.floor(_save.gems);
+                    _refreshHubCurrencyAndUIs();
                     _renderTowers();
                 }
             };
@@ -1207,9 +1220,13 @@ function _checkDailyLogin() {
 
         popup.style.display = 'flex';
         popup.querySelector('#tw-login-claim').onclick = () => {
-            popup.style.display = 'none';
-            _saveGame();
-            _showHub();
+            const claimBtn = popup.querySelector('#tw-login-claim');
+            _showRewardAnimation(rewardGems || rewardCoins, rewardGems > 0 ? 'gems' : 'coins', claimBtn);
+            setTimeout(() => {
+                popup.style.display = 'none';
+                _saveGame();
+                _showHub();
+            }, 400);
         };
     }
 }
@@ -1316,12 +1333,68 @@ function _renderQuests() {
                 q.claimed = true;
                 if (q.rewardType === 'gems') _save.gems += q.rewardAmount;
                 else _save.coins += q.rewardAmount;
+                _showRewardAnimation(q.rewardAmount, q.rewardType, btn);
                 _saveGame();
-                _showHub();
+                setTimeout(() => { _refreshHubCurrencyAndUIs(); _renderQuests(); }, 300);
             };
         }
         list.appendChild(row);
     }
+}
+
+// ─── REWARD ANIMATION ────────────────────────────────────────────────────────
+
+function _showRewardAnimation(amount, type, anchorEl) {
+    const icon = type === 'gems' ? '💎' : '🪙';
+    const color = type === 'gems' ? '#00a8ff' : '#f1c40f';
+
+    // Full-screen flash overlay
+    const flash = document.createElement('div');
+    flash.style.cssText = `
+        position:fixed; inset:0; z-index:9998; pointer-events:none;
+        background:radial-gradient(ellipse at center, ${color}33 0%, transparent 70%);
+        animation: tw-reward-flash 0.6s ease-out forwards;
+    `;
+    document.body.appendChild(flash);
+    setTimeout(() => flash.remove(), 700);
+
+    // Burst particles
+    const rect = anchorEl ? anchorEl.getBoundingClientRect() : { left: window.innerWidth / 2, top: window.innerHeight / 2, width: 0, height: 0 };
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+
+    for (let i = 0; i < 12; i++) {
+        const particle = document.createElement('div');
+        const angle = (i / 12) * Math.PI * 2;
+        const dist = 60 + Math.random() * 80;
+        const tx = Math.cos(angle) * dist;
+        const ty = Math.sin(angle) * dist - 40;
+        const size = 16 + Math.random() * 10;
+        particle.style.cssText = `
+            position:fixed; left:${cx}px; top:${cy}px; z-index:9999;
+            font-size:${size}px; line-height:1; pointer-events:none;
+            transform:translate(-50%,-50%);
+            animation: tw-particle-fly 0.9s ease-out forwards;
+            --tx:${tx}px; --ty:${ty}px;
+        `;
+        particle.textContent = icon;
+        document.body.appendChild(particle);
+        setTimeout(() => particle.remove(), 1000);
+    }
+
+    // Big reward text
+    const label = document.createElement('div');
+    label.style.cssText = `
+        position:fixed; left:${cx}px; top:${cy - 30}px; z-index:9999;
+        font-size:28px; font-weight:bold; color:${color};
+        text-shadow: 0 0 20px ${color}, 0 0 40px ${color};
+        transform:translate(-50%,-50%);
+        pointer-events:none;
+        animation: tw-reward-label 1.1s ease-out forwards;
+    `;
+    label.textContent = `+${amount} ${icon}`;
+    document.body.appendChild(label);
+    setTimeout(() => label.remove(), 1200);
 }
 
 // ─── CARDS & WORKSHOP ───────────────────────────────────────────────────────
@@ -1404,6 +1477,9 @@ function _pullCards(amount) {
 
     pulled.forEach((id, idx) => {
         const cDef = CARDS[id];
+        const rarityColors = { common: '#bdc3c7', rare: '#3498db', epic: '#9b59b6', mythic: '#e74c3c', ssr: '#ff6ef7' };
+        const rarityColor = rarityColors[cDef.rarity] || '#fff';
+
         const el = document.createElement('div');
         el.className = 'tw-card-flip-container';
         el.innerHTML = `
@@ -1418,7 +1494,25 @@ function _pullCards(amount) {
         container.appendChild(el);
         
         setTimeout(() => {
-            el.querySelector(`#flipper-${idx}`).classList.add('flipped');
+            const flipper = el.querySelector(`#flipper-${idx}`);
+            flipper.classList.add('flipped');
+
+            // Rarity burst glow
+            const rect = el.getBoundingClientRect();
+            const burst = document.createElement('div');
+            burst.style.cssText = `
+                position:fixed;
+                left:${rect.left + rect.width/2}px;
+                top:${rect.top + rect.height/2}px;
+                width:${rect.width * 2}px; height:${rect.height * 2}px;
+                border-radius:50%; z-index:9999; pointer-events:none;
+                transform:translate(-50%,-50%) scale(0);
+                background:radial-gradient(ellipse at center, ${rarityColor}88 0%, ${rarityColor}00 70%);
+                animation: tw-card-burst 0.5s ease-out forwards;
+            `;
+            document.body.appendChild(burst);
+            setTimeout(() => burst.remove(), 600);
+
             if (idx === pulled.length - 1) {
                 setTimeout(() => { closeBtn.style.display = 'block'; }, 500);
             }
@@ -1633,8 +1727,7 @@ function _renderWorkshop() {
                         _save.coins -= def.unlockCost;
                         _save.workshop.unlocks[id] = true;
                         _saveGame();
-                        _renderWorkshop(); 
-                        _screens.setup.querySelector('#tw-hub-coins').textContent = Math.floor(_save.coins);
+                        _refreshHubCurrencyAndUIs();
                     }
                 };
             } else {
@@ -1676,9 +1769,7 @@ function _renderWorkshop() {
                         _save.coins -= buyInfo.cost;
                         _save.workshop[cat][id] = lvl + buyInfo.count;
                         _saveGame();
-                        _screens.setup.querySelector('#tw-hub-coins').textContent = Math.floor(_save.coins);
-                        _renderWorkshop();
-                        if (typeof init._updateDiffUI === 'function') init._updateDiffUI();
+                        _refreshHubCurrencyAndUIs();
                     }
                 };
             }
@@ -1725,9 +1816,7 @@ function _renderLab() {
                     _save.coins -= cost;
                     _save.lab.active = { id: id, endTime: Date.now() + timeMs };
                     _saveGame();
-                    _screens.setup.querySelector('#tw-hub-coins').textContent = Math.floor(_save.coins);
-                    _renderLab();
-                    if (typeof init._updateDiffUI === 'function') init._updateDiffUI();
+                    _refreshHubCurrencyAndUIs();
                 }
             };
             container.appendChild(row);
