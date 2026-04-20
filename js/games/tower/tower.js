@@ -1731,8 +1731,6 @@ function _renderWorkshop() {
                     }
                 };
             } else {
-                if (def.max !== undefined && lvl >= def.max) continue; 
-                
                 let reqMult = _save.workshopMults[id] || '1';
                 const buyInfo = getMultiBuy(cat, id, lvl, reqMult, _save.coins, true);
                 const val = calcStat(cat, id, lvl, 0);
