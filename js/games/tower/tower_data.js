@@ -32,7 +32,13 @@ export const UPGRADES = {
         interest:       { name: 'Interest/Wave',    base: 0,   step: 0.0025, baseCost: 300, costMult: 1.50, isPct: true,  max: 0.1, reqUnlock: true, unlockCost: 1500 },
         freeUpgOffense: { name: 'Free Offense Upg', base: 0,   step: 0.0025, baseCost: 500, costMult: 1.60, isPct: true,  max: 0.5, reqUnlock: true, unlockCost: 2000 },
         freeUpgDefense: { name: 'Free Defense Upg', base: 0,   step: 0.0025, baseCost: 500, costMult: 1.60, isPct: true,  max: 0.5, reqUnlock: true, unlockCost: 2000 },
-        freeUpgUtility: { name: 'Free Utility Upg', base: 0,   step: 0.0025, baseCost: 500, costMult: 1.60, isPct: true,  max: 0.5, reqUnlock: true, unlockCost: 2000 }
+        freeUpgUtility: { name: 'Free Utility Upg', base: 0,   step: 0.0025, baseCost: 500, costMult: 1.60, isPct: true,  max: 0.5, reqUnlock: true, unlockCost: 2000 },
+        coinDropNormal:     { name: 'Normal Drop+',  base: 0, step: 1,    baseCost: 100, costMult: 1.30, isPct: false, reqUnlock: true, unlockCost: 200 },
+        coinDropElite:      { name: 'Elite Drop+',   base: 0, step: 2,    baseCost: 150, costMult: 1.35, isPct: false, reqUnlock: true, unlockCost: 300 },
+        coinDropBoss:       { name: 'Boss Drop+',    base: 0, step: 5,    baseCost: 200, costMult: 1.40, isPct: false, reqUnlock: true, unlockCost: 500 },
+        coinDropNormalMult: { name: 'Normal Drop×',  base: 0, step: 0.05, baseCost: 200, costMult: 1.45, isPct: true,  reqUnlock: true, unlockCost: 500 },
+        coinDropEliteMult:  { name: 'Elite Drop×',   base: 0, step: 0.05, baseCost: 250, costMult: 1.45, isPct: true,  reqUnlock: true, unlockCost: 600 },
+        coinDropBossMult:   { name: 'Boss Drop×',    base: 0, step: 0.10, baseCost: 300, costMult: 1.50, isPct: true,  reqUnlock: true, unlockCost: 800 }
     }
 };
 

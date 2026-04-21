@@ -728,17 +728,23 @@ export function init(screens, onExit) {
             
             // Coin drops scale with wave and difficulty so drops stay relevant all game.
             const coinMult = (_engine.stats.coinBonus || 1) * (1 + (_save.lab.levels.coinYield || 0) * 0.1);
+            const isElite = ['fast','tank','ranged','healer','shielded','spawner'].includes(type);
             let coinDrop = 0;
             if (type === 'boss') {
                 // Boss: guaranteed drop scaling with wave and diff
-                coinDrop = Math.ceil((5 + _run.wave * 0.5) * _run.diff / 2);
+                const baseDrop = Math.ceil((5 + _run.wave * 0.5) * _run.diff / 2);
+                const flatBonus = _engine.stats.coinDropBoss || 0;
+                const multBonus = 1 + (_engine.stats.coinDropBossMult || 0);
+                coinDrop = Math.ceil((baseDrop + flatBonus) * multBonus);
                 _save.stats.bossesKilled = (_save.stats.bossesKilled || 0) + 1;
                 _updateQuest('kill_bosses', 1);
             } else {
-                // Normal enemies: drop value and chance both scale with wave/diff
-                const dropValue = Math.max(1, Math.floor(_run.wave * _run.diff * 0.25));
-                let chance = 0.06;
-                if (['fast','tank','ranged','healer','shielded','spawner'].includes(type)) chance = 0.12;
+                // Normal/elite enemies: drop value and chance both scale with wave/diff
+                const flatBonus = isElite ? (_engine.stats.coinDropElite || 0) : (_engine.stats.coinDropNormal || 0);
+                const multBonus = 1 + (isElite ? (_engine.stats.coinDropEliteMult || 0) : (_engine.stats.coinDropNormalMult || 0));
+                const baseVal = _run.wave * _run.diff * 0.25;
+                const dropValue = Math.max(1, Math.floor((baseVal + flatBonus) * multBonus));
+                let chance = isElite ? 0.12 : 0.06;
                 if (Math.random() < chance) coinDrop = dropValue;
             }
             if (type === 'spawner') {
@@ -834,6 +840,12 @@ export function launch() {
         if (_save.workshop.utility.freeUpgOffense === undefined) _save.workshop.utility.freeUpgOffense = 0;
         if (_save.workshop.utility.freeUpgDefense === undefined) _save.workshop.utility.freeUpgDefense = 0;
         if (_save.workshop.utility.freeUpgUtility === undefined) _save.workshop.utility.freeUpgUtility = 0;
+        if (_save.workshop.utility.coinDropNormal === undefined) _save.workshop.utility.coinDropNormal = 0;
+        if (_save.workshop.utility.coinDropElite === undefined) _save.workshop.utility.coinDropElite = 0;
+        if (_save.workshop.utility.coinDropBoss === undefined) _save.workshop.utility.coinDropBoss = 0;
+        if (_save.workshop.utility.coinDropNormalMult === undefined) _save.workshop.utility.coinDropNormalMult = 0;
+        if (_save.workshop.utility.coinDropEliteMult === undefined) _save.workshop.utility.coinDropEliteMult = 0;
+        if (_save.workshop.utility.coinDropBossMult === undefined) _save.workshop.utility.coinDropBossMult = 0;
     }
 
     if (_save.lab.levels.startingCash === undefined) _save.lab.levels.startingCash = 0;
@@ -1944,7 +1956,7 @@ function _getTowerStats() {
         for (const id in UPGRADES[cat]) {
             let val = calcStat(cat, id, _save.workshop[cat][id] || 0, _run ? (_run.levels[cat][id] || 0) : 0);
             
-            if (['damage', 'health', 'regen', 'cashBonus', 'cashWave', 'coinBonus', 'coinsWave', 'atkSpeed'].includes(id)) {
+            if (['damage', 'health', 'regen', 'cashBonus', 'cashWave', 'coinBonus', 'coinsWave', 'atkSpeed', 'coinDropNormal', 'coinDropElite', 'coinDropBoss'].includes(id)) {
                 val *= kBuff;
             }
             if (id === 'damage') val *= masteryBuff * labDmgMult * achBuff;
@@ -2595,12 +2607,40 @@ function _renderRunUpgrades() {
             let displayVal = def.isPct ? (val*100).toFixed(2)+'%' : parseFloat(val.toFixed(3)).toString();
             
             if (id === 'coinsWave') {
-                let base = (_run.wave * _run.diff);
+                let base = (_run.wave * _run.diff * 2);
                 let coinBonus = (_engine.stats?.coinBonus || 1);
                 let labYield = (1 + (_save.lab.levels.coinYield || 0) * 0.1);
                 let mult = coinBonus * labYield;
                 let total = Math.floor((base + val) * mult);
                 displayVal = `<span style="color:#f1c40f;font-weight:bold;">${total}</span> <span style="font-size:9px;color:#aaa;">(${base} + ${val.toFixed(0)}) &times;${mult.toFixed(2)}</span>`;
+            } else if (['coinDropNormal', 'coinDropElite', 'coinDropBoss'].includes(id)) {
+                const coinBonus = (_engine.stats?.coinBonus || 1);
+                const labYield = 1 + (_save.lab.levels.coinYield || 0) * 0.1;
+                const globalMult = coinBonus * labYield;
+                const isBoss = id === 'coinDropBoss';
+                const isElite = id === 'coinDropElite';
+                const baseVal = isBoss
+                    ? Math.ceil((5 + (_run.wave||1) * 0.5) * (_run.diff||1) / 2)
+                    : Math.max(1, Math.floor((_run.wave||1) * (_run.diff||1) * 0.25));
+                const dropMultVal = 1 + (isBoss ? (_engine.stats?.coinDropBossMult || 0)
+                                       : isElite ? (_engine.stats?.coinDropEliteMult || 0)
+                                       : (_engine.stats?.coinDropNormalMult || 0));
+                const total = Math.floor((baseVal + val) * dropMultVal * globalMult);
+                displayVal = `<span style="color:#f1c40f;font-weight:bold;">${total}</span> <span style="font-size:9px;color:#aaa;">(base:${baseVal}+${val.toFixed(0)})&times;${dropMultVal.toFixed(2)}&times;${globalMult.toFixed(2)}</span>`;
+            } else if (['coinDropNormalMult', 'coinDropEliteMult', 'coinDropBossMult'].includes(id)) {
+                const coinBonus = (_engine.stats?.coinBonus || 1);
+                const labYield = 1 + (_save.lab.levels.coinYield || 0) * 0.1;
+                const globalMult = coinBonus * labYield;
+                const isBoss = id === 'coinDropBossMult';
+                const isElite = id === 'coinDropEliteMult';
+                const baseVal = isBoss
+                    ? Math.ceil((5 + (_run.wave||1) * 0.5) * (_run.diff||1) / 2)
+                    : Math.max(1, Math.floor((_run.wave||1) * (_run.diff||1) * 0.25));
+                const flatBonus = isBoss ? (_engine.stats?.coinDropBoss || 0)
+                                : isElite ? (_engine.stats?.coinDropElite || 0)
+                                : (_engine.stats?.coinDropNormal || 0);
+                const total = Math.floor((baseVal + flatBonus) * (1 + val) * globalMult);
+                displayVal = `${(val*100).toFixed(1)}% <span style="font-size:9px;color:#aaa;">(base:${baseVal}+${flatBonus.toFixed(0)})&times;${(1+val).toFixed(2)}&times;${globalMult.toFixed(2)} = ${total}</span>`;
             } else if (id === 'cashWave') {
                 let interest = Math.floor(_run.cash * (_engine.stats?.interest || 0));
                 let total = val + interest;
