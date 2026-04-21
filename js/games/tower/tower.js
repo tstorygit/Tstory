@@ -2095,14 +2095,14 @@ function _openVocabPanel() {
     // Don't stack panels
     if (uiLayer.querySelector('.gvm-overlay')) return;
 
-    // Game keeps running in continuous mode — no pause needed
     const buf = _run.vocabBuffer || 0;
     const bufStr = buf > 0 ? `+${buf} ahead` : buf === 0 ? 'on track' : `${buf} behind`;
 
-    const result = showGameQuiz(_vocabMgr, {
+    showGameQuiz(_vocabMgr, {
         container: uiLayer,
+        continuous: true,
         title: (isUnscheduled) => isUnscheduled ? '📖 Vocab (unscheduled)' : '📖 Vocab',
-        subtitle: `Continuous mode · Buffer: ${bufStr}`,
+        subtitle: `Buffer: ${bufStr}`,
         onAnswer: (isCorrect, wordObj) => {
             _run.vocabQuestions++;
             if (isCorrect) {
@@ -2149,30 +2149,11 @@ function _openVocabPanel() {
             _checkAchievements();
             _saveRunSnapshot();
         },
-        onEmpty: () => { /* pool empty — nothing to do in continuous mode */ }
+        onEmpty: () => { /* nothing — panel closes itself */ },
+        onClose: () => {
+            // Panel was dismissed with ✕ — nothing extra needed, game was never paused
+        }
     });
-
-    // Inject ✕ close button — only exists in continuous mode
-    if (result?.overlay) {
-        const closeBtn = document.createElement('button');
-        closeBtn.textContent = '✕';
-        closeBtn.style.cssText = `
-            position:absolute; top:12px; right:12px;
-            background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2);
-            color:#ccc; border-radius:50%; width:28px; height:28px;
-            font-size:14px; cursor:pointer; display:flex; align-items:center;
-            justify-content:center; line-height:1; z-index:1;
-        `;
-        result.overlay.style.position = 'relative';
-        result.overlay.appendChild(closeBtn);
-
-        closeBtn.onclick = () => {
-            if (result.challenge?.refId) {
-                _vocabMgr.gradeWord(result.challenge.refId, false);
-            }
-            result.overlay.remove();
-        };
-    }
 }
 
 function _startRun() {
@@ -2245,6 +2226,33 @@ function _startNextWave() {
         }
 
         // Buffer depleted (went negative) — must pause until player answers
+        // If the continuous panel is already open, don't stack another overlay.
+        // The existing panel will keep running and the next wave trigger will
+        // fire once the buffer recovers via _openVocabPanel answers.
+        const uiLayer = _screens.game.querySelector('#tw-ui-layer');
+        if (uiLayer.querySelector('.gvm-overlay')) {
+            // Panel already open — player is already answering, just wait.
+            // We do NOT start the wave yet; it will be started when the buffer
+            // clears (handled by the wave-start check below in the ticker).
+            // For now, pause the engine silently.
+            _engine.pause();
+            // Poll until buffer clears then resume
+            const pollId = setInterval(() => {
+                if ((_run.vocabBuffer || 0) >= 0 && !uiLayer.querySelector('.gvm-overlay.gvm-continuous')) {
+                    clearInterval(pollId);
+                    _vocabMgr.resume();
+                    _engine.resume();
+                    _engine.startWave(_run.wave);
+                } else if ((_run.vocabBuffer || 0) >= 0) {
+                    // Buffer recovered while panel still open — start wave, panel stays
+                    clearInterval(pollId);
+                    _engine.resume();
+                    _engine.startWave(_run.wave);
+                }
+            }, 200);
+            return;
+        }
+
         _engine.pause();
         _vocabMgr.pause();
         const uiLayer = _screens.game.querySelector('#tw-ui-layer');

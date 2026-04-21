@@ -234,7 +234,7 @@ function _gridCols(n) {
 /**
  * The central, reusable quiz window for all games.
  * Renders inside options.container as a full-screen overlay.
- * 
+ *
  * @param {GameVocabManager} vocabMgr
  * @param {Object} options
  * @param {HTMLElement} options.container
@@ -245,8 +245,14 @@ function _gridCols(n) {
  * @param {number} [options.optionCount=4]
  * @param {string} [options.forceMode]
  * @param {number[]|null} [options.dots]
+ * @param {boolean} [options.continuous=false]
+ *   When true the overlay stays open after each answer and loads the next word
+ *   automatically. No ring animation is shown. A ✕ close button is always
+ *   rendered inside the modal. onAnswer fires per word; onClose fires when the
+ *   player dismisses the panel.
  * @param {Function} [options.onAnswer] (isCorrect, wordObj, result) => void
- * @param {Function} [options.onEmpty] () => void
+ * @param {Function} [options.onEmpty] () => void   — called when pool is empty (both modes)
+ * @param {Function} [options.onClose] () => void   — called when ✕ is clicked (continuous only)
  * @returns {{ challenge, overlay } | null}
  */
 export function showGameQuiz(vocabMgr, options = {}) {
@@ -254,7 +260,169 @@ export function showGameQuiz(vocabMgr, options = {}) {
 
     const optionCount  = options.optionCount  ?? 4;
     const showFurigana = options.showFurigana !== false;
+    const continuous   = options.continuous   === true;
 
+    // ── Continuous mode: create the persistent overlay shell once, then
+    //    delegate word-by-word rendering to an internal function.
+    if (continuous) {
+        const overlay = document.createElement('div');
+        overlay.className = `gvm-overlay gvm-continuous ${_forcedTheme === 'dark' ? 'gvm-dark' : ''}`;
+        options.container.appendChild(overlay);
+
+        // Tracks the current challenge so the close button can clean up GVM state
+        let _currentChallenge = null;
+
+        const closePanel = () => {
+            if (_currentChallenge?.refId) {
+                // Grade pending word as wrong so GVM _pendingPulls stays clean
+                vocabMgr.gradeWord(_currentChallenge.refId, false);
+                _currentChallenge = null;
+            }
+            overlay.remove();
+            if (options.onClose) options.onClose();
+        };
+
+        const loadNext = () => {
+            const challenge = vocabMgr.getNextWord(options.forceMode ?? null, optionCount);
+            if (!challenge) {
+                overlay.remove();
+                if (options.onEmpty) options.onEmpty();
+                return;
+            }
+            _currentChallenge = challenge;
+
+            const { wordObj, options: answerOpts, correctIdx, type, displayMode } = challenge;
+            const isUnscheduled = type === 'unscheduled';
+            const resolve = (v) => typeof v === 'function' ? v(isUnscheduled, type) : v;
+
+            const badge = _badgeFor(type);
+            let badgeLabel = badge.label;
+            if (vocabMgr.isGlobalSrs || vocabMgr.getMode() !== 'random') {
+                const dueCount = vocabMgr.getDueCount();
+                if (dueCount > 0) badgeLabel += ` (${dueCount} due)`;
+            }
+
+            const title      = resolve(options.title)      ?? badgeLabel;
+            const titleColor = resolve(options.titleColor) ?? 'var(--text-main, #333)';
+            const subtitle   = options.subtitle !== undefined
+                ? resolve(options.subtitle)
+                : (isUnscheduled ? 'Not scheduled — correct answers won\'t update your SRS interval.' : '');
+
+            let displayFuri = '';
+            let displayMain = wordObj.kanji;
+            if (displayMode === 'kana') {
+                displayMain = wordObj.kana;
+            } else if (displayMode === 'kanji') {
+                displayMain = wordObj.kanji;
+            } else {
+                if (showFurigana && wordObj.kana !== wordObj.kanji) displayFuri = wordObj.kana;
+            }
+
+            const cols = _gridCols(answerOpts.length);
+
+            overlay.innerHTML = `
+                <div class="gvm-modal">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <div class="gvm-badge ${badge.cls}">${badgeLabel}</div>
+                        <button class="gvm-continuous-close" title="Close vocab panel"
+                            style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2);
+                                   color:#ccc; border-radius:50%; width:28px; height:28px; font-size:14px;
+                                   cursor:pointer; display:flex; align-items:center; justify-content:center;
+                                   line-height:1; flex-shrink:0;">✕</button>
+                    </div>
+                    <h3 class="gvm-title" style="color:${titleColor};">${title}</h3>
+                    ${subtitle ? `<p class="gvm-subtitle">${subtitle}</p>` : ''}
+                    <div class="gvm-word-block">
+                        <div class="gvm-furi">${displayFuri}</div>
+                        <div class="gvm-kanji">${displayMain}</div>
+                    </div>
+                    <div class="gvm-grid" style="grid-template-columns:${cols};">
+                        ${answerOpts.map((opt, i) =>
+                            `<button class="gvm-btn" data-idx="${i}">${opt}</button>`
+                        ).join('')}
+                    </div>
+                </div>
+            `;
+
+            overlay.querySelector('.gvm-continuous-close').addEventListener('click', closePanel);
+
+            const btns = overlay.querySelectorAll('.gvm-btn');
+            btns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    if (btn.disabled) return;
+                    btns.forEach(b => b.disabled = true);
+
+                    const isCorrect = parseInt(btn.dataset.idx) === correctIdx;
+                    btn.classList.add(isCorrect ? 'correct' : 'wrong');
+                    if (!isCorrect) {
+                        const correctBtn = overlay.querySelector(`.gvm-btn[data-idx="${correctIdx}"]`);
+                        if (correctBtn) correctBtn.classList.add('correct');
+                    }
+
+                    const gradeResult = vocabMgr.gradeWord(challenge.refId, isCorrect);
+                    _currentChallenge = null;
+
+                    if (isCorrect) {
+                        setTimeout(() => {
+                            if (options.onAnswer) options.onAnswer(isCorrect, wordObj, gradeResult);
+                            if (overlay.isConnected) loadNext();
+                        }, 600);
+                    } else {
+                        // Correction screen
+                        setTimeout(() => {
+                            const modalEl = overlay.querySelector('.gvm-modal');
+                            if (!modalEl) return;
+                            modalEl.innerHTML = `
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <div class="gvm-badge gvm-badge-leech">❌ Incorrect</div>
+                                    <button class="gvm-continuous-close" title="Close vocab panel"
+                                        style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2);
+                                               color:#ccc; border-radius:50%; width:28px; height:28px; font-size:14px;
+                                               cursor:pointer; display:flex; align-items:center; justify-content:center;
+                                               line-height:1; flex-shrink:0;">✕</button>
+                                </div>
+                                <h3 class="gvm-title" style="color:#e74c3c; margin-top:5px;">Let's review!</h3>
+                                <div style="background:var(--bg-color,#f9f9f9); border:1px solid var(--border-color,#ccc); border-radius:12px; padding:20px; margin:15px 0;">
+                                    <div style="font-size:14px; color:var(--text-muted,#888); min-height:20px; margin-bottom:4px;">
+                                        ${wordObj.kana !== wordObj.kanji ? wordObj.kana : ''}
+                                    </div>
+                                    <div style="font-size:42px; font-weight:900; color:var(--text-main,#333); line-height:1.1; letter-spacing:-1px; margin-bottom:15px;">
+                                        ${wordObj.kanji}
+                                    </div>
+                                    <div style="font-size:18px; color:var(--primary-color,#4A90E2); font-weight:bold; padding-top:15px; border-top:1px dashed var(--border-color,#ccc);">
+                                        ${wordObj.eng}
+                                    </div>
+                                </div>
+                                <div style="display:flex; gap:10px;">
+                                    <button id="gvm-correction-speak" class="gvm-btn" style="flex:1; display:flex; align-items:center; justify-content:center; gap:6px;">
+                                        ${SPEAKER_ICON} Audio
+                                    </button>
+                                    <button id="gvm-correction-continue" class="gvm-btn" style="flex:2; background:var(--primary-color,#4A90E2); color:white; border-color:var(--primary-color,#4A90E2);">
+                                        Continue &rarr;
+                                    </button>
+                                </div>
+                            `;
+                            modalEl.querySelector('.gvm-continuous-close').addEventListener('click', closePanel);
+                            modalEl.querySelector('#gvm-correction-speak').addEventListener('click', () => {
+                                const text = String(wordObj.kanji).replace(/[（\(].*?[）\)]/g, '').trim();
+                                speakText(text);
+                            });
+                            modalEl.querySelector('#gvm-correction-continue').addEventListener('click', () => {
+                                stopSpeech();
+                                if (options.onAnswer) options.onAnswer(isCorrect, wordObj, gradeResult);
+                                if (overlay.isConnected) loadNext();
+                            });
+                        }, 800);
+                    }
+                });
+            });
+        };
+
+        loadNext();
+        return { overlay };
+    }
+
+    // ── Normal (one-shot) mode ────────────────────────────────────────────────
     const challenge = vocabMgr.getNextWord(options.forceMode ?? null, optionCount);
     if (!challenge) {
         if (options.onEmpty)  options.onEmpty();
