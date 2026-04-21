@@ -2083,24 +2083,19 @@ function _updateVocabModeUI() {
     pill.title = isContinuous
         ? `Continuous mode — vocab panel stays open. Buffer: ${buf > 0 ? '+' : ''}${buf} (${buf === 0 ? 'game pauses at 0' : buf > 0 ? 'ahead' : 'behind'})`
         : 'Normal mode — one quiz per wave';
-    // Show/hide the open-vocab button (always show in continuous)
+    // Book button only visible and functional in continuous mode
     const openBtn = _screens.game.querySelector('#tw-vocab-open-btn');
-    if (openBtn) openBtn.style.opacity = isContinuous ? '1' : '0.45';
+    if (openBtn) openBtn.style.display = isContinuous ? '' : 'none';
 }
 
 function _openVocabPanel() {
+    if (_run.vocabMode !== 'continuous') return;
+
     const uiLayer = _screens.game.querySelector('#tw-ui-layer');
     // Don't stack panels
     if (uiLayer.querySelector('.gvm-overlay')) return;
 
-    const isContinuous = _run.vocabMode === 'continuous';
-
-    // In continuous mode the game keeps running; in normal mode pause it
-    if (!isContinuous) {
-        _engine.pause();
-        _vocabMgr.pause();
-    }
-
+    // Game keeps running in continuous mode — no pause needed
     const buf = _run.vocabBuffer || 0;
     const bufStr = buf > 0 ? `+${buf} ahead` : buf === 0 ? 'on track' : `${buf} behind`;
 
@@ -2136,8 +2131,6 @@ function _openVocabPanel() {
                 const gain = 1 * comboMult;
                 _run.knowledgeStacks += gain;
                 _engine.spawnFloatText(`+${gain} Knowledge!`, '#2ecc71', true);
-
-                // Bank one advance answer into the buffer
                 _run.vocabBuffer = (_run.vocabBuffer || 0) + 1;
             } else {
                 _run.combo = 0;
@@ -2146,7 +2139,6 @@ function _openVocabPanel() {
                     const label = wordObj.kanji || wordObj.hiragana;
                     _run.failedWords[label] = (_run.failedWords[label] || 0) + 1;
                 }
-                // Wrong answer still costs a buffer slot (counts as "used")
                 _run.vocabBuffer = (_run.vocabBuffer || 0) - 1;
             }
 
@@ -2156,21 +2148,11 @@ function _openVocabPanel() {
             _renderRunUpgrades();
             _checkAchievements();
             _saveRunSnapshot();
-
-            if (!isContinuous) {
-                _vocabMgr.resume();
-                _engine.resume();
-            }
         },
-        onEmpty: () => {
-            if (!isContinuous) {
-                _vocabMgr.resume();
-                _engine.resume();
-            }
-        }
+        onEmpty: () => { /* pool empty — nothing to do in continuous mode */ }
     });
 
-    // Inject close button into the overlay
+    // Inject ✕ close button — only exists in continuous mode
     if (result?.overlay) {
         const closeBtn = document.createElement('button');
         closeBtn.textContent = '✕';
@@ -2185,15 +2167,10 @@ function _openVocabPanel() {
         result.overlay.appendChild(closeBtn);
 
         closeBtn.onclick = () => {
-            // Grade the pending word as wrong/skipped so GVM state stays clean
             if (result.challenge?.refId) {
                 _vocabMgr.gradeWord(result.challenge.refId, false);
             }
             result.overlay.remove();
-            if (!isContinuous) {
-                _vocabMgr.resume();
-                _engine.resume();
-            }
         };
     }
 }
