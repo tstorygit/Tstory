@@ -2673,18 +2673,22 @@ function _getStatBreakdown(cat, id) {
         if (id === 'splashDmg'  && mods.splashDmgAdd)  flatBonus   += mods.splashDmgAdd;
     }
 
-    // totalMultBonus = extra from multipliers on base + pct cards + tower base %mods
-    // wsScaled + runScaled + totalMultBonus + flatBonus = total  ✓
-    const totalMultBonus = multBonus + cardMultBonus + baseModMult;
-    const total = wsScaled + runScaled + totalMultBonus + flatBonus;
+    const total = scaledTotal + cardMultBonus + baseModMult + flatBonus;
+
+    // combinedMult for display — include card pct and tower base pct effects too
+    // so the player can verify: (base + wsRaw + runRaw) * displayMult + flatBonus ≈ total
+    const scaledPlusCardMult = scaledTotal + cardMultBonus + baseModMult;
+    const rawBase = baseVal + wsRaw + runRaw;
+    const displayMult = rawBase > 0 ? scaledPlusCardMult / rawBase : combinedMult;
 
     return {
-        ws:        wsScaled,
-        run:       runScaled,
-        multBonus: totalMultBonus,
-        flatBonus: flatBonus,
-        total:     total,
-        isPct:     def.isPct
+        ws:          wsRaw,
+        run:         runRaw,
+        base:        baseVal,
+        displayMult: displayMult,
+        flatBonus:   flatBonus,
+        total:       total,
+        isPct:       def.isPct
     };
 }
 
@@ -2732,26 +2736,34 @@ function _renderRunUpgrades() {
             
             const bd = _getStatBreakdown(cat, id);
 
-            const _fmt      = (v, p) => p ? (v*100).toFixed(2)+'%' : parseFloat(v.toFixed(3)).toString();
-            const _fmtShort = (v, p) => p ? (v*100).toFixed(1)+'%' : (Number.isInteger(Math.round(v*1000)/1000) ? String(Math.round(v)) : parseFloat(v.toFixed(2)).toString());
+            const _fmt      = (v, p) => p ? (v*100).toFixed(2)+'%' : parseFloat(v.toFixed(2)).toString();
+            const _fmtShort = (v, p) => p ? (v*100).toFixed(1)+'%' : parseFloat(v.toFixed(2)).toString();
 
-            // Build the main value display
             let displayVal = `<span style="font-weight:bold;">${_fmt(bd.total, def.isPct)}</span>`;
 
-            // Breakdown: ws(cyan) + run(green) ×mult(orange) +flat(yellow)
+            // Build breakdown: raw ws (cyan) + raw run (green) × mult (orange) + flat (yellow)
+            // Player can verify: (base + ws + run) × mult + flat = total
             const parts = [];
-            if (bd.ws  > 0.0001) parts.push(`<span style="color:#7ec8e3;" title="Workshop levels">${_fmtShort(bd.ws,  def.isPct)}</span>`);
-            if (bd.run > 0.0001) parts.push(`<span style="color:#2ecc71;" title="In-run levels">${_fmtShort(bd.run, def.isPct)}</span>`);
-            if (Math.abs(bd.multBonus) > 0.0001) {
-                const sign = bd.multBonus >= 0 ? '×+' : '×';
-                parts.push(`<span style="color:#e67e22;" title="Multiplier bonus (kBuff/lab/cards/base)">${sign}${_fmtShort(Math.abs(bd.multBonus), def.isPct)}</span>`);
+            if (bd.ws   > 0.001) parts.push(`<span style="color:#7ec8e3;" title="Workshop levels">${_fmtShort(bd.ws,  def.isPct)}</span>`);
+            if (bd.run  > 0.001) parts.push(`<span style="color:#2ecc71;" title="In-run levels">${_fmtShort(bd.run, def.isPct)}</span>`);
+            if (parts.length > 0) displayVal += ` <span style="font-size:9px;color:#555;">[${parts.join(' <span style="color:#555;">+</span> ')}`;
+            if (bd.displayMult > 1.001) {
+                displayVal += ` <span style="color:#e67e22;" title="Combined multiplier (kBuff/lab/cards/base)">×${bd.displayMult.toFixed(2)}</span>`;
             }
-            if (Math.abs(bd.flatBonus) > 0.0001) {
+            if (Math.abs(bd.flatBonus) > 0.001) {
                 const sign = bd.flatBonus >= 0 ? '+' : '';
-                parts.push(`<span style="color:#f1c40f;" title="Flat bonus (cards/lab)">${sign}${_fmtShort(bd.flatBonus, def.isPct)}</span>`);
+                displayVal += ` <span style="color:#f1c40f;" title="Flat bonus (cards/lab)">${sign}${_fmtShort(bd.flatBonus, def.isPct)}</span>`;
             }
-            if (parts.length > 0) {
-                displayVal += ` <span style="font-size:9px;color:#555;">[${parts.join(' ')}]</span>`;
+            if (parts.length > 0) displayVal += `]</span>`;
+            else if (bd.displayMult > 1.001 || Math.abs(bd.flatBonus) > 0.001) {
+                // no ws/run yet but there are bonuses — still show them
+                displayVal += ` <span style="font-size:9px;color:#555;">[`;
+                if (bd.displayMult > 1.001) displayVal += `<span style="color:#e67e22;" title="Combined multiplier">×${bd.displayMult.toFixed(2)}</span>`;
+                if (Math.abs(bd.flatBonus) > 0.001) {
+                    const sign = bd.flatBonus >= 0 ? '+' : '';
+                    displayVal += ` <span style="color:#f1c40f;">${sign}${_fmtShort(bd.flatBonus, def.isPct)}</span>`;
+                }
+                displayVal += `]</span>`;
             }
 
             if (id === 'coinsWave') {
