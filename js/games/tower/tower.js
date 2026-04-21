@@ -731,12 +731,12 @@ export function init(screens, onExit) {
             let coinDrop = 0;
             if (type === 'boss') {
                 // Boss: guaranteed drop scaling with wave and diff
-                coinDrop = Math.ceil((5 + _run.wave * 0.5) * _run.diff);
+                coinDrop = Math.ceil((5 + _run.wave * 0.5) * _run.diff / 2);
                 _save.stats.bossesKilled = (_save.stats.bossesKilled || 0) + 1;
                 _updateQuest('kill_bosses', 1);
             } else {
                 // Normal enemies: drop value and chance both scale with wave/diff
-                const dropValue = Math.max(1, Math.floor(_run.wave * _run.diff * 0.5));
+                const dropValue = Math.max(1, Math.floor(_run.wave * _run.diff * 0.25));
                 let chance = 0.06;
                 if (['fast','tank','ranged','healer','shielded','spawner'].includes(type)) chance = 0.12;
                 if (Math.random() < chance) coinDrop = dropValue;
@@ -767,7 +767,7 @@ export function init(screens, onExit) {
             // coinBonus and labYield apply to the full wave payout (base + flat add together)
             const coinBonus = _engine.stats.coinBonus || 1;
             const labYield  = 1 + (_save.lab.levels.coinYield || 0) * 0.1;
-            let waveBaseCoins = (_run.wave * _run.diff);
+            let waveBaseCoins = (_run.wave * _run.diff * 2);
             let waveCoins = Math.floor((waveBaseCoins + (_engine.stats.coinsWave || 0)) * coinBonus * labYield);
             
             _run.earnedCoinsWave += waveCoins;
