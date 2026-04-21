@@ -2255,7 +2255,6 @@ function _startNextWave() {
 
         _engine.pause();
         _vocabMgr.pause();
-        const uiLayer = _screens.game.querySelector('#tw-ui-layer');
 
         showGameQuiz(_vocabMgr, {
             container: uiLayer,
