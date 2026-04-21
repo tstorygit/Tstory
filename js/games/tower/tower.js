@@ -2544,135 +2544,147 @@ function _updateAbilitiesUI() {
     });
 }
 
-// Returns { ws, run, bonus, total } – all in the stat's native unit (raw, not %).
-// 'bonus' covers cards + lab + kBuff multiplier effects, tower base mods.
+// Returns { ws, run, multBonus, flatBonus, total }
+//   ws        – workshop purchased levels * step (raw, no mults)  [cyan]
+//   run       – in-run purchased levels * step (raw, no mults)    [green]
+//   multBonus – extra from multiplicative buffs (kBuff, lab mults, base mods, pct-cards) applied to ws+run  [orange]
+//   flatBonus – pure flat additions (flat-cards, lab flat adds)    [yellow]
+//   total     = (ws + run) * combinedMult + flatBonus
+// Note: def.base is NOT included in ws — it is the inherent starting value and
+// is already captured in (ws+run)*mult when ws=0.
 function _getStatBreakdown(cat, id) {
-    const def = UPGRADES[cat][id];
+    const def    = UPGRADES[cat][id];
     const wsLvl  = _save.workshop[cat][id] || 0;
     const runLvl = _run ? (_run.levels[cat][id] || 0) : 0;
 
-    // Base value from workshop levels only
-    let wsVal  = def.base + wsLvl  * def.step;
-    // Increment from in-run purchases
-    let runVal = runLvl * def.step;
+    // Raw purchased increments only (no def.base – that's implicit)
+    let wsRaw  = wsLvl  * def.step;
+    let runRaw = runLvl * def.step;
 
-    // Cap both proportionally if max is defined
+    // For display we also need the base so the total is correct
+    const baseVal = def.base;
+
+    // Cap if needed (trim excess from run first, then ws)
     if (def.max !== undefined) {
-        const combined = wsVal + runVal;
+        const combined = baseVal + wsRaw + runRaw;
         if (combined > def.max) {
             const excess = combined - def.max;
-            // Trim excess from run first, then ws
-            const runTrim = Math.min(excess, runVal);
-            runVal -= runTrim;
-            wsVal  -= (excess - runTrim);
+            const runTrim = Math.min(excess, runRaw);
+            runRaw -= runTrim;
+            wsRaw  -= (excess - runTrim);
         }
     }
 
-    // --- Bonus (everything applied on top after calcStat) ---
-    // We compute the "pre-bonus" base, then compare to the final engine stat.
-    const preBonus = wsVal + runVal;
+    // --- Combined multiplier (same pipeline as _getTowerStats) ---
+    const kBuff       = _engine && _engine.stats ? (_engine.stats.kBuff || 1) : 1;
+    const labDmgMult  = 1 + ((_save.lab.levels.damageMult   || 0) * 0.02);
+    const labHpMult   = 1 + ((_save.lab.levels.healthMult    || 0) * 0.05);
+    const masteryBuff = 1 + (_save.stats.wordsMastered.length * 0.0001);
+    const achBuff     = 1 + (Object.keys(_save.achievements  || {}).length * 0.01);
 
-    // Recompute the same bonus pipeline as _getTowerStats for this stat
-    const kBuff = _engine && _engine.stats ? (_engine.stats.kBuff || 1) : 1;
-    const labDmgMult   = 1 + ((_save.lab.levels.damageMult  || 0) * 0.02);
-    const labHpMult    = 1 + ((_save.lab.levels.healthMult   || 0) * 0.05);
-    const masteryBuff  = 1 + ((_save.stats.wordsMastered.length) * 0.0001);
-    const achBuff      = 1 + (Object.keys(_save.achievements || {}).length * 0.01);
-
-    // Multiplicative stats: apply same mults as _getTowerStats, then compute bonus = final − preBonus
+    let combinedMult = 1;
     const kAffected = ['damage','health','regen','cashBonus','cashWave','coinBonus','coinsWave','atkSpeed'].includes(id);
+    if (kAffected)  combinedMult *= kBuff;
+    if (id === 'damage')    combinedMult *= masteryBuff * labDmgMult * achBuff;
+    if (id === 'health')    combinedMult *= labHpMult;
+    if (id === 'atkSpeed'  && _save.relics.includes(4)) combinedMult *= 1.2;
+    if (id === 'range')     combinedMult *= 1 + ((_save.lab.levels.rangeMult    || 0) * 0.01);
+    if (id === 'regen')     combinedMult *= 1 + ((_save.lab.levels.regenMult    || 0) * 0.02);
+    if (id === 'thorns')    combinedMult *= 1 + ((_save.lab.levels.thornsMult   || 0) * 0.02);
+    if (id === 'cashBonus') combinedMult *= 1 + ((_save.lab.levels.cashBonusMult|| 0) * 0.05);
 
-    let baseAfterLab = preBonus;
-    if (kAffected) baseAfterLab *= kBuff;
-    if (id === 'damage')  baseAfterLab *= masteryBuff * labDmgMult * achBuff;
-    if (id === 'health')  baseAfterLab *= labHpMult;
-    if (id === 'atkSpeed' && _save.relics.includes(4)) baseAfterLab *= 1.2;
-    if (id === 'critChance')  baseAfterLab += (_save.lab.levels.critChance || 0) * 0.005;
-    if (id === 'range')       baseAfterLab *= 1 + ((_save.lab.levels.rangeMult    || 0) * 0.01);
-    if (id === 'regen')       baseAfterLab *= 1 + ((_save.lab.levels.regenMult    || 0) * 0.02);
-    if (id === 'defPct')      baseAfterLab += (_save.lab.levels.defPct   || 0) * 0.005;
-    if (id === 'thorns')      baseAfterLab *= 1 + ((_save.lab.levels.thornsMult   || 0) * 0.02);
-    if (id === 'lifesteal')   baseAfterLab += (_save.lab.levels.lifesteal || 0) * 0.002;
-    if (id === 'cashBonus')   baseAfterLab *= 1 + ((_save.lab.levels.cashBonusMult || 0) * 0.05);
+    // Scale each component separately so they literally sum to total:
+    //   wsScaled + runScaled + multBonus + flatBonus = total
+    // multBonus = the extra the multiplier added on top of the raw base value
+    const wsScaled  = wsRaw  * combinedMult;
+    const runScaled = runRaw * combinedMult;
+    const multBonus = baseVal * (combinedMult - 1);  // mult effect on inherent base only
+    const scaledTotal = (baseVal + wsRaw + runRaw) * combinedMult;
+
+    // --- Flat additions (lab research flat adds) ---
+    let flatBonus = 0;
+    if (id === 'critChance') flatBonus += (_save.lab.levels.critChance || 0) * 0.005;
+    if (id === 'defPct')     flatBonus += (_save.lab.levels.defPct     || 0) * 0.005;
+    if (id === 'lifesteal')  flatBonus += (_save.lab.levels.lifesteal  || 0) * 0.002;
     if (['freeUpgOffense','freeUpgDefense','freeUpgUtility'].includes(id))
-        baseAfterLab += (_save.lab.levels.freeUpg || 0) * 0.005;
+        flatBonus += (_save.lab.levels.freeUpg || 0) * 0.005;
 
-    // Card bonuses for this stat
-    let cardBonus = 0;
-    // Map stat id → card ids and whether they are multiplicative
+    // --- Card bonuses ---
+    // pct:true  = card multiplies the scaled base → bonus delta goes into multBonus
+    // pct:false = card adds flat value             → goes into flatBonus
     const CARD_MAP = {
-        damage:       [{ c:'dmg',   mult:true  }],
-        atkSpeed:     [{ c:'spd',   mult:true  }],
-        health:       [{ c:'hp',    mult:true  }],
-        range:        [{ c:'rng',   mult:true  }],
-        cashBonus:    [{ c:'cash',  mult:true  }],
-        coinBonus:    [{ c:'coin',  mult:true  }],
-        critChance:   [{ c:'critC', mult:false }],
-        critMult:     [{ c:'critM', mult:false }],
-        bounce:       [{ c:'bounce',mult:false }],
-        splashDmg:    [{ c:'splash',mult:false }],
-        dmgMeter:     [{ c:'dmgM',  mult:false }],
-        regen:        [{ c:'regen', mult:false }],
-        defAbs:       [{ c:'defA',  mult:false }],
-        defPct:       [{ c:'defP',  mult:false }],
-        lifesteal:    [{ c:'life',  mult:false }],
-        thorns:       [{ c:'thorns',mult:false }],
-        knockback:    [{ c:'kb',    mult:false }],
-        defyDeath:    [{ c:'death', mult:false }],
-        cashWave:     [{ c:'cashW', mult:false }],
-        coinsWave:    [{ c:'coinW', mult:false }],
-        interest:     [{ c:'int',   mult:false }],
-        freeUpgOffense:[{ c:'freeO',mult:false }],
-        freeUpgDefense:[{ c:'freeD',mult:false }],
-        freeUpgUtility:[{ c:'freeU',mult:false }],
+        damage:        { c:'dmg',    pct:true  },
+        atkSpeed:      { c:'spd',    pct:true  },
+        health:        { c:'hp',     pct:true  },
+        range:         { c:'rng',    pct:true  },
+        cashBonus:     { c:'cash',   pct:true  },
+        coinBonus:     { c:'coin',   pct:true  },
+        critChance:    { c:'critC',  pct:false },
+        critMult:      { c:'critM',  pct:false },
+        bounce:        { c:'bounce', pct:false },
+        splashDmg:     { c:'splash', pct:false },
+        dmgMeter:      { c:'dmgM',   pct:false },
+        regen:         { c:'regen',  pct:false },
+        defAbs:        { c:'defA',   pct:false },
+        defPct:        { c:'defP',   pct:false },
+        lifesteal:     { c:'life',   pct:false },
+        thorns:        { c:'thorns', pct:false },
+        knockback:     { c:'kb',     pct:false },
+        defyDeath:     { c:'death',  pct:false },
+        cashWave:      { c:'cashW',  pct:false },
+        coinsWave:     { c:'coinW',  pct:false },
+        interest:      { c:'int',    pct:false },
+        freeUpgOffense:{ c:'freeO',  pct:false },
+        freeUpgDefense:{ c:'freeD',  pct:false },
+        freeUpgUtility:{ c:'freeU',  pct:false },
     };
-
-    const cardDefs = CARD_MAP[id] || [];
-    if (_save && _save.cards) {
+    let cardMultBonus = 0;
+    const cardMatch = CARD_MAP[id];
+    if (cardMatch && _save && _save.cards) {
         for (let i = 0; i < _save.cards.unlockedSlots; i++) {
             const cardId = _save.cards.equipped[i];
-            if (!cardId) continue;
-            const match = cardDefs.find(m => m.c === cardId);
-            if (!match) continue;
-            const cDef = CARDS[cardId];
+            if (cardId !== cardMatch.c) continue;
+            const cDef    = CARDS[cardId];
             const lvlInfo = getCardLevelInfo(_save.cards.owned[cardId], cDef.maxLevel);
             let actualLvl = lvlInfo.level;
             if (cDef.maxLevel && actualLvl > cDef.maxLevel) actualLvl = cDef.maxLevel;
             const cVal = cDef.base + (actualLvl - 1) * cDef.step;
-            if (match.mult) {
-                cardBonus += baseAfterLab * cVal; // additive delta from mult
-            } else {
-                cardBonus += cVal;
-            }
+            if (cardMatch.pct) cardMultBonus += scaledTotal * cVal;
+            else               flatBonus     += cVal;
         }
     }
 
-    // Tower base bonuses for this stat
-    let baseModBonus = 0;
-    const baseId  = _save.bases ? (_save.bases.equipped || 'default') : 'default';
-    const baseDef = TOWER_BASES[baseId];
-    if (baseDef) {
-        const baseLvl = _save.bases.levels[baseId] || 0;
-        const mods = baseDef.getModifiers(baseLvl);
-        const afterCard = baseAfterLab + cardBonus;
-        if (id === 'range'    && mods.rangeMult)    baseModBonus += afterCard * mods.rangeMult;
-        if (id === 'critChance' && mods.critChanceAdd) baseModBonus += mods.critChanceAdd;
-        if (id === 'atkSpeed' && mods.atkSpeedMult) baseModBonus += afterCard * mods.atkSpeedMult;
-        if (id === 'splashDmg'&& mods.splashDmgAdd) baseModBonus += mods.splashDmgAdd;
-        if (id === 'damage'   && mods.damageMult)   baseModBonus += afterCard * mods.damageMult;
+    // --- Tower base bonuses ---
+    // rangeMult/atkSpeedMult/damageMult/coinCashMult are % mods → multBonus
+    // critChanceAdd/splashDmgAdd are flat                        → flatBonus
+    let baseModMult = 0;
+    const equippedBaseId = _save.bases ? (_save.bases.equipped || 'default') : 'default';
+    const towerBaseDef   = TOWER_BASES[equippedBaseId];
+    if (towerBaseDef) {
+        const baseLvl = _save.bases.levels[equippedBaseId] || 0;
+        const mods    = towerBaseDef.getModifiers(baseLvl);
+        const afterCard = scaledTotal + cardMultBonus + flatBonus;
+        if (id === 'range'      && mods.rangeMult)     baseModMult += afterCard * mods.rangeMult;
+        if (id === 'atkSpeed'   && mods.atkSpeedMult)  baseModMult += afterCard * mods.atkSpeedMult;
+        if (id === 'damage'     && mods.damageMult)    baseModMult += afterCard * mods.damageMult;
         if ((id === 'coinBonus' || id === 'cashBonus') && mods.coinCashMult)
-            baseModBonus += afterCard * mods.coinCashMult;
+            baseModMult += afterCard * mods.coinCashMult;
+        if (id === 'critChance' && mods.critChanceAdd) flatBonus   += mods.critChanceAdd;
+        if (id === 'splashDmg'  && mods.splashDmgAdd)  flatBonus   += mods.splashDmgAdd;
     }
 
-    const total  = baseAfterLab + cardBonus + baseModBonus;
-    const bonus  = total - preBonus; // everything that isn't pure ws+run step values
+    // totalMultBonus = extra from multipliers on base + pct cards + tower base %mods
+    // wsScaled + runScaled + totalMultBonus + flatBonus = total  ✓
+    const totalMultBonus = multBonus + cardMultBonus + baseModMult;
+    const total = wsScaled + runScaled + totalMultBonus + flatBonus;
 
     return {
-        ws:    wsVal,
-        run:   runVal,
-        bonus: bonus,
-        total: total,
-        isPct: def.isPct
+        ws:        wsScaled,
+        run:       runScaled,
+        multBonus: totalMultBonus,
+        flatBonus: flatBonus,
+        total:     total,
+        isPct:     def.isPct
     };
 }
 
@@ -2720,27 +2732,26 @@ function _renderRunUpgrades() {
             
             const bd = _getStatBreakdown(cat, id);
 
-            // Helper: format a single component value
-            const _fmt = (v, isPct) => isPct ? (v*100).toFixed(2)+'%' : parseFloat(v.toFixed(3)).toString();
-            const _fmtShort = (v, isPct) => {
-                if (isPct) return (v*100).toFixed(1)+'%';
-                // integers for flat stats, 3 sig for floats
-                return Number.isInteger(v) ? String(v) : parseFloat(v.toFixed(3)).toString();
-            };
+            const _fmt      = (v, p) => p ? (v*100).toFixed(2)+'%' : parseFloat(v.toFixed(3)).toString();
+            const _fmtShort = (v, p) => p ? (v*100).toFixed(1)+'%' : (Number.isInteger(Math.round(v*1000)/1000) ? String(Math.round(v)) : parseFloat(v.toFixed(2)).toString());
 
             // Build the main value display
             let displayVal = `<span style="font-weight:bold;">${_fmt(bd.total, def.isPct)}</span>`;
 
-            // Breakdown sub-line: show non-zero components
+            // Breakdown: ws(cyan) + run(green) ×mult(orange) +flat(yellow)
             const parts = [];
-            if (bd.ws   !== 0) parts.push(`<span style="color:#7ec8e3;" title="Workshop">${_fmtShort(bd.ws,  def.isPct)}</span>`);
-            if (bd.run  !== 0) parts.push(`<span style="color:#2ecc71;" title="In-run">${_fmtShort(bd.run, def.isPct)}</span>`);
-            if (Math.abs(bd.bonus) > 0.00001) {
-                const sign = bd.bonus >= 0 ? '+' : '';
-                parts.push(`<span style="color:#f1c40f;" title="Bonuses (cards/lab/base)">${sign}${_fmtShort(bd.bonus, def.isPct)}</span>`);
+            if (bd.ws  > 0.0001) parts.push(`<span style="color:#7ec8e3;" title="Workshop levels">${_fmtShort(bd.ws,  def.isPct)}</span>`);
+            if (bd.run > 0.0001) parts.push(`<span style="color:#2ecc71;" title="In-run levels">${_fmtShort(bd.run, def.isPct)}</span>`);
+            if (Math.abs(bd.multBonus) > 0.0001) {
+                const sign = bd.multBonus >= 0 ? '×+' : '×';
+                parts.push(`<span style="color:#e67e22;" title="Multiplier bonus (kBuff/lab/cards/base)">${sign}${_fmtShort(Math.abs(bd.multBonus), def.isPct)}</span>`);
+            }
+            if (Math.abs(bd.flatBonus) > 0.0001) {
+                const sign = bd.flatBonus >= 0 ? '+' : '';
+                parts.push(`<span style="color:#f1c40f;" title="Flat bonus (cards/lab)">${sign}${_fmtShort(bd.flatBonus, def.isPct)}</span>`);
             }
             if (parts.length > 0) {
-                displayVal += ` <span style="font-size:9px;color:#555;">[${parts.join(' + ')}]</span>`;
+                displayVal += ` <span style="font-size:9px;color:#555;">[${parts.join(' ')}]</span>`;
             }
 
             if (id === 'coinsWave') {
