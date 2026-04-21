@@ -2139,7 +2139,9 @@ function _openVocabPanel() {
                     const label = wordObj.kanji || wordObj.hiragana;
                     _run.failedWords[label] = (_run.failedWords[label] || 0) + 1;
                 }
-                _run.vocabBuffer = (_run.vocabBuffer || 0) - 1;
+                // Wrong answer still counts as an attempt — buffer advances,
+                // but no knowledge/gems reward.
+                _run.vocabBuffer = (_run.vocabBuffer || 0) + 1;
             }
 
             _engine.stats = _getTowerStats();
