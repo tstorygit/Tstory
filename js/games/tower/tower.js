@@ -93,6 +93,8 @@ let _run = {
     vocabCorrect: 0,
     failedWords: {},
     boughtDefense: false,
+    vocabMode: 'normal',   // 'normal' | 'continuous'
+    vocabBuffer: 0,        // advance answers banked (continuous mode)
     levels: { offense: {}, defense: {}, utility: {} },
     autoBuy: { offense: false, defense: false, utility: false }
 };
@@ -395,6 +397,8 @@ export function init(screens, onExit) {
                     <div style="display:flex; gap:6px; margin-left:auto; flex-wrap:wrap; justify-content:flex-end;">
                         <button class="tw-speed-btn" id="tw-btn-speed">⚡ 1x</button>
                         <button id="tw-mute-btn" style="background:transparent; border:1px solid #555; color:#ccc; border-radius:6px; padding:4px 8px; font-size:16px; cursor:pointer; line-height:1;">🔊</button>
+                        <button id="tw-vocab-mode-pill" style="background:transparent; border:1px solid #555; color:#aaa; border-radius:6px; padding:4px 7px; font-size:11px; font-weight:bold; cursor:pointer; line-height:1; letter-spacing:0.5px;">n</button>
+                        <button id="tw-vocab-open-btn" style="background:transparent; border:1px solid #555; color:#ccc; border-radius:6px; padding:4px 8px; font-size:15px; cursor:pointer; line-height:1;" title="Open Vocab Quiz">📖</button>
                         <button class="tw-end-run-btn" id="tw-btn-end-run" style="margin-left:0 !important;">Pause / End</button>
                     </div>
                 </div>
@@ -542,6 +546,16 @@ export function init(screens, onExit) {
 
     _screens.game.querySelector('#tw-mute-btn').addEventListener('click', () => {
         _setMuted(!_getMuted());
+    });
+
+    _screens.game.querySelector('#tw-vocab-mode-pill').addEventListener('click', () => {
+        _run.vocabMode = _run.vocabMode === 'normal' ? 'continuous' : 'normal';
+        _updateVocabModeUI();
+        _saveRunSnapshot();
+    });
+
+    _screens.game.querySelector('#tw-vocab-open-btn').addEventListener('click', () => {
+        _openVocabPanel();
     });
 
     _screens.game.querySelector('#tw-btn-end-run').addEventListener('click', () => {
@@ -2051,9 +2065,137 @@ function _resumeRun() {
 
     _updateRunHUD();
     _updateAbilitiesUI();
+    _updateVocabModeUI();
     _renderRunUpgrades();
     
     _engine.startWave(_run.wave);
+}
+
+function _updateVocabModeUI() {
+    const pill = _screens.game.querySelector('#tw-vocab-mode-pill');
+    if (!pill) return;
+    const isContinuous = _run.vocabMode === 'continuous';
+    const buf = _run.vocabBuffer || 0;
+    const bufStr = buf > 0 ? ` +${buf}` : buf < 0 ? ` ${buf}` : '';
+    pill.textContent = isContinuous ? `c${bufStr}` : 'n';
+    pill.style.borderColor = isContinuous ? '#c39bd3' : '#555';
+    pill.style.color = isContinuous ? '#c39bd3' : '#aaa';
+    pill.title = isContinuous
+        ? `Continuous mode — vocab panel stays open. Buffer: ${buf > 0 ? '+' : ''}${buf} (${buf === 0 ? 'game pauses at 0' : buf > 0 ? 'ahead' : 'behind'})`
+        : 'Normal mode — one quiz per wave';
+    // Show/hide the open-vocab button (always show in continuous)
+    const openBtn = _screens.game.querySelector('#tw-vocab-open-btn');
+    if (openBtn) openBtn.style.opacity = isContinuous ? '1' : '0.45';
+}
+
+function _openVocabPanel() {
+    const uiLayer = _screens.game.querySelector('#tw-ui-layer');
+    // Don't stack panels
+    if (uiLayer.querySelector('.gvm-overlay')) return;
+
+    const isContinuous = _run.vocabMode === 'continuous';
+
+    // In continuous mode the game keeps running; in normal mode pause it
+    if (!isContinuous) {
+        _engine.pause();
+        _vocabMgr.pause();
+    }
+
+    const buf = _run.vocabBuffer || 0;
+    const bufStr = buf > 0 ? `+${buf} ahead` : buf === 0 ? 'on track' : `${buf} behind`;
+
+    const result = showGameQuiz(_vocabMgr, {
+        container: uiLayer,
+        title: (isUnscheduled) => isUnscheduled ? '📖 Vocab (unscheduled)' : '📖 Vocab',
+        subtitle: `Continuous mode · Buffer: ${bufStr}`,
+        onAnswer: (isCorrect, wordObj) => {
+            _run.vocabQuestions++;
+            if (isCorrect) {
+                _run.combo++;
+                _run.vocabCorrect++;
+                _save.stats.totalCorrect++;
+                _save.stats.sessionCorrect++;
+                _updateQuest('answer_vocab', 1);
+                _save.gems += 1;
+
+                if (_run.combo > _save.stats.highestStreak) _save.stats.highestStreak = _run.combo;
+                if (_save.lab.levels.vocabMastery > 0 && wordObj && !_save.stats.wordsMastered.includes(wordObj.kanji)) {
+                    _save.stats.wordsMastered.push(wordObj.kanji);
+                }
+
+                let chargeAmt = 20;
+                if (_save.relics.includes(3)) chargeAmt = 30;
+                _run.abilityCharge = Math.min(100, _run.abilityCharge + chargeAmt);
+                _updateAbilitiesUI();
+
+                let comboMult = 1;
+                if (_run.combo >= 10) comboMult = 3;
+                else if (_run.combo >= 5) comboMult = 2;
+                else if (_run.combo >= 3) comboMult = 1.5;
+
+                const gain = 1 * comboMult;
+                _run.knowledgeStacks += gain;
+                _engine.spawnFloatText(`+${gain} Knowledge!`, '#2ecc71', true);
+
+                // Bank one advance answer into the buffer
+                _run.vocabBuffer = (_run.vocabBuffer || 0) + 1;
+            } else {
+                _run.combo = 0;
+                _engine.spawnFloatText('Missed Buff...', '#e74c3c', true);
+                if (wordObj) {
+                    const label = wordObj.kanji || wordObj.hiragana;
+                    _run.failedWords[label] = (_run.failedWords[label] || 0) + 1;
+                }
+                // Wrong answer still costs a buffer slot (counts as "used")
+                _run.vocabBuffer = (_run.vocabBuffer || 0) - 1;
+            }
+
+            _engine.stats = _getTowerStats();
+            _updateRunHUD();
+            _updateVocabModeUI();
+            _renderRunUpgrades();
+            _checkAchievements();
+            _saveRunSnapshot();
+
+            if (!isContinuous) {
+                _vocabMgr.resume();
+                _engine.resume();
+            }
+        },
+        onEmpty: () => {
+            if (!isContinuous) {
+                _vocabMgr.resume();
+                _engine.resume();
+            }
+        }
+    });
+
+    // Inject close button into the overlay
+    if (result?.overlay) {
+        const closeBtn = document.createElement('button');
+        closeBtn.textContent = '✕';
+        closeBtn.style.cssText = `
+            position:absolute; top:12px; right:12px;
+            background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2);
+            color:#ccc; border-radius:50%; width:28px; height:28px;
+            font-size:14px; cursor:pointer; display:flex; align-items:center;
+            justify-content:center; line-height:1; z-index:1;
+        `;
+        result.overlay.style.position = 'relative';
+        result.overlay.appendChild(closeBtn);
+
+        closeBtn.onclick = () => {
+            // Grade the pending word as wrong/skipped so GVM state stays clean
+            if (result.challenge?.refId) {
+                _vocabMgr.gradeWord(result.challenge.refId, false);
+            }
+            result.overlay.remove();
+            if (!isContinuous) {
+                _vocabMgr.resume();
+                _engine.resume();
+            }
+        };
+    }
 }
 
 function _startRun() {
@@ -2071,6 +2213,8 @@ function _startRun() {
     _run.boughtDefense = false;
     _run.currentHp = undefined;
     _run.autoBuy = _loadAutoBuyPref();
+    _run.vocabMode = _run.vocabMode || 'normal';
+    _run.vocabBuffer = 0;
 
     for (const cat of['offense', 'defense', 'utility']) {
         for (const id in UPGRADES[cat]) {
@@ -2094,6 +2238,7 @@ function _startRun() {
     
     _updateRunHUD();
     _updateAbilitiesUI();
+    _updateVocabModeUI();
     _renderRunUpgrades();
     
     _updateQuest('play_runs', 1);
@@ -2110,7 +2255,92 @@ function _startNextWave() {
     }
 
     _updateRunHUD();
-    
+
+    // ── Continuous mode: consume one buffer credit instead of showing a blocking quiz ──
+    if (_run.vocabMode === 'continuous') {
+        _run.vocabBuffer = (_run.vocabBuffer || 0) - 1;
+        _updateVocabModeUI();
+
+        if (_run.vocabBuffer >= 0) {
+            // Buffer covered this wave — start immediately, no pause
+            _engine.startWave(_run.wave);
+            return;
+        }
+
+        // Buffer depleted (went negative) — must pause until player answers
+        _engine.pause();
+        _vocabMgr.pause();
+        const uiLayer = _screens.game.querySelector('#tw-ui-layer');
+
+        showGameQuiz(_vocabMgr, {
+            container: uiLayer,
+            title: `⚠️ Wave ${_run.wave} — Answer to Continue`,
+            subtitle: `Buffer at ${_run.vocabBuffer} — game paused until you answer.`,
+            onAnswer: (isCorrect, wordObj) => {
+                _run.vocabQuestions++;
+                if (isCorrect) {
+                    _run.combo++;
+                    _run.vocabCorrect++;
+                    _save.stats.totalCorrect++;
+                    _save.stats.sessionCorrect++;
+                    _updateQuest('answer_vocab', 1);
+                    _save.gems += 1;
+
+                    if (_run.combo > _save.stats.highestStreak) _save.stats.highestStreak = _run.combo;
+                    if (_save.lab.levels.vocabMastery > 0 && wordObj && !_save.stats.wordsMastered.includes(wordObj.kanji)) {
+                        _save.stats.wordsMastered.push(wordObj.kanji);
+                    }
+
+                    let chargeAmt = 20;
+                    if (_save.relics.includes(3)) chargeAmt = 30;
+                    _run.abilityCharge = Math.min(100, _run.abilityCharge + chargeAmt);
+                    _updateAbilitiesUI();
+
+                    let comboMult = 1;
+                    if (_run.combo >= 10) comboMult = 3;
+                    else if (_run.combo >= 5) comboMult = 2;
+                    else if (_run.combo >= 3) comboMult = 1.5;
+
+                    const gain = 1 * comboMult;
+                    _run.knowledgeStacks += gain;
+                    _engine.spawnFloatText(`+${gain} Knowledge!`, '#2ecc71', true);
+                    _run.vocabBuffer = 0; // back to neutral after paying debt
+                } else {
+                    _run.combo = 0;
+                    _engine.spawnFloatText('Missed Buff...', '#e74c3c', true);
+                    if (wordObj) {
+                        const label = wordObj.kanji || wordObj.hiragana;
+                        _run.failedWords[label] = (_run.failedWords[label] || 0) + 1;
+                    }
+                    // Wrong answer clears debt but gives no buffer
+                    _run.vocabBuffer = 0;
+                }
+
+                _engine.stats = _getTowerStats();
+                _updateRunHUD();
+                _updateVocabModeUI();
+                _renderRunUpgrades();
+                _vocabMgr.resume();
+                _engine.resume();
+                _checkAchievements();
+                _saveRunSnapshot();
+                _engine.startWave(_run.wave);
+            },
+            onEmpty: () => {
+                _engine.stats = _getTowerStats();
+                _updateRunHUD();
+                _updateVocabModeUI();
+                _renderRunUpgrades();
+                _vocabMgr.resume();
+                _engine.resume();
+                _saveRunSnapshot();
+                _engine.startWave(_run.wave);
+            }
+        });
+        return;
+    }
+
+    // ── Normal mode: classic blocking quiz ───────────────────────────────────
     _engine.pause();
     _vocabMgr.pause();
     
