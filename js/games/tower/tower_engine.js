@@ -438,6 +438,7 @@ export class TowerEngine {
             if (hitTarget) {
                 let source = p.isCrit ? 'crit' : 'base';
                 let actualDmg = this._dealDamageToEnemy(hitTarget, p.dmg, p.isCrit, 10, source);
+                if (p.isCrit && this.callbacks.onCritHit) this.callbacks.onCritHit();
                 
                 if (this.stats.splashDmg > 0) {
                     let splashRadius = 50;

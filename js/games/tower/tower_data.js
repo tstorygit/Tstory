@@ -45,7 +45,7 @@ export const UPGRADES = {
 export const LAB_RESEARCH_CATEGORIES = {
     offense:['damageMult', 'critChance', 'rangeMult', 'vocabMastery'],
     defense:['healthMult', 'regenMult', 'defPct', 'thornsMult', 'lifesteal'],
-    utility:['knowledge', 'gameSpeed', 'coinYield', 'cashBonusMult', 'startingCash', 'synergy', 'freeUpg']
+    utility:['knowledge', 'gameSpeed', 'coinYield', 'cashBonusMult', 'startingCash', 'synergy', 'freeUpg', 'dailyLoginBonus', 'questRewardMult']
 };
 
 export const LAB_RESEARCH = {
@@ -67,7 +67,9 @@ export const LAB_RESEARCH = {
     cashBonusMult:{ name: 'Cash Bonus Mult',  desc: '+5% Cash Earned.', baseCost: 250, costMult: 1.8, baseTimeSec: 240, max: 50 },
     startingCash: { name: 'Starting Cash',    desc: 'Start runs with +50 Cash.', baseCost: 150, costMult: 1.8, baseTimeSec: 120, max: 50 },
     synergy:      { name: 'Linguistic Synergy', desc: 'Unlocks Pierce at x2.0 Knowledge, Chain at x3.0.', baseCost: 2500, costMult: 1, baseTimeSec: 1800, max: 1 },
-    freeUpg:      { name: 'Free Upgrades',    desc: '+0.5% Global Free Upgrade Chance.', baseCost: 1500, costMult: 3.0, baseTimeSec: 3600, max: 10 }
+    freeUpg:      { name: 'Free Upgrades',    desc: '+0.5% Global Free Upgrade Chance.', baseCost: 1500, costMult: 3.0, baseTimeSec: 3600, max: 10 },
+    dailyLoginBonus: { name: 'Login Bonus',   desc: '+25% Daily Login Coin reward.', baseCost: 400, costMult: 2.0, baseTimeSec: 600, max: 6 },
+    questRewardMult: { name: 'Quest Rewards', desc: '+20% Coin & Gem rewards from Quests.', baseCost: 600, costMult: 2.2, baseTimeSec: 900, max: 6 }
 };
 
 export const RELICS = {
@@ -116,11 +118,21 @@ export const TOWER_BASES = {
 };
 
 export const QUEST_TEMPLATES =[
-    { id: 'kill_bosses', desc: 'Kill Bosses', max: 20, rewardType: 'gems', rewardAmount: 10 },
-    { id: 'answer_vocab', desc: 'Answer Vocab Correctly', max: 50, rewardType: 'gems', rewardAmount: 15 },
-    { id: 'reach_wave_no_def', desc: 'Reach Wave without buying Defense', max: 30, rewardType: 'gems', rewardAmount: 20, type: 'highest_wave' },
-    { id: 'play_runs', desc: 'Play Runs', max: 3, rewardType: 'coins', rewardAmount: 500 },
-    { id: 'kill_spawners', desc: 'Destroy Swarm Spawners', max: 10, rewardType: 'gems', rewardAmount: 5 }
+    { id: 'kill_bosses',        desc: 'Kill Bosses',                       max: 20,  rewardType: 'gems',  rewardAmount: 10 },
+    { id: 'answer_vocab',       desc: 'Answer Vocab Correctly',            max: 50,  rewardType: 'gems',  rewardAmount: 15 },
+    { id: 'reach_wave_no_def',  desc: 'Reach Wave without buying Defense', max: 30,  rewardType: 'gems',  rewardAmount: 20, type: 'highest_wave' },
+    { id: 'play_runs',          desc: 'Play Runs',                         max: 3,   rewardType: 'coins', rewardAmount: 500 },
+    { id: 'kill_spawners',      desc: 'Destroy Swarm Spawners',            max: 10,  rewardType: 'gems',  rewardAmount: 5 },
+    { id: 'kill_elites',        desc: 'Kill Elite Enemies',                max: 30,  rewardType: 'gems',  rewardAmount: 12 },
+    { id: 'earn_coins',         desc: 'Earn Coins in Runs',                max: 2000,rewardType: 'coins', rewardAmount: 1000 },
+    { id: 'reach_wave',         desc: 'Reach Wave 25 in Any Run',          max: 25,  rewardType: 'gems',  rewardAmount: 8,  type: 'highest_wave' },
+    { id: 'vocab_streak',       desc: 'Reach a 10-Vocab Combo Streak',     max: 10,  rewardType: 'gems',  rewardAmount: 10, type: 'highest_wave' },
+    { id: 'spend_cash',         desc: 'Spend Cash on Upgrades',            max: 5000,rewardType: 'coins', rewardAmount: 800 },
+    { id: 'crit_kills',         desc: 'Land Critical Hits',                max: 100, rewardType: 'gems',  rewardAmount: 8 },
+    { id: 'complete_waves',     desc: 'Complete Waves',                    max: 50,  rewardType: 'coins', rewardAmount: 600 },
+    { id: 'research_lab',       desc: 'Complete Lab Research',             max: 2,   rewardType: 'gems',  rewardAmount: 25 },
+    { id: 'use_abilities',      desc: 'Activate Abilities',                max: 5,   rewardType: 'gems',  rewardAmount: 10 },
+    { id: 'kill_enemies',       desc: 'Kill Enemies',                      max: 500, rewardType: 'coins', rewardAmount: 700 },
 ];
 
 export const CARDS = {

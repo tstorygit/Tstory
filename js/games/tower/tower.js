@@ -117,13 +117,13 @@ function _defaultSave() {
         runMults: {},
         lab: {
             active: null,
-            levels: { damageMult:0, critChance:0, rangeMult:0, vocabMastery:0, healthMult:0, regenMult:0, defPct:0, thornsMult:0, lifesteal:0, knowledge:0, gameSpeed:0, coinYield:0, cashBonusMult:0, startingCash:0, synergy:0, freeUpg:0 }
+            levels: { damageMult:0, critChance:0, rangeMult:0, vocabMastery:0, healthMult:0, regenMult:0, defPct:0, thornsMult:0, lifesteal:0, knowledge:0, gameSpeed:0, coinYield:0, cashBonusMult:0, startingCash:0, synergy:0, freeUpg:0, dailyLoginBonus:0, questRewardMult:0 }
         },
         bases: { unlocked: ['default'], equipped: 'default', levels: { default: 0, sniper: 0, mage: 0, banker: 0 } },
         ascension: { points: 0, timesAscended: 0 },
         cards: { owned: {}, equipped: [null], unlockedSlots: 1 },
         vocabConfig: GameVocabManager.defaultConfig(),
-        stats: { totalCorrect: 0, sessionCorrect: 0, highestStreak: 0, wordsMastered:[], bossesKilled: 0, highestWaveNoDef: 0 },
+        stats: { totalCorrect: 0, sessionCorrect: 0, highestStreak: 0, wordsMastered:[], bossesKilled: 0, highestWaveNoDef: 0, highestRunCoins: 0 },
         relics:[],
         achievements: {},
         equippedTitle: null,
@@ -585,6 +585,7 @@ export function init(screens, onExit) {
             if (_run.abilityCharge >= 100) {
                 _run.abilityCharge = 0;
                 _updateAbilitiesUI();
+                _updateQuest('use_abilities', 1);
                 if (_engine) _engine.activateAbility(abil);
             }
         });
@@ -738,6 +739,7 @@ export function init(screens, onExit) {
                 coinDrop = Math.ceil((baseDrop + flatBonus) * multBonus);
                 _save.stats.bossesKilled = (_save.stats.bossesKilled || 0) + 1;
                 _updateQuest('kill_bosses', 1);
+                _updateQuest('kill_enemies', 1);
             } else {
                 // Normal/elite enemies: drop value and chance both scale with wave/diff
                 const flatBonus = isElite ? (_engine.stats.coinDropElite || 0) : (_engine.stats.coinDropNormal || 0);
@@ -746,6 +748,8 @@ export function init(screens, onExit) {
                 const dropValue = Math.max(1, Math.floor((baseVal + flatBonus) * multBonus));
                 let chance = isElite ? 0.12 : 0.06;
                 if (Math.random() < chance) coinDrop = dropValue;
+                _updateQuest('kill_enemies', 1);
+                if (isElite) _updateQuest('kill_elites', 1);
             }
             if (type === 'spawner') {
                 _updateQuest('kill_spawners', 1);
@@ -777,6 +781,9 @@ export function init(screens, onExit) {
             let waveCoins = Math.floor((waveBaseCoins + (_engine.stats.coinsWave || 0)) * coinBonus * labYield);
             
             _run.earnedCoinsWave += waveCoins;
+            _updateQuest('earn_coins', waveCoins);
+            _updateQuest('complete_waves', 1);
+            _updateQuest('reach_wave', _run.wave);
             
             if (!_run.boughtDefense) {
                 _updateQuest('reach_wave_no_def', _run.wave);
@@ -791,7 +798,8 @@ export function init(screens, onExit) {
             _startNextWave();
         },
         onPlayerDie: () => _handleDeath(),
-        hasRelic: (id) => _save && _save.relics.includes(id)
+        hasRelic: (id) => _save && _save.relics.includes(id),
+        onCritHit: () => _updateQuest('crit_kills', 1)
     });
 
     setInterval(_labTicker, 1000);
@@ -851,6 +859,9 @@ export function launch() {
     if (_save.lab.levels.startingCash === undefined) _save.lab.levels.startingCash = 0;
     if (_save.lab.levels.synergy === undefined) _save.lab.levels.synergy = 0;
     if (_save.lab.levels.freeUpg === undefined) _save.lab.levels.freeUpg = 0;
+    if (_save.lab.levels.dailyLoginBonus === undefined) _save.lab.levels.dailyLoginBonus = 0;
+    if (_save.lab.levels.questRewardMult === undefined) _save.lab.levels.questRewardMult = 0;
+    if (_save.stats.highestRunCoins === undefined) _save.stats.highestRunCoins = 0;
     if (_save.lab.levels.damageMult === undefined) _save.lab.levels.damageMult = 0;
     if (_save.lab.levels.critChance === undefined) _save.lab.levels.critChance = 0;
     if (_save.lab.levels.rangeMult === undefined) _save.lab.levels.rangeMult = 0;
@@ -1225,6 +1236,17 @@ function _renderTowers() {
 
 // ─── DAILY LOGIN & QUESTS ───────────────────────────────────────────────────
 
+function _calcLoginCoinBonus() {
+    // Base: 50% of highest run coins, with a floor of 50 and ceiling scaling by streak
+    const highestCoins = _save.stats.highestRunCoins || 0;
+    const labLvl = (_save.lab && _save.lab.levels.dailyLoginBonus) || 0;
+    // Lab research adds +25% per level on top of base 50%: 50% → 200% at max 6 levels
+    const pct = 0.5 + labLvl * 0.25;
+    const dynamic = Math.floor(highestCoins * pct);
+    // Minimum flat reward so new players still get something
+    return Math.max(50, dynamic);
+}
+
 function _checkDailyLogin() {
     const today = new Date().toDateString();
     if (_save.login.lastDate !== today) {
@@ -1236,7 +1258,7 @@ function _checkDailyLogin() {
 
         if (_save.login.streakDays % 28 === 0) rewardGems = 100;
         else if (_save.login.streakDays % 7 === 0) rewardGems = 20;
-        else rewardCoins = 50 * ((_save.login.streakDays % 7) || 7);
+        else rewardCoins = _calcLoginCoinBonus() * ((_save.login.streakDays % 7) || 7);
 
         const popup = _screens.setup.querySelector('#tw-daily-popup');
         const rwdEl = popup.querySelector('#tw-login-reward');
@@ -1246,7 +1268,7 @@ function _checkDailyLogin() {
             rwdEl.innerHTML = `<span style="color:#00a8ff">+${rewardGems} 💎</span>`;
             _save.gems += rewardGems;
         } else {
-            rwdEl.innerHTML = `<span style="color:#f1c40f">+${rewardCoins} 🪙</span>`;
+            rwdEl.innerHTML = `<span style="color:#f1c40f">+${rewardCoins.toLocaleString()} 🪙</span>`;
             _save.coins += rewardCoins;
         }
 
@@ -1268,8 +1290,19 @@ function _renderLoginTab() {
     const weeksEl = _screens.setup.querySelector('#tw-login-weeks');
     
     streakEl.textContent = _save.login.streakDays || 0;
+
+    const baseBonus = _calcLoginCoinBonus();
+    const labLvl = (_save.lab && _save.lab.levels.dailyLoginBonus) || 0;
+    const pct = Math.round((0.5 + labLvl * 0.25) * 100);
+    const highestCoins = _save.stats.highestRunCoins || 0;
     
-    let html = '';
+    let html = `<div style="background:rgba(241,196,15,0.08); border:1px solid #f1c40f55; border-radius:8px; padding:10px; margin-bottom:12px; font-size:12px; color:#aaa; line-height:1.6;">
+        📈 <b style="color:#f1c40f;">Dynamic Coin Rewards</b> — Daily coins scale with your best run.<br>
+        Best Run: <b style="color:#fff;">${highestCoins.toLocaleString()} 🪙</b> × <b style="color:#f1c40f;">${pct}%</b> = <b style="color:#fff;">${baseBonus.toLocaleString()} / day</b>
+        ${highestCoins === 0 ? `<br><span style="color:#888;">(Play a run to unlock dynamic bonuses!)</span>` : ''}
+        ${labLvl > 0 ? `<br><span style="color:#2ecc71;">Login Bonus research Lv.${labLvl} active (+${labLvl*25}%)</span>` : ''}
+    </div>`;
+    
     const cycle = Math.floor(Math.max(0, (_save.login.streakDays || 1) - 1) / 28);
     
     for (let w = 0; w < 4; w++) {
@@ -1281,7 +1314,7 @@ function _renderLoginTab() {
             let rewGems = 0, rewCoins = 0;
             if (day % 28 === 0) rewGems = 100;
             else if (day % 7 === 0) rewGems = 20;
-            else rewCoins = 50 * ((day % 7) || 7); 
+            else rewCoins = baseBonus * ((day % 7) || 7);
 
             const isPast = day <= _save.login.streakDays;
             const isToday = day === _save.login.streakDays;
@@ -1289,7 +1322,7 @@ function _renderLoginTab() {
             let bg = isToday ? 'background:rgba(46,204,113,0.2); border-color:#2ecc71;' : (isPast ? 'background:rgba(255,255,255,0.05); border-color:#555; opacity:0.5;' : 'background:rgba(0,0,0,0.5); border-color:#333;');
             
             let icon = rewGems ? '💎' : '🪙';
-            let amt = rewGems || rewCoins;
+            let amt = rewGems ? rewGems : rewCoins.toLocaleString();
             let color = rewGems ? '#00a8ff' : '#f1c40f';
 
             html += `<div style="flex:1; border:1px solid; border-radius:6px; padding:8px 0; text-align:center; ${bg}">
@@ -1309,7 +1342,7 @@ function _generateDailyQuests() {
     if (_save.quests.date !== today) {
         _save.quests.date = today;
         const shuffled =[...QUEST_TEMPLATES].sort(() => 0.5 - Math.random());
-        _save.quests.active = shuffled.slice(0, 3).map(q => ({
+        _save.quests.active = shuffled.slice(0, 4).map(q => ({
             id: q.id,
             desc: q.desc,
             max: q.max,
@@ -1340,6 +1373,16 @@ function _renderQuests() {
     list.innerHTML = '';
     
     if (!_save.quests || !_save.quests.active) return;
+
+    const labLvl = (_save.lab && _save.lab.levels.questRewardMult) || 0;
+    const rewardMult = 1 + labLvl * 0.20;
+
+    if (labLvl > 0) {
+        const banner = document.createElement('div');
+        banner.style.cssText = 'background:rgba(46,204,113,0.1); border:1px solid #2ecc7155; border-radius:8px; padding:8px 12px; margin-bottom:10px; font-size:12px; color:#2ecc71;';
+        banner.innerHTML = `✨ Quest Rewards research Lv.${labLvl} active — all rewards ×${rewardMult.toFixed(1)}`;
+        list.appendChild(banner);
+    }
     
     for (let q of _save.quests.active) {
         const row = document.createElement('div');
@@ -1347,6 +1390,11 @@ function _renderQuests() {
         
         let pct = Math.min(100, (q.progress / q.max) * 100);
         let icon = q.rewardType === 'gems' ? '💎' : '🪙';
+        const baseAmt = q.rewardAmount;
+        const finalAmt = Math.floor(baseAmt * rewardMult);
+        const rewardLabel = labLvl > 0
+            ? `${finalAmt} ${icon} <span style="font-size:10px;color:#888;text-decoration:line-through;">${baseAmt}</span>`
+            : `${finalAmt} ${icon}`;
         
         row.innerHTML = `
             <div class="tw-quest-info">
@@ -1355,7 +1403,7 @@ function _renderQuests() {
                 <div class="tw-quest-prog-wrap"><div class="tw-quest-prog-fill" style="width:${pct}%"></div></div>
             </div>
             <button class="tw-quest-claim" ${q.claimed || q.progress < q.max ? 'disabled' : ''} style="${q.claimed ? 'background:#2ecc71;' : ''}">
-                ${q.claimed ? 'Claimed' : `Claim ${q.rewardAmount} ${icon}`}
+                ${q.claimed ? 'Claimed' : `Claim ${rewardLabel}`}
             </button>
         `;
         
@@ -1363,9 +1411,9 @@ function _renderQuests() {
         if (!q.claimed && q.progress >= q.max) {
             btn.onclick = () => {
                 q.claimed = true;
-                if (q.rewardType === 'gems') _save.gems += q.rewardAmount;
-                else _save.coins += q.rewardAmount;
-                _showRewardAnimation(q.rewardAmount, q.rewardType, btn);
+                if (q.rewardType === 'gems') _save.gems += finalAmt;
+                else _save.coins += finalAmt;
+                _showRewardAnimation(finalAmt, q.rewardType, btn);
                 _saveGame();
                 setTimeout(() => { _refreshHubCurrencyAndUIs(); _renderQuests(); }, 300);
             };
@@ -1906,6 +1954,7 @@ function _labTicker() {
     if (remain <= 0) {
         _save.lab.levels[lab.id] = (_save.lab.levels[lab.id] || 0) + 1;
         _save.lab.active = null;
+        _updateQuest('research_lab', 1);
         _saveGame();
         _showHub();
         return;
@@ -2129,6 +2178,7 @@ function _openVocabPanel() {
                 _save.stats.totalCorrect++;
                 _save.stats.sessionCorrect++;
                 _updateQuest('answer_vocab', 1);
+                _updateQuest('vocab_streak', _run.combo);
                 _save.gems += 1;
 
                 if (_run.combo > _save.stats.highestStreak) _save.stats.highestStreak = _run.combo;
@@ -2288,6 +2338,7 @@ function _startNextWave() {
                     _save.stats.totalCorrect++;
                     _save.stats.sessionCorrect++;
                     _updateQuest('answer_vocab', 1);
+                    _updateQuest('vocab_streak', _run.combo);
                     _save.gems += 1;
 
                     if (_run.combo > _save.stats.highestStreak) _save.stats.highestStreak = _run.combo;
@@ -2446,6 +2497,9 @@ function _handleDeath() {
     
     const totalCoins = _run.earnedCoinsDrops + _run.earnedCoinsWave;
     _save.coins += totalCoins;
+    if (totalCoins > (_save.stats.highestRunCoins || 0)) {
+        _save.stats.highestRunCoins = totalCoins;
+    }
 
     if (!_run.boughtDefense && _run.wave > (_save.stats.highestWaveNoDef || 0)) {
         _save.stats.highestWaveNoDef = _run.wave;
@@ -2686,6 +2740,7 @@ function _renderRunUpgrades() {
                     let isFree = Math.random() < freeChance;
                     if (!isFree) {
                         _run.cash -= buyInfo.cost;
+                        _updateQuest('spend_cash', buyInfo.cost);
                     } else {
                         _engine.spawnFloatText('FREE!', '#f1c40f', true);
                     }
@@ -2745,8 +2800,8 @@ function _autoBuyTicker() {
             let isFree = Math.random() < best.freeChance;
             if (!isFree) {
                 _run.cash -= best.cost;
+                _updateQuest('spend_cash', best.cost);
             } else {
-                if (_engine) _engine.spawnFloatText('FREE!', '#f1c40f', true);
             }
             _run.levels[best.cat][best.id] = (_run.levels[best.cat][best.id] || 0) + best.count;
             
