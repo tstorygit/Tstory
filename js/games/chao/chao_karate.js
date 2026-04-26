@@ -73,6 +73,7 @@ export class ChaoKarate3D {
         this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
         this.renderer.shadowMap.enabled = true;
         
+        this.renderer.domElement.style.touchAction = 'none';
         this.container.appendChild(this.renderer.domElement);
 
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
@@ -112,13 +113,8 @@ export class ChaoKarate3D {
         const attacker = this.fighters[this.turnIndex];
         const defender = this.fighters[this.turnIndex === 0 ? 1 : 0];
 
-        // Base damage 10, then scaled entirely by the strength vs stamina difference
         let damage = Math.max(1, 10 + (attacker.str - defender.stam) * 0.05);
-
-        // Dodge chance based on agility difference
         let dodgeChance = Math.max(0.05, Math.min(0.95, 0.10 + (defender.agi - attacker.agi) / 10000));
-        
-        // Crit chance based on wisdom difference
         let critChance = Math.max(0.05, Math.min(0.95, 0.10 + (attacker.wis - defender.wis) / 10000));
 
         let hitResultText = "";

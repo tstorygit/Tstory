@@ -45,6 +45,8 @@ export class ChaoRace3D {
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         
+        this.renderer.domElement.style.touchAction = 'none';
+
         this.container.appendChild(this.renderer.domElement);
 
         this.nameTagContainer = document.createElement('div');
@@ -96,7 +98,6 @@ export class ChaoRace3D {
         poolFloor.position.set(0, -8.5, -100);
         this.scene.add(poolFloor);
 
-        // Wall: Z spans -150 to -152. Front face is -150.
         const wallGeo = new THREE.BoxGeometry(trackWidth, 16, 2);
         const wallMat = new THREE.MeshLambertMaterial({ color: 0x795548 });
         const wallMesh = new THREE.Mesh(wallGeo, wallMat);
@@ -243,56 +244,62 @@ export class ChaoRace3D {
     }
 
     updateRacer(racer, delta, time) {
-        const z = racer.mesh.position.z;
-        let speed = 0;
-
-        if (z > -50) {
+        if (racer.state === 'START') {
             racer.state = 'RUN1';
-            speed = racer.speeds.runSpeed;
-            racer.mesh.position.z -= speed * delta;
-            // Visual bounce rate is fixed, distance covered is scaled
+        }
+
+        if (racer.state === 'RUN1') {
+            racer.mesh.position.z -= racer.speeds.runSpeed * delta;
             racer.mesh.position.y = 1 + Math.abs(Math.sin(time * 15)) * 0.6;
+            
+            if (racer.mesh.position.z <= -50) {
+                racer.state = 'FLY';
+            }
         } 
-        else if (z > racer.flyTargetZ) {
-            racer.state = 'FLY';
-            speed = racer.speeds.flySpeed;
-            racer.mesh.position.z -= speed * delta;
+        else if (racer.state === 'FLY') {
+            racer.mesh.position.z -= racer.speeds.flySpeed * delta;
             
             const totalDist = Math.abs(racer.flyTargetZ - (-50));
-            const traveled = Math.abs(z - (-50));
+            const traveled = Math.abs(racer.mesh.position.z - (-50));
             const progress = Math.min(1, traveled / totalDist);
             
             racer.mesh.position.y = 1 - (progress * 7) + (Math.sin(time * 5) * 0.2);
+
+            if (racer.mesh.position.z <= racer.flyTargetZ) {
+                racer.state = 'SWIM';
+            }
         } 
-        else if (z > -150) {
-            racer.state = 'SWIM';
-            speed = racer.speeds.swimSpeed;
-            racer.mesh.position.z -= speed * delta;
+        else if (racer.state === 'SWIM') {
+            racer.mesh.position.z -= racer.speeds.swimSpeed * delta;
             racer.mesh.position.y = -6 + Math.sin(time * 8 + racer.xOffset) * 0.4;
-        } 
-        else if (racer.mesh.position.y < 8) {
-            racer.state = 'CLIMB';
-            racer.mesh.position.z = -149.2; // Snaps to the front face of the wall so it peaks out cleanly
             
-            speed = racer.speeds.climbSpeed;
-            racer.mesh.position.y += speed * delta;
+            if (racer.mesh.position.z <= -149.2) {
+                racer.mesh.position.z = -149.2;
+                racer.state = 'CLIMB';
+            }
+        } 
+        else if (racer.state === 'CLIMB') {
+            racer.mesh.position.y += racer.speeds.climbSpeed * delta;
             racer.mesh.position.x = racer.xOffset + Math.sin(time * 15) * 0.3;
-        } 
-        else if (z > -215) {
-            racer.state = 'RUN2';
-            speed = racer.speeds.runSpeed;
-            racer.mesh.position.z -= speed * delta;
             
+            if (racer.mesh.position.y >= 8) {
+                racer.mesh.position.y = 8;
+                racer.state = 'RUN2';
+            }
+        } 
+        else if (racer.state === 'RUN2') {
+            racer.mesh.position.z -= racer.speeds.runSpeed * delta;
             racer.mesh.position.x = racer.xOffset;
             racer.mesh.position.y = 9 + Math.abs(Math.sin(time * 15)) * 0.6;
-        } 
-        else {
-            racer.state = 'FINISHED';
-            racer.mesh.position.y = 9;
-            this.ranking.push(racer.chi);
             
-            if (this.ranking.length === 1 && this.onWinner) {
-                this.onWinner(racer.chi);
+            if (racer.mesh.position.z <= -215) {
+                racer.state = 'FINISHED';
+                racer.mesh.position.y = 9;
+                this.ranking.push(racer.chi);
+                
+                if (this.ranking.length === 1 && this.onWinner) {
+                    this.onWinner(racer.chi);
+                }
             }
         }
     }

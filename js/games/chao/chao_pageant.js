@@ -15,6 +15,8 @@ export class MatsuriPageant {
         this.pFly = getChiTrueStat(this.chiData, 'fly');
         this.pWis = getChiTrueStat(this.chiData, 'wisdom');
 
+        this.judgeAppeal = 0; 
+
         if (GameVocabManager.loadSrsPool().length > 0) {
             this.vocabMgr.setPool(GameVocabManager.loadSrsPool(), 'chao_banned', { globalSrs: true });
         }
@@ -42,6 +44,7 @@ export class MatsuriPageant {
         }
 
         this.initScene();
+        this.initUI();
         this.resizeObserver = new ResizeObserver(() => this.resize());
         this.resizeObserver.observe(this.renderArea);
     }
@@ -57,6 +60,7 @@ export class MatsuriPageant {
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
         this.renderer.setSize(this.renderArea.clientWidth, this.renderArea.clientHeight);
         this.renderer.shadowMap.enabled = true;
+        this.renderer.domElement.style.touchAction = 'none';
         
         this.renderArea.appendChild(this.renderer.domElement);
         
@@ -76,7 +80,7 @@ export class MatsuriPageant {
         this.chiMesh.castShadow = true;
         this.scene.add(this.chiMesh);
         
-        // Climb Tower (Station 0)
+        // Climb Tower
         const blockGeo = new THREE.BoxGeometry(2, 12, 2);
         const blockMat = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
         this.climbTower = new THREE.Mesh(blockGeo, blockMat);
@@ -84,20 +88,32 @@ export class MatsuriPageant {
         this.climbTower.castShadow = true;
         this.scene.add(this.climbTower);
 
-        // Fly Trampoline (Station 2)
+        // Fly Trampoline
         const trampGeo = new THREE.CylinderGeometry(2, 2, 0.5, 16);
         const trampMat = new THREE.MeshLambertMaterial({ color: 0x4682B4 });
         this.trampoline = new THREE.Mesh(trampGeo, trampMat);
         this.trampoline.position.set(4, 0.5, -4);
         this.scene.add(this.trampoline);
 
-        // Vocab Puzzle Block (hidden by default)
+        // Vocab Puzzle Blocks
         const pzGeo = new THREE.BoxGeometry(1.5, 1.5, 1.5);
         const pzMat = new THREE.MeshLambertMaterial({ color: 0xFFA500 });
-        this.puzzleBlock = new THREE.Mesh(pzGeo, pzMat);
-        this.puzzleBlock.castShadow = true;
-        this.puzzleBlock.visible = false;
-        this.scene.add(this.puzzleBlock);
+        this.puzzleBlock1 = new THREE.Mesh(pzGeo, pzMat);
+        this.puzzleBlock1.castShadow = true;
+        this.puzzleBlock1.position.set(0, 0.75, -2.5); 
+        this.scene.add(this.puzzleBlock1);
+
+        this.puzzleBlock2 = new THREE.Mesh(pzGeo, pzMat);
+        this.puzzleBlock2.castShadow = true;
+        this.puzzleBlock2.position.set(4, 0.75, 0.5); 
+        this.scene.add(this.puzzleBlock2);
+
+        // Sprint Track
+        const trackGeo = new THREE.BoxGeometry(10, 0.05, 1.5);
+        const trackMat = new THREE.MeshLambertMaterial({ color: 0xCD5C5C });
+        this.sprintTrack = new THREE.Mesh(trackGeo, trackMat);
+        this.sprintTrack.position.set(0, 0.26, 2); 
+        this.scene.add(this.sprintTrack);
         
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
         this.scene.add(ambientLight);
@@ -107,8 +123,32 @@ export class MatsuriPageant {
         this.scene.add(dirLight);
     }
 
+    initUI() {
+        this.uiOverlay.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                <span style="font-weight:bold; color:#ff79c6; min-width: 90px; font-size:14px;">Judge Appeal:</span>
+                <div style="flex:1; height:15px; background:#444; border-radius:8px; border:2px solid #222; overflow:hidden;">
+                    <div id="judge-meter-fill" style="width: 0%; height:100%; background:linear-gradient(90deg, #ff5555, #f1fa8c, #50fa7b); transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);"></div>
+                </div>
+                <span id="judge-meter-text" style="font-weight:bold; color:#fff; min-width: 40px; text-align:right; font-size:14px;">0%</span>
+            </div>
+            <div id="pageant-msg-area" style="min-height: 100px;"></div>
+        `;
+        this.msgArea = this.uiOverlay.querySelector('#pageant-msg-area');
+    }
+
+    addAppeal(amount) {
+        this.judgeAppeal = Math.max(0, Math.min(100, this.judgeAppeal + amount));
+        const fill = this.uiOverlay.querySelector('#judge-meter-fill');
+        const txt = this.uiOverlay.querySelector('#judge-meter-text');
+        if (fill) fill.style.width = `${this.judgeAppeal}%`;
+        if (txt) txt.textContent = `${this.judgeAppeal}%`;
+    }
+
     startPageant() {
         this.currentStationIdx = 0;
+        this.judgeAppeal = 0;
+        this.addAppeal(0); 
         this.nextStation();
         this.animate();
     }
@@ -117,21 +157,23 @@ export class MatsuriPageant {
         this.chiMesh.scale.set(1, 1, 1);
         if (this.currentStationIdx >= this.stations.length) {
             this.phase = 'DONE';
-            this.uiOverlay.innerHTML = `<h4 style="color:#50fa7b; text-align:center;">Course Complete! The judges loved it!</h4>`;
+            let finalMsg = "";
+            if (this.judgeAppeal >= 80) finalMsg = "🏆 A Flawless Performance! The crowd goes wild!";
+            else if (this.judgeAppeal >= 50) finalMsg = "🏅 A solid effort! The judges nod in approval.";
+            else finalMsg = "😅 Well, they tried their best! Room for improvement!";
+
+            this.msgArea.innerHTML = `
+                <h3 style="color:#50fa7b; text-align:center; margin:0 0 5px 0;">Course Complete!</h3>
+                <p style="text-align:center; color:#eee; margin:0 0 5px 0;">Final Appeal: <b>${this.judgeAppeal}%</b></p>
+                <p style="text-align:center; color:#f1fa8c; margin:0;">${finalMsg}</p>
+            `;
             return;
         }
 
         const st = this.stations[this.currentStationIdx];
         this.targetPos.set(st.pos.x, 1, st.pos.z);
         this.phase = 'WALKING';
-        this.uiOverlay.innerHTML = `<p style="color:#aaa; text-align:center;">${this.chiData.name} is heading to the ${st.type} attraction...</p>`;
-
-        if (st.type === 'VOCAB') {
-            this.puzzleBlock.position.set(st.pos.x, 0.75, st.pos.z - 1.5);
-            this.puzzleBlock.visible = true;
-        } else {
-            this.puzzleBlock.visible = false;
-        }
+        this.msgArea.innerHTML = `<p style="color:#aaa; text-align:center; margin:0;">${this.chiData.name} is heading to the ${st.type} attraction...</p>`;
     }
 
     executePhysicalTask() {
@@ -140,21 +182,28 @@ export class MatsuriPageant {
         
         if (st.type === 'CLIMB') {
             this.phase = 'TASK_CLIMB';
-            this.uiOverlay.innerHTML = `<p style="color:#f1fa8c; text-align:center;">💪 ${this.chiData.name} is scaling the tower using Strength!</p>`;
+            this.msgArea.innerHTML = `<p style="color:#f1fa8c; text-align:center; margin:0;">💪 ${this.chiData.name} is scaling the tower using Strength!</p>`;
         } else if (st.type === 'FLY') {
             this.phase = 'TASK_FLY';
-            this.uiOverlay.innerHTML = `<p style="color:#8be9fd; text-align:center;">🦅 ${this.chiData.name} hits the trampoline using Fly!</p>`;
+            this.msgArea.innerHTML = `<p style="color:#8be9fd; text-align:center; margin:0;">🦅 ${this.chiData.name} hits the trampoline using Fly!</p>`;
         } else if (st.type === 'RUN') {
             this.phase = 'TASK_RUN';
-            this.targetPos.set(4, 1, 6); // Run far away fast
-            this.uiOverlay.innerHTML = `<p style="color:#ffb86c; text-align:center;">🏃 ${this.chiData.name} sprints the track using Agility!</p>`;
+            this.targetPos.set(-4, 1, 2); 
+            this.msgArea.innerHTML = `<p style="color:#ffb86c; text-align:center; margin:0;">🏃 ${this.chiData.name} sprints the track using Agility!</p>`;
         }
+    }
+
+    finishPhysicalTask(statValue) {
+        const points = Math.floor((statValue / 9999) * 15) + 5;
+        this.addAppeal(points);
+        this.currentStationIdx++;
+        this.nextStation();
     }
 
     presentQuestion() {
         const challenge = this.vocabMgr.getNextWord();
         if (!challenge) {
-            this.uiOverlay.innerHTML = `<h4>No words available! Moving to next event...</h4>`;
+            this.msgArea.innerHTML = `<h4 style="margin:0;">No words available! Moving to next event...</h4>`;
             setTimeout(() => {
                 this.currentStationIdx++;
                 this.nextStation();
@@ -162,7 +211,7 @@ export class MatsuriPageant {
             return;
         }
 
-        this.uiOverlay.innerHTML = `
+        this.msgArea.innerHTML = `
             <div style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 8px;">
                 <p style="margin:0 0 10px 0; color: #ff79c6;">Judge: "What does <strong>${challenge.wordObj.kanji}</strong> mean?"</p>
                 <div style="color: #f1fa8c;">
@@ -172,7 +221,7 @@ export class MatsuriPageant {
         `;
 
         let thinkTime = 3;
-        const timerEl = this.uiOverlay.querySelector('#cp-timer');
+        const timerEl = this.msgArea.querySelector('#cp-timer');
         
         this.thinkInterval = setInterval(() => {
             thinkTime--;
@@ -191,8 +240,8 @@ export class MatsuriPageant {
 
         if (isSuccessful) {
             this.phase = 'CELEBRATE';
-            this.puzzleBlock.visible = false;
-            this.uiOverlay.innerHTML = `<div style="color: #50fa7b; font-weight:bold; text-align:center;">✨ ${this.chiData.name} answered confidently! "It's ${challenge.options[challenge.correctIdx]}!"</div>`;
+            this.addAppeal(20);
+            this.msgArea.innerHTML = `<div style="color: #50fa7b; font-weight:bold; text-align:center;">✨ ${this.chiData.name} answered confidently! "It's ${challenge.options[challenge.correctIdx]}!"</div>`;
             this.vocabMgr.gradeWord(challenge.refId, 3);
             setTimeout(() => {
                 this.currentStationIdx++;
@@ -205,20 +254,20 @@ export class MatsuriPageant {
 
     triggerUserRescue(challenge) {
         this.phase = 'RESCUE';
-        this.uiOverlay.innerHTML += `
-            <div id="cp-user-rescue" style="margin-top:15px;">
-                <p style="color:#ff5555; font-weight:bold; margin-bottom: 10px;">💦 ${this.chiData.name} is panicking! Help!</p>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                    ${challenge.options.map((opt, i) => `<button class="chao-action-btn cp-btn" data-idx="${i}" style="margin:0;">${opt}</button>`).join('')}
+        this.msgArea.innerHTML += `
+            <div id="cp-user-rescue" style="margin-top:10px;">
+                <p style="color:#ff5555; font-weight:bold; margin-bottom: 5px; text-align:center;">💦 ${this.chiData.name} is panicking! Help!</p>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                    ${challenge.options.map((opt, i) => `<button class="chao-action-btn cp-btn" data-idx="${i}" style="margin:0; padding:8px;">${opt}</button>`).join('')}
                 </div>
-                <div style="width: 100%; height: 6px; background: #333; margin-top: 10px; border-radius: 3px; overflow: hidden;">
+                <div style="width: 100%; height: 6px; background: #333; margin-top: 8px; border-radius: 3px; overflow: hidden;">
                     <div id="cp-time-fill" style="width: 100%; height: 100%; background: #ff5555; transition: width 0.05s linear;"></div>
                 </div>
             </div>
         `;
 
         let timeLeft = 5.0;
-        const timeFill = this.uiOverlay.querySelector('#cp-time-fill');
+        const timeFill = this.msgArea.querySelector('#cp-time-fill');
         
         this.uiInterval = setInterval(() => {
             timeLeft -= 0.05;
@@ -230,7 +279,7 @@ export class MatsuriPageant {
             }
         }, 50);
 
-        const btns = this.uiOverlay.querySelectorAll('.cp-btn');
+        const btns = this.msgArea.querySelectorAll('.cp-btn');
         btns.forEach(btn => {
             btn.addEventListener('click', () => {
                 clearInterval(this.uiInterval);
@@ -245,8 +294,8 @@ export class MatsuriPageant {
 
         if (isCorrect) {
             this.phase = 'CELEBRATE';
-            this.puzzleBlock.visible = false;
-            this.uiOverlay.innerHTML = `<div style="color: #50fa7b; font-weight:bold; text-align:center;">💖 You whispered the answer to ${this.chiData.name}! The judges loved it! (+Connection)</div>`;
+            this.addAppeal(15); 
+            this.msgArea.innerHTML = `<div style="color: #50fa7b; font-weight:bold; text-align:center;">💖 You whispered the answer to ${this.chiData.name}! The judges loved it! (+Connection)</div>`;
             this.chiData.connection += 5; 
             this.stateManager.save();
             setTimeout(() => {
@@ -255,9 +304,9 @@ export class MatsuriPageant {
             }, 2000);
         } else {
             this.phase = 'SAD';
-            this.uiOverlay.innerHTML = `<div style="color: #ff5555; font-weight:bold; text-align:center;">❌ Oh no... ${this.chiData.name} got it wrong. The judges are unimpressed.</div>`;
+            this.addAppeal(-5); 
+            this.msgArea.innerHTML = `<div style="color: #ff5555; font-weight:bold; text-align:center;">❌ Oh no... ${this.chiData.name} got it wrong. The judges are unimpressed.</div>`;
             setTimeout(() => {
-                this.puzzleBlock.visible = false;
                 this.currentStationIdx++;
                 this.nextStation();
             }, 2500);
@@ -296,8 +345,7 @@ export class MatsuriPageant {
             }
             if (this.taskTime > 3.0) { 
                 this.chiMesh.position.y = 1;
-                this.currentStationIdx++;
-                this.nextStation();
+                this.finishPhysicalTask(this.pStr);
             }
         } else if (this.phase === 'TASK_FLY') {
             this.taskTime += delta;
@@ -307,20 +355,17 @@ export class MatsuriPageant {
                 this.chiMesh.position.y = 1 + Math.sin(progress * Math.PI) * jumpHeight;
             } else {
                 this.chiMesh.position.y = 1;
-                this.currentStationIdx++;
-                this.nextStation();
+                this.finishPhysicalTask(this.pFly);
             }
         } else if (this.phase === 'TASK_RUN') {
             this.taskTime += delta;
             const runSpeed = 5 + (this.pAgi / 9999) * 20;
             const dir = this.targetPos.clone().sub(this.chiMesh.position).normalize();
             this.chiMesh.position.add(dir.multiplyScalar(delta * runSpeed));
-            // Fixed visual bounce frequency decoupled from distance traveled speed
             this.chiMesh.position.y = 1 + Math.abs(Math.sin(time * 15)) * 0.5;
             
             if (this.taskTime > 3.0) {
-                this.currentStationIdx++;
-                this.nextStation();
+                this.finishPhysicalTask(this.pAgi);
             }
         } else if (this.phase === 'THINKING' || this.phase === 'RESCUE') {
             this.chiMesh.rotation.y = Math.sin(time * 5) * 0.3;

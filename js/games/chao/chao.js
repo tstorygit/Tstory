@@ -22,6 +22,11 @@ let _pageant3D = null;
 let _toastTimeout = null;
 let _activeViewedChiId = null;
 
+// Formats Seishin compactly so the UI never shifts (e.g. 1.2K, 5.5M)
+function formatSeishin(val) {
+    return Intl.NumberFormat('en-US', { notation: "compact", maximumFractionDigits: 1 }).format(val);
+}
+
 export function init(screens, onExit) {
     _screens = screens;
     _onExit = onExit;
@@ -33,13 +38,15 @@ export function init(screens, onExit) {
     _screens.setup.innerHTML = `
         <div class="chao-root">
             <div id="chao-toast" class="chao-toast"></div>
+            
             <div class="chao-header">
-                <h2>Chi Garden</h2>
                 <div id="global-chi-selector" class="header-chi-selector"></div>
                 <div class="chao-currencies">
-                    <span>🌸 Seishin: <b id="chao-seishin-val">0</b></span>
+                    🌸 <span id="chao-seishin-val" style="display:inline-block; min-width:3ch; text-align:right;">0</span>
                 </div>
+                <button id="chao-exit-btn" style="background:none; border:none; color:#ff5555; font-size:24px; cursor:pointer; padding:0 5px; margin-left: 5px;">✖</button>
             </div>
+            
             <div class="chao-tab-bar">
                 <button class="chao-tab-btn active" data-tab="chao-tab-garden">Garden</button>
                 <button class="chao-tab-btn" data-tab="chao-tab-market">Market</button>
@@ -53,23 +60,22 @@ export function init(screens, onExit) {
                     <div id="sa2-stat-window" class="sa2-stat-window"></div>
                 </div>
                 <div id="feed-menu" class="chao-feed-menu" style="display: none;"></div>
-                <div style="display: flex; gap: 10px;">
-                    <button id="chao-feed-btn" class="chao-action-btn" style="flex: 1;">🍎 Feed Fruit</button>
-                    <button id="chao-pet-btn" class="chao-action-btn" style="flex: 1;">✋ Pet Chi</button>
+                <div style="display: flex; gap: 10px; flex-shrink: 0;">
+                    <button id="chao-feed-btn" class="chao-action-btn" style="flex: 1; margin:0;">🍎 Feed</button>
+                    <button id="chao-pet-btn" class="chao-action-btn" style="flex: 1; margin:0;">✋ Pet</button>
                 </div>
-                <button id="chao-exit-btn" class="chao-action-btn" style="background: #e74c3c; margin-top: auto;">Exit to App Hub</button>
             </div>
             
             <div class="chao-screen" id="chao-tab-market"></div>
             
             <div class="chao-screen" id="chao-tab-compete">
-                <h3 style="margin-top:0;">Competitions</h3>
-                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 15px;">
+                <h3 style="margin-top:0; margin-bottom:10px;">Competitions</h3>
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px; flex-shrink: 0;">
                     <button id="btn-start-pageant" class="chao-action-btn" style="margin:0; padding:8px;">🎭 Pageant</button>
                     <button id="btn-start-race" class="chao-action-btn" style="margin:0; padding:8px;">🏁 Race</button>
                     <button id="btn-start-karate" class="chao-action-btn" style="margin:0; padding:8px;">🥋 Karate</button>
                 </div>
-                <div id="chao-minigame-container" style="flex: 1; display: flex; flex-direction: column;"></div>
+                <div id="chao-minigame-container" style="flex: 1; min-height: 0; display: flex; flex-direction: column;"></div>
             </div>
             
             <div class="chao-screen" id="chao-tab-nikki"></div>
@@ -125,8 +131,8 @@ export function init(screens, onExit) {
         if (_pageant3D) { _pageant3D.destroy(); _pageant3D = null; }
         
         minigameContainer.innerHTML = `
-            <div id="pageant-render-area" style="width: 100%; height: 350px; border-radius: 12px; overflow: hidden; position: relative; background: #FFB6C1; box-shadow: inset 0 0 20px rgba(0,0,0,0.5);"></div>
-            <div id="pageant-ui-overlay" style="margin-top: 15px;"></div>
+            <div id="pageant-render-area" style="background: #FFB6C1;"></div>
+            <div id="pageant-ui-overlay" style="margin-top: 10px; flex-shrink: 0;"></div>
         `;
         
         requestAnimationFrame(() => {
@@ -142,10 +148,10 @@ export function init(screens, onExit) {
         if (_pageant3D) { _pageant3D.destroy(); _pageant3D = null; }
         
         minigameContainer.innerHTML = `
-            <div id="race-render-area" style="width: 100%; height: 350px; border-radius: 12px; overflow: hidden; position: relative; background: #87CEEB; box-shadow: inset 0 0 20px rgba(0,0,0,0.5);"></div>
-            <div id="race-ui-overlay" style="margin-top: 15px; text-align: center;">
-                <h4 style="color:#f1fa8c;">Race Started!</h4>
-                <p style="font-size: 13px; color: #bbb;">Chis will use their Run, Fly, Swim, and Power stats to navigate the course!</p>
+            <div id="race-render-area" style="background: #87CEEB;"></div>
+            <div id="race-ui-overlay" style="margin-top: 10px; text-align: center; flex-shrink: 0;">
+                <h4 style="color:#f1fa8c; margin:0 0 5px 0;">Race Started!</h4>
+                <p style="font-size: 13px; color: #bbb; margin:0;">Chis will use their Run, Fly, Swim, and Power stats to navigate the course!</p>
             </div>
         `;
         
@@ -154,7 +160,7 @@ export function init(screens, onExit) {
             if (_race3D) _race3D.destroy();
             _race3D = new ChaoRace3D(renderArea, _state, (winner) => {
                 const ui = minigameContainer.querySelector('#race-ui-overlay');
-                ui.innerHTML = `<h3 style="color:#50fa7b;">🏁 ${winner.name} Wins! 🏁</h3>`;
+                ui.innerHTML = `<h3 style="color:#50fa7b; margin:0;">🏁 ${winner.name} Wins! 🏁</h3>`;
             });
         });
     });
@@ -164,26 +170,26 @@ export function init(screens, onExit) {
         if (_pageant3D) { _pageant3D.destroy(); _pageant3D = null; }
         
         minigameContainer.innerHTML = `
-            <div id="karate-render-area" style="width: 100%; height: 350px; border-radius: 12px; overflow: hidden; position: relative; background: #282a36; box-shadow: inset 0 0 20px rgba(0,0,0,0.8);"></div>
-            <div id="karate-ui-overlay" style="margin-top: 15px; display: flex; flex-direction: column; gap: 10px;">
-                <div style="display: flex; gap: 20px;">
+            <div id="karate-render-area" style="background: #282a36;"></div>
+            <div id="karate-ui-overlay" style="margin-top: 10px; display: flex; flex-direction: column; gap: 8px; flex-shrink: 0;">
+                <div style="display: flex; gap: 15px;">
                     <div style="flex: 1;">
-                        <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 16px; color: #50fa7b;">
+                        <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 14px; color: #50fa7b;">
                             <span>${_state.getActiveChi().name}</span> <span id="karate-hp-text-p1"></span>
                         </div>
                         <div class="hp-bar-bg"><div id="karate-hp-fill-p1" class="hp-bar-fill" style="background:#50fa7b; width:100%;"></div></div>
                     </div>
                     <div style="flex: 1;">
-                        <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 16px; color: #ff5555;">
+                        <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 14px; color: #ff5555;">
                             <span>Rival</span> <span id="karate-hp-text-p2"></span>
                         </div>
                         <div class="hp-bar-bg"><div id="karate-hp-fill-p2" class="hp-bar-fill" style="background:#ff5555; width:100%;"></div></div>
                     </div>
                 </div>
-                <div id="karate-log" style="height: 100px; overflow-y: auto; background: #151520; border: 1px solid #444; border-radius: 6px; padding: 10px; font-size: 13px; color: #eee; font-family: monospace;">
+                <div id="karate-log" style="height: 80px; overflow-y: auto; background: #151520; border: 1px solid #444; border-radius: 6px; padding: 8px; font-size: 12px; color: #eee; font-family: monospace;">
                     Waiting to start...
                 </div>
-                <div id="karate-result" style="text-align: center; font-weight: bold; font-size: 18px;"></div>
+                <div id="karate-result" style="text-align: center; font-weight: bold; font-size: 16px;"></div>
             </div>
         `;
         
@@ -209,7 +215,7 @@ export function launch() {
 
     const earned = syncEconomy(_state);
     if (earned > 0) {
-        showToast(`Earned ${earned} Seishin from studying!`);
+        showToast(`Earned ${formatSeishin(earned)} Seishin from studying!`);
     }
     
     if (_state.data.chis.length === 0) {
@@ -272,7 +278,7 @@ function renderChiSelector() {
         return `
             <div class="chi-card ${c.id === _state.data.activeChiId ? 'active' : ''}" data-id="${c.id}">
                 <div style="font-weight:bold;">${c.name}</div>
-                <div style="font-size: 11px; color: #aaa;">Avg Lv ${avgLv}</div>
+                <div style="font-size: 10px; color: #aaa;">Lv ${avgLv}</div>
             </div>
         `;
     }).join('');
@@ -284,7 +290,6 @@ function renderChiSelector() {
             renderChiSelector();
             updateUI();
 
-            // Clear Minigames to prevent character swapping mid-game
             if (_screens.setup.querySelector('#chao-tab-compete').classList.contains('active')) {
                 if (_race3D) { _race3D.destroy(); _race3D = null; }
                 if (_karate3D) { _karate3D.destroy(); _karate3D = null; }
@@ -292,7 +297,6 @@ function renderChiSelector() {
                 _screens.setup.querySelector('#chao-minigame-container').innerHTML = '';
             }
 
-            // Update Diary if looking at it
             if (_screens.setup.querySelector('#chao-tab-nikki').classList.contains('active')) {
                 renderNikkiTab(_screens.setup.querySelector('#chao-tab-nikki'), _state);
             }
@@ -397,7 +401,7 @@ function showToast(msg) {
 }
 
 function updateUI() {
-    _screens.setup.querySelector('#chao-seishin-val').textContent = _state.data.seishin;
+    _screens.setup.querySelector('#chao-seishin-val').textContent = formatSeishin(_state.data.seishin);
     const chi = _state.getActiveChi();
     const feedMenu = _screens.setup.querySelector('#feed-menu');
     

@@ -53,6 +53,9 @@ export class ChaoGarden3D {
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         
+        // Ensure absolutely no mobile browser scrolling on canvas touch
+        this.renderer.domElement.style.touchAction = 'none';
+
         this.container.appendChild(this.renderer.domElement);
         this.renderer.domElement.style.position = 'absolute';
         this.renderer.domElement.style.top = '0';
@@ -135,11 +138,10 @@ export class ChaoGarden3D {
             
             mesh.position.set((index - chisData.length/2) * 2.5, 1, 0);
             
-            // Decouple bounce speed from moving speed so high stats don't vibrate visually
             mesh.userData = {
                 chiId: chi.id,
                 baseY: 1,
-                bounceSpeed: 2 + Math.log10(chi.stats.agility + 1) * 0.8, // Caps smoothly
+                bounceSpeed: 2 + Math.log10(chi.stats.agility + 1) * 0.8,
                 moveSpeed: 0.3 + (chi.stats.agility / 99) * 1.5,
                 offset: Math.random() * Math.PI * 2
             };
@@ -216,7 +218,6 @@ export class ChaoGarden3D {
             } else {
                 mesh.rotation.z = 0;
                 const data = mesh.userData;
-                // Bounce Y decoupled from position X/Z speed
                 mesh.position.y = data.baseY + Math.abs(Math.sin(time * data.bounceSpeed + data.offset)) * 0.5;
                 mesh.position.x += Math.sin(time * data.moveSpeed * 0.5 + data.offset) * 0.01;
                 mesh.position.z += Math.cos(time * data.moveSpeed * 0.3 + data.offset) * 0.01;
