@@ -22,7 +22,9 @@ let _pageant3D = null;
 let _toastTimeout = null;
 let _activeViewedChiId = null;
 
-// Formats Seishin compactly so the UI never shifts (e.g. 1.2K, 5.5M)
+let _statTweenId = null;
+let _displayStats = {}; // Stores true stat values for smooth continuous visual tweening
+
 function formatSeishin(val) {
     return Intl.NumberFormat('en-US', { notation: "compact", maximumFractionDigits: 1 }).format(val);
 }
@@ -59,11 +61,7 @@ export function init(screens, onExit) {
                 <div id="cg-render-area">
                     <div id="sa2-stat-window" class="sa2-stat-window"></div>
                 </div>
-                <div id="feed-menu" class="chao-feed-menu" style="display: none;"></div>
-                <div style="display: flex; gap: 10px; flex-shrink: 0;">
-                    <button id="chao-feed-btn" class="chao-action-btn" style="flex: 1; margin:0;">🍎 Feed</button>
-                    <button id="chao-pet-btn" class="chao-action-btn" style="flex: 1; margin:0;">✋ Pet</button>
-                </div>
+                <div id="feed-menu" class="chao-feed-menu"></div>
             </div>
             
             <div class="chao-screen" id="chao-tab-market"></div>
@@ -112,15 +110,8 @@ export function init(screens, onExit) {
         if (_race3D) { _race3D.destroy(); _race3D = null; }
         if (_karate3D) { _karate3D.destroy(); _karate3D = null; }
         if (_pageant3D) { _pageant3D.destroy(); _pageant3D = null; }
+        if (_statTweenId) cancelAnimationFrame(_statTweenId);
         _onExit();
-    });
-
-    _screens.setup.querySelector('#chao-pet-btn').addEventListener('click', () => handlePetChi(_state.data.activeChiId));
-
-    _screens.setup.querySelector('#chao-feed-btn').addEventListener('click', () => {
-        const feedMenu = _screens.setup.querySelector('#feed-menu');
-        feedMenu.style.display = feedMenu.style.display === 'none' ? 'flex' : 'none';
-        if (feedMenu.style.display === 'flex') updateUI();
     });
 
     const minigameContainer = _screens.setup.querySelector('#chao-minigame-container');
@@ -199,14 +190,6 @@ export function init(screens, onExit) {
             _karate3D = new ChaoKarate3D(renderArea, _state, minigameContainer);
         });
     });
-
-    document.addEventListener('pointerdown', (e) => {
-        const statWindow = _screens.setup.querySelector('#sa2-stat-window');
-        const renderArea = _screens.setup.querySelector('#cg-render-area');
-        if (statWindow && statWindow.style.display === 'block') {
-            if (renderArea && !renderArea.contains(e.target)) renderSA2StatWindow(null);
-        }
-    });
 }
 
 export function launch() {
@@ -252,18 +235,24 @@ export function launch() {
     requestAnimationFrame(() => {
         const renderArea = _screens.setup.querySelector('#cg-render-area');
         _garden3D = new ChaoGarden3D(renderArea, _state, (chiId) => {
-            if (chiId) {
-                if (_state.data.activeChiId !== chiId) {
+            if (chiId === null) {
+                _activeViewedChiId = null;
+                renderSA2StatWindow(null);
+            } else {
+                if (_state.data.activeChiId === chiId) {
+                    handlePetChi(chiId);
+                    if (_activeViewedChiId !== chiId) {
+                        _activeViewedChiId = chiId;
+                        renderSA2StatWindow(_state.data.chis.find(c => c.id === chiId));
+                    }
+                } else {
                     _state.data.activeChiId = chiId;
                     _state.save();
                     renderChiSelector();
                     updateUI();
+                    _activeViewedChiId = chiId;
+                    renderSA2StatWindow(_state.data.chis.find(c => c.id === chiId));
                 }
-                _activeViewedChiId = chiId;
-                renderSA2StatWindow(_state.data.chis.find(c => c.id === chiId));
-            } else {
-                _activeViewedChiId = null;
-                renderSA2StatWindow(null);
             }
         });
     });
@@ -353,8 +342,44 @@ function handlePetChi(chiId) {
         chi.connection += 1;
         _state.save();
         showToast(`Pet ${chi.name}! Connection +1 💖`);
-        if (_activeViewedChiId === chiId) renderSA2StatWindow(chi);
+        if (_garden3D) _garden3D.triggerHappyBounce(chiId);
     }
+}
+
+function startStatTween() {
+    if (_statTweenId) return;
+    function loop() {
+        let updated = false;
+        const chi = _state.data.chis.find(c => c.id === _activeViewedChiId);
+        if (!chi) { _statTweenId = null; return; }
+        
+        ['stamina', 'strength', 'agility', 'wisdom', 'swim', 'fly'].forEach(stat => {
+            const target = getChiTrueStat(chi, stat);
+            if (_displayStats[stat] === undefined) _displayStats[stat] = target;
+            
+            if (Math.abs(_displayStats[stat] - target) > 0.1) {
+                // Smooth interpolation for continuous feed clicking
+                _displayStats[stat] += (target - _displayStats[stat]) * 0.15; 
+                if (Math.abs(_displayStats[stat] - target) <= 0.1) _displayStats[stat] = target;
+                updated = true;
+                
+                const el = _screens.setup.querySelector(`#stat-row-${stat}`);
+                if (el) {
+                    const val = Math.floor(_displayStats[stat]);
+                    const lvl = Math.floor(val / 100);
+                    const pts = val % 100;
+                    
+                    el.querySelector('.sa2-stat-val').textContent = String(val).padStart(4, '0');
+                    el.querySelector('.sa2-stat-lvl').textContent = `Lv. ${String(lvl).padStart(2, '0')}`;
+                    el.querySelector('.sa2-stat-fill-yellow').style.width = `${pts}%`;
+                }
+            }
+        });
+        
+        if (updated) _statTweenId = requestAnimationFrame(loop);
+        else _statTweenId = null;
+    }
+    _statTweenId = requestAnimationFrame(loop);
 }
 
 function renderSA2StatWindow(chi) {
@@ -362,18 +387,25 @@ function renderSA2StatWindow(chi) {
     if (!chi) {
         win.style.display = 'none';
         _activeViewedChiId = null;
+        if (_statTweenId) { cancelAnimationFrame(_statTweenId); _statTweenId = null; }
         return;
     }
     
     if (!chi.statPoints) chi.statPoints = { stamina: 0, strength: 0, agility: 0, wisdom: 0, swim: 0, fly: 0 };
     const statLabels = { swim: 'Swim', fly: 'Fly', agility: 'Run', strength: 'Power', stamina: 'Stamina', wisdom: 'Wisdom' };
 
+    // Reset exact state on open to prevent jumping from previous chi
+    ['stamina', 'strength', 'agility', 'wisdom', 'swim', 'fly'].forEach(stat => {
+        _displayStats[stat] = getChiTrueStat(chi, stat);
+    });
+
     win.innerHTML = `<div class="sa2-stat-title">${chi.name}</div>` + Object.keys(statLabels).map(stat => {
-        const lvl = chi.stats[stat];
-        const pts = chi.statPoints[stat];
-        const trueVal = getChiTrueStat(chi, stat);
+        const trueVal = Math.floor(_displayStats[stat]);
+        const lvl = Math.floor(trueVal / 100);
+        const pts = trueVal % 100;
+        
         return `
-            <div class="sa2-stat-row">
+            <div class="sa2-stat-row" id="stat-row-${stat}">
                 <div class="sa2-stat-header">
                     <span class="sa2-stat-name">${statLabels[stat]}</span>
                     <span class="sa2-stat-val">${String(trueVal).padStart(4, '0')}</span>
@@ -392,67 +424,62 @@ function renderSA2StatWindow(chi) {
     win.style.display = 'block';
 }
 
-function showToast(msg) {
-    const toast = _screens.setup.querySelector('#chao-toast');
-    toast.textContent = msg;
-    toast.style.opacity = '1';
-    if (_toastTimeout) clearTimeout(_toastTimeout);
-    _toastTimeout = setTimeout(() => toast.style.opacity = '0', 2500);
-}
-
 function updateUI() {
     _screens.setup.querySelector('#chao-seishin-val').textContent = formatSeishin(_state.data.seishin);
     const chi = _state.getActiveChi();
     const feedMenu = _screens.setup.querySelector('#feed-menu');
     
-    if (feedMenu.style.display !== 'none') {
-        const fruitKeys = Object.keys(_state.data.fruits);
-        const ownedFruits = fruitKeys.filter(k => _state.data.fruits[k] > 0);
+    const fruitKeys = Object.keys(_state.data.fruits);
+    const ownedFruits = fruitKeys.filter(k => _state.data.fruits[k] > 0);
+    
+    if (ownedFruits.length === 0) {
+        feedMenu.innerHTML = `<div style="color:#888; padding: 10px;">No fruits in inventory. Buy some in the Market!</div>`;
+    } else {
+        feedMenu.innerHTML = ownedFruits.map(k => {
+            const meta = MARKET_ITEMS.find(m => m.id === k);
+            return `<div class="fruit-item" data-id="${k}" data-stat="${meta.stat}">
+                <div style="font-size:20px;">${meta.icon}</div>
+                <div>x${_state.data.fruits[k]}</div>
+            </div>`;
+        }).join('');
         
-        if (ownedFruits.length === 0) {
-            feedMenu.innerHTML = `<div style="color:#888; padding: 10px;">No fruits in inventory. Buy some in the Market!</div>`;
-        } else {
-            feedMenu.innerHTML = ownedFruits.map(k => {
-                const meta = MARKET_ITEMS.find(m => m.id === k);
-                return `<div class="fruit-item" data-id="${k}" data-stat="${meta.stat}">
-                    <div style="font-size:20px;">${meta.icon}</div>
-                    <div>x${_state.data.fruits[k]}</div>
-                </div>`;
-            }).join('');
-            
-            feedMenu.querySelectorAll('.fruit-item').forEach(el => {
-                el.addEventListener('click', (e) => {
-                    const fid = e.currentTarget.getAttribute('data-id');
-                    const stat = e.currentTarget.getAttribute('data-stat');
+        feedMenu.querySelectorAll('.fruit-item').forEach(el => {
+            el.addEventListener('click', (e) => {
+                const fid = e.currentTarget.getAttribute('data-id');
+                const stat = e.currentTarget.getAttribute('data-stat');
+                
+                if (_state.data.fruits[fid] > 0) {
+                    if (!chi.statPoints) chi.statPoints = { stamina: 0, strength: 0, agility: 0, wisdom: 0, swim: 0, fly: 0 };
                     
-                    if (_state.data.fruits[fid] > 0) {
-                        if (!chi.statPoints) chi.statPoints = { stamina: 0, strength: 0, agility: 0, wisdom: 0, swim: 0, fly: 0 };
-                        
-                        if (chi.stats[stat] === 99 && chi.statPoints[stat] >= 99) {
-                            showToast(`${chi.name}'s ${stat.toUpperCase()} is already MAX level!`);
-                            return;
-                        }
-
-                        _state.data.fruits[fid]--;
-                        chi.statPoints[stat] += 25;
-                        
-                        if (chi.statPoints[stat] >= 100) {
-                            chi.statPoints[stat] -= 100;
-                            chi.stats[stat] = Math.min(99, chi.stats[stat] + 1);
-                            if (chi.stats[stat] === 99 && chi.statPoints[stat] > 99) chi.statPoints[stat] = 99;
-                            showToast(`Fed ${chi.name}! ${stat.toUpperCase()} LEVEL UP! 🍎`);
-                        } else {
-                            showToast(`Fed ${chi.name}! ${stat} +25% 🍎`);
-                        }
-                        
-                        chi.connection += 2;
-                        _state.save();
-                        updateUI();
-                        if (_activeViewedChiId === chi.id) renderSA2StatWindow(chi);
+                    if (chi.stats[stat] === 99 && chi.statPoints[stat] >= 99) {
+                        showToast(`${chi.name}'s ${stat.toUpperCase()} is already MAX level!`);
+                        return;
                     }
-                });
+
+                    _state.data.fruits[fid]--;
+                    _state.save();
+                    updateUI(); // Updates inventory count immediately
+
+                    // Spawn physical fruit and trigger callback when eaten
+                    if (_garden3D) {
+                        _garden3D.spawnFruit(stat, () => {
+                            chi.statPoints[stat] += 25;
+                            
+                            if (chi.statPoints[stat] >= 100) {
+                                chi.statPoints[stat] -= 100;
+                                chi.stats[stat] = Math.min(99, chi.stats[stat] + 1);
+                                if (chi.stats[stat] === 99 && chi.statPoints[stat] > 99) chi.statPoints[stat] = 99;
+                                showToast(`${chi.name}'s ${stat.toUpperCase()} LEVEL UP!`);
+                            }
+                            
+                            chi.connection += 2;
+                            _state.save();
+                            startStatTween();
+                        });
+                    }
+                }
             });
-        }
+        });
     }
 }
 

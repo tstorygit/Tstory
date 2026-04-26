@@ -8,6 +8,7 @@ export class ChaoGarden3D {
         this.state = stateManager;
         this.onChiClick = onChiClick;
         this.chiMeshes = [];
+        this.fruits = [];
         this.clock = new THREE.Clock();
         this.animationId = null;
 
@@ -52,8 +53,6 @@ export class ChaoGarden3D {
         this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-        
-        // Ensure absolutely no mobile browser scrolling on canvas touch
         this.renderer.domElement.style.touchAction = 'none';
 
         this.container.appendChild(this.renderer.domElement);
@@ -143,12 +142,40 @@ export class ChaoGarden3D {
                 baseY: 1,
                 bounceSpeed: 2 + Math.log10(chi.stats.agility + 1) * 0.8,
                 moveSpeed: 0.3 + (chi.stats.agility / 99) * 1.5,
-                offset: Math.random() * Math.PI * 2
+                offset: Math.random() * Math.PI * 2,
+                happyTimer: 0
             };
 
             this.scene.add(mesh);
             this.chiMeshes.push(mesh);
         });
+    }
+
+    spawnFruit(stat, callback) {
+        const activeMesh = this.chiMeshes.find(m => m.userData.chiId === this.state.data.activeChiId);
+        if (!activeMesh) return;
+
+        const colors = {
+            'stamina': 0xff66bb, 'strength': 0xff5555, 'agility': 0x50fa7b,
+            'wisdom': 0xbd93f9,  'swim': 0x8be9fd,     'fly': 0xf1fa8c
+        };
+
+        const geo = new THREE.DodecahedronGeometry(0.3, 0);
+        const mat = new THREE.MeshLambertMaterial({ color: colors[stat] || 0xffffff });
+        const mesh = new THREE.Mesh(geo, mat);
+        
+        const dropX = activeMesh.position.x + (Math.random() * 4 - 2);
+        const dropZ = activeMesh.position.z + (Math.random() * 4 - 2);
+        mesh.position.set(dropX, 5, dropZ);
+        mesh.castShadow = true;
+        
+        this.scene.add(mesh);
+        this.fruits.push({ mesh, callback, dropTargetY: 0.3 });
+    }
+
+    triggerHappyBounce(chiId) {
+        const mesh = this.chiMeshes.find(m => m.userData.chiId === chiId);
+        if (mesh) mesh.userData.happyTimer = 1.5;
     }
 
     onPointerDown(event) {
@@ -210,17 +237,61 @@ export class ChaoGarden3D {
 
     animate() {
         this.animationId = requestAnimationFrame(() => this.animate());
+        const delta = this.clock.getDelta();
         const time = this.clock.getElapsedTime();
 
+        const activeId = this.state.data.activeChiId;
+        const activeMesh = this.chiMeshes.find(m => m.userData.chiId === activeId);
+
+        // Process Fruit dropping
+        this.fruits.forEach(f => {
+            if (f.mesh.position.y > f.dropTargetY) {
+                f.mesh.position.y -= delta * 10;
+                f.mesh.rotation.x += delta * 5;
+                f.mesh.rotation.y += delta * 5;
+                if (f.mesh.position.y <= f.dropTargetY) f.mesh.position.y = f.dropTargetY;
+            } else {
+                f.mesh.rotation.y += delta * 2;
+            }
+        });
+
         this.chiMeshes.forEach(mesh => {
+            const data = mesh.userData;
+            
             if (this.dragTarget === mesh) {
                 mesh.rotation.z = Math.sin(time * 15) * 0.2;
+                return;
+            }
+
+            mesh.rotation.z = 0;
+
+            if (data.happyTimer > 0) {
+                data.happyTimer -= delta;
+                mesh.position.y = data.baseY + Math.abs(Math.sin(time * 25)) * 1.5;
+                mesh.rotation.y += delta * 15;
             } else {
-                mesh.rotation.z = 0;
-                const data = mesh.userData;
-                mesh.position.y = data.baseY + Math.abs(Math.sin(time * data.bounceSpeed + data.offset)) * 0.5;
-                mesh.position.x += Math.sin(time * data.moveSpeed * 0.5 + data.offset) * 0.01;
-                mesh.position.z += Math.cos(time * data.moveSpeed * 0.3 + data.offset) * 0.01;
+                mesh.rotation.y = 0;
+
+                if (mesh === activeMesh && this.fruits.length > 0) {
+                    const target = this.fruits[0];
+                    const dist = mesh.position.distanceTo(target.mesh.position);
+                    
+                    if (dist > 0.8) {
+                        const dir = target.mesh.position.clone().sub(mesh.position).normalize();
+                        dir.y = 0;
+                        mesh.position.add(dir.multiplyScalar(delta * 6));
+                        mesh.position.y = data.baseY + Math.abs(Math.sin(time * 15)) * 0.8;
+                    } else {
+                        this.scene.remove(target.mesh);
+                        target.callback();
+                        this.fruits.shift();
+                        this.triggerHappyBounce(data.chiId);
+                    }
+                } else {
+                    mesh.position.y = data.baseY + Math.abs(Math.sin(time * data.bounceSpeed + data.offset)) * 0.5;
+                    mesh.position.x += Math.sin(time * data.moveSpeed * 0.5 + data.offset) * 0.01;
+                    mesh.position.z += Math.cos(time * data.moveSpeed * 0.3 + data.offset) * 0.01;
+                }
             }
         });
 
