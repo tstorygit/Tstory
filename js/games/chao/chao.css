@@ -108,10 +108,11 @@
     z-index: 1000; box-shadow: 0 4px 10px rgba(0,0,0,0.5); white-space: nowrap;
 }
 
-/* SA2 Style Stat Window - Adjusted sizes and crisp outlines */
+/* SA2 Style Stat Window - Doubled Width */
 .sa2-stat-window {
     position: absolute; top: 10px; right: 10px; 
-    max-width: 33vw; max-height: 50vh; overflow-y: auto; overflow-x: hidden;
+    width: 440px; max-width: 66vw; max-height: 50vh; 
+    overflow-y: auto; overflow-x: hidden;
     background: linear-gradient(180deg, rgba(80,130,255,0.85) 0%, rgba(130,180,255,0.85) 100%);
     border: 2px solid rgba(255,255,255,0.7); border-radius: 8px; padding: 10px;
     pointer-events: auto; z-index: 10; font-family: 'Arial Black', Impact, sans-serif;
@@ -130,8 +131,8 @@
     display: flex; justify-content: space-between; align-items: baseline;
     color: white; -webkit-text-stroke: 0.5px black; text-shadow: 1px 1px 0 #000; font-size: 12px;
 }
-.sa2-stat-bar-container { display: flex; align-items: center; gap: 4px; margin-top: 2px; }
-.sa2-stat-lvl { color: #ffff00; -webkit-text-stroke: 0.5px black; text-shadow: 1px 1px 0 #000; font-size: 10px; width: 38px; }
+.sa2-stat-bar-container { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+.sa2-stat-lvl { color: #ffff00; -webkit-text-stroke: 0.5px black; text-shadow: 1px 1px 0 #000; font-size: 10px; width: 42px; flex-shrink: 0; }
 .sa2-stat-track { flex: 1; height: 10px; background: #555; border: 2px solid #000; position: relative; display: flex; flex-direction: column; overflow: hidden; }
 .sa2-stat-fill-yellow { height: 60%; background: #ffff00; width: 0%; }
 .sa2-stat-fill-blue { height: 40%; background: repeating-linear-gradient(90deg, #5c5cff, #5c5cff 6px, #222 6px, #222 8px); width: 100%; }
@@ -159,5 +160,5 @@
     .nikki-sidebar { border-right: none; border-bottom: 1px solid #444; padding-bottom: 10px; padding-right: 0; height: 90px; flex: none; display: flex; gap: 10px; overflow-x: auto; overflow-y: hidden; }
     .nikki-content { padding-left: 0; padding-top: 10px; flex: 1; }
     .nikki-entry-btn { min-width: 120px; margin-bottom: 0; flex-shrink: 0; }
-    .sa2-stat-window { max-width: 45vw; max-height: 40vh; right: 5px; top: 5px; }
+    .sa2-stat-window { width: 90vw; max-width: 90vw; max-height: 40vh; right: 5vw; top: 5px; }
 }
