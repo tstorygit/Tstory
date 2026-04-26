@@ -8,6 +8,17 @@
 // automatically. screen entries map { key → css-classes-and-styles }.
 
 const GAME_REGISTRY = [
+   {
+    id:     'chao',
+    icon:   '🐾',
+    title:  'Chi Garden',
+    desc:   'Raise a virtual pet. Earn Seishin through SRS, feed it stat-boosting fruits, and read its AI-generated diary!',
+    loader: () => import('./games/chao/chao.js'),
+    headerTitle: 'Chi Garden',
+    screens: {
+        setup: { classes: 'content-scroll' }
+         },
+    },
     {
         id:     'caro',
         icon:   '🃏',
