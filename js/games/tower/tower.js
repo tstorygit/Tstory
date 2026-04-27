@@ -119,7 +119,7 @@ function _defaultSave() {
             active: null,
             levels: { damageMult:0, critChance:0, rangeMult:0, vocabMastery:0, healthMult:0, regenMult:0, defPct:0, thornsMult:0, lifesteal:0, knowledge:0, gameSpeed:0, coinYield:0, cashBonusMult:0, startingCash:0, synergy:0, freeUpg:0, dailyLoginBonus:0, questRewardMult:0 }
         },
-        bases: { unlocked: ['default'], equipped: 'default', levels: { default: 0, sniper: 0, mage: 0, banker: 0 } },
+        bases: { unlocked: ['default'], equipped: 'default', levels: { default: 0, sniper: 0, mage: 0, banker: 0, fortress: 0, power: 0 } },
         ascension: { points: 0, timesAscended: 0 },
         cards: { owned: {}, equipped: [null], unlockedSlots: 1 },
         vocabConfig: GameVocabManager.defaultConfig(),
@@ -373,6 +373,7 @@ export function init(screens, onExit) {
                     <div style="display:flex; justify-content:space-between;"><span>Tier Difficulty:</span><span id="tw-mi-tier">x1.00</span></div>
                     <div style="display:flex; justify-content:space-between;"><span>Lab Research:</span><span id="tw-mi-lab" style="color:#2ecc71;">+0%</span></div>
                     <div style="display:flex; justify-content:space-between;"><span>Card Bonus:</span><span id="tw-mi-card" style="color:#9b59b6;">+0%</span></div>
+                    <div id="tw-mi-base" style="display:none; justify-content:space-between;"><span>Tower Base:</span><span style="color:#f1c40f;">+0%</span></div>
                     <hr style="border:0; border-top:1px solid #333; margin:5px 0;">
                     <div style="display:flex; justify-content:space-between; font-weight:bold; color:#f1c40f; font-size:15px;"><span>Total:</span><span id="tw-mi-total">x1.00</span></div>
                 </div>
@@ -707,7 +708,15 @@ export function init(screens, onExit) {
             const cBonus = 1 + cardCoinBonus;
             const labYieldBonus = (_save.lab.levels.coinYield || 0) * 0.1;
             const labYield = 1 + labYieldBonus;
-            const totalMult = selectedDiff * cBonus * labYield;
+
+            // Include base tower coinCashMult (e.g. Banker Base)
+            const baseId = _save.bases ? (_save.bases.equipped || 'default') : 'default';
+            const baseDef = TOWER_BASES[baseId];
+            const baseLvl = _save.bases ? (_save.bases.levels[baseId] || 0) : 0;
+            const baseMods = baseDef ? baseDef.getModifiers(baseLvl) : {};
+            const baseCoinMult = baseMods.coinCashMult ? (1 + baseMods.coinCashMult) : 1;
+
+            const totalMult = selectedDiff * cBonus * labYield * baseCoinMult;
 
             _screens.setup.querySelector('#tw-mi-tier').textContent = `x${selectedDiff.toFixed(2)}`;
             _screens.setup.querySelector('#tw-mi-lab').textContent = `+${Math.round(labYieldBonus * 100)}%`;
@@ -717,6 +726,17 @@ export function init(screens, onExit) {
             const diffBaseSpan = _screens.setup.querySelector('#tw-diff-base-mult');
             if (diffBaseSpan) diffBaseSpan.textContent = selectedDiff;
             _screens.setup.querySelector('#tw-diff-coin-mult').textContent = 'x' + totalMult.toFixed(2);
+
+            // Add base coin mult row to info modal if applicable
+            const baseRow = _screens.setup.querySelector('#tw-mi-base');
+            if (baseRow) {
+                if (baseCoinMult !== 1) {
+                    baseRow.style.display = 'flex';
+                    baseRow.querySelector('span:last-child').textContent = `+${Math.round((baseCoinMult - 1) * 100)}%`;
+                } else {
+                    baseRow.style.display = 'none';
+                }
+            }
         }
     };
     prevBtn.onclick = () => { selectedDiff--; updateDiffUI(); };
@@ -880,8 +900,10 @@ export function launch() {
     if (!_save.achievements) _save.achievements = {};
     if (_save.equippedTitle === undefined) _save.equippedTitle = null;
 
-    if (!_save.bases) _save.bases = { unlocked: ['default'], equipped: 'default', levels: { default: 0, sniper: 0, mage: 0, banker: 0 } };
+    if (!_save.bases) _save.bases = { unlocked: ['default'], equipped: 'default', levels: { default: 0, sniper: 0, mage: 0, banker: 0, fortress: 0, power: 0 } };
     if (!_save.ascension) _save.ascension = { points: 0, timesAscended: 0 };
+    if (_save.bases.levels.fortress === undefined) _save.bases.levels.fortress = 0;
+    if (_save.bases.levels.power    === undefined) _save.bases.levels.power    = 0;
     
     _save.stats.sessionCorrect = 0;
 
@@ -1025,20 +1047,26 @@ function _getNextBaseCost() {
 
 function _formatMods(mods, nextMods) {
     const keys = [
-        { key: 'rangeMult',     label: 'Range',        pct: true  },
-        { key: 'critChanceAdd', label: 'Crit Chance',  pct: true  },
-        { key: 'atkSpeedMult',  label: 'Atk Speed',    pct: true  },
-        { key: 'splashDmgAdd',  label: 'Splash Dmg',   pct: true  },
-        { key: 'damageMult',    label: 'Damage',       pct: true  },
-        { key: 'coinCashMult',  label: 'Coins and Cash', pct: true },
-        { key: 'disableBounce', label: 'Cannot Bounce',pct: false },
+        { key: 'rangeMult',          label: 'Range',              pct: true  },
+        { key: 'critChanceAdd',      label: 'Crit Chance',        pct: true  },
+        { key: 'atkSpeedMult',       label: 'Atk Speed',          pct: true  },
+        { key: 'splashDmgAdd',       label: 'Splash Dmg',         pct: true  },
+        { key: 'damageMult',         label: 'Damage',             pct: true  },
+        { key: 'coinCashMult',       label: 'Coins and Cash',     pct: true  },
+        { key: 'bounceReductionPct', label: 'Bounce Reduction',   pct: true  },
+        { key: 'healthMult',         label: 'Health',             pct: true  },
+        { key: 'regenMult',          label: 'Health Regen',       pct: true  },
+        { key: 'defAbsAdd',          label: 'Defense (Abs)',      pct: false },
+        { key: 'defPctAdd',          label: 'Defense (%)',        pct: true  },
+        { key: 'defyDeathAdd',       label: 'Defy Death',         pct: true  },
+        { key: 'coinCashPenalty',    label: 'Coins and Cash',     pct: true  },
+        { key: 'defenseUpgPenalty',  label: 'Defense Upg Effect', pct: true  },
     ];
     let s = '';
     for (const spec of keys) {
         const cur = mods[spec.key];
         const nxt = nextMods ? nextMods[spec.key] : undefined;
         if (cur === undefined && nxt === undefined) continue;
-        if (spec.key === 'disableBounce') { s += 'Cannot Bounce<br>'; continue; }
         const val = cur !== undefined ? cur : 0;
         const sign = val >= 0 ? '+' : '';
         const display = spec.pct ? (sign + Math.round(val * 100) + '%') : String(val);
@@ -1237,11 +1265,11 @@ function _renderTowers() {
 // ─── DAILY LOGIN & QUESTS ───────────────────────────────────────────────────
 
 function _calcLoginCoinBonus() {
-    // Base: 50% of highest run coins, with a floor of 50 and ceiling scaling by streak
+    // Base: 12.5% of highest run coins (= 50% / 4), with a floor of 50 and ceiling scaling by streak
     const highestCoins = _save.stats.highestRunCoins || 0;
     const labLvl = (_save.lab && _save.lab.levels.dailyLoginBonus) || 0;
-    // Lab research adds +25% per level on top of base 50%: 50% → 200% at max 6 levels
-    const pct = 0.5 + labLvl * 0.25;
+    // Lab research adds +6.25% per level on top of base 12.5% (all values /4 from original)
+    const pct = 0.125 + labLvl * 0.0625;
     const dynamic = Math.floor(highestCoins * pct);
     // Minimum flat reward so new players still get something
     return Math.max(50, dynamic);
@@ -1293,14 +1321,14 @@ function _renderLoginTab() {
 
     const baseBonus = _calcLoginCoinBonus();
     const labLvl = (_save.lab && _save.lab.levels.dailyLoginBonus) || 0;
-    const pct = Math.round((0.5 + labLvl * 0.25) * 100);
+    const pct = Math.round((0.125 + labLvl * 0.0625) * 100);
     const highestCoins = _save.stats.highestRunCoins || 0;
     
     let html = `<div style="background:rgba(241,196,15,0.08); border:1px solid #f1c40f55; border-radius:8px; padding:10px; margin-bottom:12px; font-size:12px; color:#aaa; line-height:1.6;">
         📈 <b style="color:#f1c40f;">Dynamic Coin Rewards</b> — Daily coins scale with your best run.<br>
         Best Run: <b style="color:#fff;">${highestCoins.toLocaleString()} 🪙</b> × <b style="color:#f1c40f;">${pct}%</b> = <b style="color:#fff;">${baseBonus.toLocaleString()} / day</b>
         ${highestCoins === 0 ? `<br><span style="color:#888;">(Play a run to unlock dynamic bonuses!)</span>` : ''}
-        ${labLvl > 0 ? `<br><span style="color:#2ecc71;">Login Bonus research Lv.${labLvl} active (+${labLvl*25}%)</span>` : ''}
+        ${labLvl > 0 ? `<br><span style="color:#2ecc71;">Login Bonus research Lv.${labLvl} active (+${(labLvl*6.25).toFixed(2)}%)</span>` : ''}
     </div>`;
     
     const cycle = Math.floor(Math.max(0, (_save.login.streakDays || 1) - 1) / 28);
@@ -1342,13 +1370,23 @@ function _generateDailyQuests() {
     if (_save.quests.date !== today) {
         _save.quests.date = today;
         const shuffled =[...QUEST_TEMPLATES].sort(() => 0.5 - Math.random());
-        _save.quests.active = shuffled.slice(0, 4).map(q => ({
+        const selected = shuffled.slice(0, 4);
+
+        // Coin quests should collectively equal the day-2 login bonus:
+        // day-2 login = baseBonus * 2 = highestRunCoins * 0.125 * 2 = highestRunCoins * 0.25
+        // Split equally among all coin-reward quests in today's selection.
+        const highestCoins = _save.stats.highestRunCoins || 0;
+        const day2Login = Math.max(100, Math.floor(highestCoins * 0.25));
+        const coinQuestCount = selected.filter(q => q.rewardType === 'coins').length || 1;
+        const coinQuestBase = Math.floor(day2Login / coinQuestCount);
+
+        _save.quests.active = selected.map(q => ({
             id: q.id,
             desc: q.desc,
             max: q.max,
             type: q.type || 'add',
             rewardType: q.rewardType,
-            rewardAmount: q.rewardAmount,
+            rewardAmount: q.rewardType === 'coins' ? coinQuestBase : q.rewardAmount,
             progress: 0,
             claimed: false
         }));
@@ -2018,6 +2056,11 @@ function _getTowerStats() {
             if (id === 'range') val *= 1 + ((_save.lab.levels.rangeMult || 0) * 0.01);
             if (id === 'regen') val *= 1 + ((_save.lab.levels.regenMult || 0) * 0.02);
             if (id === 'defPct') val += (_save.lab.levels.defPct || 0) * 0.005;
+            // Non-linear defAbs: value = 2^totalLvl - 1  (0→0, 1→1, 2→3, 3→7, 4→15, …)
+            if (id === 'defAbs') {
+                const totalLvl = (_save.workshop.defense.defAbs || 0) + (_run ? (_run.levels.defense.defAbs || 0) : 0);
+                val = totalLvl > 0 ? Math.pow(2, totalLvl) - 1 : 0;
+            }
             if (id === 'thorns') val *= 1 + ((_save.lab.levels.thornsMult || 0) * 0.02);
             if (id === 'lifesteal') val += (_save.lab.levels.lifesteal || 0) * 0.002;
             if (id === 'cashBonus') val *= 1 + ((_save.lab.levels.cashBonusMult || 0) * 0.05);
@@ -2083,10 +2126,32 @@ function _getTowerStats() {
         if (mods.atkSpeedMult) stats.atkSpeed *= (1 + mods.atkSpeedMult);
         if (mods.splashDmgAdd) stats.splashDmg = (stats.splashDmg || 0) + mods.splashDmgAdd;
         if (mods.disableBounce) stats.bounce = 0;
+        if (mods.bounceReductionPct !== undefined) stats.bounce *= (1 - mods.bounceReductionPct);
         if (mods.damageMult) stats.damage *= (1 + mods.damageMult);
         if (mods.coinCashMult) {
             stats.coinBonus *= (1 + mods.coinCashMult);
             stats.cashBonus *= (1 + mods.coinCashMult);
+        }
+        // Fortress base
+        if (mods.healthMult)   stats.health  *= (1 + mods.healthMult);
+        if (mods.regenMult)    stats.regen   *= (1 + mods.regenMult);
+        if (mods.defAbsAdd)    stats.defAbs  =  (stats.defAbs  || 0) + mods.defAbsAdd;
+        if (mods.defPctAdd)    stats.defPct  =  Math.min(0.95, (stats.defPct || 0) + mods.defPctAdd);
+        if (mods.defyDeathAdd) stats.defyDeath = Math.min(1, (stats.defyDeath || 0) + mods.defyDeathAdd);
+        // Shared coin/cash penalty (Fortress + Power)
+        if (mods.coinCashPenalty) {
+            stats.coinBonus *= (1 + mods.coinCashPenalty);
+            stats.cashBonus *= (1 + mods.coinCashPenalty);
+        }
+        // Power base: reduces effectiveness of all defense upgrade stats
+        if (mods.defenseUpgPenalty) {
+            const pen = 1 + mods.defenseUpgPenalty; // e.g. 0.5 at lv0
+            stats.health   *= pen;
+            stats.regen    *= pen;
+            stats.defAbs   *= pen;
+            stats.defPct   *= pen;
+            stats.defyDeath *= pen;
+            stats.lifesteal *= pen;
         }
         stats.towerColor = baseDef.color || '#00ffff';
     }
@@ -2101,6 +2166,8 @@ function _getTowerStats() {
     stats.synergyPierce = _save.lab && _save.lab.levels.synergy > 0 && kBuff >= 2.0;
     stats.synergyChain = _save.lab && _save.lab.levels.synergy > 0 && kBuff >= 3.0;
     
+    // Hard cap: defPct can never reach or exceed 100% from any combination of sources
+    stats.defPct = Math.min(0.95, stats.defPct || 0);
     return stats;
 }
 
@@ -2690,11 +2757,14 @@ function _renderRunUpgrades() {
                 const baseVal = isBoss
                     ? Math.ceil((5 + (_run.wave||1) * 0.5) * (_run.diff||1) / 2)
                     : Math.max(1, Math.floor((_run.wave||1) * (_run.diff||1) * 0.25));
-                const flatBonus = isBoss ? (_engine.stats?.coinDropBoss || 0)
-                                : isElite ? (_engine.stats?.coinDropElite || 0)
-                                : (_engine.stats?.coinDropNormal || 0);
-                const total = Math.floor((baseVal + flatBonus) * (1 + val) * globalMult);
-                displayVal = `${(val*100).toFixed(1)}% <span style="font-size:9px;color:#aaa;">(base:${baseVal}+${flatBonus.toFixed(0)})&times;${(1+val).toFixed(2)}&times;${globalMult.toFixed(2)} = ${total}</span>`;
+                // Use raw calcStat for the flat bonus (same path as coinDropNormal/Elite/Boss preview)
+                const flatBonusRaw = isBoss
+                    ? calcStat('utility', 'coinDropBoss', _save.workshop.utility.coinDropBoss || 0, _run.levels.utility.coinDropBoss || 0)
+                    : isElite
+                    ? calcStat('utility', 'coinDropElite', _save.workshop.utility.coinDropElite || 0, _run.levels.utility.coinDropElite || 0)
+                    : calcStat('utility', 'coinDropNormal', _save.workshop.utility.coinDropNormal || 0, _run.levels.utility.coinDropNormal || 0);
+                const total = Math.floor((baseVal + flatBonusRaw) * (1 + val) * globalMult);
+                displayVal = `${(val*100).toFixed(1)}% <span style="font-size:9px;color:#aaa;">(base:${baseVal}+flat:${flatBonusRaw.toFixed(0)})&times;${(1+val).toFixed(2)}&times;${globalMult.toFixed(2)} = ${total}</span>`;
             } else if (id === 'cashWave') {
                 let interest = Math.floor(_run.cash * (_engine.stats?.interest || 0));
                 let total = val + interest;

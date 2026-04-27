@@ -7,7 +7,7 @@ export const UPGRADES = {
     offense: {
         damage:     { name: 'Damage',        base: 5,   step: 2,      baseCost: 10,  costMult: 1.15, isPct: false },
         atkSpeed:   { name: 'Attack Speed',  base: 1.0, step: 0.1,    baseCost: 15,  costMult: 1.18, isPct: false, max: 10 },
-        range:      { name: 'Range',         base: 120, step: 4,      baseCost: 20,  costMult: 1.18, isPct: false, max: 300 },
+        range:      { name: 'Range',         base: 240, step: 8,      baseCost: 20,  costMult: 1.18, isPct: false, max: 600 },
         splashDmg:  { name: 'Splash Damage', base: 0,   step: 0.025,  baseCost: 200, costMult: 1.40, isPct: true,  max: 1.0, reqUnlock: true, unlockCost: 500 },
         dmgMeter:   { name: 'Damage/Meter',  base: 0,   step: 0.0005, baseCost: 100, costMult: 1.30, isPct: true,  max: 0.2, reqUnlock: true, unlockCost: 400 },
         bounce:     { name: 'Bounce Shot',   base: 0,   step: 0.025,  baseCost: 150, costMult: 1.5,  isPct: true,  max: 0.8, reqUnlock: true, unlockCost: 500 },
@@ -68,8 +68,8 @@ export const LAB_RESEARCH = {
     startingCash: { name: 'Starting Cash',    desc: 'Start runs with +50 Cash.', baseCost: 150, costMult: 1.8, baseTimeSec: 120, max: 50 },
     synergy:      { name: 'Linguistic Synergy', desc: 'Unlocks Pierce at x2.0 Knowledge, Chain at x3.0.', baseCost: 2500, costMult: 1, baseTimeSec: 1800, max: 1 },
     freeUpg:      { name: 'Free Upgrades',    desc: '+0.5% Global Free Upgrade Chance.', baseCost: 1500, costMult: 3.0, baseTimeSec: 3600, max: 10 },
-    dailyLoginBonus: { name: 'Login Bonus',   desc: '+25% Daily Login Coin reward.', baseCost: 400, costMult: 2.0, baseTimeSec: 600, max: 6 },
-    questRewardMult: { name: 'Quest Rewards', desc: '+20% Coin & Gem rewards from Quests.', baseCost: 600, costMult: 2.2, baseTimeSec: 900, max: 6 }
+    dailyLoginBonus: { name: 'Login Bonus',   desc: '+6.25% Daily Login Coin reward.', baseCost: 2000, costMult: 4.0, baseTimeSec: 600, max: 6 },
+    questRewardMult: { name: 'Quest Rewards', desc: '+20% Coin & Gem rewards from Quests.', baseCost: 3000, costMult: 4.0, baseTimeSec: 900, max: 6 }
 };
 
 export const RELICS = {
@@ -88,22 +88,28 @@ export const TOWER_BASES = {
     },
     sniper: {
         id: 'sniper', name: 'Sniper Base', color: '#2ecc71',
-        desc: 'Incredible range and precision, but fires slowly.',
+        desc: 'Incredible range and precision, but fires slowly (penalty gone at max level).',
         getModifiers: (lvl) => ({
             rangeMult: 0.5 + (lvl * 0.1),       // +50% to +150%
             critChanceAdd: 0.5 + (lvl * 0.05),  // +50% to +100%
-            atkSpeedMult: -0.5 + (lvl * 0.04)   // -50% to -10%
+            atkSpeedMult: -0.5 + (lvl * 0.05)   // -50% at lv0, 0% at lv10
         }),
         maxLevel: 10
     },
     mage: {
         id: 'mage', name: 'Mage Base', color: '#9b59b6',
-        desc: 'Attacks deal Splash Damage, but cannot Bounce.',
-        getModifiers: (lvl) => ({
-            splashDmgAdd: 0.5 + (lvl * 0.1),    // +50% to +150%
-            disableBounce: true,
-            damageMult: 0 + (lvl * 0.1)         // +0% to +100%
-        }),
+        desc: 'Attacks deal Splash Damage. Bounce is reduced at low levels but fully restored at max.',
+        getModifiers: (lvl) => {
+            const mods = {
+                splashDmgAdd: 0.5 + (lvl * 0.1),    // +50% to +150%
+                damageMult: 0 + (lvl * 0.1)         // +0% to +100%
+            };
+            // Bounce penalty: fully disabled at lv0, linearly restored; at lv10 no penalty
+            if (lvl < 10) {
+                mods.bounceReductionPct = 1 - (lvl / 10); // 100% reduction at lv0 → 0% at lv10
+            }
+            return mods;
+        },
         maxLevel: 10
     },
     banker: {
@@ -113,6 +119,42 @@ export const TOWER_BASES = {
             coinCashMult: 1.0 + (lvl * 0.2),    // +100% to +300%
             damageMult: -0.3 + (lvl * 0.03)     // -30% to 0%
         }),
+        maxLevel: 10
+    },
+    fortress: {
+        id: 'fortress', name: 'Fortress Base', color: '#e67e22',
+        desc: 'Massively increases all defenses. Attack speed and coin income are reduced, but both penalties disappear at max level.',
+        getModifiers: (lvl) => {
+            const mods = {
+                healthMult:   0.5 + (lvl * 0.15),   // +50% to +200%
+                regenMult:    0.5 + (lvl * 0.15),   // +50% to +200%
+                defAbsAdd:    Math.pow(2, lvl + 1) - 1, // 1,3,7,15,31,63,127,255,511,1023
+                defPctAdd:    0.1 + (lvl * 0.04),   // +10% to +50% defense %
+                defyDeathAdd: 0.05 + (lvl * 0.025), // +5% to +30% defy death
+            };
+            // Penalties vanish linearly by lv10
+            if (lvl < 10) {
+                mods.atkSpeedMult  = -0.4 + (lvl * 0.04); // -40% at lv0 → 0% at lv10
+                mods.coinCashPenalty = -(0.3 - lvl * 0.03); // -30% to 0%
+            }
+            return mods;
+        },
+        maxLevel: 10
+    },
+    power: {
+        id: 'power', name: 'Power Base', color: '#e74c3c',
+        desc: 'Devastating raw damage output. Defense upgrades are weakened and coin income reduced at low levels — both penalties gone at max.',
+        getModifiers: (lvl) => {
+            const mods = {
+                damageMult: 0.25 + (lvl * 0.025), // +25% at lv0, +50% at lv10
+            };
+            // Penalties vanish linearly by lv10
+            if (lvl < 10) {
+                mods.defenseUpgPenalty = -(0.5 - lvl * 0.05); // -50% effectiveness at lv0 → 0% at lv10
+                mods.coinCashPenalty   = -(0.25 - lvl * 0.025); // -25% to 0%
+            }
+            return mods;
+        },
         maxLevel: 10
     }
 };
