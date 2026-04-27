@@ -18,7 +18,7 @@ export const UPGRADES = {
         health:     { name: 'Health',        base: 50,  step: 15,     baseCost: 10,  costMult: 1.15, isPct: false },
         regen:      { name: 'Health Regen',  base: 0,   step: 1,      baseCost: 20,  costMult: 1.20, isPct: false },
         defAbs:     { name: 'Defense (Abs)', base: 0,   step: 2,      baseCost: 20,  costMult: 1.20, isPct: false },
-        defPct:     { name: 'Defense (%)',   base: 0,   step: 0.005,  baseCost: 100, costMult: 1.35, isPct: true,  max: 0.75, reqUnlock: true, unlockCost: 500 },
+        defPct:     { name: 'Defense (%)',   base: 0,   step: 0.005,  baseCost: 100, costMult: 1.35, isPct: true,  max: 0.40, reqUnlock: true, unlockCost: 500 },
         lifesteal:  { name: 'Lifesteal',     base: 0,   step: 0.0025, baseCost: 200, costMult: 1.40, isPct: true,  max: 0.5,  reqUnlock: true, unlockCost: 1000 },
         knockback:  { name: 'Knockback',     base: 0,   step: 0.025,  baseCost: 250, costMult: 1.60, isPct: true,  max: 0.8,  reqUnlock: true, unlockCost: 800 },
         thorns:     { name: 'Thorns Dmg',    base: 0,   step: 0.1,    baseCost: 50,  costMult: 1.35, isPct: true,  reqUnlock: true, unlockCost: 300 },
@@ -129,7 +129,7 @@ export const TOWER_BASES = {
                 healthMult:   0.5 + (lvl * 0.15),   // +50% to +200%
                 regenMult:    0.5 + (lvl * 0.15),   // +50% to +200%
                 defAbsAdd:    Math.pow(2, lvl + 1) - 1, // 1,3,7,15,31,63,127,255,511,1023
-                defPctAdd:    0.1 + (lvl * 0.04),   // +10% to +50% defense %
+                defPctAdd:    lvl * 0.03,            // 0% at lv0 → +30% at lv10
                 defyDeathAdd: 0.05 + (lvl * 0.025), // +5% to +30% defy death
             };
             // Penalties vanish linearly by lv10
@@ -146,7 +146,7 @@ export const TOWER_BASES = {
         desc: 'Devastating raw damage output. Defense upgrades are weakened and coin income reduced at low levels — both penalties gone at max.',
         getModifiers: (lvl) => {
             const mods = {
-                damageMult: 0.25 + (lvl * 0.025), // +25% at lv0, +50% at lv10
+                damageMult: lvl * 0.4,              // 0% at lv0 → +400% at lv10
             };
             // Penalties vanish linearly by lv10
             if (lvl < 10) {
@@ -189,7 +189,7 @@ export const CARDS = {
     spd:    { name: 'Attack Speed', desc: '+% Atk Speed',    base: 0.10, step: 0.05, rarity: 'rare' },
     rng:    { name: 'Range',        desc: '+% Range',        base: 0.10, step: 0.05, rarity: 'rare' },
     defA:   { name: 'Defense Abs',  desc: '+X Def Abs',      base: 5,    step: 2, isFlat: true, rarity: 'rare' },
-    defP:   { name: 'Defense %',    desc: '+% Defense',      base: 0.05, step: 0.02, maxLevel: 10, rarity: 'rare' },
+    defP:   { name: 'Defense %',    desc: '+% Defense',      base: 0.015, step: 0.015, maxLevel: 10, rarity: 'rare' },
     kb:     { name: 'Knockback',    desc: '+% Knockback',    base: 0.05, step: 0.02, rarity: 'rare' },
     
     // Epic (15%)

@@ -2056,7 +2056,7 @@ function _getTowerStats() {
             if (id === 'range') val *= 1 + ((_save.lab.levels.rangeMult || 0) * 0.01);
             if (id === 'regen') val *= 1 + ((_save.lab.levels.regenMult || 0) * 0.02);
             if (id === 'defPct') val += (_save.lab.levels.defPct || 0) * 0.005;
-            // Non-linear defAbs: value = 2^totalLvl - 1  (0→0, 1→1, 2→3, 3→7, 4→15, …)
+            // Non-linear defAbs: 2^totalLvl - 1  (lv1=1, lv2=3, lv3=7, lv4=15, …)
             if (id === 'defAbs') {
                 const totalLvl = (_save.workshop.defense.defAbs || 0) + (_run ? (_run.levels.defense.defAbs || 0) : 0);
                 val = totalLvl > 0 ? Math.pow(2, totalLvl) - 1 : 0;
@@ -2166,8 +2166,6 @@ function _getTowerStats() {
     stats.synergyPierce = _save.lab && _save.lab.levels.synergy > 0 && kBuff >= 2.0;
     stats.synergyChain = _save.lab && _save.lab.levels.synergy > 0 && kBuff >= 3.0;
     
-    // Hard cap: defPct can never reach or exceed 100% from any combination of sources
-    stats.defPct = Math.min(0.95, stats.defPct || 0);
     return stats;
 }
 
