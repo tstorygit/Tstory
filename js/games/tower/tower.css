@@ -48,6 +48,8 @@
 .tw-subtab-btn.active { color: #00ffff; background: rgba(0, 255, 255, 0.1); }
 .tw-subtab-content { flex: 1; overflow-y: auto; padding: 10px; display: none; -webkit-overflow-scrolling: touch; }
 .tw-subtab-content.active { display: block; }
+.tw-battle-upgrades .tw-subtab-content { padding: 0; overflow-y: auto; }
+.tw-battle-upgrades .tw-subtab-content.active { display: flex; flex-direction: column; min-height: 0; }
 
 .tw-screen { display: none; flex-direction: column; height: 100%; flex: 1; min-height: 0; }
 .tw-screen.active { display: flex; }
@@ -104,22 +106,26 @@
     font-size: 11px; font-weight: bold; color: #00ffff; text-transform: uppercase;
     letter-spacing: 2px; margin: 16px 0 8px; border-bottom: 1px solid rgba(0, 255, 255, 0.3); padding-bottom: 4px;
 }
-.tw-upg-row {
-    display: flex; justify-content: space-between; align-items: center;
-    background: rgba(20, 20, 30, 0.9); border: 1px solid #333;
-    border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;
+.tw-upg-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 6px;
 }
-.tw-upg-info { display: flex; flex-direction: column; gap: 4px; flex: 1; }
-.tw-upg-name { font-size: 14px; font-weight: bold; color: #fff; }
-.tw-mini-mults { display: flex; gap: 4px; font-size: 9px; background: rgba(0,0,0,0.5); padding: 2px; border-radius: 4px; width: fit-content; margin-top: 2px; }
-.tw-mini-mults span { padding: 2px 6px; cursor: pointer; border-radius: 2px; color: #888; transition: background 0.1s; }
+.tw-upg-row {
+    display: flex; flex-direction: column;
+    background: rgba(20, 20, 30, 0.9); border: 1px solid #333;
+    border-radius: 7px; padding: 7px 8px; gap: 3px;
+}
+.tw-upg-info { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.tw-upg-name { font-size: 11px; font-weight: bold; color: #fff; line-height: 1.2; }
+.tw-mini-mults { display: flex; gap: 2px; font-size: 8px; background: rgba(0,0,0,0.5); padding: 2px; border-radius: 3px; width: fit-content; margin-top: 1px; }
+.tw-mini-mults span { padding: 1px 4px; cursor: pointer; border-radius: 2px; color: #888; transition: background 0.1s; }
 .tw-mini-mults span.active { background: #00ffff; color: #000; font-weight: bold; }
-.tw-upg-val { font-size: 12px; color: #aaa; font-family: monospace; margin-top: 2px; }
-
+.tw-upg-val { font-size: 10px; color: #aaa; font-family: monospace; }
 .tw-upg-buy {
     background: transparent; border: 1px solid #2ecc71; color: #2ecc71;
-    border-radius: 6px; padding: 8px 12px; font-size: 13px; font-weight: bold; cursor: pointer;
-    min-width: 80px; text-align: center; transition: all 0.15s; font-family: monospace; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.2;
+    border-radius: 5px; padding: 4px 6px; font-size: 11px; font-weight: bold; cursor: pointer;
+    width: 100%; text-align: center; transition: all 0.15s; font-family: monospace;
+    display: flex; align-items: center; justify-content: center; gap: 4px; line-height: 1.2;
+    margin-top: 4px; white-space: nowrap;
 }
 .tw-upg-buy:hover:not(:disabled) { background: rgba(46, 204, 113, 0.15); box-shadow: 0 0 8px rgba(46, 204, 113, 0.4); }
 .tw-upg-buy:disabled { border-color: #555; color: #777; cursor: not-allowed; }
@@ -133,7 +139,7 @@
     background: linear-gradient(135deg, rgba(90,60,0,0.6), rgba(60,40,0,0.6));
     border: 1px solid #c8960a !important;
     color: #f1c40f !important;
-    font-size: 11px !important;
+    font-size: 10px !important;
     letter-spacing: 1px;
     cursor: not-allowed;
     text-shadow: 0 0 6px rgba(241,196,15,0.5);
@@ -416,7 +422,7 @@
 #tw-canvas { display: block; width: 100%; height: 100%; }
 
 .tw-battle-upgrades {
-    height: 45%; min-height: 250px; border-top: 2px solid #00ffff; background: #0a0a14;
+    height: 30%; min-height: 180px; border-top: 2px solid #00ffff; background: #0a0a14;
     display: flex; flex-direction: column; z-index: 10;
 }
 

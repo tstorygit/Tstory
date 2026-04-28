@@ -2687,7 +2687,7 @@ function _renderRunUpgrades() {
         container.innerHTML = '';
         
         const autoWrap = document.createElement('div');
-        autoWrap.style.cssText = "display:flex; justify-content:flex-end; margin-bottom:8px;";
+        autoWrap.style.cssText = "display:flex; justify-content:flex-end; padding:4px 6px 0;";
         const autoBtn = document.createElement('button');
         autoBtn.className = 'tw-play-btn';
         const isOn = _run.autoBuy && _run.autoBuy[cat];
@@ -2704,6 +2704,7 @@ function _renderRunUpgrades() {
         container.appendChild(autoWrap);
         
         const maxedRows = [];
+        const activeRows = [];
 
         for (const id in UPGRADES[cat]) {
             const def = UPGRADES[cat][id];
@@ -2790,7 +2791,7 @@ function _renderRunUpgrades() {
                     <div class="tw-upg-val">${displayVal}</div>
                 </div>
                 <button class="tw-upg-buy" ${_run.cash < buyInfo.cost ? 'disabled' : ''}>
-                    $ ${buyInfo.cost}<br><span style="font-size:10px;color:#ccc;">(+${buyInfo.count})</span>
+                    $${buyInfo.cost} <span style="font-size:9px;color:#aaa;">(+${buyInfo.count})</span>
                 </button>
             `;
             
@@ -2827,19 +2828,30 @@ function _renderRunUpgrades() {
                         _renderRunUpgrades();
                     }
                 };
-                container.appendChild(row);
+                activeRows.push(row);
             } else {
                 maxedRows.push(row);
             }
         }
 
-        // Append maxed upgrades at the bottom with a divider
+        // Active upgrades in a 2-column grid
+        if (activeRows.length > 0) {
+            const grid = document.createElement('div');
+            grid.className = 'tw-upg-grid';
+            activeRows.forEach(r => grid.appendChild(r));
+            container.appendChild(grid);
+        }
+
+        // Maxed upgrades at the bottom in their own 2-column grid
         if (maxedRows.length > 0) {
             const divider = document.createElement('div');
-            divider.style.cssText = 'border-top:1px solid #5a4800; margin:8px 0 4px; text-align:center; font-size:10px; color:#8a6800; padding-top:6px; letter-spacing:1px;';
+            divider.style.cssText = 'border-top:1px solid #5a4800; margin:4px 6px 2px; text-align:center; font-size:10px; color:#8a6800; padding-top:4px; letter-spacing:1px;';
             divider.textContent = '— MAXED —';
             container.appendChild(divider);
-            maxedRows.forEach(r => container.appendChild(r));
+            const maxedGrid = document.createElement('div');
+            maxedGrid.className = 'tw-upg-grid';
+            maxedRows.forEach(r => maxedGrid.appendChild(r));
+            container.appendChild(maxedGrid);
         }
     }
 }
