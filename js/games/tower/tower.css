@@ -109,23 +109,48 @@
 .tw-upg-grid {
     display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 6px;
 }
+/* ── Upgrade row: 3-row redesign ── */
 .tw-upg-row {
     display: flex; flex-direction: column;
     background: rgba(20, 20, 30, 0.9); border: 1px solid #333;
-    border-radius: 7px; padding: 7px 8px; gap: 3px;
+    border-radius: 7px; padding: 5px 7px 5px; gap: 2px;
+}
+
+/* Row 1: name+level LEFT, qty-cycle button RIGHT */
+.tw-upg-header {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 4px;
 }
 .tw-upg-info { display: flex; flex-direction: column; gap: 2px; flex: 1; }
 .tw-upg-name { font-size: 11px; font-weight: bold; color: #fff; line-height: 1.2; }
+
+/* qty-cycle is now right-aligned in header row */
+.tw-qty-cycle {
+    background: rgba(0,0,0,0.5); border: 1px solid #555; color: #888;
+    border-radius: 3px; padding: 1px 5px; font-size: 8px; font-weight: bold;
+    cursor: pointer; white-space: nowrap; flex-shrink: 0; line-height: 1.5;
+    transition: all 0.1s;
+}
+.tw-qty-cycle:hover { border-color: #00ffff; color: #00ffff; }
+
+/* Row 2: value info */
+.tw-upg-val { font-size: 10px; color: #aaa; font-family: monospace; }
+
+/* Workshop mini-mults (used in workshop, not battle) */
 .tw-mini-mults { display: flex; gap: 2px; font-size: 8px; background: rgba(0,0,0,0.5); padding: 2px; border-radius: 3px; width: fit-content; margin-top: 1px; }
 .tw-mini-mults span { padding: 1px 4px; cursor: pointer; border-radius: 2px; color: #888; transition: background 0.1s; }
 .tw-mini-mults span.active { background: #00ffff; color: #000; font-weight: bold; }
-.tw-upg-val { font-size: 10px; color: #aaa; font-family: monospace; }
+
+/* Row 3: buy button, 60% wide, centered */
+.tw-upg-buy-wrap {
+    display: flex; justify-content: center;
+}
 .tw-upg-buy {
     background: transparent; border: 1px solid #2ecc71; color: #2ecc71;
-    border-radius: 5px; padding: 4px 6px; font-size: 11px; font-weight: bold; cursor: pointer;
-    width: 100%; text-align: center; transition: all 0.15s; font-family: monospace;
+    border-radius: 5px; padding: 3px 6px; font-size: 11px; font-weight: bold; cursor: pointer;
+    width: 60%; text-align: center; transition: all 0.15s; font-family: monospace;
     display: flex; align-items: center; justify-content: center; gap: 4px; line-height: 1.2;
-    margin-top: 4px; white-space: nowrap;
+    white-space: nowrap;
 }
 .tw-upg-buy:hover:not(:disabled) { background: rgba(46, 204, 113, 0.15); box-shadow: 0 0 8px rgba(46, 204, 113, 0.4); }
 .tw-upg-buy:disabled { border-color: #555; color: #777; cursor: not-allowed; }
@@ -143,6 +168,7 @@
     letter-spacing: 1px;
     cursor: not-allowed;
     text-shadow: 0 0 6px rgba(241,196,15,0.5);
+    width: 60%;
 }
 
 .tw-lab-row {
@@ -422,7 +448,7 @@
 #tw-canvas { display: block; width: 100%; height: 100%; }
 
 .tw-battle-upgrades {
-    height: 30%; min-height: 180px; border-top: 2px solid #00ffff; background: #0a0a14;
+    height: 28%; min-height: 160px; border-top: 2px solid #00ffff; background: #0a0a14;
     display: flex; flex-direction: column; z-index: 10;
 }
 
@@ -472,16 +498,16 @@
     transform: translateY(-50%);
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 3px;
     z-index: 200;
     pointer-events: none;
-    padding: 6px 4px;
+    padding: 4px 3px;
 }
 
 .tw-ult-weapon-btn {
-    width: 46px;
-    height: 46px;
-    border-radius: 10px;
+    width: 38px;
+    height: 38px;
+    border-radius: 8px;
     border: 2px solid rgba(255, 255, 255, 0.2);
     background: rgba(5, 5, 16, 0.65);
     backdrop-filter: blur(4px);
@@ -500,7 +526,7 @@
 .tw-ult-weapon-btn.ready {
     border-color: rgba(255, 255, 100, 0.85);
     background: rgba(30, 25, 5, 0.75);
-    box-shadow: 0 0 12px rgba(255, 220, 0, 0.45);
+    box-shadow: 0 0 10px rgba(255, 220, 0, 0.45);
     animation: twUltPulse 1.5s ease-in-out infinite;
 }
 
@@ -514,66 +540,80 @@
 }
 
 @keyframes twUltPulse {
-    0%, 100% { box-shadow: 0 0 10px rgba(255,220,0,0.4); }
-    50%       { box-shadow: 0 0 22px rgba(255,220,0,0.8); }
+    0%, 100% { box-shadow: 0 0 8px rgba(255,220,0,0.4); }
+    50%       { box-shadow: 0 0 18px rgba(255,220,0,0.8); }
 }
 
 .tw-ult-icon {
-    font-size: 22px;
+    font-size: 18px;
     line-height: 1;
     position: relative;
     z-index: 1;
 }
 
-.tw-ult-fuel-bar {
+/* Grey desaturated icon — always visible as base */
+.tw-ult-icon-grey {
+    font-size: 18px;
+    line-height: 1;
+    filter: grayscale(1) brightness(0.5);
     position: absolute;
     inset: 0;
-    border-radius: 8px;
-    overflow: hidden;
-    pointer-events: none;
-    background: rgba(50, 50, 60, 0.55); /* grey = uncharged area */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1;
 }
 
-.tw-ult-fuel-fill {
+/* Colored icon clipped to show only the charged portion (bottom up) */
+.tw-ult-icon-color {
+    font-size: 18px;
+    line-height: 1;
     position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    overflow: hidden;
+    z-index: 2;
+    /* height is set inline by JS as a percentage */
+    top: auto;
     bottom: 0;
-    left: 0;
-    right: 0;
-    height: 0%; /* set by JS */
-    background: linear-gradient(to top, #e67e22, #f1c40f);
-    transition: height 0.4s ease;
-}
-
-.tw-ult-weapon-btn.ready .tw-ult-fuel-fill {
-    background: linear-gradient(to top, #2ecc71, #00ffff);
 }
 
 /* Workshop Weapons Tab */
 .tw-ult-ws-grid {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    padding: 10px;
+    gap: 8px;
+    padding: 8px 10px;
 }
 
 .tw-ult-ws-card {
     background: rgba(20, 20, 30, 0.9);
-    border: 1px solid #555;
-    border-radius: 10px;
-    padding: 12px;
+    border: 1px solid #444;
+    border-radius: 8px;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+/* Row 1: icon + name */
+.tw-ult-ws-card-header {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
 }
 
 .tw-ult-ws-card.owned {
     border-color: #f1c40f;
-    box-shadow: 0 0 8px rgba(241, 196, 15, 0.2);
+    box-shadow: 0 0 6px rgba(241, 196, 15, 0.15);
 }
 
 .tw-ult-ws-icon {
-    font-size: 32px;
+    font-size: 22px;
     flex-shrink: 0;
+    line-height: 1;
 }
 
 .tw-ult-ws-info {
@@ -582,38 +622,47 @@
 }
 
 .tw-ult-ws-name {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: bold;
     color: #fff;
-    margin-bottom: 2px;
+    line-height: 1.2;
 }
 
+/* Row 2: desc + meta */
 .tw-ult-ws-desc {
     font-size: 10px;
     color: #aaa;
-    margin-bottom: 5px;
     line-height: 1.3;
 }
 
 .tw-ult-ws-meta {
     font-size: 9px;
     color: #888;
+    margin-top: 1px;
+}
+
+/* Row 3: buy button 60% centered */
+.tw-ult-ws-buy-wrap {
+    display: flex;
+    justify-content: center;
+    margin-top: 2px;
 }
 
 .tw-ult-ws-buy {
     background: transparent;
     border: 1px solid #f1c40f;
     color: #f1c40f;
-    border-radius: 6px;
-    padding: 6px 8px;
+    border-radius: 5px;
+    padding: 4px 8px;
     font-size: 10px;
     font-weight: bold;
     cursor: pointer;
     white-space: nowrap;
     text-align: center;
     transition: all 0.15s;
-    flex-shrink: 0;
+    width: 60%;
     line-height: 1.4;
+    font-family: monospace;
 }
 
 .tw-ult-ws-buy:hover:not(:disabled) {

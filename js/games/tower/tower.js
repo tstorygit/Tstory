@@ -1890,6 +1890,10 @@ function _renderWorkshop() {
         const container = _screens.setup.querySelector(`#tw-ws-${cat}`);
         container.innerHTML = '';
         
+        const grid = document.createElement('div');
+        grid.className = 'tw-upg-grid';
+        grid.style.padding = '8px';
+
         for (const id in UPGRADES[cat]) {
             const def = UPGRADES[cat][id];
             const lvl = _save.workshop[cat][id] || 0;
@@ -1900,13 +1904,15 @@ function _renderWorkshop() {
             
             if (isLocked) {
                 row.innerHTML = `
-                    <div class="tw-upg-info">
+                    <div class="tw-upg-header">
                         <div class="tw-upg-name" style="color:#777;">🔒 ${def.name}</div>
-                        <div class="tw-upg-val">Requires Unlock</div>
                     </div>
-                    <button class="tw-upg-buy" ${(_save.coins < def.unlockCost) ? 'disabled' : ''}>
-                        🪙 ${fmt(def.unlockCost)}
-                    </button>
+                    <div class="tw-upg-val">Unlock: 🪙 ${fmt(def.unlockCost)}</div>
+                    <div class="tw-upg-buy-wrap">
+                        <button class="tw-upg-buy" ${(_save.coins < def.unlockCost) ? 'disabled' : ''} style="border-color:#f1c40f;color:#f1c40f;">
+                            Unlock
+                        </button>
+                    </div>
                 `;
                 row.querySelector('button').onclick = () => {
                     if (_save.coins >= def.unlockCost) {
@@ -1925,7 +1931,7 @@ function _renderWorkshop() {
                 const lvlStr = maxLvl ? `Lvl ${lvl}/${maxLvl}` : `Lvl ${lvl}`;
                 
                 row.innerHTML = `
-                    <div class="tw-upg-info">
+                    <div class="tw-upg-header">
                         <div class="tw-upg-name">${def.name} <span style="font-size:10px;color:#777;">${lvlStr}</span></div>
                         <div class="tw-mini-mults" data-id="${id}">
                             <span class="${reqMult==='1'?'active':''}" data-val="1">x1</span>
@@ -1933,11 +1939,13 @@ function _renderWorkshop() {
                             <span class="${reqMult==='10'?'active':''}" data-val="10">x10</span>
                             <span class="${reqMult==='MAX'?'active':''}" data-val="MAX">Max</span>
                         </div>
-                        <div class="tw-upg-val">${def.isPct ? (val*100).toFixed(2)+'%' : fmt(val)}</div>
                     </div>
-                    <button class="tw-upg-buy" ${(buyInfo.maxed || _save.coins < buyInfo.cost) ? 'disabled' : ''}>
-                        ${buyInfo.maxed ? 'MAX' : `🪙 ${fmt(buyInfo.cost)}<br><span style="font-size:10px;color:#ccc;">(+${buyInfo.count})</span>`}
-                    </button>
+                    <div class="tw-upg-val">${def.isPct ? (val*100).toFixed(2)+'%' : fmt(val)}</div>
+                    <div class="tw-upg-buy-wrap">
+                        <button class="tw-upg-buy" ${(buyInfo.maxed || _save.coins < buyInfo.cost) ? 'disabled' : ''}>
+                            ${buyInfo.maxed ? '✦ MAX ✦' : `🪙 ${fmt(buyInfo.cost)} <span style="font-size:9px;color:#aaa;">(+${buyInfo.count})</span>`}
+                        </button>
+                    </div>
                 `;
                 
                 row.querySelectorAll('.tw-mini-mults span').forEach(span => {
@@ -1957,8 +1965,9 @@ function _renderWorkshop() {
                     }
                 };
             }
-            container.appendChild(row);
+            grid.appendChild(row);
         }
+        container.appendChild(grid);
     }
 }
 
@@ -1969,85 +1978,62 @@ function _renderWorkshopWeapons() {
 
     const header = document.createElement('div');
     header.style.cssText = 'padding:10px 10px 4px; font-size:11px; color:#aaa; line-height:1.6;';
+
+    // Total weapons purchased across all IDs
+    const totalPurchased = Object.values(_save.ultWeapons.purchases || {}).reduce((s, v) => s + v, 0);
+    const nextCost = calcUltWeaponCost(totalPurchased);
+
     header.innerHTML = `<b style="color:#f1c40f;">⚔️ Ultimate Weapons</b> — Powerful abilities during battle.<br>
         Icons appear on the right side of the battlefield. Click when fully charged to activate.<br>
-        <span style="color:#9b59b6;">📖 All weapons</span> charge from correct vocab answers — each charges independently.`;
+        <span style="color:#9b59b6;">📖 All weapons</span> charge from correct vocab answers independently.<br>
+        <span style="color:#f1c40f;">Next unlock cost: 🪙 ${fmt(nextCost.coins)} + 💎 ${fmt(nextCost.gems)}</span> (doubles each purchase)`;
     container.appendChild(header);
 
-    // Section: Free vocab-charged (always available)
-    const freeHeader = document.createElement('div');
-    freeHeader.style.cssText = 'padding:8px 10px 4px; font-size:10px; font-weight:bold; color:#9b59b6; text-transform:uppercase; letter-spacing:1px;';
-    freeHeader.textContent = '📖 Vocab-Charged — Always Available';
-    container.appendChild(freeHeader);
-
-    const freeGrid = document.createElement('div');
-    freeGrid.className = 'tw-ult-ws-grid';
+    const grid = document.createElement('div');
+    grid.className = 'tw-ult-ws-grid';
 
     for (const id in ULTIMATE_WEAPONS) {
         const def = ULTIMATE_WEAPONS[id];
-        if (def.baseCostCoins !== 0) continue; // skip purchasable ones
-
-        const card = document.createElement('div');
-        card.className = 'tw-ult-ws-card owned';
-        card.innerHTML = `
-            <div class="tw-ult-ws-icon">${def.icon}</div>
-            <div class="tw-ult-ws-info">
-                <div class="tw-ult-ws-name">${def.name} <span style="color:#2ecc71; font-size:10px;">✦ FREE</span></div>
-                <div class="tw-ult-ws-desc">${def.desc}</div>
-                <div class="tw-ult-ws-meta">📖 +${def.fuelPerVocab}% fuel per correct vocab answer</div>
-            </div>
-        `;
-        freeGrid.appendChild(card);
-    }
-    container.appendChild(freeGrid);
-
-    // Section: Purchasable vocab-charged
-    const buyHeader = document.createElement('div');
-    buyHeader.style.cssText = 'padding:8px 10px 4px; font-size:10px; font-weight:bold; color:#f1c40f; text-transform:uppercase; letter-spacing:1px; margin-top:6px;';
-    buyHeader.textContent = '📖 Vocab-Charged — Purchase to Unlock';
-    container.appendChild(buyHeader);
-
-    const buyGrid = document.createElement('div');
-    buyGrid.className = 'tw-ult-ws-grid';
-
-    for (const id in ULTIMATE_WEAPONS) {
-        const def = ULTIMATE_WEAPONS[id];
-        if (def.baseCostCoins === 0) continue; // skip free ones
-
-        const timesBought = _save.ultWeapons.purchases[id] || 0;
         const isOwned = !!_save.ultWeapons.owned[id];
-        const cost = calcUltWeaponCost(id, timesBought);
-        const canAfford = _save.coins >= cost.coins && _save.gems >= cost.gems;
+        const timesBought = _save.ultWeapons.purchases[id] || 0;
+        const canAfford = _save.coins >= nextCost.coins && _save.gems >= nextCost.gems;
 
         const card = document.createElement('div');
         card.className = 'tw-ult-ws-card' + (isOwned ? ' owned' : '');
         card.innerHTML = `
-            <div class="tw-ult-ws-icon">${def.icon}</div>
-            <div class="tw-ult-ws-info">
-                <div class="tw-ult-ws-name">${def.name} ${isOwned ? '<span style="color:#f1c40f; font-size:10px;">✦ UNLOCKED</span>' : ''}</div>
-                <div class="tw-ult-ws-desc">${def.desc}</div>
-                <div class="tw-ult-ws-meta">📖 +${def.fuelPerVocab}% fuel per correct vocab answer${timesBought > 0 ? ` &nbsp;•&nbsp; Bought: ${timesBought}×` : ''}</div>
+            <div class="tw-ult-ws-card-header">
+                <div class="tw-ult-ws-icon">${def.icon}</div>
+                <div class="tw-ult-ws-info">
+                    <div class="tw-ult-ws-name">${def.name} ${isOwned ? '<span style="color:#2ecc71;font-size:9px;">✦ OWNED</span>' : ''}</div>
+                </div>
             </div>
-            <button class="tw-ult-ws-buy" ${canAfford ? '' : 'disabled'}>
-                🪙 ${fmt(cost.coins)}<br>💎 ${fmt(cost.gems)}
-            </button>
+            <div class="tw-ult-ws-desc">${def.desc}</div>
+            <div class="tw-ult-ws-meta">📖 +${def.fuelPerVocab}% fuel per correct vocab answer${timesBought > 0 ? ` &nbsp;•&nbsp; Bought: ${timesBought}×` : ''}</div>
+            <div class="tw-ult-ws-buy-wrap">
+                <button class="tw-ult-ws-buy" ${(!isOwned && canAfford) ? '' : 'disabled'}>
+                    ${isOwned ? '✦ OWNED ✦' : `🪙 ${fmt(nextCost.coins)}<br>💎 ${fmt(nextCost.gems)}`}
+                </button>
+            </div>
         `;
 
-        card.querySelector('.tw-ult-ws-buy').onclick = () => {
-            if (_save.coins >= cost.coins && _save.gems >= cost.gems) {
-                _save.coins -= cost.coins;
-                _save.gems -= cost.gems;
-                _save.ultWeapons.owned[id] = true;
-                _save.ultWeapons.purchases[id] = (_save.ultWeapons.purchases[id] || 0) + 1;
-                _saveGame();
-                _renderWorkshopWeapons();
-                _refreshHubCurrencyAndUIs();
-            }
-        };
+        if (!isOwned) {
+            card.querySelector('.tw-ult-ws-buy').onclick = () => {
+                const cur = calcUltWeaponCost(Object.values(_save.ultWeapons.purchases || {}).reduce((s, v) => s + v, 0));
+                if (_save.coins >= cur.coins && _save.gems >= cur.gems) {
+                    _save.coins -= cur.coins;
+                    _save.gems -= cur.gems;
+                    _save.ultWeapons.owned[id] = true;
+                    _save.ultWeapons.purchases[id] = (_save.ultWeapons.purchases[id] || 0) + 1;
+                    _saveGame();
+                    _renderWorkshopWeapons();
+                    _refreshHubCurrencyAndUIs();
+                }
+            };
+        }
 
-        buyGrid.appendChild(card);
+        grid.appendChild(card);
     }
-    container.appendChild(buyGrid);
+    container.appendChild(grid);
 }
 
 function _renderLab() {
@@ -2843,19 +2829,19 @@ function _renderUltWeaponsOverlay() {
 
     for (const id in ULTIMATE_WEAPONS) {
         const def = ULTIMATE_WEAPONS[id];
-        // DEBUG: all weapons always unlocked
         const fuel = _run.ultFuel[id] || 0;
         const isReady = fuel >= 100;
+        const fuelPct = Math.min(100, fuel);
 
         const btn = document.createElement('button');
         btn.className = 'tw-ult-weapon-btn' + (isReady ? ' ready' : ' not-ready');
-        const fuelSrcLabel = def.fuelSource === 'vocab' ? '📖' : '🌊';
+        const fuelSrcLabel = '📖';
         btn.title = `${def.name}\n${def.desc}\n${fuelSrcLabel} Fuel: ${Math.floor(fuel)}%`;
+
+        // Grey base icon always visible; colored icon clipped from bottom by fuel %
         btn.innerHTML = `
-            <span class="tw-ult-icon">${def.icon}</span>
-            <div class="tw-ult-fuel-bar">
-                <div class="tw-ult-fuel-fill" style="height:${Math.min(100, fuel)}%"></div>
-            </div>
+            <div class="tw-ult-icon-grey">${def.icon}</div>
+            <div class="tw-ult-icon-color" style="height:${fuelPct}%;">${def.icon}</div>
         `;
 
         btn.addEventListener('click', () => {
@@ -2863,11 +2849,9 @@ function _renderUltWeaponsOverlay() {
             const curFuel = _run.ultFuel[id] || 0;
             if (curFuel < 100) return;
 
-            // Reset only this weapon's fuel
             _run.ultFuel[id] = 0;
             _updateQuest('use_abilities', 1);
 
-            // Legacy trio uses activateAbility; all others use activateUltWeapon
             const legacyAbilities = ['barrage', 'nova', 'aegis'];
             if (legacyAbilities.includes(id)) {
                 if (_engine) _engine.activateAbility(def.activate);
