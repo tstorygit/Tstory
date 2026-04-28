@@ -2852,7 +2852,7 @@ function _renderUltWeaponsOverlay() {
         btn.innerHTML = `
             <span class="tw-ult-icon">${def.icon}</span>
             <div class="tw-ult-fuel-bar">
-                <div class="tw-ult-fuel-fill" style="width:${Math.min(100, fuel)}%"></div>
+                <div class="tw-ult-fuel-fill" style="height:${Math.min(100, fuel)}%"></div>
             </div>
         `;
 

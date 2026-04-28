@@ -505,8 +505,7 @@
 }
 
 .tw-ult-weapon-btn.not-ready {
-    opacity: 0.55;
-    filter: grayscale(0.7);
+    opacity: 0.75;
     cursor: not-allowed;
 }
 
@@ -522,25 +521,31 @@
 .tw-ult-icon {
     font-size: 22px;
     line-height: 1;
+    position: relative;
+    z-index: 1;
 }
 
 .tw-ult-fuel-bar {
     position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 4px;
-    background: rgba(0, 0, 0, 0.5);
+    inset: 0;
+    border-radius: 8px;
+    overflow: hidden;
+    pointer-events: none;
+    background: rgba(50, 50, 60, 0.55); /* grey = uncharged area */
 }
 
 .tw-ult-fuel-fill {
-    height: 100%;
-    background: linear-gradient(to right, #f1c40f, #e67e22);
-    transition: width 0.4s ease;
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 0%; /* set by JS */
+    background: linear-gradient(to top, #e67e22, #f1c40f);
+    transition: height 0.4s ease;
 }
 
 .tw-ult-weapon-btn.ready .tw-ult-fuel-fill {
-    background: linear-gradient(to right, #2ecc71, #00ffff);
+    background: linear-gradient(to top, #2ecc71, #00ffff);
 }
 
 /* Workshop Weapons Tab */
