@@ -1,5 +1,22 @@
 // main/js/games/tower/tower_engine.js
 
+function fmt(n) {
+    n = Math.floor(n);
+    if (isNaN(n) || n === null) return '0';
+    const abs = Math.abs(n);
+    const sign = n < 0 ? '-' : '';
+    if (abs < 100000) return sign + abs.toString();
+    const tiers = [[1e12,'T'],[1e9,'B'],[1e6,'M'],[1e3,'K']];
+    for (const [div, suffix] of tiers) {
+        if (abs >= div) {
+            const val = abs / div;
+            const str = val < 10 ? val.toFixed(2) : val < 100 ? val.toFixed(1) : Math.floor(val).toString();
+            return sign + str + suffix;
+        }
+    }
+    return sign + abs.toString();
+}
+
 export class TowerEngine {
     constructor(canvas, callbacks) {
         this.canvas = canvas;
@@ -93,6 +110,75 @@ export class TowerEngine {
             this.buffs.aegis = 3;
             this.spawnFloatText('AEGIS SHIELD!', '#3498db');
         }
+    }
+
+    activateUltWeapon(type) {
+        if (type === 'orbital') {
+            // Massive damage to all enemies
+            for (const e of this.enemies) {
+                const dmg = e.maxHp * 0.9;
+                this.runStats.dmgAbility += dmg;
+                this.runStats.dmgDealt += dmg;
+                e.hp = Math.max(1, e.hp - dmg);
+                this.explosions.push({ x: e.x, y: e.y, radius: 60, life: 0.4, color: 'rgba(255,150,0,0.8)' });
+            }
+            this.spawnFloatText('☄️ ORBITAL STRIKE!', '#ff9900', true);
+            this._flashScreen('rgba(255,180,0,0.35)');
+        } else if (type === 'blizzard') {
+            // Freeze + damage
+            for (const e of this.enemies) {
+                const dmg = e.maxHp * 0.3;
+                this.runStats.dmgAbility += dmg;
+                this.runStats.dmgDealt += dmg;
+                e.hp = Math.max(1, e.hp - dmg);
+                e.frozenTimer = (e.frozenTimer || 0) + 3.0;
+                this.explosions.push({ x: e.x, y: e.y, radius: 40, life: 0.5, color: 'rgba(100,200,255,0.7)' });
+            }
+            this.spawnFloatText('❄️ ARCTIC BLIZZARD!', '#88ddff', true);
+            this._flashScreen('rgba(100,200,255,0.25)');
+        } else if (type === 'plague') {
+            // Apply poison DoT
+            for (const e of this.enemies) {
+                e.poisonTimer = (e.poisonTimer || 0) + 5.0;
+                e.poisonDps = (e.poisonDps || 0) + e.maxHp * 0.12;
+            }
+            this.spawnFloatText('☠️ PLAGUE CLOUD!', '#88ff44', true);
+            this._flashScreen('rgba(80,200,30,0.2)');
+        } else if (type === 'lightning') {
+            // Chain lightning between enemies
+            const shuffled = [...this.enemies].sort(() => Math.random() - 0.5);
+            let bounces = Math.min(10, shuffled.length);
+            for (let i = 0; i < bounces; i++) {
+                const e = shuffled[i];
+                const dmg = e.maxHp * 0.35;
+                this.runStats.dmgAbility += dmg;
+                this.runStats.dmgDealt += dmg;
+                e.hp = Math.max(1, e.hp - dmg);
+                this.explosions.push({ x: e.x, y: e.y, radius: 30, life: 0.3, color: 'rgba(255,255,100,0.9)' });
+            }
+            this.spawnFloatText('⚡ THUNDERSTORM!', '#ffff44', true);
+            this._flashScreen('rgba(255,255,100,0.2)');
+        } else if (type === 'blackhole') {
+            // Pull all enemies to center, deal heavy damage
+            for (const e of this.enemies) {
+                e.x = this.cx + (Math.random() - 0.5) * 20;
+                e.y = this.cy + (Math.random() - 0.5) * 20;
+                const dmg = e.maxHp * 0.75;
+                this.runStats.dmgAbility += dmg;
+                this.runStats.dmgDealt += dmg;
+                e.hp = Math.max(1, e.hp - dmg);
+                this.explosions.push({ x: e.x, y: e.y, radius: 50, life: 0.6, color: 'rgba(180,0,255,0.7)' });
+            }
+            this.spawnFloatText('🌀 BLACK HOLE!', '#cc44ff', true);
+            this._flashScreen('rgba(180,0,255,0.3)');
+        }
+    }
+
+    _flashScreen(color) {
+        const old = this.ctx.fillStyle;
+        this.ctx.fillStyle = color;
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        this.ctx.fillStyle = old;
     }
 
     startWave(waveNum) {
@@ -218,6 +304,7 @@ export class TowerEngine {
             maxHp: baseHp * hpMult,
             dmg: baseDmg * dmgMult,
             speed: finalSpeed,
+            _baseSpeed: finalSpeed,
             atkSpeed: atkSpeed,
             attackCooldown: atkSpeed,
             kb: 0,
@@ -273,7 +360,7 @@ export class TowerEngine {
         else if (source === 'ability') this.runStats.dmgAbility += actualDmg;
 
         if (isCrit && e.type !== 'shielded' && (!e.affixes || !e.affixes.includes('armored') || e.armorStacks <= 0)) {
-            this.spawnFloatText(Math.floor(rawDmg), '#f1c40f', false, e.x, e.y - textOffset);
+            this.spawnFloatText(fmt(rawDmg), '#f1c40f', false, e.x, e.y - textOffset);
         } else if (actualDmg === 1 && rawDmg > 1) {
             this.spawnFloatText('1', '#00ffff', false, e.x, e.y - textOffset);
         }
@@ -304,7 +391,7 @@ export class TowerEngine {
         }
         
         this.stats.currentHp -= finalDmg;
-        this.spawnFloatText(`-${Math.floor(finalDmg)}`, '#e74c3c', true);
+        this.spawnFloatText(`-${fmt(finalDmg)}`, '#e74c3c', true);
 
         if (enemy && enemy.affixes && enemy.affixes.includes('vampiric')) {
             const healAmount = finalDmg * 2;
@@ -521,7 +608,7 @@ export class TowerEngine {
             if (e.hp <= 0 && !e.dead) {
                 e.dead = true;
                 if (e.cash > 0) {
-                    this.spawnFloatText(`+$${Math.floor(e.cash)}`, '#2ecc71', false, e.x, e.y);
+                    this.spawnFloatText(`+$${fmt(e.cash)}`, '#2ecc71', false, e.x, e.y);
                 }
                 this.callbacks.onEnemyKill(e.cash, e.x, e.y, e.type);
                 
@@ -533,6 +620,23 @@ export class TowerEngine {
                 this.enemies.splice(i, 1);
                 continue;
             }
+
+            // ── Ultimate weapon DoT effects ──────────────────────────────
+            if (e.frozenTimer && e.frozenTimer > 0) {
+                e.frozenTimer -= dt;
+                e.speed = 0; // immobilize while frozen
+                if (e.frozenTimer <= 0) e.speed = e._baseSpeed || e.speed;
+            } else if (e._baseSpeed && e.speed === 0) {
+                e.speed = e._baseSpeed; // restore after freeze
+            }
+            if (e.poisonTimer && e.poisonTimer > 0) {
+                e.poisonTimer -= dt;
+                const poisonDmg = (e.poisonDps || 0) * dt;
+                this.runStats.dmgAbility += poisonDmg;
+                this.runStats.dmgDealt += poisonDmg;
+                e.hp -= poisonDmg;
+            }
+            // ─────────────────────────────────────────────────────────────
 
             e.tickTimer += dt;
             if (e.type === 'healer' && e.tickTimer > 2.0) {

@@ -464,7 +464,164 @@
 .tw-ability-bar-wrap { width: 100%; height: 4px; background: rgba(255,255,255,0.1); margin-top: 4px; }
 .tw-ability-fill { height: 100%; background: #9b59b6; transition: width 0.2s; }
 
-.tw-modal { display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,0.95); padding-bottom: 50px; box-sizing: border-box; }
+/* ─── Ultimate Weapons Overlay ────────────────────────────────────────────── */
+.tw-ult-weapons-overlay {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    z-index: 200;
+    pointer-events: none;
+    padding: 6px 4px;
+}
+
+.tw-ult-weapon-btn {
+    width: 46px;
+    height: 46px;
+    border-radius: 10px;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    background: rgba(5, 5, 16, 0.65);
+    backdrop-filter: blur(4px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    pointer-events: all;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+    padding: 0;
+}
+
+.tw-ult-weapon-btn.ready {
+    border-color: rgba(255, 255, 100, 0.85);
+    background: rgba(30, 25, 5, 0.75);
+    box-shadow: 0 0 12px rgba(255, 220, 0, 0.45);
+    animation: twUltPulse 1.5s ease-in-out infinite;
+}
+
+.tw-ult-weapon-btn.not-ready {
+    opacity: 0.55;
+    filter: grayscale(0.7);
+    cursor: not-allowed;
+}
+
+.tw-ult-weapon-btn:active:not(.not-ready) {
+    transform: scale(0.92);
+}
+
+@keyframes twUltPulse {
+    0%, 100% { box-shadow: 0 0 10px rgba(255,220,0,0.4); }
+    50%       { box-shadow: 0 0 22px rgba(255,220,0,0.8); }
+}
+
+.tw-ult-icon {
+    font-size: 22px;
+    line-height: 1;
+}
+
+.tw-ult-fuel-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: rgba(0, 0, 0, 0.5);
+}
+
+.tw-ult-fuel-fill {
+    height: 100%;
+    background: linear-gradient(to right, #f1c40f, #e67e22);
+    transition: width 0.4s ease;
+}
+
+.tw-ult-weapon-btn.ready .tw-ult-fuel-fill {
+    background: linear-gradient(to right, #2ecc71, #00ffff);
+}
+
+/* Workshop Weapons Tab */
+.tw-ult-ws-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px;
+}
+
+.tw-ult-ws-card {
+    background: rgba(20, 20, 30, 0.9);
+    border: 1px solid #555;
+    border-radius: 10px;
+    padding: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.tw-ult-ws-card.owned {
+    border-color: #f1c40f;
+    box-shadow: 0 0 8px rgba(241, 196, 15, 0.2);
+}
+
+.tw-ult-ws-icon {
+    font-size: 32px;
+    flex-shrink: 0;
+}
+
+.tw-ult-ws-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.tw-ult-ws-name {
+    font-size: 13px;
+    font-weight: bold;
+    color: #fff;
+    margin-bottom: 2px;
+}
+
+.tw-ult-ws-desc {
+    font-size: 10px;
+    color: #aaa;
+    margin-bottom: 5px;
+    line-height: 1.3;
+}
+
+.tw-ult-ws-meta {
+    font-size: 9px;
+    color: #888;
+}
+
+.tw-ult-ws-buy {
+    background: transparent;
+    border: 1px solid #f1c40f;
+    color: #f1c40f;
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 10px;
+    font-weight: bold;
+    cursor: pointer;
+    white-space: nowrap;
+    text-align: center;
+    transition: all 0.15s;
+    flex-shrink: 0;
+    line-height: 1.4;
+}
+
+.tw-ult-ws-buy:hover:not(:disabled) {
+    background: rgba(241, 196, 15, 0.15);
+    box-shadow: 0 0 8px rgba(241, 196, 15, 0.4);
+}
+
+.tw-ult-ws-buy:disabled {
+    border-color: #555;
+    color: #666;
+    cursor: not-allowed;
+}
+/* ─────────────────────────────────────────────────────────────────────────── */
 .tw-death-grid {
     display: grid; grid-template-columns: 1fr 1fr; gap: 15px; width: 100%; max-width: 400px;
     margin: 15px 0; font-size: 13px; color: #ccc;

@@ -3,8 +3,35 @@
 import { mountVocabSelector } from '../../vocab_selector.js';
 import { GameVocabManager } from '../../game_vocab_mgr.js';
 import { showGameQuiz, poolSourceLabel, renderVocabSettings, setGvmTheme } from '../../game_vocab_mgr_ui.js';
-import { UPGRADES, LAB_RESEARCH_CATEGORIES, LAB_RESEARCH, RELICS, TOWER_BASES, QUEST_TEMPLATES, CARDS, SLOT_COSTS, getCardLevelInfo, calcStat, calcCost, getMultiBuy, calcLabCost, calcLabTimeMs, getUpgradeMaxLevel } from './tower_data.js';
+import { UPGRADES, LAB_RESEARCH_CATEGORIES, LAB_RESEARCH, RELICS, TOWER_BASES, QUEST_TEMPLATES, CARDS, SLOT_COSTS, getCardLevelInfo, calcStat, calcCost, getMultiBuy, calcLabCost, calcLabTimeMs, getUpgradeMaxLevel, ULTIMATE_WEAPONS, calcUltWeaponCost } from './tower_data.js';
 import { TowerEngine } from './tower_engine.js';
+
+// ─── NUMBER FORMATTER ────────────────────────────────────────────────────────
+// Keeps all displayed numbers to ≤5 significant digits.
+// ≤99999 → plain integer; above that → suffix (K/M/B/T) with 1 decimal if needed.
+function fmt(n) {
+    n = Math.floor(n);
+    if (isNaN(n) || n === null) return '0';
+    const abs = Math.abs(n);
+    const sign = n < 0 ? '-' : '';
+    if (abs < 100000) return sign + abs.toString();
+    const tiers = [
+        [1e12, 'T'],
+        [1e9,  'B'],
+        [1e6,  'M'],
+        [1e3,  'K'],
+    ];
+    for (const [div, suffix] of tiers) {
+        if (abs >= div) {
+            const val = abs / div;
+            // Use 1 decimal only when it adds info (i.e. < 100 of that tier)
+            const str = val < 10 ? val.toFixed(2) : val < 100 ? val.toFixed(1) : Math.floor(val).toString();
+            return sign + str + suffix;
+        }
+    }
+    return sign + abs.toString();
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 const ACHIEVEMENTS = {
     first_boss: { id: 'first_boss', name: 'First Blood', desc: 'Defeat your first Boss enemy.', title: 'Novice' },
@@ -32,8 +59,8 @@ const MUSIC_PREF_KEY = 'polyglot_tower_muted';
 const AUTOBUY_PREF_KEY = 'polyglot_tower_autobuy';
 
 function _loadAutoBuyPref() {
-    try { return JSON.parse(localStorage.getItem(AUTOBUY_PREF_KEY)) || { offense: false, defense: false, utility: false }; }
-    catch(e) { return { offense: false, defense: false, utility: false }; }
+    try { return JSON.parse(localStorage.getItem(AUTOBUY_PREF_KEY)) || { offense: false, defense: false, coins: false, cash: false }; }
+    catch(e) { return { offense: false, defense: false, coins: false, cash: false }; }
 }
 function _saveAutoBuyPref(autoBuy) {
     localStorage.setItem(AUTOBUY_PREF_KEY, JSON.stringify(autoBuy));
@@ -96,7 +123,8 @@ let _run = {
     vocabMode: 'normal',   // 'normal' | 'continuous'
     vocabBuffer: 0,        // advance answers banked (continuous mode)
     levels: { offense: {}, defense: {}, utility: {} },
-    autoBuy: { offense: false, defense: false, utility: false }
+    autoBuy: { offense: false, defense: false, coins: false, cash: false },
+    ultFuel: {}            // { weaponId: 0-100 }
 };
 
 function _defaultSave() {
@@ -128,7 +156,8 @@ function _defaultSave() {
         achievements: {},
         equippedTitle: null,
         login: { lastDate: null, streakDays: 0 },
-        quests: { date: null, active:[] }
+        quests: { date: null, active:[] },
+        ultWeapons: { owned: {}, purchases: {} }  // owned: set of weaponIds, purchases: {id: count}
     };
 }
 
@@ -215,10 +244,12 @@ export function init(screens, onExit) {
                     <button class="tw-subtab-btn active" data-subtab="tw-ws-offense">Offense</button>
                     <button class="tw-subtab-btn" data-subtab="tw-ws-defense">Defense</button>
                     <button class="tw-subtab-btn" data-subtab="tw-ws-utility">Utility</button>
+                    <button class="tw-subtab-btn" data-subtab="tw-ws-weapons">⚔️ Weapons</button>
                 </div>
                 <div class="tw-subtab-content active" id="tw-ws-offense"></div>
                 <div class="tw-subtab-content" id="tw-ws-defense"></div>
                 <div class="tw-subtab-content" id="tw-ws-utility"></div>
+                <div class="tw-subtab-content" id="tw-ws-weapons"></div>
             </div>
             
             <div class="tw-screen tw-scroll-content" id="tw-hub-lab">
@@ -399,15 +430,10 @@ export function init(screens, onExit) {
                         <button class="tw-speed-btn" id="tw-btn-speed">⚡ 1x</button>
                         <button id="tw-mute-btn" style="background:transparent; border:1px solid #555; color:#ccc; border-radius:6px; padding:4px 8px; font-size:16px; cursor:pointer; line-height:1;">🔊</button>
                         <button id="tw-vocab-mode-pill" style="background:transparent; border:1px solid #555; color:#aaa; border-radius:6px; padding:4px 7px; font-size:11px; font-weight:bold; cursor:pointer; line-height:1; letter-spacing:0.5px;">n</button>
+                        <button id="tw-target-pill" style="background:transparent; border:1px solid #00ffff; color:#00ffff; border-radius:6px; padding:4px 7px; font-size:11px; font-weight:bold; cursor:pointer; line-height:1; letter-spacing:0.5px;" title="Targeting">C</button>
                         <button id="tw-vocab-open-btn" style="background:transparent; border:1px solid #555; color:#ccc; border-radius:6px; padding:4px 8px; font-size:15px; cursor:pointer; line-height:1;" title="Open Vocab Quiz">📖</button>
                         <button class="tw-end-run-btn" id="tw-btn-end-run" style="margin-left:0 !important;">Pause / End</button>
                     </div>
-                </div>
-                <div class="tw-targeting">
-                    <button class="tw-target-btn active" data-target="closest">Closest</button>
-                    <button class="tw-target-btn" data-target="farthest">Farthest</button>
-                    <button class="tw-target-btn" data-target="boss">Boss</button>
-                    <button class="tw-target-btn" data-target="fast">Fast</button>
                 </div>
                 <div class="tw-abilities" style="margin-top:4px;">
                     <button class="tw-abil-btn" id="tw-abil-barrage" disabled>Barrage</button>
@@ -422,17 +448,27 @@ export function init(screens, onExit) {
             <div class="tw-canvas-wrap">
                 <canvas id="tw-canvas"></canvas>
                 <div id="tw-ui-layer"></div>
+                <div class="tw-ult-weapons-overlay" id="tw-ult-overlay"></div>
             </div>
                 
             <div class="tw-battle-upgrades">
                 <div class="tw-subtab-bar">
                     <button class="tw-subtab-btn active" data-subtab="tw-run-offense">Offense</button>
                     <button class="tw-subtab-btn" data-subtab="tw-run-defense">Defense</button>
-                    <button class="tw-subtab-btn" data-subtab="tw-run-utility">Utility</button>
+                    <button class="tw-subtab-btn" data-subtab="tw-run-coins">Coins</button>
+                    <button class="tw-subtab-btn" data-subtab="tw-run-cash">Cash</button>
                 </div>
                 <div class="tw-subtab-content active" id="tw-run-offense"></div>
                 <div class="tw-subtab-content" id="tw-run-defense"></div>
-                <div class="tw-subtab-content" id="tw-run-utility"></div>
+                <div class="tw-subtab-content" id="tw-run-coins"></div>
+                <div class="tw-subtab-content" id="tw-run-cash"></div>
+            </div>
+
+            <div id="tw-target-modal" style="display:none; position:absolute; inset:0; z-index:1000; background:rgba(0,0,0,0.75); align-items:center; justify-content:center;">
+                <div style="background:#1a1a2e; border:2px solid #00ffff; border-radius:12px; padding:20px; width:220px; box-shadow:0 0 20px rgba(0,255,255,0.3);">
+                    <div style="font-size:13px; font-weight:bold; color:#00ffff; text-align:center; margin-bottom:14px; letter-spacing:1px;">TARGETING</div>
+                    <div id="tw-target-modal-btns" style="display:flex; flex-direction:column; gap:8px;"></div>
+                </div>
             </div>
 
             <div id="tw-death-screen" class="tw-screen tw-modal" style="display:none; position:absolute; inset:0; z-index:1000; padding:15px; overflow-y:auto;">
@@ -528,13 +564,52 @@ export function init(screens, onExit) {
     _wireSubtabs(_screens.setup.querySelector('#tw-hub-lab'));
     _wireSubtabs(_screens.game.querySelector('.tw-battle-upgrades'));
 
-    _screens.game.querySelectorAll('.tw-target-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            _screens.game.querySelectorAll('.tw-target-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            _run.targetMode = btn.dataset.target;
-            if (_engine) _engine.setTargetMode(_run.targetMode);
+    // Wire Weapons subtab render
+    _screens.setup.querySelector('[data-subtab="tw-ws-weapons"]').addEventListener('click', () => {
+        _renderWorkshopWeapons();
+    });
+
+    // Target pill popup
+    const TARGET_MODES = [
+        { key: 'closest',  label: 'Closest',  abbr: 'C' },
+        { key: 'farthest', label: 'Farthest', abbr: 'F' },
+        { key: 'boss',     label: 'Boss First', abbr: 'B' },
+        { key: 'fast',     label: 'Fastest',  abbr: 'X' },
+    ];
+    function _updateTargetPill() {
+        const pill = _screens.game.querySelector('#tw-target-pill');
+        if (!pill) return;
+        const mode = TARGET_MODES.find(m => m.key === _run.targetMode) || TARGET_MODES[0];
+        pill.textContent = mode.abbr;
+    }
+    function _openTargetModal() {
+        const modal = _screens.game.querySelector('#tw-target-modal');
+        const btnsEl = _screens.game.querySelector('#tw-target-modal-btns');
+        btnsEl.innerHTML = '';
+        TARGET_MODES.forEach(m => {
+            const btn = document.createElement('button');
+            const isActive = _run.targetMode === m.key;
+            btn.style.cssText = `width:100%; padding:10px 14px; border-radius:7px; border:1px solid ${isActive ? '#00ffff' : '#333'}; background:${isActive ? 'rgba(0,255,255,0.15)' : 'rgba(255,255,255,0.04)'}; color:${isActive ? '#00ffff' : '#ccc'}; font-size:13px; font-weight:bold; cursor:pointer; text-align:left; letter-spacing:0.5px;`;
+            btn.innerHTML = `<span style="display:inline-block;width:22px;font-family:monospace;color:#00ffff;">[${m.abbr}]</span> ${m.label}`;
+            btn.onclick = () => {
+                _run.targetMode = m.key;
+                if (_engine) _engine.setTargetMode(_run.targetMode);
+                _saveRunSnapshot();
+                _updateTargetPill();
+                modal.style.display = 'none';
+            };
+            btnsEl.appendChild(btn);
         });
+        const closeBtn = document.createElement('button');
+        closeBtn.style.cssText = 'width:100%; padding:8px; margin-top:4px; border-radius:7px; border:1px solid #555; background:transparent; color:#777; font-size:12px; cursor:pointer;';
+        closeBtn.textContent = 'Cancel';
+        closeBtn.onclick = () => { modal.style.display = 'none'; };
+        btnsEl.appendChild(closeBtn);
+        modal.style.display = 'flex';
+    }
+    _screens.game.querySelector('#tw-target-pill').addEventListener('click', _openTargetModal);
+    _screens.game.querySelector('#tw-target-modal').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) e.currentTarget.style.display = 'none';
     });
     
     _screens.game.querySelector('#tw-btn-speed').addEventListener('click', () => {
@@ -654,9 +729,9 @@ export function init(screens, onExit) {
                 knowledgeStacks: 0, combo: 0, abilityCharge: 0, targetMode: 'closest',
                 vocabQuestions: 0, vocabCorrect: 0, failedWords: {}, boughtDefense: false,
                 levels: { offense: {}, defense: {}, utility: {} },
-                autoBuy: { offense: false, defense: false, utility: false }
+                autoBuy: { offense: false, defense: false, coins: false, cash: false }
             };
-            _saveGame(); _saveAutoBuyPref({ offense: false, defense: false, utility: false }); _showHub();
+            _saveGame(); _saveAutoBuyPref({ offense: false, defense: false, coins: false, cash: false }); _showHub();
         }
     };
 
@@ -779,7 +854,7 @@ export function init(screens, onExit) {
                 let finalDrop = Math.floor(coinDrop * coinMult);
                 if (finalDrop < 1) finalDrop = 1;
                 _run.earnedCoinsDrops += finalDrop;
-                _engine.spawnFloatText(`+${finalDrop} 🪙`, '#f1c40f', false, x, y - 20);
+                _engine.spawnFloatText(`+${fmt(finalDrop)} 🪙`, '#f1c40f', false, x, y - 20);
             }
             
             _checkAchievements();
@@ -791,7 +866,7 @@ export function init(screens, onExit) {
             let interest = Math.floor(_run.cash * (_engine.stats.interest || 0));
             if (waveCash + interest > 0) {
                 _run.cash += waveCash + interest;
-                _engine.spawnFloatText(`+$${Math.floor(waveCash + interest)}`, '#2ecc71', true);
+                _engine.spawnFloatText(`+$${fmt(Math.floor(waveCash + interest))}`, '#2ecc71', true);
             }
 
             // coinBonus and labYield apply to the full wave payout (base + flat add together)
@@ -813,6 +888,7 @@ export function init(screens, onExit) {
             if (_save && _save.lab.levels.startingCash >= 5) {
                 _run.cash = Math.floor(_run.cash * 1.02);
             }
+            _tickUltFuelOnWave();
             _checkUnlock();
             _checkAchievements();
             _startNextWave();
@@ -841,6 +917,7 @@ export function launch() {
     if (!_save.login) _save.login = { lastDate: null, streakDays: 0 };
     if (!_save.quests) _save.quests = { date: null, active:[] };
     if (!_save.cards) _save.cards = { owned: {}, equipped:[null], unlockedSlots: 1 };
+    if (!_save.ultWeapons) _save.ultWeapons = { owned: {}, purchases: {} };
     
     if (!_save.workshop.unlocks) _save.workshop.unlocks = {};
     if (!_save.workshop.offense) _save = _defaultSave();
@@ -952,8 +1029,8 @@ function _showHub() {
     _updateEquippedTitleUI();
     _updateTowerVisual();
 
-    _screens.setup.querySelector('#tw-hub-coins').textContent = Math.floor(_save.coins);
-    _screens.setup.querySelector('#tw-hub-gems').textContent = Math.floor(_save.gems);
+    _screens.setup.querySelector('#tw-hub-coins').textContent = fmt(_save.coins);
+    _screens.setup.querySelector('#tw-hub-gems').textContent = fmt(_save.gems);
     
     if (_save.currentRun && _save.currentRun.active) {
         _screens.setup.querySelector('#tw-new-run-setup').style.display = 'none';
@@ -992,8 +1069,8 @@ function _showHub() {
 // coins/gems in one panel (e.g. Lab) immediately updates affordability in all
 // other panels (e.g. Workshop) without requiring a full hub reload.
 function _refreshHubCurrencyAndUIs() {
-    _screens.setup.querySelector('#tw-hub-coins').textContent = Math.floor(_save.coins);
-    _screens.setup.querySelector('#tw-hub-gems').textContent = Math.floor(_save.gems);
+    _screens.setup.querySelector('#tw-hub-coins').textContent = fmt(_save.coins);
+    _screens.setup.querySelector('#tw-hub-gems').textContent = fmt(_save.gems);
     _renderWorkshop();
     _renderLab();
     _renderCards();
@@ -1296,7 +1373,7 @@ function _checkDailyLogin() {
             rwdEl.innerHTML = `<span style="color:#00a8ff">+${rewardGems} 💎</span>`;
             _save.gems += rewardGems;
         } else {
-            rwdEl.innerHTML = `<span style="color:#f1c40f">+${rewardCoins.toLocaleString()} 🪙</span>`;
+            rwdEl.innerHTML = `<span style="color:#f1c40f">+${fmt(rewardCoins)} 🪙</span>`;
             _save.coins += rewardCoins;
         }
 
@@ -1326,7 +1403,7 @@ function _renderLoginTab() {
     
     let html = `<div style="background:rgba(241,196,15,0.08); border:1px solid #f1c40f55; border-radius:8px; padding:10px; margin-bottom:12px; font-size:12px; color:#aaa; line-height:1.6;">
         📈 <b style="color:#f1c40f;">Dynamic Coin Rewards</b> — Daily coins scale with your best run.<br>
-        Best Run: <b style="color:#fff;">${highestCoins.toLocaleString()} 🪙</b> × <b style="color:#f1c40f;">${pct}%</b> = <b style="color:#fff;">${baseBonus.toLocaleString()} / day</b>
+        Best Run: <b style="color:#fff;">${fmt(highestCoins)} 🪙</b> × <b style="color:#f1c40f;">${pct}%</b> = <b style="color:#fff;">${fmt(baseBonus)} / day</b>
         ${highestCoins === 0 ? `<br><span style="color:#888;">(Play a run to unlock dynamic bonuses!)</span>` : ''}
         ${labLvl > 0 ? `<br><span style="color:#2ecc71;">Login Bonus research Lv.${labLvl} active (+${(labLvl*6.25).toFixed(2)}%)</span>` : ''}
     </div>`;
@@ -1350,7 +1427,7 @@ function _renderLoginTab() {
             let bg = isToday ? 'background:rgba(46,204,113,0.2); border-color:#2ecc71;' : (isPast ? 'background:rgba(255,255,255,0.05); border-color:#555; opacity:0.5;' : 'background:rgba(0,0,0,0.5); border-color:#333;');
             
             let icon = rewGems ? '💎' : '🪙';
-            let amt = rewGems ? rewGems : rewCoins.toLocaleString();
+            let amt = rewGems ? rewGems : fmt(rewCoins);
             let color = rewGems ? '#00a8ff' : '#f1c40f';
 
             html += `<div style="flex:1; border:1px solid; border-radius:6px; padding:8px 0; text-align:center; ${bg}">
@@ -1431,13 +1508,13 @@ function _renderQuests() {
         const baseAmt = q.rewardAmount;
         const finalAmt = Math.floor(baseAmt * rewardMult);
         const rewardLabel = labLvl > 0
-            ? `${finalAmt} ${icon} <span style="font-size:10px;color:#888;text-decoration:line-through;">${baseAmt}</span>`
-            : `${finalAmt} ${icon}`;
+            ? `${fmt(finalAmt)} ${icon} <span style="font-size:10px;color:#888;text-decoration:line-through;">${fmt(baseAmt)}</span>`
+            : `${fmt(finalAmt)} ${icon}`;
         
         row.innerHTML = `
             <div class="tw-quest-info">
                 <div class="tw-quest-title">${q.desc}</div>
-                <div style="font-size:11px; color:#aaa;">${q.progress} / ${q.max}</div>
+                <div style="font-size:11px; color:#aaa;">${fmt(q.progress)} / ${fmt(q.max)}</div>
                 <div class="tw-quest-prog-wrap"><div class="tw-quest-prog-fill" style="width:${pct}%"></div></div>
             </div>
             <button class="tw-quest-claim" ${q.claimed || q.progress < q.max ? 'disabled' : ''} style="${q.claimed ? 'background:#2ecc71;' : ''}">
@@ -1661,7 +1738,7 @@ function _renderCards() {
     if (_save.cards.unlockedSlots < SLOT_COSTS.length) {
         const cost = SLOT_COSTS[_save.cards.unlockedSlots];
         unlockBtn.style.display = 'block';
-        unlockBtn.textContent = `Unlock Slot · 🪙 ${cost.coins}  💎 ${cost.gems}`;
+        unlockBtn.textContent = `Unlock Slot · 🪙 ${fmt(cost.coins)}  💎 ${fmt(cost.gems)}`;
         unlockBtn.disabled = _save.coins < cost.coins || _save.gems < cost.gems;
         unlockBtn.onclick = () => {
             if (_save.coins >= cost.coins && _save.gems >= cost.gems) {
@@ -1837,7 +1914,7 @@ function _renderWorkshop() {
                         <div class="tw-upg-val">Requires Unlock</div>
                     </div>
                     <button class="tw-upg-buy" ${(_save.coins < def.unlockCost) ? 'disabled' : ''}>
-                        🪙 ${def.unlockCost}
+                        🪙 ${fmt(def.unlockCost)}
                     </button>
                 `;
                 row.querySelector('button').onclick = () => {
@@ -1865,10 +1942,10 @@ function _renderWorkshop() {
                             <span class="${reqMult==='10'?'active':''}" data-val="10">x10</span>
                             <span class="${reqMult==='MAX'?'active':''}" data-val="MAX">Max</span>
                         </div>
-                        <div class="tw-upg-val">${def.isPct ? (val*100).toFixed(2)+'%' : val.toFixed(2)}</div>
+                        <div class="tw-upg-val">${def.isPct ? (val*100).toFixed(2)+'%' : fmt(val)}</div>
                     </div>
                     <button class="tw-upg-buy" ${(buyInfo.maxed || _save.coins < buyInfo.cost) ? 'disabled' : ''}>
-                        ${buyInfo.maxed ? 'MAX' : `🪙 ${buyInfo.cost}<br><span style="font-size:10px;color:#ccc;">(+${buyInfo.count})</span>`}
+                        ${buyInfo.maxed ? 'MAX' : `🪙 ${fmt(buyInfo.cost)}<br><span style="font-size:10px;color:#ccc;">(+${buyInfo.count})</span>`}
                     </button>
                 `;
                 
@@ -1892,6 +1969,58 @@ function _renderWorkshop() {
             container.appendChild(row);
         }
     }
+}
+
+function _renderWorkshopWeapons() {
+    if (!_save.ultWeapons) _save.ultWeapons = { owned: {}, purchases: {} };
+    const container = _screens.setup.querySelector('#tw-ws-weapons');
+    container.innerHTML = '';
+
+    const header = document.createElement('div');
+    header.style.cssText = 'padding:10px 10px 4px; font-size:11px; color:#aaa; line-height:1.5;';
+    header.innerHTML = `<b style="color:#f1c40f;">⚔️ Ultimate Weapons</b> — Powerful abilities usable during battle.<br>
+        Icons appear on the right side of the battlefield. Fuel fills by wave. Each purchase increases cost.`;
+    container.appendChild(header);
+
+    const grid = document.createElement('div');
+    grid.className = 'tw-ult-ws-grid';
+
+    for (const id in ULTIMATE_WEAPONS) {
+        const def = ULTIMATE_WEAPONS[id];
+        const timesBought = _save.ultWeapons.purchases[id] || 0;
+        const isOwned = !!_save.ultWeapons.owned[id]; // always owned for now (unlocked flag)
+        const cost = calcUltWeaponCost(id, timesBought);
+        const canAfford = _save.coins >= cost.coins && _save.gems >= cost.gems;
+
+        const card = document.createElement('div');
+        card.className = 'tw-ult-ws-card' + (isOwned ? ' owned' : '');
+        card.innerHTML = `
+            <div class="tw-ult-ws-icon">${def.icon}</div>
+            <div class="tw-ult-ws-info">
+                <div class="tw-ult-ws-name">${def.name} ${isOwned ? '<span style="color:#f1c40f; font-size:10px;">✦ UNLOCKED</span>' : ''}</div>
+                <div class="tw-ult-ws-desc">${def.desc}</div>
+                <div class="tw-ult-ws-meta">⚡ Fuel/Wave: +${def.fuelPerWave}%${timesBought > 0 ? ` &nbsp;•&nbsp; Bought: ${timesBought}x` : ''}</div>
+            </div>
+            <button class="tw-ult-ws-buy" ${canAfford ? '' : 'disabled'}>
+                🪙 ${fmt(cost.coins)}<br>💎 ${fmt(cost.gems)}
+            </button>
+        `;
+
+        card.querySelector('.tw-ult-ws-buy').onclick = () => {
+            if (_save.coins >= cost.coins && _save.gems >= cost.gems) {
+                _save.coins -= cost.coins;
+                _save.gems -= cost.gems;
+                _save.ultWeapons.owned[id] = true;
+                _save.ultWeapons.purchases[id] = (_save.ultWeapons.purchases[id] || 0) + 1;
+                _saveGame();
+                _renderWorkshopWeapons();
+                _refreshHubCurrencyAndUIs();
+            }
+        };
+
+        grid.appendChild(card);
+    }
+    container.appendChild(grid);
 }
 
 function _renderLab() {
@@ -1920,7 +2049,7 @@ function _renderLab() {
                 </div>
                 <div class="tw-lab-desc">${def.desc}</div>
                 <div class="tw-lab-actions">
-                    <span style="font-size:12px;color:#aaa;">Cost: 🪙 ${cost}</span>
+                    <span style="font-size:12px;color:#aaa;">Cost: 🪙 ${fmt(cost)}</span>
                     <button class="tw-lab-buy" ${(_save.coins < cost || isMax || _save.lab.active) ? 'disabled' : ''}>
                         ${isMax ? 'MAX' : 'Research'}
                     </button>
@@ -1944,13 +2073,13 @@ function _renderStats() {
     const statsContent = _screens.setup.querySelector('#tw-stats-content');
     statsContent.innerHTML = `
         <div style="display:flex; flex-direction:column; gap:8px;">
-            <div class="tw-upg-row"><div class="tw-upg-name">Session Correct</div><div class="tw-upg-val">${_save.stats.sessionCorrect}</div></div>
-            <div class="tw-upg-row"><div class="tw-upg-name">Total Correct</div><div class="tw-upg-val">${_save.stats.totalCorrect}</div></div>
-            <div class="tw-upg-row"><div class="tw-upg-name">Highest Streak</div><div class="tw-upg-val">${_save.stats.highestStreak}</div></div>
-            <div class="tw-upg-row"><div class="tw-upg-name">Words Mastered</div><div class="tw-upg-val">${_save.stats.wordsMastered.length}</div></div>
-            <div class="tw-upg-row"><div class="tw-upg-name">Bosses Defeated</div><div class="tw-upg-val">${_save.stats.bossesKilled || 0}</div></div>
-            <div class="tw-upg-row"><div class="tw-upg-name">Highest Wave</div><div class="tw-upg-val">${_save.highestWave}</div></div>
-            <div class="tw-upg-row"><div class="tw-upg-name">Max Tier</div><div class="tw-upg-val">${_save.maxDiff}</div></div>
+            <div class="tw-upg-row"><div class="tw-upg-name">Session Correct</div><div class="tw-upg-val">${fmt(_save.stats.sessionCorrect)}</div></div>
+            <div class="tw-upg-row"><div class="tw-upg-name">Total Correct</div><div class="tw-upg-val">${fmt(_save.stats.totalCorrect)}</div></div>
+            <div class="tw-upg-row"><div class="tw-upg-name">Highest Streak</div><div class="tw-upg-val">${fmt(_save.stats.highestStreak)}</div></div>
+            <div class="tw-upg-row"><div class="tw-upg-name">Words Mastered</div><div class="tw-upg-val">${fmt(_save.stats.wordsMastered.length)}</div></div>
+            <div class="tw-upg-row"><div class="tw-upg-name">Bosses Defeated</div><div class="tw-upg-val">${fmt(_save.stats.bossesKilled || 0)}</div></div>
+            <div class="tw-upg-row"><div class="tw-upg-name">Highest Wave</div><div class="tw-upg-val">${fmt(_save.highestWave)}</div></div>
+            <div class="tw-upg-row"><div class="tw-upg-name">Max Tier</div><div class="tw-upg-val">${fmt(_save.maxDiff)}</div></div>
         </div>
     `;
 }
@@ -2175,6 +2304,7 @@ function _resumeRun() {
     _run = JSON.parse(JSON.stringify(_save.currentRun));
     _run.active = true;
     if (!_run.autoBuy) _run.autoBuy = _loadAutoBuyPref();
+    if (!_run.ultFuel) _run.ultFuel = {};
     
     _screens.setup.style.display = 'none';
     _screens.game.style.display = 'flex';
@@ -2190,15 +2320,12 @@ function _resumeRun() {
     _engine.startRun(stats, _run.wave, _run.diff);
     _engine.setTargetMode(_run.targetMode);
 
-    _screens.game.querySelectorAll('.tw-target-btn').forEach(b => {
-        b.classList.remove('active');
-        if (b.dataset.target === _run.targetMode) b.classList.add('active');
-    });
-
+    _updateTargetPill();
     _updateRunHUD();
     _updateAbilitiesUI();
     _updateVocabModeUI();
     _renderRunUpgrades();
+    _renderUltWeaponsOverlay();
     
     _engine.startWave(_run.wave);
 }
@@ -2308,6 +2435,7 @@ function _startRun() {
     _run.autoBuy = _loadAutoBuyPref();
     _run.vocabMode = _run.vocabMode || 'normal';
     _run.vocabBuffer = 0;
+    _run.ultFuel = {};
 
     for (const cat of['offense', 'defense', 'utility']) {
         for (const id in UPGRADES[cat]) {
@@ -2329,10 +2457,12 @@ function _startRun() {
     _engine.startRun(_getTowerStats(), _run.wave, _run.diff);
     _engine.setTargetMode(_run.targetMode);
     
+    _updateTargetPill();
     _updateRunHUD();
     _updateAbilitiesUI();
     _updateVocabModeUI();
     _renderRunUpgrades();
+    _renderUltWeaponsOverlay();
     
     _updateQuest('play_runs', 1);
     
@@ -2583,20 +2713,20 @@ function _handleDeath() {
     
     deathScreen.querySelector('#tw-ds-wave').textContent = _run.wave;
 
-    deathScreen.querySelector('#tw-ds-dmg-base').textContent = Math.floor(_engine.runStats.dmgBase || 0).toLocaleString();
-    deathScreen.querySelector('#tw-ds-dmg-crit').textContent = Math.floor(_engine.runStats.dmgCrit || 0).toLocaleString();
-    deathScreen.querySelector('#tw-ds-dmg-splash').textContent = Math.floor(_engine.runStats.dmgSplash || 0).toLocaleString();
-    deathScreen.querySelector('#tw-ds-dmg-thorns').textContent = Math.floor(_engine.runStats.dmgThorns || 0).toLocaleString();
-    deathScreen.querySelector('#tw-ds-dmg-abil').textContent = Math.floor(_engine.runStats.dmgAbility || 0).toLocaleString();
-    deathScreen.querySelector('#tw-ds-dmg-total').textContent = Math.floor(_engine.runStats.dmgDealt || 0).toLocaleString();
+    deathScreen.querySelector('#tw-ds-dmg-base').textContent = fmt(_engine.runStats.dmgBase || 0);
+    deathScreen.querySelector('#tw-ds-dmg-crit').textContent = fmt(_engine.runStats.dmgCrit || 0);
+    deathScreen.querySelector('#tw-ds-dmg-splash').textContent = fmt(_engine.runStats.dmgSplash || 0);
+    deathScreen.querySelector('#tw-ds-dmg-thorns').textContent = fmt(_engine.runStats.dmgThorns || 0);
+    deathScreen.querySelector('#tw-ds-dmg-abil').textContent = fmt(_engine.runStats.dmgAbility || 0);
+    deathScreen.querySelector('#tw-ds-dmg-total').textContent = fmt(_engine.runStats.dmgDealt || 0);
     
-    deathScreen.querySelector('#tw-ds-eco-drops').textContent = _run.earnedCoinsDrops.toLocaleString();
-    deathScreen.querySelector('#tw-ds-eco-wave').textContent = _run.earnedCoinsWave.toLocaleString();
-    deathScreen.querySelector('#tw-ds-eco-total').textContent = (_run.earnedCoinsDrops + _run.earnedCoinsWave).toLocaleString();
+    deathScreen.querySelector('#tw-ds-eco-drops').textContent = fmt(_run.earnedCoinsDrops);
+    deathScreen.querySelector('#tw-ds-eco-wave').textContent = fmt(_run.earnedCoinsWave);
+    deathScreen.querySelector('#tw-ds-eco-total').textContent = fmt(_run.earnedCoinsDrops + _run.earnedCoinsWave);
 
     deathScreen.querySelector('#tw-ds-acc').textContent = acc + '%';
-    deathScreen.querySelector('#tw-ds-bossdmg').textContent = Math.floor(_engine.runStats.dmgTakenBoss || 0).toLocaleString();
-    deathScreen.querySelector('#tw-ds-mobdmg').textContent = Math.floor(_engine.runStats.dmgTakenBasic || 0).toLocaleString();
+    deathScreen.querySelector('#tw-ds-bossdmg').textContent = fmt(_engine.runStats.dmgTakenBoss || 0);
+    deathScreen.querySelector('#tw-ds-mobdmg').textContent = fmt(_engine.runStats.dmgTakenBasic || 0);
 
     const wordsDiv = deathScreen.querySelector('#tw-ds-words');
     wordsDiv.innerHTML = '';
@@ -2622,11 +2752,11 @@ function _handleDeath() {
 
 function _updateRunHUD() {
     _screens.game.querySelector('#tw-run-wave').textContent = _run.wave;
-    _screens.game.querySelector('#tw-run-cash-val').textContent = Math.floor(_run.cash);
+    _screens.game.querySelector('#tw-run-cash-val').textContent = fmt(_run.cash);
     
     const totalCoins = _save.coins + _run.earnedCoinsDrops + _run.earnedCoinsWave;
-    _screens.game.querySelector('#tw-run-coins-val').textContent = Math.floor(totalCoins);
-    _screens.game.querySelector('#tw-run-gems-val').textContent = Math.floor(_save.gems);
+    _screens.game.querySelector('#tw-run-coins-val').textContent = fmt(totalCoins);
+    _screens.game.querySelector('#tw-run-gems-val').textContent = fmt(_save.gems);
     
     let knowCardBuff = 0;
     if (_save && _save.cards) {
@@ -2681,57 +2811,120 @@ function _updateAbilitiesUI() {
     });
 }
 
+function _renderUltWeaponsOverlay() {
+    const overlay = _screens.game.querySelector('#tw-ult-overlay');
+    if (!overlay) return;
+    if (!_save.ultWeapons) _save.ultWeapons = { owned: {}, purchases: {} };
+
+    overlay.innerHTML = '';
+
+    for (const id in ULTIMATE_WEAPONS) {
+        // All weapons are unlocked as per request (owner flag = always true)
+        const def = ULTIMATE_WEAPONS[id];
+        const fuel = _run.ultFuel[id] || 0;
+        const isReady = fuel >= 100;
+
+        const btn = document.createElement('button');
+        btn.className = 'tw-ult-weapon-btn' + (isReady ? ' ready' : ' not-ready');
+        btn.title = `${def.name}\n${def.desc}\nFuel: ${Math.floor(fuel)}%`;
+        btn.innerHTML = `
+            <span class="tw-ult-icon">${def.icon}</span>
+            <div class="tw-ult-fuel-bar">
+                <div class="tw-ult-fuel-fill" style="width:${Math.min(100, fuel)}%"></div>
+            </div>
+        `;
+
+        btn.addEventListener('click', () => {
+            if (!_run.active) return;
+            const curFuel = _run.ultFuel[id] || 0;
+            if (curFuel < 100) return;
+            _run.ultFuel[id] = 0;
+            _renderUltWeaponsOverlay();
+            if (_engine) _engine.activateUltWeapon(def.activate);
+            _saveRunSnapshot();
+        });
+
+        overlay.appendChild(btn);
+    }
+}
+
+function _tickUltFuelOnWave() {
+    if (!_run.active) return;
+    if (!_save.ultWeapons) _save.ultWeapons = { owned: {}, purchases: {} };
+    for (const id in ULTIMATE_WEAPONS) {
+        const def = ULTIMATE_WEAPONS[id];
+        _run.ultFuel[id] = Math.min(100, (_run.ultFuel[id] || 0) + def.fuelPerWave);
+    }
+    _renderUltWeaponsOverlay();
+}
+
+// Which utility upgrade IDs belong to which subtab
+const UTILITY_COINS_IDS = new Set(['coinBonus','coinsWave','coinDropNormal','coinDropElite','coinDropBoss','coinDropNormalMult','coinDropEliteMult','coinDropBossMult']);
+const UTILITY_CASH_IDS  = new Set(['cashBonus','cashWave','interest','freeUpgOffense','freeUpgDefense','freeUpgUtility']);
+
 function _renderRunUpgrades() {
-    for (const cat of['offense', 'defense', 'utility']) {
-        const container = _screens.game.querySelector(`#tw-run-${cat}`);
+    const QTY_CYCLE = ['1', '5', '10', 'MAX'];
+
+    // Maps display-tab key → { cat: 'offense'|'defense'|'utility', filter: fn|null, autoBuyKey }
+    const TABS = [
+        { tab: 'offense',  cat: 'offense',  filter: null,                      autoBuyKey: 'offense'  },
+        { tab: 'defense',  cat: 'defense',  filter: null,                      autoBuyKey: 'defense'  },
+        { tab: 'coins',    cat: 'utility',  filter: id => UTILITY_COINS_IDS.has(id), autoBuyKey: 'coins' },
+        { tab: 'cash',     cat: 'utility',  filter: id => UTILITY_CASH_IDS.has(id),  autoBuyKey: 'cash'  },
+    ];
+
+    if (!_run.autoBuy) _run.autoBuy = {};
+
+    for (const { tab, cat, filter, autoBuyKey } of TABS) {
+        const container = _screens.game.querySelector(`#tw-run-${tab}`);
+        if (!container) continue;
         container.innerHTML = '';
-        
+
         const autoWrap = document.createElement('div');
         autoWrap.style.cssText = "display:flex; justify-content:flex-end; padding:4px 6px 0;";
         const autoBtn = document.createElement('button');
         autoBtn.className = 'tw-play-btn';
-        const isOn = _run.autoBuy && _run.autoBuy[cat];
+        const isOn = !!_run.autoBuy[autoBuyKey];
         autoBtn.style.cssText = `padding: 6px 12px; font-size: 11px; width: auto; background: ${isOn ? '#2ecc71' : 'transparent'}; border: 1px solid ${isOn ? '#2ecc71' : '#555'}; color: ${isOn ? '#000' : '#aaa'};`;
         autoBtn.textContent = isOn ? 'Auto-Upgrade: ON' : 'Auto-Upgrade: OFF';
         autoBtn.onclick = () => {
-            if (!_run.autoBuy) _run.autoBuy = {};
-            _run.autoBuy[cat] = !_run.autoBuy[cat];
+            _run.autoBuy[autoBuyKey] = !_run.autoBuy[autoBuyKey];
             _saveAutoBuyPref(_run.autoBuy);
             _saveRunSnapshot();
             _renderRunUpgrades();
         };
         autoWrap.appendChild(autoBtn);
         container.appendChild(autoWrap);
-        
+
         const maxedRows = [];
         const activeRows = [];
 
         for (const id in UPGRADES[cat]) {
+            if (filter && !filter(id)) continue;
             const def = UPGRADES[cat][id];
-            
+
             if (def.reqUnlock && !_save.workshop.unlocks[id]) continue;
 
             const runLvl = _run.levels[cat][id] || 0;
-            const wsLvl = _save.workshop[cat][id] || 0;
-
+            const wsLvl  = _save.workshop[cat][id] || 0;
             const isMaxed = def.max !== undefined && calcStat(cat, id, wsLvl, runLvl) >= def.max;
 
-            let reqMult = _save.runMults[id] || '1';
+            let reqMult = _save.runMults[id] || 'MAX';
             const buyInfo = getMultiBuy(cat, id, runLvl, reqMult, _run.cash, false);
             const val = calcStat(cat, id, wsLvl, runLvl);
-            
+
             const maxLvl = getUpgradeMaxLevel(cat, id);
             const lvlStr = maxLvl ? `Lvl ${runLvl} (Total: ${runLvl + wsLvl}/${maxLvl})` : `Lvl ${runLvl}`;
-            
-            let displayVal = def.isPct ? (val*100).toFixed(2)+'%' : parseFloat(val.toFixed(3)).toString();
-            
+
+            let displayVal = def.isPct ? (val*100).toFixed(2)+'%' : fmt(val);
+
             if (id === 'coinsWave') {
                 let base = (_run.wave * _run.diff * 2);
                 let coinBonus = (_engine.stats?.coinBonus || 1);
                 let labYield = (1 + (_save.lab.levels.coinYield || 0) * 0.1);
                 let mult = coinBonus * labYield;
                 let total = Math.floor((base + val) * mult);
-                displayVal = `<span style="color:#f1c40f;font-weight:bold;">${total}</span> <span style="font-size:9px;color:#aaa;">(${base} + ${val.toFixed(0)}) &times;${mult.toFixed(2)}</span>`;
+                displayVal = `<span style="color:#f1c40f;font-weight:bold;">${fmt(total)}</span> <span style="font-size:9px;color:#aaa;">(${base}+${fmt(val)})×${mult.toFixed(2)}</span>`;
             } else if (['coinDropNormal', 'coinDropElite', 'coinDropBoss'].includes(id)) {
                 const coinBonus = (_engine.stats?.coinBonus || 1);
                 const labYield = 1 + (_save.lab.levels.coinYield || 0) * 0.1;
@@ -2745,7 +2938,7 @@ function _renderRunUpgrades() {
                                        : isElite ? (_engine.stats?.coinDropEliteMult || 0)
                                        : (_engine.stats?.coinDropNormalMult || 0));
                 const total = Math.floor((baseVal + val) * dropMultVal * globalMult);
-                displayVal = `<span style="color:#f1c40f;font-weight:bold;">${total}</span> <span style="font-size:9px;color:#aaa;">(base:${baseVal}+${val.toFixed(0)})&times;${dropMultVal.toFixed(2)}&times;${globalMult.toFixed(2)}</span>`;
+                displayVal = `<span style="color:#f1c40f;font-weight:bold;">${fmt(total)}</span> <span style="font-size:9px;color:#aaa;">(${fmt(baseVal)}+${fmt(val)})×${dropMultVal.toFixed(2)}×${globalMult.toFixed(2)}</span>`;
             } else if (['coinDropNormalMult', 'coinDropEliteMult', 'coinDropBossMult'].includes(id)) {
                 const coinBonus = (_engine.stats?.coinBonus || 1);
                 const labYield = 1 + (_save.lab.levels.coinYield || 0) * 0.1;
@@ -2756,53 +2949,54 @@ function _renderRunUpgrades() {
                     ? Math.ceil((5 + (_run.wave||1) * 0.5) * (_run.diff||1) / 2)
                     : Math.max(1, Math.floor((_run.wave||1) * (_run.diff||1) * 0.25));
                 const flatBonusRaw = isBoss
-                    ? calcStat('utility', 'coinDropBoss', _save.workshop.utility.coinDropBoss || 0, _run.levels.utility.coinDropBoss || 0)
+                    ? calcStat('utility', 'coinDropBoss',   _save.workshop.utility.coinDropBoss   || 0, _run.levels.utility.coinDropBoss   || 0)
                     : isElite
-                    ? calcStat('utility', 'coinDropElite', _save.workshop.utility.coinDropElite || 0, _run.levels.utility.coinDropElite || 0)
+                    ? calcStat('utility', 'coinDropElite',  _save.workshop.utility.coinDropElite  || 0, _run.levels.utility.coinDropElite  || 0)
                     : calcStat('utility', 'coinDropNormal', _save.workshop.utility.coinDropNormal || 0, _run.levels.utility.coinDropNormal || 0);
                 const total = Math.floor((baseVal + flatBonusRaw) * (1 + val) * globalMult);
-                displayVal = `${(val*100).toFixed(1)}% <span style="font-size:9px;color:#aaa;">(base:${baseVal}+flat:${flatBonusRaw.toFixed(0)})&times;${(1+val).toFixed(2)}&times;${globalMult.toFixed(2)} = ${total}</span>`;
+                displayVal = `${(val*100).toFixed(1)}% <span style="font-size:9px;color:#aaa;">(${fmt(baseVal)}+${fmt(flatBonusRaw)})×${(1+val).toFixed(2)}×${globalMult.toFixed(2)}=${fmt(total)}</span>`;
             } else if (id === 'cashWave') {
                 let interest = Math.floor(_run.cash * (_engine.stats?.interest || 0));
                 let total = val + interest;
-                displayVal = `<span style="color:#2ecc71;font-weight:bold;">${total}</span> <span style="font-size:9px;color:#aaa;">(${val.toFixed(0)} + Int:${interest})</span>`;
+                displayVal = `<span style="color:#2ecc71;font-weight:bold;">${fmt(total)}</span> <span style="font-size:9px;color:#aaa;">(${fmt(val)}+Int:${fmt(interest)})</span>`;
             } else if (id === 'interest') {
                 let interest = Math.floor(_run.cash * val);
-                displayVal = `${(val*100).toFixed(2)}% <span style="font-size:9px;color:#aaa;">(= $${interest})</span>`;
+                displayVal = `${(val*100).toFixed(2)}% <span style="font-size:9px;color:#aaa;">(=$${fmt(interest)})</span>`;
             }
 
+            const qtyLabel = reqMult === 'MAX' ? 'Max' : `x${reqMult}`;
             const row = document.createElement('div');
             row.className = 'tw-upg-row' + (isMaxed ? ' tw-upg-row-maxed' : '');
             row.innerHTML = isMaxed ? `
-                <div class="tw-upg-info">
+                <div class="tw-upg-header">
                     <div class="tw-upg-name" style="color:#f1c40f;">⭐ ${def.name} <span style="font-size:10px;color:#a07830;">${lvlStr}</span></div>
-                    <div class="tw-upg-val" style="color:#c8a040;">${displayVal}</div>
                 </div>
-                <button class="tw-upg-buy tw-upg-buy-maxed" disabled>✦ MAX ✦</button>
+                <div class="tw-upg-val" style="color:#c8a040;">${displayVal}</div>
+                <div class="tw-upg-buy-wrap">
+                    <button class="tw-upg-buy tw-upg-buy-maxed" disabled>✦ MAX ✦</button>
+                </div>
             ` : `
-                <div class="tw-upg-info">
+                <div class="tw-upg-header">
                     <div class="tw-upg-name">${def.name} <span style="font-size:10px;color:#777;">${lvlStr}</span></div>
-                    <div class="tw-mini-mults" data-id="${id}">
-                        <span class="${reqMult==='1'?'active':''}" data-val="1">x1</span>
-                        <span class="${reqMult==='5'?'active':''}" data-val="5">x5</span>
-                        <span class="${reqMult==='10'?'active':''}" data-val="10">x10</span>
-                        <span class="${reqMult==='MAX'?'active':''}" data-val="MAX">Max</span>
-                    </div>
-                    <div class="tw-upg-val">${displayVal}</div>
+                    <button class="tw-qty-cycle" data-id="${id}">${qtyLabel}</button>
                 </div>
-                <button class="tw-upg-buy" ${_run.cash < buyInfo.cost ? 'disabled' : ''}>
-                    $${buyInfo.cost} <span style="font-size:9px;color:#aaa;">(+${buyInfo.count})</span>
-                </button>
+                <div class="tw-upg-val">${displayVal}</div>
+                <div class="tw-upg-buy-wrap">
+                    <button class="tw-upg-buy" ${_run.cash < buyInfo.cost ? 'disabled' : ''}>
+                        $${fmt(buyInfo.cost)} <span style="font-size:9px;color:#aaa;">(+${buyInfo.count})</span>
+                    </button>
+                </div>
             `;
-            
+
             if (!isMaxed) {
-                row.querySelectorAll('.tw-mini-mults span').forEach(span => {
-                    span.onclick = (e) => {
-                        _save.runMults[id] = e.target.dataset.val;
-                        _saveGame();
-                        _renderRunUpgrades();
-                    };
-                });
+                row.querySelector('.tw-qty-cycle').onclick = (e) => {
+                    e.stopPropagation();
+                    const cur = _save.runMults[id] || 'MAX';
+                    const idx = QTY_CYCLE.indexOf(cur);
+                    _save.runMults[id] = QTY_CYCLE[(idx + 1) % QTY_CYCLE.length];
+                    _saveGame();
+                    _renderRunUpgrades();
+                };
 
                 let freeChance = 0;
                 if (cat === 'offense') freeChance = _engine.stats.freeUpgOffense || 0;
@@ -2819,9 +3013,7 @@ function _renderRunUpgrades() {
                             _engine.spawnFloatText('FREE!', '#f1c40f', true);
                         }
                         _run.levels[cat][id] = runLvl + buyInfo.count;
-                        
                         if (cat === 'defense') _run.boughtDefense = true;
-
                         _engine.stats = _getTowerStats();
                         _updateRunHUD();
                         _saveRunSnapshot();
@@ -2834,15 +3026,12 @@ function _renderRunUpgrades() {
             }
         }
 
-        // Active upgrades in a 2-column grid
         if (activeRows.length > 0) {
             const grid = document.createElement('div');
             grid.className = 'tw-upg-grid';
             activeRows.forEach(r => grid.appendChild(r));
             container.appendChild(grid);
         }
-
-        // Maxed upgrades at the bottom in their own 2-column grid
         if (maxedRows.length > 0) {
             const divider = document.createElement('div');
             divider.style.cssText = 'border-top:1px solid #5a4800; margin:4px 6px 2px; text-align:center; font-size:10px; color:#8a6800; padding-top:4px; letter-spacing:1px;';
@@ -2860,31 +3049,31 @@ function _autoBuyTicker() {
     if (!_run || !_run.active || !_run.autoBuy) return;
     if (_engine && _engine.state === 'PAUSED') return;
 
+    const AUTO_TABS = [
+        { key: 'offense', cat: 'offense', filter: null },
+        { key: 'defense', cat: 'defense', filter: null },
+        { key: 'coins',   cat: 'utility', filter: id => UTILITY_COINS_IDS.has(id) },
+        { key: 'cash',    cat: 'utility', filter: id => UTILITY_CASH_IDS.has(id) },
+    ];
+
     let candidates = [];
-    for (const cat of['offense', 'defense', 'utility']) {
-        if (_run.autoBuy[cat]) {
-            for (const id in UPGRADES[cat]) {
-                const def = UPGRADES[cat][id];
-                if (def.reqUnlock && !_save.workshop.unlocks[id]) continue;
-
-                const runLvl = _run.levels[cat][id] || 0;
-                const wsLvl = _save.workshop[cat][id] || 0;
-
-                if (def.max !== undefined) {
-                    if (calcStat(cat, id, wsLvl, runLvl) >= def.max) continue; 
-                }
-                
-                let reqMult = _save.runMults[id] || '1';
-                const buyInfo = getMultiBuy(cat, id, runLvl, reqMult, _run.cash, false);
-                
-                if (!buyInfo.maxed && buyInfo.count > 0 && _run.cash >= buyInfo.cost) {
-                    let freeChance = 0;
-                    if (cat === 'offense') freeChance = _engine.stats.freeUpgOffense || 0;
-                    else if (cat === 'defense') freeChance = _engine.stats.freeUpgDefense || 0;
-                    else if (cat === 'utility') freeChance = _engine.stats.freeUpgUtility || 0;
-
-                    candidates.push({ cat, id, cost: buyInfo.cost, count: buyInfo.count, freeChance });
-                }
+    for (const { key, cat, filter } of AUTO_TABS) {
+        if (!_run.autoBuy[key]) continue;
+        for (const id in UPGRADES[cat]) {
+            if (filter && !filter(id)) continue;
+            const def = UPGRADES[cat][id];
+            if (def.reqUnlock && !_save.workshop.unlocks[id]) continue;
+            const runLvl = _run.levels[cat][id] || 0;
+            const wsLvl  = _save.workshop[cat][id] || 0;
+            if (def.max !== undefined && calcStat(cat, id, wsLvl, runLvl) >= def.max) continue;
+            let reqMult = _save.runMults[id] || 'MAX';
+            const buyInfo = getMultiBuy(cat, id, runLvl, reqMult, _run.cash, false);
+            if (!buyInfo.maxed && buyInfo.count > 0 && _run.cash >= buyInfo.cost) {
+                let freeChance = 0;
+                if (cat === 'offense') freeChance = _engine.stats.freeUpgOffense || 0;
+                else if (cat === 'defense') freeChance = _engine.stats.freeUpgDefense || 0;
+                else if (cat === 'utility') freeChance = _engine.stats.freeUpgUtility || 0;
+                candidates.push({ cat, id, cost: buyInfo.cost, count: buyInfo.count, freeChance });
             }
         }
     }
@@ -2898,12 +3087,9 @@ function _autoBuyTicker() {
             if (!isFree) {
                 _run.cash -= best.cost;
                 _updateQuest('spend_cash', best.cost);
-            } else {
             }
             _run.levels[best.cat][best.id] = (_run.levels[best.cat][best.id] || 0) + best.count;
-            
             if (best.cat === 'defense') _run.boughtDefense = true;
-
             if (_engine) _engine.stats = _getTowerStats();
             _updateRunHUD();
             _renderRunUpgrades();
