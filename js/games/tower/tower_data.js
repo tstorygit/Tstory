@@ -298,67 +298,66 @@ export function getMultiBuy(category, id, startLvl, requestMode, currentCurrency
 }
 
 // ─── ULTIMATE WEAPONS ────────────────────────────────────────────────────────
-// Each weapon has a separate fuel bar (0–100). Fuel fills by wave count.
-// Purchase cost increases with each buy (scalingCoins / scalingGems applied per purchase).
+// fuelSource: 'vocab' → fills from correct vocab answers (fuelPerVocab per answer)
+//             'wave'  → fills after each wave completes (fuelPerWave per wave)
+// Purchase cost increases with each buy (scalingCoins / scalingGems per purchase).
 export const ULTIMATE_WEAPONS = {
+    // ── Vocab-charged (former abilities) ────────────────────────────────────
+    barrage: {
+        id: 'barrage', name: 'Barrage', icon: '🔥',
+        desc: 'Supercharges attack speed for 5 seconds.',
+        fuelSource: 'vocab', fuelPerVocab: 20,
+        baseCostCoins: 0, baseCostGems: 0, scalingCoins: 0, scalingGems: 0,
+        activate: 'barrage'
+    },
+    nova: {
+        id: 'nova', name: 'Nova', icon: '💥',
+        desc: 'Instantly wipes all enemies from the screen.',
+        fuelSource: 'vocab', fuelPerVocab: 20,
+        baseCostCoins: 0, baseCostGems: 0, scalingCoins: 0, scalingGems: 0,
+        activate: 'nova'
+    },
+    aegis: {
+        id: 'aegis', name: 'Aegis', icon: '🛡️',
+        desc: 'Blocks the next 3 hits from enemies.',
+        fuelSource: 'vocab', fuelPerVocab: 20,
+        baseCostCoins: 0, baseCostGems: 0, scalingCoins: 0, scalingGems: 0,
+        activate: 'aegis'
+    },
+    // ── Wave-charged (purchasable) ───────────────────────────────────────────
     orbital: {
-        id: 'orbital',
-        name: 'Orbital Strike',
-        icon: '☄️',
+        id: 'orbital', name: 'Orbital Strike', icon: '☄️',
         desc: 'Deals massive damage to all enemies on screen.',
-        fuelPerWave: 12,        // fuel gained per wave completion
-        baseCostCoins: 500,
-        baseCostGems: 10,
-        scalingCoins: 300,      // added to cost per prior purchase
-        scalingGems: 5,
+        fuelSource: 'wave', fuelPerWave: 12,
+        baseCostCoins: 500, baseCostGems: 10, scalingCoins: 300, scalingGems: 5,
         activate: 'orbital'
     },
     blizzard: {
-        id: 'blizzard',
-        name: 'Arctic Blizzard',
-        icon: '❄️',
+        id: 'blizzard', name: 'Arctic Blizzard', icon: '❄️',
         desc: 'Freezes all enemies for 3 seconds and deals damage.',
-        fuelPerWave: 10,
-        baseCostCoins: 600,
-        baseCostGems: 12,
-        scalingCoins: 350,
-        scalingGems: 6,
+        fuelSource: 'wave', fuelPerWave: 10,
+        baseCostCoins: 600, baseCostGems: 12, scalingCoins: 350, scalingGems: 6,
         activate: 'blizzard'
     },
     plague: {
-        id: 'plague',
-        name: 'Plague Cloud',
-        icon: '☠️',
+        id: 'plague', name: 'Plague Cloud', icon: '☠️',
         desc: 'Poisons all enemies, dealing damage over 5 seconds.',
-        fuelPerWave: 9,
-        baseCostCoins: 700,
-        baseCostGems: 15,
-        scalingCoins: 400,
-        scalingGems: 8,
+        fuelSource: 'wave', fuelPerWave: 9,
+        baseCostCoins: 700, baseCostGems: 15, scalingCoins: 400, scalingGems: 8,
         activate: 'plague'
     },
     lightning: {
-        id: 'lightning',
-        name: 'Thunderstorm',
-        icon: '⚡',
+        id: 'lightning', name: 'Thunderstorm', icon: '⚡',
         desc: 'Chains lightning between enemies 10 times.',
-        fuelPerWave: 15,
-        baseCostCoins: 400,
-        baseCostGems: 8,
-        scalingCoins: 250,
-        scalingGems: 4,
+        fuelSource: 'wave', fuelPerWave: 15,
+        baseCostCoins: 400, baseCostGems: 8, scalingCoins: 250, scalingGems: 4,
         activate: 'lightning'
     },
     blackhole: {
-        id: 'blackhole',
-        name: 'Black Hole',
-        icon: '🌀',
+        id: 'blackhole', name: 'Black Hole', icon: '🌀',
         desc: 'Pulls all enemies to the center and crushes them.',
-        fuelPerWave: 7,
-        baseCostCoins: 1000,
-        baseCostGems: 25,
-        scalingCoins: 600,
-        scalingGems: 12,
+        fuelSource: 'wave', fuelPerWave: 7,
+        baseCostCoins: 1000, baseCostGems: 25, scalingCoins: 600, scalingGems: 12,
         activate: 'blackhole'
     }
 };

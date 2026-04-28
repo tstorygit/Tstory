@@ -161,8 +161,23 @@ function _defaultSave() {
     };
 }
 
-export function init(screens, onExit) {
-    _screens = screens;
+// ─── TARGET MODES (module-level so _startRun/_resumeRun can access) ──────────
+const TARGET_MODES = [
+    { key: 'closest',  label: 'Closest',  abbr: 'C' },
+    { key: 'farthest', label: 'Farthest', abbr: 'F' },
+    { key: 'boss',     label: 'Boss First', abbr: 'B' },
+    { key: 'fast',     label: 'Fastest',  abbr: 'X' },
+];
+function _updateTargetPill() {
+    if (!_screens) return;
+    const pill = _screens.game.querySelector('#tw-target-pill');
+    if (!pill) return;
+    const mode = TARGET_MODES.find(m => m.key === _run.targetMode) || TARGET_MODES[0];
+    pill.textContent = mode.abbr;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function init(screens, onExit) {    _screens = screens;
     _onExit = onExit;
     _injectCSS();
     
@@ -381,7 +396,7 @@ export function init(screens, onExit) {
             </div>
         </div>
 
-        <div id="tw-daily-popup" class="tw-modal" style="display:none; position:absolute; inset:0; z-index:1000;">
+        <div id="tw-daily-popup" class="tw-modal" style="display:none; position:absolute; inset:0; z-index:1000; align-items:center; justify-content:center; background:rgba(0,0,0,0.85);">
             <div style="background:#1a1a2e; padding:30px; border-radius:12px; text-align:center; border:2px solid #f1c40f; max-width:80%;">
                 <h2 style="color:#f1c40f; margin-top:0;">Daily Login Bonus!</h2>
                 <div style="font-size:14px; color:#fff; margin-bottom:15px;">Day <span id="tw-login-day" style="font-weight:bold;color:#00ffff;"></span></div>
@@ -435,12 +450,6 @@ export function init(screens, onExit) {
                         <button class="tw-end-run-btn" id="tw-btn-end-run" style="margin-left:0 !important;">Pause / End</button>
                     </div>
                 </div>
-                <div class="tw-abilities" style="margin-top:4px;">
-                    <button class="tw-abil-btn" id="tw-abil-barrage" disabled>Barrage</button>
-                    <button class="tw-abil-btn" id="tw-abil-nova" disabled>Nova</button>
-                    <button class="tw-abil-btn" id="tw-abil-aegis" disabled>Aegis</button>
-                </div>
-                <div class="tw-ability-bar-wrap"><div class="tw-ability-fill" id="tw-abil-bar" style="width:0%;"></div></div>
             </div>
             
             <div class="tw-hp-bar-wrap"><div class="tw-hp-fill" id="tw-run-hp-bar"></div></div>
@@ -570,18 +579,6 @@ export function init(screens, onExit) {
     });
 
     // Target pill popup
-    const TARGET_MODES = [
-        { key: 'closest',  label: 'Closest',  abbr: 'C' },
-        { key: 'farthest', label: 'Farthest', abbr: 'F' },
-        { key: 'boss',     label: 'Boss First', abbr: 'B' },
-        { key: 'fast',     label: 'Fastest',  abbr: 'X' },
-    ];
-    function _updateTargetPill() {
-        const pill = _screens.game.querySelector('#tw-target-pill');
-        if (!pill) return;
-        const mode = TARGET_MODES.find(m => m.key === _run.targetMode) || TARGET_MODES[0];
-        pill.textContent = mode.abbr;
-    }
     function _openTargetModal() {
         const modal = _screens.game.querySelector('#tw-target-modal');
         const btnsEl = _screens.game.querySelector('#tw-target-modal-btns');
@@ -654,17 +651,6 @@ export function init(screens, onExit) {
             modal.style.display = 'none';
             _engine.resume();
         };
-    });
-
-    ['barrage', 'nova', 'aegis'].forEach(abil => {
-        _screens.game.querySelector(`#tw-abil-${abil}`).addEventListener('click', () => {
-            if (_run.abilityCharge >= 100) {
-                _run.abilityCharge = 0;
-                _updateAbilitiesUI();
-                _updateQuest('use_abilities', 1);
-                if (_engine) _engine.activateAbility(abil);
-            }
-        });
     });
 
     // Info Modals
@@ -1977,18 +1963,55 @@ function _renderWorkshopWeapons() {
     container.innerHTML = '';
 
     const header = document.createElement('div');
-    header.style.cssText = 'padding:10px 10px 4px; font-size:11px; color:#aaa; line-height:1.5;';
-    header.innerHTML = `<b style="color:#f1c40f;">⚔️ Ultimate Weapons</b> — Powerful abilities usable during battle.<br>
-        Icons appear on the right side of the battlefield. Fuel fills by wave. Each purchase increases cost.`;
+    header.style.cssText = 'padding:10px 10px 4px; font-size:11px; color:#aaa; line-height:1.6;';
+    header.innerHTML = `<b style="color:#f1c40f;">⚔️ Ultimate Weapons</b> — Powerful one-use abilities during battle.<br>
+        Icons appear on the right side of the battlefield. Click when the fuel bar is full to activate.<br>
+        <span style="color:#9b59b6;">📖 Vocab weapons</span> fill from correct answers. 
+        <span style="color:#00a8ff;">🌊 Wave weapons</span> fill after each wave.`;
     container.appendChild(header);
 
-    const grid = document.createElement('div');
-    grid.className = 'tw-ult-ws-grid';
+    // Section: Vocab-charged
+    const vocabHeader = document.createElement('div');
+    vocabHeader.style.cssText = 'padding:8px 10px 4px; font-size:10px; font-weight:bold; color:#9b59b6; text-transform:uppercase; letter-spacing:1px;';
+    vocabHeader.textContent = '📖 Vocab-Charged — Always Available';
+    container.appendChild(vocabHeader);
+
+    const vocabGrid = document.createElement('div');
+    vocabGrid.className = 'tw-ult-ws-grid';
 
     for (const id in ULTIMATE_WEAPONS) {
         const def = ULTIMATE_WEAPONS[id];
+        if (def.fuelSource !== 'vocab') continue;
+
+        const card = document.createElement('div');
+        card.className = 'tw-ult-ws-card owned';
+        card.innerHTML = `
+            <div class="tw-ult-ws-icon">${def.icon}</div>
+            <div class="tw-ult-ws-info">
+                <div class="tw-ult-ws-name">${def.name} <span style="color:#2ecc71; font-size:10px;">✦ FREE</span></div>
+                <div class="tw-ult-ws-desc">${def.desc}</div>
+                <div class="tw-ult-ws-meta">📖 +${def.fuelPerVocab}% fuel per correct vocab answer</div>
+            </div>
+        `;
+        vocabGrid.appendChild(card);
+    }
+    container.appendChild(vocabGrid);
+
+    // Section: Wave-charged (purchasable)
+    const waveHeader = document.createElement('div');
+    waveHeader.style.cssText = 'padding:8px 10px 4px; font-size:10px; font-weight:bold; color:#00a8ff; text-transform:uppercase; letter-spacing:1px; margin-top:6px;';
+    waveHeader.textContent = '🌊 Wave-Charged — Purchase to Unlock';
+    container.appendChild(waveHeader);
+
+    const waveGrid = document.createElement('div');
+    waveGrid.className = 'tw-ult-ws-grid';
+
+    for (const id in ULTIMATE_WEAPONS) {
+        const def = ULTIMATE_WEAPONS[id];
+        if (def.fuelSource !== 'wave') continue;
+
         const timesBought = _save.ultWeapons.purchases[id] || 0;
-        const isOwned = !!_save.ultWeapons.owned[id]; // always owned for now (unlocked flag)
+        const isOwned = !!_save.ultWeapons.owned[id];
         const cost = calcUltWeaponCost(id, timesBought);
         const canAfford = _save.coins >= cost.coins && _save.gems >= cost.gems;
 
@@ -1999,7 +2022,7 @@ function _renderWorkshopWeapons() {
             <div class="tw-ult-ws-info">
                 <div class="tw-ult-ws-name">${def.name} ${isOwned ? '<span style="color:#f1c40f; font-size:10px;">✦ UNLOCKED</span>' : ''}</div>
                 <div class="tw-ult-ws-desc">${def.desc}</div>
-                <div class="tw-ult-ws-meta">⚡ Fuel/Wave: +${def.fuelPerWave}%${timesBought > 0 ? ` &nbsp;•&nbsp; Bought: ${timesBought}x` : ''}</div>
+                <div class="tw-ult-ws-meta">🌊 +${def.fuelPerWave}% fuel per wave${timesBought > 0 ? ` &nbsp;•&nbsp; Bought: ${timesBought}×` : ''}</div>
             </div>
             <button class="tw-ult-ws-buy" ${canAfford ? '' : 'disabled'}>
                 🪙 ${fmt(cost.coins)}<br>💎 ${fmt(cost.gems)}
@@ -2018,9 +2041,9 @@ function _renderWorkshopWeapons() {
             }
         };
 
-        grid.appendChild(card);
+        waveGrid.appendChild(card);
     }
-    container.appendChild(grid);
+    container.appendChild(waveGrid);
 }
 
 function _renderLab() {
@@ -2798,35 +2821,34 @@ function _updateRunHUD() {
 }
 
 function _updateAbilitiesUI() {
-    const bar = _screens.game.querySelector('#tw-abil-bar');
-    if (bar) bar.style.width = `${_run.abilityCharge}%`;
-    
-    const isReady = _run.abilityCharge >= 100;['barrage', 'nova', 'aegis'].forEach(abil => {
-        const btn = _screens.game.querySelector(`#tw-abil-${abil}`);
-        if (btn) {
-            btn.disabled = !isReady;
-            if (isReady) btn.classList.add('ready');
-            else btn.classList.remove('ready');
-        }
-    });
+    // Vocab-fueled weapons (barrage/nova/aegis) are now in the ult overlay.
+    // Charge their fuel from _run.abilityCharge for backwards-compat, then sync.
+    if (!_run.ultFuel) _run.ultFuel = {};
+    const vocabWeapons = ['barrage', 'nova', 'aegis'];
+    for (const id of vocabWeapons) {
+        _run.ultFuel[id] = _run.abilityCharge; // shared charge → all three fill equally
+    }
+    _renderUltWeaponsOverlay();
 }
 
 function _renderUltWeaponsOverlay() {
-    const overlay = _screens.game.querySelector('#tw-ult-overlay');
+    const overlay = _screens.game ? _screens.game.querySelector('#tw-ult-overlay') : null;
     if (!overlay) return;
     if (!_save.ultWeapons) _save.ultWeapons = { owned: {}, purchases: {} };
+    if (!_run.ultFuel) _run.ultFuel = {};
 
     overlay.innerHTML = '';
 
     for (const id in ULTIMATE_WEAPONS) {
-        // All weapons are unlocked as per request (owner flag = always true)
         const def = ULTIMATE_WEAPONS[id];
+        // DEBUG: all weapons always unlocked
         const fuel = _run.ultFuel[id] || 0;
         const isReady = fuel >= 100;
 
         const btn = document.createElement('button');
         btn.className = 'tw-ult-weapon-btn' + (isReady ? ' ready' : ' not-ready');
-        btn.title = `${def.name}\n${def.desc}\nFuel: ${Math.floor(fuel)}%`;
+        const fuelSrcLabel = def.fuelSource === 'vocab' ? '📖' : '🌊';
+        btn.title = `${def.name}\n${def.desc}\n${fuelSrcLabel} Fuel: ${Math.floor(fuel)}%`;
         btn.innerHTML = `
             <span class="tw-ult-icon">${def.icon}</span>
             <div class="tw-ult-fuel-bar">
@@ -2838,9 +2860,18 @@ function _renderUltWeaponsOverlay() {
             if (!_run.active) return;
             const curFuel = _run.ultFuel[id] || 0;
             if (curFuel < 100) return;
+
+            // Reset fuel
             _run.ultFuel[id] = 0;
+            // For vocab weapons, also reset abilityCharge
+            if (def.fuelSource === 'vocab') {
+                _run.abilityCharge = 0;
+                _updateQuest('use_abilities', 1);
+                if (_engine) _engine.activateAbility(def.activate);
+            } else {
+                if (_engine) _engine.activateUltWeapon(def.activate);
+            }
             _renderUltWeaponsOverlay();
-            if (_engine) _engine.activateUltWeapon(def.activate);
             _saveRunSnapshot();
         });
 
@@ -2853,7 +2884,9 @@ function _tickUltFuelOnWave() {
     if (!_save.ultWeapons) _save.ultWeapons = { owned: {}, purchases: {} };
     for (const id in ULTIMATE_WEAPONS) {
         const def = ULTIMATE_WEAPONS[id];
-        _run.ultFuel[id] = Math.min(100, (_run.ultFuel[id] || 0) + def.fuelPerWave);
+        if (def.fuelSource === 'wave') {
+            _run.ultFuel[id] = Math.min(100, (_run.ultFuel[id] || 0) + def.fuelPerWave);
+        }
     }
     _renderUltWeaponsOverlay();
 }
