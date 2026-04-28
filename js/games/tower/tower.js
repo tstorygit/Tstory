@@ -2703,6 +2703,8 @@ function _renderRunUpgrades() {
         autoWrap.appendChild(autoBtn);
         container.appendChild(autoWrap);
         
+        const maxedRows = [];
+
         for (const id in UPGRADES[cat]) {
             const def = UPGRADES[cat][id];
             
@@ -2711,11 +2713,8 @@ function _renderRunUpgrades() {
             const runLvl = _run.levels[cat][id] || 0;
             const wsLvl = _save.workshop[cat][id] || 0;
 
-            if (def.max !== undefined) {
-                const totalVal = calcStat(cat, id, wsLvl, runLvl);
-                if (totalVal >= def.max) continue; 
-            }
-            
+            const isMaxed = def.max !== undefined && calcStat(cat, id, wsLvl, runLvl) >= def.max;
+
             let reqMult = _save.runMults[id] || '1';
             const buyInfo = getMultiBuy(cat, id, runLvl, reqMult, _run.cash, false);
             const val = calcStat(cat, id, wsLvl, runLvl);
@@ -2755,7 +2754,6 @@ function _renderRunUpgrades() {
                 const baseVal = isBoss
                     ? Math.ceil((5 + (_run.wave||1) * 0.5) * (_run.diff||1) / 2)
                     : Math.max(1, Math.floor((_run.wave||1) * (_run.diff||1) * 0.25));
-                // Use raw calcStat for the flat bonus (same path as coinDropNormal/Elite/Boss preview)
                 const flatBonusRaw = isBoss
                     ? calcStat('utility', 'coinDropBoss', _save.workshop.utility.coinDropBoss || 0, _run.levels.utility.coinDropBoss || 0)
                     : isElite
@@ -2773,8 +2771,14 @@ function _renderRunUpgrades() {
             }
 
             const row = document.createElement('div');
-            row.className = 'tw-upg-row';
-            row.innerHTML = `
+            row.className = 'tw-upg-row' + (isMaxed ? ' tw-upg-row-maxed' : '');
+            row.innerHTML = isMaxed ? `
+                <div class="tw-upg-info">
+                    <div class="tw-upg-name" style="color:#f1c40f;">⭐ ${def.name} <span style="font-size:10px;color:#a07830;">${lvlStr}</span></div>
+                    <div class="tw-upg-val" style="color:#c8a040;">${displayVal}</div>
+                </div>
+                <button class="tw-upg-buy tw-upg-buy-maxed" disabled>✦ MAX ✦</button>
+            ` : `
                 <div class="tw-upg-info">
                     <div class="tw-upg-name">${def.name} <span style="font-size:10px;color:#777;">${lvlStr}</span></div>
                     <div class="tw-mini-mults" data-id="${id}">
@@ -2785,44 +2789,57 @@ function _renderRunUpgrades() {
                     </div>
                     <div class="tw-upg-val">${displayVal}</div>
                 </div>
-                <button class="tw-upg-buy" ${(buyInfo.maxed || _run.cash < buyInfo.cost) ? 'disabled' : ''}>
-                    ${buyInfo.maxed ? 'MAX' : `$ ${buyInfo.cost}<br><span style="font-size:10px;color:#ccc;">(+${buyInfo.count})</span>`}
+                <button class="tw-upg-buy" ${_run.cash < buyInfo.cost ? 'disabled' : ''}>
+                    $ ${buyInfo.cost}<br><span style="font-size:10px;color:#ccc;">(+${buyInfo.count})</span>
                 </button>
             `;
             
-            row.querySelectorAll('.tw-mini-mults span').forEach(span => {
-                span.onclick = (e) => {
-                    _save.runMults[id] = e.target.dataset.val;
-                    _saveGame();
-                    _renderRunUpgrades();
-                };
-            });
+            if (!isMaxed) {
+                row.querySelectorAll('.tw-mini-mults span').forEach(span => {
+                    span.onclick = (e) => {
+                        _save.runMults[id] = e.target.dataset.val;
+                        _saveGame();
+                        _renderRunUpgrades();
+                    };
+                });
 
-            let freeChance = 0;
-            if (cat === 'offense') freeChance = _engine.stats.freeUpgOffense || 0;
-            else if (cat === 'defense') freeChance = _engine.stats.freeUpgDefense || 0;
-            else if (cat === 'utility') freeChance = _engine.stats.freeUpgUtility || 0;
+                let freeChance = 0;
+                if (cat === 'offense') freeChance = _engine.stats.freeUpgOffense || 0;
+                else if (cat === 'defense') freeChance = _engine.stats.freeUpgDefense || 0;
+                else if (cat === 'utility') freeChance = _engine.stats.freeUpgUtility || 0;
 
-            row.querySelector('.tw-upg-buy').onclick = () => {
-                if (!buyInfo.maxed && _run.cash >= buyInfo.cost && buyInfo.count > 0) {
-                    let isFree = Math.random() < freeChance;
-                    if (!isFree) {
-                        _run.cash -= buyInfo.cost;
-                        _updateQuest('spend_cash', buyInfo.cost);
-                    } else {
-                        _engine.spawnFloatText('FREE!', '#f1c40f', true);
+                row.querySelector('.tw-upg-buy').onclick = () => {
+                    if (_run.cash >= buyInfo.cost && buyInfo.count > 0) {
+                        let isFree = Math.random() < freeChance;
+                        if (!isFree) {
+                            _run.cash -= buyInfo.cost;
+                            _updateQuest('spend_cash', buyInfo.cost);
+                        } else {
+                            _engine.spawnFloatText('FREE!', '#f1c40f', true);
+                        }
+                        _run.levels[cat][id] = runLvl + buyInfo.count;
+                        
+                        if (cat === 'defense') _run.boughtDefense = true;
+
+                        _engine.stats = _getTowerStats();
+                        _updateRunHUD();
+                        _saveRunSnapshot();
+                        _renderRunUpgrades();
                     }
-                    _run.levels[cat][id] = runLvl + buyInfo.count;
-                    
-                    if (cat === 'defense') _run.boughtDefense = true;
+                };
+                container.appendChild(row);
+            } else {
+                maxedRows.push(row);
+            }
+        }
 
-                    _engine.stats = _getTowerStats();
-                    _updateRunHUD();
-                    _saveRunSnapshot();
-                    _renderRunUpgrades();
-                }
-            };
-            container.appendChild(row);
+        // Append maxed upgrades at the bottom with a divider
+        if (maxedRows.length > 0) {
+            const divider = document.createElement('div');
+            divider.style.cssText = 'border-top:1px solid #5a4800; margin:8px 0 4px; text-align:center; font-size:10px; color:#8a6800; padding-top:6px; letter-spacing:1px;';
+            divider.textContent = '— MAXED —';
+            container.appendChild(divider);
+            maxedRows.forEach(r => container.appendChild(r));
         }
     }
 }

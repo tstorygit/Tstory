@@ -124,6 +124,21 @@
 .tw-upg-buy:hover:not(:disabled) { background: rgba(46, 204, 113, 0.15); box-shadow: 0 0 8px rgba(46, 204, 113, 0.4); }
 .tw-upg-buy:disabled { border-color: #555; color: #777; cursor: not-allowed; }
 
+.tw-upg-row-maxed {
+    background: rgba(30, 22, 5, 0.9);
+    border: 1px solid #7a5c00;
+    opacity: 0.85;
+}
+.tw-upg-buy-maxed {
+    background: linear-gradient(135deg, rgba(90,60,0,0.6), rgba(60,40,0,0.6));
+    border: 1px solid #c8960a !important;
+    color: #f1c40f !important;
+    font-size: 11px !important;
+    letter-spacing: 1px;
+    cursor: not-allowed;
+    text-shadow: 0 0 6px rgba(241,196,15,0.5);
+}
+
 .tw-lab-row {
     background: rgba(20, 20, 30, 0.9); border: 1px solid #9b59b6;
     border-radius: 8px; padding: 12px; margin-bottom: 10px;

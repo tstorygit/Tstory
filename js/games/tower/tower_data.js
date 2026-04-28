@@ -7,7 +7,7 @@ export const UPGRADES = {
     offense: {
         damage:     { name: 'Damage',        base: 5,   step: 2,      baseCost: 10,  costMult: 1.15, isPct: false },
         atkSpeed:   { name: 'Attack Speed',  base: 1.0, step: 0.1,    baseCost: 15,  costMult: 1.18, isPct: false, max: 10 },
-        range:      { name: 'Range',         base: 240, step: 8,      baseCost: 20,  costMult: 1.18, isPct: false, max: 600 },
+        range:      { name: 'Range',         base: 120, step: 4,      baseCost: 20,  costMult: 1.18, isPct: false, max: 300 },
         splashDmg:  { name: 'Splash Damage', base: 0,   step: 0.025,  baseCost: 200, costMult: 1.40, isPct: true,  max: 1.0, reqUnlock: true, unlockCost: 500 },
         dmgMeter:   { name: 'Damage/Meter',  base: 0,   step: 0.0005, baseCost: 100, costMult: 1.30, isPct: true,  max: 0.2, reqUnlock: true, unlockCost: 400 },
         bounce:     { name: 'Bounce Shot',   base: 0,   step: 0.025,  baseCost: 150, costMult: 1.5,  isPct: true,  max: 0.8, reqUnlock: true, unlockCost: 500 },
