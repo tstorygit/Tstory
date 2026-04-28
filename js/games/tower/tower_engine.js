@@ -131,8 +131,8 @@ export class TowerEngine {
 
     spawnFloatText(text, color, isCenter = false, x = null, y = null) {
         this.floatTexts.push({
-            x: x !== null ? x : this.cx + (isCenter ? 0 : (Math.random() - 0.5) * 80),
-            y: y !== null ? y : this.cy - 60 + (isCenter ? 0 : (Math.random() - 0.5) * 80),
+            x: x !== null ? x : this.cx + (isCenter ? 0 : (Math.random() - 0.5) * 40),
+            y: y !== null ? y : this.cy - 30 + (isCenter ? 0 : (Math.random() - 0.5) * 40),
             text: text,
             color: color,
             life: 1.0,
@@ -142,7 +142,7 @@ export class TowerEngine {
 
     _spawnEnemy() {
         const angle = Math.random() * Math.PI * 2;
-        const radius = Math.max(this.canvas.width, this.canvas.height) / 2 + 60;
+        const radius = Math.max(this.canvas.width, this.canvas.height) / 2 + 30;
         
         let type = 'basic';
         let hpMult = 1, spdMult = 1, dmgMult = 1, cashMult = 1;
@@ -183,7 +183,7 @@ export class TowerEngine {
         let relic1Mult = this.callbacks.hasRelic && this.callbacks.hasRelic(1) && type === 'boss' ? 3 : 1;
         const baseCash = 5 * Math.pow(1.08, this.wave) * this.diff * (this.stats.cashBonus || 1) * cashMult * relic1Mult;
         
-        const finalSpeed = Math.min(50, 12.5 + this.wave * 0.4) * spdMult * (this.stats.enemySpeedMult || 1.0);
+        const finalSpeed = Math.min(100, 25 + this.wave * 0.8) * spdMult * (this.stats.enemySpeedMult || 1.0);
 
         let affixes =[];
         let armorStacks = 0;
@@ -235,7 +235,7 @@ export class TowerEngine {
         if (this.enemies.filter(e => e.type === 'swarm').length > 30) return;
         
         const baseDmg = 2 * Math.pow(1.12, this.wave) * this.diff * 0.5;
-        const finalSpeed = Math.min(75, 20 + this.wave * 0.75) * (this.stats.enemySpeedMult || 1.0);
+        const finalSpeed = Math.min(150, 40 + this.wave * 1.5) * (this.stats.enemySpeedMult || 1.0);
 
         this.enemies.push({
             id: Math.random().toString(36),
@@ -383,7 +383,7 @@ export class TowerEngine {
                         targetId: target.id,
                         dmg: dmg,
                         isCrit: isCrit,
-                        speed: 1000,
+                        speed: 500,
                         vx: 0, vy: 0,
                         hitIds:[],
                         chainBounces: this.stats.synergyChain ? 2 : 0,
@@ -428,7 +428,7 @@ export class TowerEngine {
 
                 for (const e of this.enemies) {
                     if (p.hitIds.includes(e.id)) continue;
-                    if (Math.hypot(e.x - p.x, e.y - p.y) < e.radius + 20) {
+                    if (Math.hypot(e.x - p.x, e.y - p.y) < e.radius + 10) {
                         hitTarget = e;
                         break;
                     }
@@ -441,7 +441,7 @@ export class TowerEngine {
                 if (p.isCrit && this.callbacks.onCritHit) this.callbacks.onCritHit();
                 
                 if (this.stats.splashDmg > 0) {
-                    let splashRadius = 100;
+                    let splashRadius = 50;
                     let splashDamage = p.dmg * this.stats.splashDmg;
                     for (const e of this.enemies) {
                         if (e.id !== hitTarget.id && Math.hypot(e.x - hitTarget.x, e.y - hitTarget.y) <= splashRadius + e.radius) {
@@ -454,14 +454,14 @@ export class TowerEngine {
                 p.hitIds.push(hitTarget.id);
 
                 if (this.stats.knockback > 0 && Math.random() < this.stats.knockback) {
-                    hitTarget.kb = hitTarget.type === 'boss' ? 20 : 80;
+                    hitTarget.kb = hitTarget.type === 'boss' ? 10 : 40;
                 }
 
                 let bounceProc = (this.stats.bounce > 0 && Math.random() < this.stats.bounce);
 
                 if (this.stats.synergyChain && p.chainBounces > 0) {
                     p.chainBounces--;
-                    let nextTarget = this.enemies.find(en => !p.hitIds.includes(en.id) && Math.hypot(en.x - p.x, en.y - p.y) < 300);
+                    let nextTarget = this.enemies.find(en => !p.hitIds.includes(en.id) && Math.hypot(en.x - p.x, en.y - p.y) < 150);
                     if (nextTarget) {
                         p.targetId = nextTarget.id;
                     } else {
@@ -469,7 +469,7 @@ export class TowerEngine {
                     }
                 } else if (bounceProc && p.chainBounces === 0 && !p.hasBounced) {
                     p.hasBounced = true; 
-                    let nextTarget = this.enemies.find(en => !p.hitIds.includes(en.id) && Math.hypot(en.x - p.x, en.y - p.y) < 300);
+                    let nextTarget = this.enemies.find(en => !p.hitIds.includes(en.id) && Math.hypot(en.x - p.x, en.y - p.y) < 150);
                     if (nextTarget) {
                         p.targetId = nextTarget.id;
                     } else {
@@ -491,7 +491,7 @@ export class TowerEngine {
             const dist = Math.hypot(dx, dy);
             const step = ep.speed * dt;
             
-            if (dist <= 30 + step) {
+            if (dist <= 15 + step) {
                 let shooter = this.enemies.find(en => en.id === ep.sourceId);
                 this._dealDamageToTower(ep.dmg, 'ranged', shooter);
                 
@@ -561,7 +561,7 @@ export class TowerEngine {
                 e.blinkTimer -= dt;
                 if (e.blinkTimer <= 0) {
                     e.blinkTimer = 3.0;
-                    const blinkDist = Math.min(dist - e.radius - 30, 120); 
+                    const blinkDist = Math.min(dist - e.radius - 15, 60); 
                     if (blinkDist > 0) {
                         e.x += (dx / dist) * blinkDist;
                         e.y += (dy / dist) * blinkDist;
@@ -578,12 +578,12 @@ export class TowerEngine {
                 } else {
                     e.attackCooldown -= dt;
                     if (e.attackCooldown <= 0) {
-                        this.enemyProjectiles.push({ sourceId: e.id, x: e.x, y: e.y, dmg: e.dmg, speed: 300 });
+                        this.enemyProjectiles.push({ sourceId: e.id, x: e.x, y: e.y, dmg: e.dmg, speed: 150 });
                         e.attackCooldown = e.atkSpeed;
                     }
                 }
             } else {
-                if (dist - e.radius <= 30) {
+                if (dist - e.radius <= 15) {
                     e.attackCooldown -= dt;
                     if (e.attackCooldown <= 0) {
                         this._dealDamageToTower(e.dmg, e.type, e);
@@ -597,7 +597,7 @@ export class TowerEngine {
                     }
                 } else {
                     if (e.kb > 0) {
-                        const kbStep = 400 * dt; 
+                        const kbStep = 200 * dt; 
                         e.x -= (dx / dist) * kbStep;
                         e.y -= (dy / dist) * kbStep;
                         e.kb -= kbStep;
