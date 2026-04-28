@@ -298,7 +298,7 @@ export function getMultiBuy(category, id, startLvl, requestMode, currentCurrency
 }
 
 // ─── ULTIMATE WEAPONS ────────────────────────────────────────────────────────
-// All weapons are purchasable. Linked cost: base 10000 coins + 25 gems,
+// ALL weapons must be purchased. Linked cost: base 10000 coins + 25 gems,
 // doubles with each weapon bought globally (across all weapons).
 // fuelSource: 'vocab' → fills from correct vocab answers (fuelPerVocab per answer)
 export const ULTIMATE_WEAPONS = {
@@ -337,18 +337,6 @@ export const ULTIMATE_WEAPONS = {
         desc: 'Freezes all enemies for 3 seconds and deals damage.',
         fuelSource: 'vocab', fuelPerVocab: 12,
         activate: 'blizzard'
-    },
-    plague: {
-        id: 'plague', name: 'Plague Cloud', icon: '☠️',
-        desc: 'Poisons all enemies, dealing damage over 5 seconds.',
-        fuelSource: 'vocab', fuelPerVocab: 12,
-        activate: 'plague'
-    },
-    lightning: {
-        id: 'lightning', name: 'Thunderstorm', icon: '⚡',
-        desc: 'Chains lightning between enemies 10 times.',
-        fuelSource: 'vocab', fuelPerVocab: 14,
-        activate: 'lightning'
     },
     blackhole: {
         id: 'blackhole', name: 'Black Hole', icon: '🌀',
