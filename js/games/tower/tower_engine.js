@@ -44,7 +44,7 @@ export class TowerEngine {
         this.attackCooldown = 0;
         
         this.targetMode = 'closest';
-        this.buffs = { barrage: 0, aegis: 0 };
+        this.buffs = { barrage: 0, aegis: 0, cashBoost: 0, coinBoost: 0 };
         this.speedMult = 1;
         
         this.runStats = {
@@ -82,7 +82,7 @@ export class TowerEngine {
         this.explosions =[];
         this.state = 'IDLE';
         this.attackCooldown = 0;
-        this.buffs = { barrage: 0, aegis: 0 };
+        this.buffs = { barrage: 0, aegis: 0, cashBoost: 0, coinBoost: 0 };
         this.runStats = { 
             dmgDealt: 0, dmgTakenBoss: 0, dmgTakenBasic: 0,
             dmgBase: 0, dmgCrit: 0, dmgSplash: 0, dmgThorns: 0, dmgAbility: 0
@@ -113,6 +113,17 @@ export class TowerEngine {
     }
 
     activateUltWeapon(type) {
+        if (type === 'cashBoost') {
+            this.buffs.cashBoost = 15.0;
+            this.spawnFloatText('💰 CASH SURGE! ×5', '#f1c40f', true);
+            this._flashScreen('rgba(241,196,15,0.3)');
+            return;
+        } else if (type === 'coinBoost') {
+            this.buffs.coinBoost = 15.0;
+            this.spawnFloatText('🪙 COIN SURGE! ×5', '#00ffff', true);
+            this._flashScreen('rgba(0,255,255,0.25)');
+            return;
+        }
         if (type === 'orbital') {
             // Massive damage to all enemies
             for (const e of this.enemies) {
@@ -438,6 +449,8 @@ export class TowerEngine {
             this.buffs.barrage -= dt;
             currentAtkSpeed *= 10;
         }
+        if (this.buffs.cashBoost > 0) this.buffs.cashBoost -= dt;
+        if (this.buffs.coinBoost > 0) this.buffs.coinBoost -= dt;
 
         this.attackCooldown -= dt;
         if (this.attackCooldown <= 0 && this.enemies.length > 0) {
@@ -901,5 +914,62 @@ export class TowerEngine {
         this.ctx.globalAlpha = 1.0;
 
         this.ctx.restore();
+
+        // ── Active buff overlays (screen-space, drawn after zoom restore) ──────
+        if (this.buffs.cashBoost > 0) {
+            const pulse = 0.13 + 0.07 * Math.abs(Math.sin(time / 280));
+            const grad = this.ctx.createLinearGradient(0, this.canvas.height, 0, 0);
+            grad.addColorStop(0,   `rgba(241,196,15,${pulse * 2.2})`);
+            grad.addColorStop(0.35,`rgba(241,196,15,${pulse})`);
+            grad.addColorStop(1,   `rgba(241,196,15,0)`);
+            this.ctx.fillStyle = grad;
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+            // Pulsing gold border
+            const borderAlpha = 0.45 + 0.35 * Math.abs(Math.sin(time / 280));
+            this.ctx.strokeStyle = `rgba(241,196,15,${borderAlpha})`;
+            this.ctx.lineWidth = 5;
+            this.ctx.strokeRect(3, 3, this.canvas.width - 6, this.canvas.height - 6);
+
+            // Countdown badge bottom-right
+            const secs = Math.ceil(Math.max(0, this.buffs.cashBoost));
+            this.ctx.fillStyle = 'rgba(0,0,0,0.65)';
+            this.ctx.beginPath();
+            this.ctx.roundRect(this.canvas.width - 80, this.canvas.height - 30, 74, 24, 5);
+            this.ctx.fill();
+            this.ctx.fillStyle = '#f1c40f';
+            this.ctx.font = 'bold 12px monospace';
+            this.ctx.textAlign = 'right';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.fillText(`\u{1F4B0}\u00D75  ${secs}s`, this.canvas.width - 9, this.canvas.height - 18);
+        }
+
+        if (this.buffs.coinBoost > 0) {
+            const pulse = 0.10 + 0.06 * Math.abs(Math.sin(time / 260 + 1.5));
+            const grad = this.ctx.createLinearGradient(0, 0, 0, this.canvas.height);
+            grad.addColorStop(0,   `rgba(0,255,255,${pulse * 2.2})`);
+            grad.addColorStop(0.35,`rgba(0,255,255,${pulse})`);
+            grad.addColorStop(1,   `rgba(0,255,255,0)`);
+            this.ctx.fillStyle = grad;
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+            // Pulsing cyan border
+            const borderAlpha = 0.40 + 0.35 * Math.abs(Math.sin(time / 260 + 1.5));
+            this.ctx.strokeStyle = `rgba(0,255,255,${borderAlpha})`;
+            this.ctx.lineWidth = 5;
+            this.ctx.strokeRect(3, 3, this.canvas.width - 6, this.canvas.height - 6);
+
+            // Countdown badge top-right
+            const secs = Math.ceil(Math.max(0, this.buffs.coinBoost));
+            this.ctx.fillStyle = 'rgba(0,0,0,0.65)';
+            this.ctx.beginPath();
+            this.ctx.roundRect(this.canvas.width - 80, 7, 74, 24, 5);
+            this.ctx.fill();
+            this.ctx.fillStyle = '#00ffff';
+            this.ctx.font = 'bold 12px monospace';
+            this.ctx.textAlign = 'right';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.fillText(`\u{1FA99}\u00D75  ${secs}s`, this.canvas.width - 9, 19);
+        }
     }
 }

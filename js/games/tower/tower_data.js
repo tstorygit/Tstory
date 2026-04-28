@@ -302,7 +302,7 @@ export function getMultiBuy(category, id, startLvl, requestMode, currentCurrency
 //             'wave'  → fills after each wave completes (fuelPerWave per wave)
 // Purchase cost increases with each buy (scalingCoins / scalingGems per purchase).
 export const ULTIMATE_WEAPONS = {
-    // ── Vocab-charged (former abilities) ────────────────────────────────────
+    // ── All vocab-charged ────────────────────────────────────────────────────
     barrage: {
         id: 'barrage', name: 'Barrage', icon: '🔥',
         desc: 'Supercharges attack speed for 5 seconds.',
@@ -313,7 +313,7 @@ export const ULTIMATE_WEAPONS = {
     nova: {
         id: 'nova', name: 'Nova', icon: '💥',
         desc: 'Instantly wipes all enemies from the screen.',
-        fuelSource: 'vocab', fuelPerVocab: 20,
+        fuelSource: 'vocab', fuelPerVocab: 15,
         baseCostCoins: 0, baseCostGems: 0, scalingCoins: 0, scalingGems: 0,
         activate: 'nova'
     },
@@ -324,39 +324,52 @@ export const ULTIMATE_WEAPONS = {
         baseCostCoins: 0, baseCostGems: 0, scalingCoins: 0, scalingGems: 0,
         activate: 'aegis'
     },
-    // ── Wave-charged (purchasable) ───────────────────────────────────────────
+    cashBoost: {
+        id: 'cashBoost', name: 'Cash Surge', icon: '💰',
+        desc: 'All cash earned ×5 for 15 seconds.',
+        fuelSource: 'vocab', fuelPerVocab: 14,
+        baseCostCoins: 0, baseCostGems: 0, scalingCoins: 0, scalingGems: 0,
+        activate: 'cashBoost', duration: 15
+    },
+    coinBoost: {
+        id: 'coinBoost', name: 'Coin Surge', icon: '🪙',
+        desc: 'All coins earned ×5 for 15 seconds.',
+        fuelSource: 'vocab', fuelPerVocab: 14,
+        baseCostCoins: 0, baseCostGems: 0, scalingCoins: 0, scalingGems: 0,
+        activate: 'coinBoost', duration: 15
+    },
     orbital: {
         id: 'orbital', name: 'Orbital Strike', icon: '☄️',
         desc: 'Deals massive damage to all enemies on screen.',
-        fuelSource: 'wave', fuelPerWave: 12,
+        fuelSource: 'vocab', fuelPerVocab: 10,
         baseCostCoins: 500, baseCostGems: 10, scalingCoins: 300, scalingGems: 5,
         activate: 'orbital'
     },
     blizzard: {
         id: 'blizzard', name: 'Arctic Blizzard', icon: '❄️',
         desc: 'Freezes all enemies for 3 seconds and deals damage.',
-        fuelSource: 'wave', fuelPerWave: 10,
+        fuelSource: 'vocab', fuelPerVocab: 12,
         baseCostCoins: 600, baseCostGems: 12, scalingCoins: 350, scalingGems: 6,
         activate: 'blizzard'
     },
     plague: {
         id: 'plague', name: 'Plague Cloud', icon: '☠️',
         desc: 'Poisons all enemies, dealing damage over 5 seconds.',
-        fuelSource: 'wave', fuelPerWave: 9,
+        fuelSource: 'vocab', fuelPerVocab: 12,
         baseCostCoins: 700, baseCostGems: 15, scalingCoins: 400, scalingGems: 8,
         activate: 'plague'
     },
     lightning: {
         id: 'lightning', name: 'Thunderstorm', icon: '⚡',
         desc: 'Chains lightning between enemies 10 times.',
-        fuelSource: 'wave', fuelPerWave: 15,
+        fuelSource: 'vocab', fuelPerVocab: 14,
         baseCostCoins: 400, baseCostGems: 8, scalingCoins: 250, scalingGems: 4,
         activate: 'lightning'
     },
     blackhole: {
         id: 'blackhole', name: 'Black Hole', icon: '🌀',
         desc: 'Pulls all enemies to the center and crushes them.',
-        fuelSource: 'wave', fuelPerWave: 7,
+        fuelSource: 'vocab', fuelPerVocab: 10,
         baseCostCoins: 1000, baseCostGems: 25, scalingCoins: 600, scalingGems: 12,
         activate: 'blackhole'
     }

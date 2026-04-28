@@ -480,8 +480,9 @@ export function init(screens, onExit) {    _screens = screens;
                 </div>
             </div>
 
-            <div id="tw-death-screen" class="tw-screen tw-modal" style="display:none; position:absolute; inset:0; z-index:1000; padding:15px; overflow-y:auto;">
-                <h1 style="color:#e74c3c; margin-bottom:5px; margin-top:20px;">Run Ended</h1>
+            <div id="tw-death-screen" style="display:none; position:absolute; inset:0; z-index:1000; background:rgba(5,5,16,0.97); overflow-y:auto; flex-direction:column; align-items:center; padding:20px 16px 40px;">
+                <div style="width:100%; max-width:520px; display:flex; flex-direction:column; align-items:center; text-align:center;">
+                <h1 style="color:#e74c3c; margin-bottom:5px; margin-top:10px;">Run Ended</h1>
                 <div style="font-size:18px; color:#00ffff; margin-bottom:10px;">Reached Wave <span id="tw-ds-wave"></span></div>
                 
                 <div style="display:flex; gap:10px; margin: 10px 0; width:100%; max-width:600px;">
@@ -525,6 +526,7 @@ export function init(screens, onExit) {    _screens = screens;
                 </div>
 
                 <button id="tw-death-return" class="tw-play-btn" style="width:200px;">Return to Hub</button>
+                </div>
             </div>
 
             <div id="tw-end-run-modal" class="tw-modal" style="display:none; position:absolute; inset:0; z-index:1000;">
@@ -806,7 +808,8 @@ export function init(screens, onExit) {    _screens = screens;
     _engine = new TowerEngine(_screens.game.querySelector('#tw-canvas'), {
         onHpUpdate: () => _updateRunHUD(),
         onEnemyKill: (cash, x, y, type) => {
-            _run.cash += cash;
+            const cashBoostMult = (_engine.buffs && _engine.buffs.cashBoost > 0) ? 5 : 1;
+            _run.cash += cash * cashBoostMult;
             
             // Coin drops scale with wave and difficulty so drops stay relevant all game.
             const coinMult = (_engine.stats.coinBonus || 1) * (1 + (_save.lab.levels.coinYield || 0) * 0.1);
@@ -837,7 +840,8 @@ export function init(screens, onExit) {    _screens = screens;
             }
             
             if (coinDrop > 0) {
-                let finalDrop = Math.floor(coinDrop * coinMult);
+                const coinBoostMult = (_engine.buffs && _engine.buffs.coinBoost > 0) ? 5 : 1;
+                let finalDrop = Math.floor(coinDrop * coinMult * coinBoostMult);
                 if (finalDrop < 1) finalDrop = 1;
                 _run.earnedCoinsDrops += finalDrop;
                 _engine.spawnFloatText(`+${fmt(finalDrop)} 🪙`, '#f1c40f', false, x, y - 20);
@@ -858,8 +862,9 @@ export function init(screens, onExit) {    _screens = screens;
             // coinBonus and labYield apply to the full wave payout (base + flat add together)
             const coinBonus = _engine.stats.coinBonus || 1;
             const labYield  = 1 + (_save.lab.levels.coinYield || 0) * 0.1;
+            const coinBoostMult = (_engine.buffs && _engine.buffs.coinBoost > 0) ? 5 : 1;
             let waveBaseCoins = (_run.wave * _run.diff * 2);
-            let waveCoins = Math.floor((waveBaseCoins + (_engine.stats.coinsWave || 0)) * coinBonus * labYield);
+            let waveCoins = Math.floor((waveBaseCoins + (_engine.stats.coinsWave || 0)) * coinBonus * labYield * coinBoostMult);
             
             _run.earnedCoinsWave += waveCoins;
             _updateQuest('earn_coins', waveCoins);
@@ -1964,24 +1969,23 @@ function _renderWorkshopWeapons() {
 
     const header = document.createElement('div');
     header.style.cssText = 'padding:10px 10px 4px; font-size:11px; color:#aaa; line-height:1.6;';
-    header.innerHTML = `<b style="color:#f1c40f;">⚔️ Ultimate Weapons</b> — Powerful one-use abilities during battle.<br>
-        Icons appear on the right side of the battlefield. Click when the fuel bar is full to activate.<br>
-        <span style="color:#9b59b6;">📖 Vocab weapons</span> fill from correct answers. 
-        <span style="color:#00a8ff;">🌊 Wave weapons</span> fill after each wave.`;
+    header.innerHTML = `<b style="color:#f1c40f;">⚔️ Ultimate Weapons</b> — Powerful abilities during battle.<br>
+        Icons appear on the right side of the battlefield. Click when fully charged to activate.<br>
+        <span style="color:#9b59b6;">📖 All weapons</span> charge from correct vocab answers — each charges independently.`;
     container.appendChild(header);
 
-    // Section: Vocab-charged
-    const vocabHeader = document.createElement('div');
-    vocabHeader.style.cssText = 'padding:8px 10px 4px; font-size:10px; font-weight:bold; color:#9b59b6; text-transform:uppercase; letter-spacing:1px;';
-    vocabHeader.textContent = '📖 Vocab-Charged — Always Available';
-    container.appendChild(vocabHeader);
+    // Section: Free vocab-charged (always available)
+    const freeHeader = document.createElement('div');
+    freeHeader.style.cssText = 'padding:8px 10px 4px; font-size:10px; font-weight:bold; color:#9b59b6; text-transform:uppercase; letter-spacing:1px;';
+    freeHeader.textContent = '📖 Vocab-Charged — Always Available';
+    container.appendChild(freeHeader);
 
-    const vocabGrid = document.createElement('div');
-    vocabGrid.className = 'tw-ult-ws-grid';
+    const freeGrid = document.createElement('div');
+    freeGrid.className = 'tw-ult-ws-grid';
 
     for (const id in ULTIMATE_WEAPONS) {
         const def = ULTIMATE_WEAPONS[id];
-        if (def.fuelSource !== 'vocab') continue;
+        if (def.baseCostCoins !== 0) continue; // skip purchasable ones
 
         const card = document.createElement('div');
         card.className = 'tw-ult-ws-card owned';
@@ -1993,22 +1997,22 @@ function _renderWorkshopWeapons() {
                 <div class="tw-ult-ws-meta">📖 +${def.fuelPerVocab}% fuel per correct vocab answer</div>
             </div>
         `;
-        vocabGrid.appendChild(card);
+        freeGrid.appendChild(card);
     }
-    container.appendChild(vocabGrid);
+    container.appendChild(freeGrid);
 
-    // Section: Wave-charged (purchasable)
-    const waveHeader = document.createElement('div');
-    waveHeader.style.cssText = 'padding:8px 10px 4px; font-size:10px; font-weight:bold; color:#00a8ff; text-transform:uppercase; letter-spacing:1px; margin-top:6px;';
-    waveHeader.textContent = '🌊 Wave-Charged — Purchase to Unlock';
-    container.appendChild(waveHeader);
+    // Section: Purchasable vocab-charged
+    const buyHeader = document.createElement('div');
+    buyHeader.style.cssText = 'padding:8px 10px 4px; font-size:10px; font-weight:bold; color:#f1c40f; text-transform:uppercase; letter-spacing:1px; margin-top:6px;';
+    buyHeader.textContent = '📖 Vocab-Charged — Purchase to Unlock';
+    container.appendChild(buyHeader);
 
-    const waveGrid = document.createElement('div');
-    waveGrid.className = 'tw-ult-ws-grid';
+    const buyGrid = document.createElement('div');
+    buyGrid.className = 'tw-ult-ws-grid';
 
     for (const id in ULTIMATE_WEAPONS) {
         const def = ULTIMATE_WEAPONS[id];
-        if (def.fuelSource !== 'wave') continue;
+        if (def.baseCostCoins === 0) continue; // skip free ones
 
         const timesBought = _save.ultWeapons.purchases[id] || 0;
         const isOwned = !!_save.ultWeapons.owned[id];
@@ -2022,7 +2026,7 @@ function _renderWorkshopWeapons() {
             <div class="tw-ult-ws-info">
                 <div class="tw-ult-ws-name">${def.name} ${isOwned ? '<span style="color:#f1c40f; font-size:10px;">✦ UNLOCKED</span>' : ''}</div>
                 <div class="tw-ult-ws-desc">${def.desc}</div>
-                <div class="tw-ult-ws-meta">🌊 +${def.fuelPerWave}% fuel per wave${timesBought > 0 ? ` &nbsp;•&nbsp; Bought: ${timesBought}×` : ''}</div>
+                <div class="tw-ult-ws-meta">📖 +${def.fuelPerVocab}% fuel per correct vocab answer${timesBought > 0 ? ` &nbsp;•&nbsp; Bought: ${timesBought}×` : ''}</div>
             </div>
             <button class="tw-ult-ws-buy" ${canAfford ? '' : 'disabled'}>
                 🪙 ${fmt(cost.coins)}<br>💎 ${fmt(cost.gems)}
@@ -2041,9 +2045,9 @@ function _renderWorkshopWeapons() {
             }
         };
 
-        waveGrid.appendChild(card);
+        buyGrid.appendChild(card);
     }
-    container.appendChild(waveGrid);
+    container.appendChild(buyGrid);
 }
 
 function _renderLab() {
@@ -2401,21 +2405,17 @@ function _openVocabPanel() {
                     _save.stats.wordsMastered.push(wordObj.kanji);
                 }
 
-                let chargeAmt = 20;
-                if (_save.relics.includes(3)) chargeAmt = 30;
-                _run.abilityCharge = Math.min(100, _run.abilityCharge + chargeAmt);
-                _updateAbilitiesUI();
+                _tickUltFuelOnVocab();
 
                 let comboMult = 1;
                 if (_run.combo >= 10) comboMult = 3;
                 else if (_run.combo >= 5) comboMult = 2;
                 else if (_run.combo >= 3) comboMult = 1.5;
-
+                
                 const gain = 1 * comboMult;
                 _run.knowledgeStacks += gain;
                 _engine.spawnFloatText(`+${gain} Knowledge!`, '#2ecc71', true);
                 _run.vocabBuffer = (_run.vocabBuffer || 0) + 1;
-            } else {
                 _run.combo = 0;
                 _engine.spawnFloatText('Missed Buff...', '#e74c3c', true);
                 if (wordObj) {
@@ -2564,10 +2564,7 @@ function _startNextWave() {
                         _save.stats.wordsMastered.push(wordObj.kanji);
                     }
 
-                    let chargeAmt = 20;
-                    if (_save.relics.includes(3)) chargeAmt = 30;
-                    _run.abilityCharge = Math.min(100, _run.abilityCharge + chargeAmt);
-                    _updateAbilitiesUI();
+                    _tickUltFuelOnVocab();
 
                     let comboMult = 1;
                     if (_run.combo >= 10) comboMult = 3;
@@ -2640,10 +2637,7 @@ function _startNextWave() {
                     _save.stats.wordsMastered.push(wordObj.kanji);
                 }
                 
-                let chargeAmt = 20;
-                if (_save.relics.includes(3)) chargeAmt = 30; 
-                _run.abilityCharge = Math.min(100, _run.abilityCharge + chargeAmt);
-                _updateAbilitiesUI();
+                _tickUltFuelOnVocab();
 
                 let comboMult = 1;
                 if (_run.combo >= 10) comboMult = 3;
@@ -2765,6 +2759,7 @@ function _handleDeath() {
     }
 
     deathScreen.style.display = 'flex';
+    deathScreen.style.flexDirection = 'column';
     
     const returnBtn = deathScreen.querySelector('#tw-death-return');
     returnBtn.onclick = () => {
@@ -2820,14 +2815,21 @@ function _updateRunHUD() {
     }
 }
 
-function _updateAbilitiesUI() {
-    // Vocab-fueled weapons (barrage/nova/aegis) are now in the ult overlay.
-    // Charge their fuel from _run.abilityCharge for backwards-compat, then sync.
+function _tickUltFuelOnVocab() {
     if (!_run.ultFuel) _run.ultFuel = {};
-    const vocabWeapons = ['barrage', 'nova', 'aegis'];
-    for (const id of vocabWeapons) {
-        _run.ultFuel[id] = _run.abilityCharge; // shared charge → all three fill equally
+    const relicMult = (_save && _save.relics.includes(3)) ? 1.5 : 1;
+    for (const id in ULTIMATE_WEAPONS) {
+        const def = ULTIMATE_WEAPONS[id];
+        if (def.fuelSource === 'vocab') {
+            const gain = def.fuelPerVocab * relicMult;
+            _run.ultFuel[id] = Math.min(100, (_run.ultFuel[id] || 0) + gain);
+        }
     }
+    _renderUltWeaponsOverlay();
+}
+
+function _updateAbilitiesUI() {
+    // Kept for call-site compatibility; individual fuel is now managed via _tickUltFuelOnVocab.
     _renderUltWeaponsOverlay();
 }
 
@@ -2861,16 +2863,18 @@ function _renderUltWeaponsOverlay() {
             const curFuel = _run.ultFuel[id] || 0;
             if (curFuel < 100) return;
 
-            // Reset fuel
+            // Reset only this weapon's fuel
             _run.ultFuel[id] = 0;
-            // For vocab weapons, also reset abilityCharge
-            if (def.fuelSource === 'vocab') {
-                _run.abilityCharge = 0;
-                _updateQuest('use_abilities', 1);
+            _updateQuest('use_abilities', 1);
+
+            // Legacy trio uses activateAbility; all others use activateUltWeapon
+            const legacyAbilities = ['barrage', 'nova', 'aegis'];
+            if (legacyAbilities.includes(id)) {
                 if (_engine) _engine.activateAbility(def.activate);
             } else {
                 if (_engine) _engine.activateUltWeapon(def.activate);
             }
+
             _renderUltWeaponsOverlay();
             _saveRunSnapshot();
         });
