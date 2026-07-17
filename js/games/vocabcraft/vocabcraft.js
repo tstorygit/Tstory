@@ -2,6 +2,7 @@ import { mountVocabSelector } from '../../vocab_selector.js';
 import { GameVocabManager } from '../../game_vocab_mgr.js';
 import { loadMeta, saveMeta, addXP, resetSkills, SKILL_DEFS, getDefaultSave,
          clearStage, highestDifficultyCleared, isStageCleared, isStageUnlocked,
+         difficultyLevelGate,
          getEffectiveSkills, recordStageXP, getStageXPBudget, XP_ALL_MODS_MULT,
          RUN_MODIFIERS, combinedXpMult,
          getEndlessBest, recordEndlessResult, ENDLESS_XP_CAP_FRAC,
@@ -981,8 +982,14 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
 
     // ── Difficulty selector ──────────────────────────────────────────────────
     let selectedD = (() => {
-        // Default to highest cleared+1, or 1
-        for (let d = 18; d >= 1; d--) if (isStageCleared(_meta, tpl.id, d)) return Math.min(18, d + 1);
+        // Default to highest cleared+1 if it's actually playable (the wizard-level
+        // gate may lock it), otherwise the highest cleared difficulty, or 1.
+        for (let d = 18; d >= 1; d--) {
+            if (isStageCleared(_meta, tpl.id, d)) {
+                const next = Math.min(18, d + 1);
+                return (isStageUnlocked(_meta, tpl.id, next) || _debugUnlockAll) ? next : d;
+            }
+        }
         return 1;
     })();
 
@@ -991,14 +998,23 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
     diffSection.innerHTML = `<div style="font-size:10px;font-weight:bold;color:#f1c40f;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">⚔️ Select Difficulty</div>`;
     const dotsWrap = document.createElement('div');
     dotsWrap.style.cssText = 'display:flex;gap:5px;flex-wrap:wrap;';
+    // Caption under the dots explaining the first level-locked difficulty.
+    const gateHint = document.createElement('div');
+    gateHint.style.cssText = 'font-size:10px;color:#b8860b;margin-top:5px;min-height:12px;';
 
     function renderDots() {
         dotsWrap.innerHTML = '';
+        let gateHintText = '';
         for (let d = 1; d <= 18; d++) {
             const cleared        = isStageCleared(_meta, tpl.id, d);
             const unlockedActual = isStageUnlocked(_meta, tpl.id, d);
             const unlocked       = unlockedActual || _debugUnlockAll;
             const isSelected     = d === selectedD;
+            // Distinguish the two lock reasons: previous difficulty not cleared
+            // vs wizard level below the difficulty gate.
+            const prevCleared    = d === 1 || isStageCleared(_meta, tpl.id, d - 1);
+            const gate           = difficultyLevelGate(d);
+            const levelLocked    = !unlockedActual && prevCleared && (_meta.level || 1) < gate;
             const dot = document.createElement('div');
             dot.style.cssText = [
                 'width:32px', 'height:32px', 'border-radius:6px', 'flex-shrink:0',
@@ -1008,9 +1024,14 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
                 cleared          ? 'background:#1a5e36;border-color:#2ecc71;color:#2ecc71;cursor:pointer;' :
                 unlockedActual   ? 'background:#1a252f;border-color:#3498db;color:#3498db;cursor:pointer;' :
                 _debugUnlockAll  ? 'background:#3d1a5e;border-color:#8e44ad;color:#c39bd3;cursor:pointer;' :
+                levelLocked      ? 'background:#241c04;border-color:#7a5c00;color:#b8860b;cursor:default;opacity:0.75;' :
                                    'background:#111;border-color:#333;color:#444;cursor:default;opacity:0.4;'
             ].join(';');
             dot.textContent = d;
+            if (levelLocked && !_debugUnlockAll) {
+                dot.title = `Requires Wizard Lv ${gate} (you are Lv ${_meta.level || 1})`;
+                if (!gateHintText) gateHintText = `🔒 D${d} unlocks at Wizard Lv ${gate} — you are Lv ${_meta.level || 1}`;
+            }
             if (unlocked) {
                 dot.addEventListener('click', e => {
                     e.stopPropagation();
@@ -1021,8 +1042,10 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
             }
             dotsWrap.appendChild(dot);
         }
+        gateHint.textContent = gateHintText;
     }
     diffSection.appendChild(dotsWrap);
+    diffSection.appendChild(gateHint);
     // diffSection appended after xpPanel below
 
     // ── XP Progress Panel ────────────────────────────────────────────────────

@@ -345,10 +345,59 @@ export function isStageCleared(meta, templateId, difficulty) {
     return !!meta.clearedStages[`${templateId}:${difficulty}`];
 }
 
-/** True if templateId:difficulty is playable (previous difficulty cleared, or D1). */
+/**
+ * Wizard-level gates per difficulty (GemCraft-style world-pass pacing).
+ *
+ * Placement rule: each gate equals the level a player reaches ~75% through a
+ * full base-clear world pass (14 maps) of the PREVIOUS difficulty, so the next
+ * difficulty opens "towards the end" of the current pass. Both the stage-XP
+ * budgets (×2.861/D) and the C=1000/p=1.5 level curve are geometric, so the
+ * gates grow by a constant ×~1.52 per difficulty and the ~25% end-of-pass
+ * margin holds at every rank. Grinding run modifiers (up to ×5.90 budget) or
+ * green-tier wave grinding pulls any gate roughly one difficulty earlier.
+ *
+ * Validation (base clears only, no mods):
+ *   full D1 world → Lv 10 ≥ gate(D2)=9;  full D2 world → Lv 17 ≥ gate(D3)=16;
+ *   full D3 world → Lv 27 ≥ gate(D4)=25; full D4 world → Lv 42 ≥ gate(D5)=39; …
+ */
+const DIFFICULTY_LEVEL_GATES = [
+    0,     // D1  — always open
+    9,     // D2
+    16,    // D3
+    25,    // D4
+    39,    // D5
+    59,    // D6
+    90,    // D7
+    138,   // D8
+    210,   // D9
+    320,   // D10
+    487,   // D11
+    742,   // D12
+    1130,  // D13
+    1721,  // D14
+    2621,  // D15
+    3992,  // D16
+    6080,  // D17
+    9260,  // D18
+];
+
+/** Minimum wizard level required to enter a difficulty (0 = no gate). */
+export function difficultyLevelGate(difficulty) {
+    const d = Math.max(1, Math.min(18, difficulty));
+    return DIFFICULTY_LEVEL_GATES[d - 1];
+}
+
+/**
+ * True if templateId:difficulty is playable.
+ * Requires the previous difficulty cleared on the same map (as before) PLUS
+ * the wizard-level gate for that difficulty. Stages already cleared stay
+ * unlocked regardless of the gate (grandfathering for pre-gate saves).
+ */
 export function isStageUnlocked(meta, templateId, difficulty) {
     if (difficulty === 1) return true;
-    return !!meta.clearedStages[`${templateId}:${difficulty - 1}`];
+    if (isStageCleared(meta, templateId, difficulty)) return true;
+    if (!meta.clearedStages[`${templateId}:${difficulty - 1}`]) return false;
+    return (meta.level || 1) >= difficultyLevelGate(difficulty);
 }
 // ─── Mid-run autosave (last 5 slots) ────────────────────────────────────────
 const MID_RUN_KEY = 'vocabcraft_midrun';
