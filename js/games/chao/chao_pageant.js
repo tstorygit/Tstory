@@ -187,6 +187,7 @@ export class MatsuriPageant {
             } else if (this.judgeAppeal >= 50) {
                 finalMsg = "🏅 A solid effort! The judges nod in approval.";
                 reward = 30;
+                this.stateManager.data.stats.pageantSolidWins = (this.stateManager.data.stats.pageantSolidWins || 0) + 1;
             } else {
                 finalMsg = "😅 Well, they tried their best! Room for improvement!";
             }

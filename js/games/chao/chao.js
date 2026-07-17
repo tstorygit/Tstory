@@ -8,6 +8,7 @@ import { renderNikkiTab } from './chao_nikki_ui.js';
 import { renderMarketTab, MARKET_ITEMS } from './chao_market_ui.js';
 import { renderDebugTab } from './chao_debug_ui.js';
 import { renderStudyTab } from './chao_study_ui.js';
+import { renderTrophyShelf } from './chao_trophy_ui.js';
 import { generateNikkiEntry } from './chao_nikki_mgr.js';
 import { ChaoRace3D } from './chao_race.js';
 import { ChaoKarate3D } from './chao_karate.js';
@@ -182,6 +183,12 @@ function renderSA2StatWindow(chi) {
 function updateUI() {
     if (!_screens || !_state) return;
     _screens.setup.querySelector('#chao-seishin-val').textContent = formatSeishin(_state.data.seishin);
+    const streakEl = _screens.setup.querySelector('#chao-daily-streak');
+    if (streakEl) {
+        const st = (_state.data.daily && _state.data.daily.streak) || 0;
+        streakEl.style.display = st >= 2 ? '' : 'none';
+        streakEl.querySelector('b').textContent = st;
+    }
     const chi = _state.getActiveChi();
     const feedMenu = _screens.setup.querySelector('#feed-menu');
     
@@ -295,6 +302,47 @@ function showCheerQuiz(onResult) {
     });
 }
 
+// ── Daily visit bonus + care streak ─────────────────────────────────────────
+// Day 1: +5 🌸, +2 per consecutive day after that, capped at +25 (day 11+).
+// A missed calendar day resets the streak to 1.
+const DAILY_BONUS_BASE = 5;
+const DAILY_BONUS_STEP = 2;
+const DAILY_BONUS_CAP  = 25;
+
+function localDateStr(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function showDailyBanner(msg) {
+    const renderArea = _screens.setup.querySelector('#cg-render-area');
+    if (!renderArea) return;
+    const old = renderArea.querySelector('.chao-daily-banner');
+    if (old) old.remove();
+    const banner = document.createElement('div');
+    banner.className = 'chao-daily-banner';
+    banner.textContent = msg;
+    renderArea.appendChild(banner);
+    setTimeout(() => { if (banner.isConnected) banner.remove(); }, 6000);
+}
+
+function checkDailyVisitBonus() {
+    const daily = _state.data.daily;
+    const now = new Date();
+    const today = localDateStr(now);
+    if (daily.lastVisitDate === today) return; // already granted today
+
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    daily.streak = (daily.lastVisitDate === localDateStr(yesterday)) ? (daily.streak || 0) + 1 : 1;
+    daily.lastVisitDate = today;
+
+    const bonus = Math.min(DAILY_BONUS_CAP, DAILY_BONUS_BASE + (daily.streak - 1) * DAILY_BONUS_STEP);
+    _state.data.seishin += bonus;
+    _state.data.stats.totalSeishinEarned = (_state.data.stats.totalSeishinEarned || 0) + bonus;
+    _state.save();
+    showDailyBanner(`🌅 Day ${daily.streak} streak: +${bonus} 🌸 Seishin!`);
+}
+
 function awardSeishin(amount, reason) {
     _state.data.seishin += amount;
     _state.data.stats.totalSeishinEarned = (_state.data.stats.totalSeishinEarned || 0) + amount;
@@ -377,6 +425,7 @@ export function init(screens, onExit) {
             
             <div class="chao-header">
                 <div id="global-chi-selector" class="header-chi-selector"></div>
+                <div id="chao-daily-streak" class="chao-daily-streak" title="Daily visit streak" style="display:none;">🌅<b>0</b></div>
                 <div class="chao-currencies">
                     🌸 <span id="chao-seishin-val" style="display:inline-block; min-width:3ch; text-align:right;">0</span>
                 </div>
@@ -404,7 +453,10 @@ export function init(screens, onExit) {
             <div class="chao-screen" id="chao-tab-market"></div>
             
             <div class="chao-screen" id="chao-tab-compete">
-                <h3 style="margin-top:0; margin-bottom:10px;">Competitions</h3>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-shrink:0;">
+                    <h3 style="margin:0;">Competitions</h3>
+                    <button id="btn-show-trophies" class="chao-action-btn" style="margin:0; padding:6px 12px; font-size:13px; background:#f1fa8c; color:#282a36;">🏆 Trophies</button>
+                </div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px; flex-shrink: 0;">
                     <button id="btn-start-pageant" class="chao-action-btn" style="margin:0; padding:8px;">🎭 Pageant</button>
                     <button id="btn-start-race" class="chao-action-btn" style="margin:0; padding:8px;">🏁 Race</button>
@@ -477,6 +529,13 @@ export function init(screens, onExit) {
 
     const minigameContainer = _screens.setup.querySelector('#chao-minigame-container');
 
+    _screens.setup.querySelector('#btn-show-trophies').addEventListener('click', () => {
+        if (_race3D) { _race3D.destroy(); _race3D = null; }
+        if (_karate3D) { _karate3D.destroy(); _karate3D = null; }
+        if (_pageant3D) { _pageant3D.destroy(); _pageant3D = null; }
+        renderTrophyShelf(minigameContainer, _state);
+    });
+
     _screens.setup.querySelector('#btn-start-pageant').addEventListener('click', () => {
         if (_race3D) { _race3D.destroy(); _race3D = null; }
         if (_karate3D) { _karate3D.destroy(); _karate3D = null; }
@@ -534,6 +593,10 @@ export function init(screens, onExit) {
 
                     if (place === 1) {
                         _state.data.stats.totalRacesWon = (_state.data.stats.totalRacesWon || 0) + 1;
+                    } else if (place === 2) {
+                        _state.data.stats.raceSilver = (_state.data.stats.raceSilver || 0) + 1;
+                    } else if (place === 3) {
+                        _state.data.stats.raceBronze = (_state.data.stats.raceBronze || 0) + 1;
                     }
                     awardSeishin(reward, place === 1 ? '🥇 Race won!' : `${medal} Finished ${place}/${total}!`);
 
@@ -676,6 +739,10 @@ export function launch() {
     if (earned > 0) {
         showToast(`Earned ${formatSeishin(earned)} Seishin from studying!`);
     }
+
+    // First launch of the calendar day: grant the visit bonus (garden banner,
+    // separate from the toast so the two never overwrite each other).
+    checkDailyVisitBonus();
 
     if (_state.data.chis.length === 0) {
         _state.data.chis.push(createNewChi('Pochi'));

@@ -1,5 +1,5 @@
 import { SKILL_DEFS } from './vc_meta.js';
-import { buildWaveEnemies, ENEMY_TYPES } from './vc_enemies.js';
+import { buildWaveEnemies, ENEMY_TYPES, killManaBase } from './vc_enemies.js';
 
 export const GEMS = {
     red:    { label: 'Ruby',     color: '#e74c3c', type: 'dmg',   baseDmg: 18, speed: 1.5 },
@@ -180,6 +180,11 @@ export class VcEngine {
             wave: 0,
             maxWaves: baseWaves + bonusWaves + extraWaves,
             status: 'planning',
+            // Endless mode: set after the final wave is cleared and the player
+            // chooses to keep going. Suppresses the victory check and gates the
+            // in-run XP bonuses (endless pays a capped record bonus at run end
+            // instead — see vc_meta.recordEndlessResult).
+            endless: false,
             combo: 0,
             comboDecayTimer: 0,  // seconds since last kill — combo decays after 5s
             xpEarned: 0,
@@ -318,7 +323,8 @@ export class VcEngine {
             return;
         }
 
-        if (this.state.wave >= this.state.maxWaves && this.enemies.length === 0 && this.spawnQueue.length === 0) {
+        if (!this.state.endless
+                && this.state.wave >= this.state.maxWaves && this.enemies.length === 0 && this.spawnQueue.length === 0) {
             this.state.status = 'gameover';
             this.onGameOver(true, this.state.xpEarned);
             return;
@@ -331,10 +337,20 @@ export class VcEngine {
                 && this.enemies.length === 0) {
             this._lastClearedWave = this.state.wave;
             if (!this.state._waveLeaked) {
-                // Perfect-wave bonus: equivalent to ~2 normal kills on that wave
-                const bonus = Math.round(XP_BASE * this.difficulty * Math.log2(this.state.wave + 1) * 2);
-                this.state.xpEarned += bonus;
+                // Perfect-wave bonus: equivalent to ~2 normal kills on that wave.
+                // Endless waves pay no in-run XP — endless rewards are the capped
+                // record bonus settled at run end (no infinite XP farming).
+                const bonus = this.state.endless
+                    ? 0
+                    : Math.round(XP_BASE * this.difficulty * Math.log2(this.state.wave + 1) * 2);
+                if (bonus > 0) this.state.xpEarned += bonus;
                 this._tickEvents.push({ type: 'waveClear', bonus });
+            }
+            // Boss Chest: every boss wave (5th in the rhythm) that fully clears
+            // spawns a non-blocking chest offer. The final wave of a normal run
+            // never reaches this (the victory check above returns first).
+            if (this.state.wave % 5 === 0) {
+                this._tickEvents.push({ type: 'bossChest', wave: this.state.wave });
             }
         }
 
@@ -393,6 +409,12 @@ export class VcEngine {
         this._nextSpawnDelay = maxDelay + 1.5;
         // Track total enemies spawned this wave for early-call bonus calculation
         this.state._waveEnemyCount = entries.length;
+
+        // Per-wave DPS baseline for the structure inspection panel — one pass
+        // per wave start, zero per-frame cost. Runtime-only, never saved.
+        for (const st of this.structures) {
+            st._waveDmgStart = st.stats ? st.stats.totalDmg : 0;
+        }
     }
 
     updateSpawns(dt) {
@@ -425,6 +447,14 @@ export class VcEngine {
                     if (e.effects.poisonTick <= 0) {
                         e.hp -= e.effects.poison;
                         e.effects.poisonTick += 1.0;
+                        // Credit the actual DoT damage (and a potential kill) to the
+                        // structure that applied the poison. Plain field writes —
+                        // no allocations on this hot path.
+                        const psrc = e.effects.poisonSrc;
+                        if (psrc && psrc.stats) {
+                            psrc.stats.totalDmg += e.effects.poison;
+                            e._lastHitSrc = psrc;
+                        }
                     }
                 }
             }
@@ -485,6 +515,11 @@ export class VcEngine {
                 // late game where gem costs double per level.
                 this.state.mana += (e.manaValue || 10) * (e.rewardMult || 1) * (this.buffs.poolMult || 1);
                 this.state.xpEarned += enemyXpValue(e);
+                // Kill credit for the structure that landed the last hit
+                // (direct hit or poison tick). Runtime-only stat, never saved.
+                if (e._lastHitSrc && e._lastHitSrc.stats) {
+                    e._lastHitSrc.stats.kills = (e._lastHitSrc.stats.kills || 0) + 1;
+                }
                 this.state.combo++;
                 this.state.comboDecayTimer = 0;
                 // no_combo modifier: combo resets every 3 kills instead of on leak
@@ -775,6 +810,7 @@ export class VcEngine {
                     enemy.effects.poisonTimer = 5.0;
                     enemy.effects.poisonTick = 1.0;
                     enemy.effects.lastHit = 'poison';
+                    enemy.effects.poisonSrc = source || null; // DoT kill/damage attribution
                     if (source?.stats) source.stats.poisonDealt += pDmg * 5.0;
                 }
                 break;
@@ -802,7 +838,10 @@ export class VcEngine {
             enemy.effects.flashTimer = 0.18;
             enemy.effects.flashColor = 'crit';
         }
-        if (source?.stats) source.stats.totalDmg += Math.floor(finalDmg);
+        if (source?.stats) {
+            source.stats.totalDmg += Math.floor(finalDmg);
+            enemy._lastHitSrc = source; // kill attribution — plain field write, no alloc
+        }
 
         // Shields absorb damage before HP. Armor still applies (shield is a pure HP buffer).
         // Poison bypasses shields (it's already applied directly to HP in updateEnemies).
@@ -831,7 +870,7 @@ export class VcEngine {
         const cost = type === 'tower' ? towerCost(count, this.meta.skills) : trapCost(count, this.meta.skills);
         if (this.state.mana >= cost) {
             this.state.mana -= cost;
-            this.structures.push({ x, y, type, gem: null, stats: { manaLeeched: 0, poisonDealt: 0, slowApplied: 0, armorTorn: 0, critHits: 0, totalDmg: 0 } });
+            this.structures.push({ x, y, type, gem: null, stats: { manaLeeched: 0, poisonDealt: 0, slowApplied: 0, armorTorn: 0, critHits: 0, totalDmg: 0, kills: 0 } });
             return true;
         }
         return false;
@@ -845,5 +884,24 @@ export class VcEngine {
     }
     getGemUpgradeCost(color, level) {
         return gemUpgradeCost(color, level, this.meta.skills);
+    }
+
+    /**
+     * Boss Chest payout (called by the UI after the chest quiz resolves).
+     * All correct → full mana bonus (≈10 normal kill bounties on that wave,
+     * pool-scaled) + a small XP topper; partial → half-rate proportional mana,
+     * no XP. In endless mode the XP part is suppressed — endless pays only the
+     * capped record bonus at run end, never in-run XP.
+     */
+    grantChestReward(correct, total, waveNum) {
+        const frac = total > 0 ? Math.max(0, Math.min(1, correct / total)) : 0;
+        const base = killManaBase(waveNum, this.difficulty) * 10 * (this.buffs.poolMult || 1);
+        const mana = frac >= 1 ? Math.round(base) : Math.round(base * frac * 0.5);
+        const xp   = (frac >= 1 && !this.state.endless)
+            ? Math.round(XP_BASE * this.difficulty * Math.log2(waveNum + 1) * 3)
+            : 0;
+        if (mana > 0) this.state.mana += mana;
+        if (xp > 0) this.state.xpEarned += xp;
+        this._tickEvents.push({ type: 'chestReward', mana, xp, correct, total });
     }
 }

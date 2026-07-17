@@ -538,7 +538,8 @@ export class VcUI {
         const enrageBtn = this.topBar.waves.querySelector('#vc-btn-enrage-wave');
 
         startBtn.onclick = () => {
-            if (this.engine.state.status === 'playing' && this.engine.state.wave < this.engine.state.maxWaves) {
+            const s = this.engine.state;
+            if (s.status === 'playing' && (s.wave < s.maxWaves || s.endless)) {
                 this._flashPathTiles();
                 this.engine.spawnWave(false);
                 const icons = this.waveIconsContainer.children;
@@ -549,8 +550,10 @@ export class VcUI {
         };
 
         enrageBtn.onclick = () => {
-            if (this.engine.state.status === 'playing' && this.engine.state.wave < this.engine.state.maxWaves) {
+            const s = this.engine.state;
+            if (s.status === 'playing' && (s.wave < s.maxWaves || s.endless)) {
                 const wIdx = this.engine.state.wave;
+                if (s.endless) this._ensureWaveIcon(wIdx);
                 const icon = this.waveIconsContainer.children[wIdx];
                 if (icon) {
                     this.engine.pause();
@@ -581,7 +584,41 @@ export class VcUI {
         this.activateNextWaveIcon(0);
     }
 
+    /**
+     * Non-blocking Boss Chest offer. Tapping pauses the engine and runs a
+     * 3-question quiz through the shared vocab manager (vc_vocab.showChestQuiz);
+     * ignoring it lets it expire when the next wave starts (checked in draw()).
+     */
+    _showChestBanner(wave) {
+        this._removeChestBanner();
+        this._chestForWave = wave;
+        const btn = document.createElement('button');
+        btn.className = 'vc-chest-banner';
+        btn.innerHTML = `🧰 Boss Chest — <span style="font-weight:normal;">answer 3 to open</span>`;
+        btn.onclick = (e) => {
+            e.stopPropagation();
+            btn.disabled = true;
+            const chestWave = this._chestForWave;
+            this._removeChestBanner();
+            this.engine.pause();
+            this.vocab.showChestQuiz(3, (successes, failures) => {
+                this.engine.grantChestReward(successes, successes + failures, chestWave);
+                this.engine.resume();
+            });
+        };
+        document.body.appendChild(btn);
+        this._chestBanner = btn;
+    }
+
+    _removeChestBanner() {
+        if (this._chestBanner) {
+            this._chestBanner.remove();
+            this._chestBanner = null;
+        }
+    }
+
     destroy() {
+        this._removeChestBanner();
         if (this._onResize) {
             window.removeEventListener('resize', this._onResize);
             window.removeEventListener('orientationchange', this._onResize);
@@ -717,12 +754,50 @@ export class VcUI {
     }
 
     activateNextWaveIcon(idx) {
+        // Endless mode: the tracker grows past maxWaves — append icons on demand.
+        if (this.engine.state.endless) this._ensureWaveIcon(idx);
         if (idx < this.waveIconsContainer.children.length) {
             const icon = this.waveIconsContainer.children[idx];
             icon.classList.add('active');
             // Scroll so the newly active icon is visible (handles row overflow)
             icon.scrollIntoView({ block: 'nearest', inline: 'nearest' });
         }
+    }
+
+    /** Append endless wave icons until index idx exists (icon i ↔ wave i+1). */
+    _ensureWaveIcon(idx) {
+        while (this.waveIconsContainer.children.length <= idx) {
+            const waveNum = this.waveIconsContainer.children.length + 1;
+            const icon = document.createElement('div');
+            icon.className = 'vc-wave-icon endless';
+            const meta = getWaveMeta(waveNum, this.engine.difficulty);
+            let flavor = '';
+            if (meta.isBoss)                 { icon.classList.add('boss');  flavor = '👹 BOSS — '; }
+            else if (meta.theme === 'rush')  { icon.classList.add('rush');  flavor = '💨 Rush wave — '; }
+            else if (meta.theme === 'elite') { icon.classList.add('elite'); flavor = '💪 Elite wave — '; }
+            icon.title = `Wave ${waveNum} (Endless) — ${flavor}Tap to Enrage (answer a word)`;
+            const i = waveNum - 1;
+            icon.onclick = () => {
+                if (this.engine.state.status === 'playing' && i === this.engine.state.wave) {
+                    this.engine.pause();
+                    this._showEnrageScreen(icon, i);
+                }
+            };
+            this.waveIconsContainer.appendChild(icon);
+        }
+    }
+
+    /** Switch the wave tracker into endless mode (∞ pill + on-demand icons). */
+    enterEndless() {
+        if (!this._endlessPill) {
+            const pill = document.createElement('div');
+            pill.className = 'vc-endless-pill';
+            pill.textContent = '🌊∞';
+            pill.title = 'Endless mode — waves keep scaling; your victory is already banked';
+            this.topBar.waves.insertBefore(pill, this.waveIconsContainer);
+            this._endlessPill = pill;
+        }
+        this.activateNextWaveIcon(this.engine.state.wave);
     }
 
     // Persist last gem picker selections across vocab failures and successful builds
@@ -1011,10 +1086,18 @@ export class VcUI {
                 break;
         }
 
-        const sts = structRef.stats || { manaLeeched: 0, poisonDealt: 0, slowApplied: 0, armorTorn: 0, critHits: 0, totalDmg: 0 };
+        const sts = structRef.stats || { manaLeeched: 0, poisonDealt: 0, slowApplied: 0, armorTorn: 0, critHits: 0, totalDmg: 0, kills: 0 };
         let specialStatHtml = '';
-        
+
+        // Per-structure combat record: kills, lifetime damage, and DPS over the
+        // current wave (baseline snapshotted in VcEngine.spawnWave).
+        const waveElapsed = this.engine.state._waveStartTime
+            ? (performance.now() - this.engine.state._waveStartTime) / 1000 : 0;
+        const waveDmg = sts.totalDmg - (structRef._waveDmgStart ?? 0);
+        const dpsStr  = waveElapsed > 1 ? fmtN(Math.round(waveDmg / waveElapsed)) + '/s' : '—';
+        specialStatHtml += `<div class="vc-stat-panel-row"><span>☠️ Kills</span><span id="vc-live-kills">${fmtN(sts.kills || 0)}</span></div>`;
         specialStatHtml += `<div class="vc-stat-panel-row"><span>🎯 Total Dmg</span><span id="vc-live-totalDmg">${fmtN(Math.floor(sts.totalDmg))}</span></div>`;
+        specialStatHtml += `<div class="vc-stat-panel-row"><span>📈 DPS (wave)</span><span id="vc-live-waveDps">${dpsStr}</span></div>`;
 
         if (gemDef.type === 'mana') {
             specialStatHtml += `<div class="vc-stat-panel-row"><span>💧 Mana leeched</span><span id="vc-live-manaLeeched">${fmtN(Math.floor(sts.manaLeeched))}</span></div>`;
@@ -1445,6 +1528,17 @@ export class VcUI {
             const sts = this.selectedTile.structRef.stats;
             const s_dmg = this.bottomBar.querySelector('#vc-live-totalDmg');
             if (s_dmg) s_dmg.textContent = fmtN(Math.floor(sts.totalDmg));
+
+            const s_kills = this.bottomBar.querySelector('#vc-live-kills');
+            if (s_kills) s_kills.textContent = fmtN(sts.kills || 0);
+
+            const s_dps = this.bottomBar.querySelector('#vc-live-waveDps');
+            if (s_dps) {
+                const waveElapsed = engineState.state._waveStartTime
+                    ? (performance.now() - engineState.state._waveStartTime) / 1000 : 0;
+                const waveDmg = sts.totalDmg - (this.selectedTile.structRef._waveDmgStart ?? 0);
+                s_dps.textContent = waveElapsed > 1 ? fmtN(Math.round(waveDmg / waveElapsed)) + '/s' : '—';
+            }
             
             const s_mana = this.bottomBar.querySelector('#vc-live-manaLeeched');
             if (s_mana) s_mana.textContent = fmtN(Math.floor(sts.manaLeeched));
@@ -1649,6 +1743,11 @@ export class VcUI {
 
         this._updateEnemyStatWindowInBar(engineState);
 
+        // Boss Chest offer expires as soon as the next wave starts.
+        if (this._chestBanner && engineState.state.wave > this._chestForWave) {
+            this._removeChestBanner();
+        }
+
         // The engine batches all events raised during a tick and flushes them as
         // an ARRAY (see VcEngine._tickEvents). The old code read `eventMsg.type`
         // directly, which never matched on an array — every damage float, mana
@@ -1707,9 +1806,22 @@ export class VcUI {
                 const fl = document.createElement('div');
                 fl.className = 'vc-float';
                 fl.style.cssText = 'left:50%;top:30px;transform:translateX(-50%);font-size:15px;color:#f1c40f;text-shadow:0 0 8px #f39c12,1px 1px 0 #000;';
-                fl.textContent = `✨ Perfect Wave +${fmtN(ev.bonus)} XP`;
+                // Endless waves carry bonus 0 — the run's endless reward is the
+                // capped record bonus settled at run end, not per-wave XP.
+                fl.textContent = ev.bonus > 0 ? `✨ Perfect Wave +${fmtN(ev.bonus)} XP` : '✨ Perfect Wave!';
                 this.gridEl.appendChild(fl);
                 setTimeout(() => fl.remove(), 1200);
+            } else if (ev.type === 'bossChest') {
+                this._showChestBanner(ev.wave);
+            } else if (ev.type === 'chestReward') {
+                const fl = document.createElement('div');
+                fl.className = 'vc-float';
+                fl.style.cssText = 'left:50%;top:64px;transform:translateX(-50%);font-size:15px;color:#f1c40f;text-shadow:0 0 8px #f39c12,1px 1px 0 #000;white-space:nowrap;';
+                fl.textContent = ev.mana > 0
+                    ? `🧰 +${fmtN(ev.mana)} 💧${ev.xp > 0 ? ` · +${fmtN(ev.xp)} XP` : ''}`
+                    : '🧰 The chest stays shut…';
+                this.gridEl.appendChild(fl);
+                setTimeout(() => fl.remove(), 1600);
             } else if (ev.type === 'earlyCall') {
                 const fl = document.createElement('div');
                 fl.className = 'vc-float';

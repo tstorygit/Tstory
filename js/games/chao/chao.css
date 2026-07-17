@@ -167,6 +167,62 @@
 .chao-study-chip b { color: #f1fa8c; font-size: 20px; }
 .chao-study-chip span { font-size: 11px; color: #888; }
 
+/* Daily visit bonus */
+.chao-daily-streak {
+    flex-shrink: 0; font-size: 12px; color: #ffb86c; font-weight: bold;
+    background: rgba(255, 184, 108, 0.12); border: 1px solid rgba(255, 184, 108, 0.4);
+    border-radius: 12px; padding: 3px 8px; display: flex; align-items: center; gap: 3px;
+    white-space: nowrap;
+}
+.chao-daily-streak b { font-family: monospace; }
+
+.chao-daily-banner {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    max-width: 90%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    background: linear-gradient(90deg, #ffb86c, #f1fa8c); color: #282a36;
+    padding: 8px 18px; border-radius: 20px; font-weight: bold; font-size: 14px;
+    pointer-events: none; z-index: 5; box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+    animation: chao-banner-inout 6s ease forwards;
+}
+@keyframes chao-banner-inout {
+    0%   { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+    8%   { opacity: 1; transform: translateX(-50%) translateY(0); }
+    85%  { opacity: 1; }
+    100% { opacity: 0; }
+}
+
+/* Trophy Shelf */
+.chao-trophy-shelf {
+    flex: 1; min-height: 0; overflow-y: auto;
+    background: #282a36; border: 1px solid #444; border-radius: 8px; padding: 12px;
+}
+.chao-trophy-medals { display: flex; gap: 10px; flex-wrap: wrap; }
+.chao-trophy-medal {
+    flex: 1; min-width: 90px; max-width: 160px;
+    background: #1e1e2e; border: 1px solid #444; border-radius: 8px;
+    padding: 10px 8px; text-align: center;
+    display: flex; flex-direction: column; gap: 2px; align-items: center;
+}
+.chao-trophy-medal-icon { font-size: 26px; }
+.chao-trophy-medal b { color: #f1fa8c; font-size: 18px; }
+.chao-trophy-medal span { font-size: 11px; color: #888; }
+
+.chao-badge-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 10px; margin-top: 8px;
+}
+.chao-badge {
+    background: #1e1e2e; border: 1px solid #50fa7b; border-radius: 8px;
+    padding: 10px 8px; text-align: center;
+    display: flex; flex-direction: column; gap: 3px; align-items: center;
+}
+.chao-badge-icon { font-size: 26px; }
+.chao-badge-name { font-weight: bold; font-size: 12px; color: #eee; }
+.chao-badge-req { font-size: 11px; color: #50fa7b; line-height: 1.4; }
+.chao-badge-progress { font-size: 11px; color: #f1fa8c; font-family: monospace; }
+.chao-badge.locked { border-color: #444; opacity: 0.65; filter: grayscale(0.8); }
+.chao-badge.locked .chao-badge-req { color: #999; }
+
 /* Mobile Portrait Support */
 @media (max-width: 768px) {
     .nikki-layout { flex-direction: column; }

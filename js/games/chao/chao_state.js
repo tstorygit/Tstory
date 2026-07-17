@@ -10,7 +10,15 @@ export function defaultState() {
         chis: [],
         activeChiId: null,
         inventory: { hats: [], toys:[] },
-        stats: { totalRacesWon: 0, totalPageantsWon: 0, totalKarateWins: 0, totalSeishinEarned: 0 },
+        stats: {
+            totalRacesWon: 0, totalPageantsWon: 0, totalKarateWins: 0, totalSeishinEarned: 0,
+            // Trophy / polish counters (added later — migrateState defaults them for old saves)
+            raceSilver: 0, raceBronze: 0,       // 🥈/🥉 finishes (gold == totalRacesWon)
+            pageantSolidWins: 0,                // 🏅 "solid effort" tier (50–79% appeal)
+            totalStudyAnswers: 0,               // every graded Study Hall answer
+            bestStudyStreak: 0                  // best consecutive-correct streak ever
+        },
+        daily: { lastVisitDate: null, streak: 0 }, // YYYY-MM-DD (local) + consecutive-day count
         vocabConfig: null,
         debugUnlocked: false
     };
@@ -30,6 +38,7 @@ export function migrateState(parsed) {
         fruits:    { ...base.fruits,    ...(parsed.fruits    || {}) },
         inventory: { ...base.inventory, ...(parsed.inventory || {}) },
         stats:     { ...base.stats,     ...(parsed.stats     || {}) },
+        daily:     { ...base.daily,     ...(parsed.daily     || {}) },
     };
 
     if (!Array.isArray(merged.chis)) merged.chis = [];

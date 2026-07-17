@@ -134,7 +134,8 @@ export function getDefaultSave() {
             scholarGrace: 0, comboKeep: 0, trapSpecialty: 0
         },
         clearedStages: {},
-        stageXPEarned: {}   // maps "templateId:difficulty" → best XP earned so far
+        stageXPEarned: {},  // maps "templateId:difficulty" → best XP earned so far
+        endlessBest: {}     // maps "templateId:difficulty" → best endless waves survived beyond the final wave
     };
 }
 
@@ -191,7 +192,8 @@ export function loadMeta() {
             skills: { ...def.skills, ...parsed.skills },
             activeSkills: { ...def.activeSkills, ...(parsed.activeSkills || {}) },
             clearedStages: { ...(parsed.clearedStages || {}) },
-            stageXPEarned: { ...(parsed.stageXPEarned || {}) }
+            stageXPEarned: { ...(parsed.stageXPEarned || {}) },
+            endlessBest:   { ...(parsed.endlessBest   || {}) }
         };
     } catch {
         return getDefaultSave();
@@ -282,6 +284,50 @@ export function recordStageXP(meta, templateId, difficulty, xpEarned, xpMult = 1
         saveMeta(meta);
     }
     return toAward;
+}
+
+// ─── Endless mode records & bonus XP ─────────────────────────────────────────
+// Endless XP is deliberately NOT a farming loop:
+//   • The base victory XP is banked exactly once, when the normal final wave
+//     is cleared — endless play never re-awards or multiplies it.
+//   • Endless bonus XP is paid only for NEW RECORD waves (beyond the stage's
+//     previous best), with geometrically diminishing value per wave and a hard
+//     lifetime cap of ENDLESS_XP_CAP_FRAC × the stage's base budget.
+//     Wave n beyond the final wave is worth budget × 0.03 × 0.9^(n−1); the
+//     telescoped closed form below sums exactly and converges to 0.30 × budget.
+//   • Result: an infinite D1 endless run yields < 30% of one D1 base clear,
+//     and re-running endless (or reloading autosaves) re-earns nothing —
+//     fresh runs and higher difficulties always beat endless farming.
+export const ENDLESS_XP_CAP_FRAC = 0.30;
+export const ENDLESS_XP_DECAY    = 0.9;
+
+/** Bonus XP for pushing a stage's endless record from fromExtra → toExtra waves. */
+export function endlessBonusXP(difficulty, fromExtra, toExtra) {
+    if (toExtra <= fromExtra) return 0;
+    const budget = getStageXPBudget(difficulty);
+    return Math.round(budget * ENDLESS_XP_CAP_FRAC *
+        (Math.pow(ENDLESS_XP_DECAY, fromExtra) - Math.pow(ENDLESS_XP_DECAY, toExtra)));
+}
+
+/** Best endless waves survived beyond the final wave for a stage (0 = none). */
+export function getEndlessBest(meta, templateId, difficulty) {
+    return (meta.endlessBest || {})[`${templateId}:${difficulty}`] || 0;
+}
+
+/**
+ * Settle an endless run: update the per-stage record and return the
+ * record-gated bonus XP (0 when no new record waves were reached).
+ * @returns {{ bonus: number, newRecord: boolean, best: number }}
+ */
+export function recordEndlessResult(meta, templateId, difficulty, extraWaves) {
+    if (!meta.endlessBest) meta.endlessBest = {};
+    const key  = `${templateId}:${difficulty}`;
+    const prev = meta.endlessBest[key] || 0;
+    if (extraWaves <= prev) return { bonus: 0, newRecord: false, best: prev };
+    const bonus = endlessBonusXP(difficulty, prev, extraWaves);
+    meta.endlessBest[key] = extraWaves;
+    saveMeta(meta);
+    return { bonus, newRecord: true, best: extraWaves };
 }
 
 /** Highest difficulty cleared on ANY template — drives template unlock gates. */

@@ -11,6 +11,7 @@
 //    learned words are pushed to the app SRS at session end via
 //    endVocabSession() with the safe 'skip' policy.
 import { GameVocabManager } from '../../game_vocab_mgr.js';
+import { showQuizSequence } from '../../game_vocab_mgr_ui.js';
 
 const BANNED_KEY = 'vocabcraft_banned';
 
@@ -33,6 +34,33 @@ export function setVocabQueue(queue) {
  */
 export function endVocabSession() {
     if (_mgr) _mgr.exportToAppSrs(null, 'skip');
+}
+
+/**
+ * Boss Chest quiz — a multi-question sequence on the shared manager, rendered
+ * by the standard showQuizSequence component (progress dots, badges, correction
+ * screens all included). The manager's SM-2 clock is paused for the duration
+ * per the GVM contract. With an empty pool the chest opens for free, matching
+ * showCard()'s auto-success behaviour.
+ * @param {number} count               questions to ask
+ * @param {(successes:number, failures:number) => void} onComplete
+ */
+export function showChestQuiz(count, onComplete) {
+    if (!_mgr || _mgr._pool.length === 0) {
+        onComplete(count, 0);
+        return;
+    }
+    _mgr.pause();
+    showQuizSequence(_mgr, count, {
+        container: document.body,
+        title: '🧰 Boss Chest',
+        titleColor: '#f1c40f',
+        showFurigana: true,
+        onComplete: (successes, failures) => {
+            _mgr.resume();
+            onComplete(successes, failures);
+        }
+    });
 }
 
 export function showCard(mode, container, onResolve) {

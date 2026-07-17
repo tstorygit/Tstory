@@ -4,10 +4,11 @@ import { loadMeta, saveMeta, addXP, resetSkills, SKILL_DEFS, getDefaultSave,
          clearStage, highestDifficultyCleared, isStageCleared, isStageUnlocked,
          getEffectiveSkills, recordStageXP, getStageXPBudget, XP_ALL_MODS_MULT,
          RUN_MODIFIERS, combinedXpMult,
+         getEndlessBest, recordEndlessResult, ENDLESS_XP_CAP_FRAC,
          saveMidRun, loadMidRunSlots, deleteMidRunSlot } from './vc_meta.js';
 import { generateMap, getValidTemplates, getTemplateMinimap, TEMPLATES, getHexWorldLayout, HEX_TIER_COLORS } from './vc_mapgen.js';
-import { setVocabQueue, showCard, endVocabSession } from './vc_vocab.js';
-import { VcEngine } from './vc_engine.js';
+import { setVocabQueue, showCard, showChestQuiz, endVocabSession } from './vc_vocab.js';
+import { VcEngine, GEMS } from './vc_engine.js';
 import { VcUI, fmtN } from './vc_ui.js';
 import { getWavePreview } from './vc_enemies.js';
 
@@ -171,10 +172,21 @@ export function init(screens, onExit) {
         // Surrender button — pause BEFORE confirmation dialog
         _screens.game.querySelector('#vc-btn-surrender').onclick = () => {
             if (_engine) _engine.pause();
-            if (confirm("Flee the battle? You will lose any XP gained in this map.")) {
+            const isEndless = !!(_engine && _engine.state.endless);
+            const msg = isEndless
+                ? "End the endless run? Your victory is already banked — any new record waves will pay their bonus now."
+                : "Flee the battle? You will lose any XP gained in this map.";
+            if (confirm(msg)) {
                 if (_engine) _engine.stop();
-                endVocabSession(); // push locally-learned words to app SRS (no-op for SRS pools)
-                _showCamp();
+                if (isEndless) {
+                    // Endless: leaving voluntarily settles the run like a death —
+                    // it still counts as the victory that was banked at the final wave.
+                    _engine.state.status = 'gameover';
+                    _engine.onGameOver(false, _engine.state.xpEarned);
+                } else {
+                    endVocabSession(); // push locally-learned words to app SRS (no-op for SRS pools)
+                    _showCamp();
+                }
             } else {
                 if (_engine) _engine.resume();
             }
@@ -1066,10 +1078,11 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
                     ? `<div style="font-size:10px;background:#1a3a1a;border:1px solid #2ecc71;border-radius:4px;padding:2px 7px;color:#2ecc71;">▶ Best next: D${bestRepeatD} (+${fmtN(bestRepeatRemaining)})</div>`
                     : `<div style="font-size:10px;color:#95a5a6;">All base budgets maxed ✓</div>`}
             </div>
-            <div style="display:flex;gap:10px;font-size:9px;margin-bottom:6px;color:#95a5a6;">
+            <div style="display:flex;flex-wrap:wrap;gap:4px 10px;font-size:9px;margin-bottom:6px;color:#95a5a6;">
                 <span><span style="display:inline-block;width:9px;height:9px;background:#2980b9;border-radius:2px;vertical-align:middle;margin-right:3px;"></span>Base (no mods)</span>
                 <span><span style="display:inline-block;width:9px;height:9px;background:#f1c40f;border-radius:2px;vertical-align:middle;margin-right:3px;"></span>All mods (${XP_ALL_MODS_MULT.toFixed(1)}×)</span>
                 <span><span style="display:inline-block;width:9px;height:9px;background:#2ecc71;border-radius:2px;vertical-align:middle;margin-right:3px;"></span>Wave grind bonus</span>
+                <span><span style="display:inline-block;width:9px;height:9px;background:#00d9e0;border-radius:2px;vertical-align:middle;margin-right:3px;"></span>🌊 Endless record</span>
             </div>
             <div style="display:grid;grid-template-columns:28px 1fr 100px;gap:3px 6px;align-items:center;font-size:10px;color:#95a5a6;padding-bottom:4px;border-bottom:1px solid #1e3a50;margin-bottom:5px;">
                 <div>D</div><div>Progress</div><div style="text-align:right;">Earned / Max</div>
@@ -1082,6 +1095,10 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
             const yellow    = Math.round(base * XP_ALL_MODS_MULT);
             const best      = earned[`${tpl.id}:${d}`] || 0;
             const isActive  = d === selectedD;
+            // Endless record accent (cyan 🌊) — shown alongside the blue/yellow/green
+            // XP tiers without replacing them, so plain-clear vs modifier-clear
+            // progress stays readable at a glance.
+            const endlessRec = getEndlessBest(_meta, tpl.id, d);
 
             if (!unlocked) {
                 html += `
@@ -1142,12 +1159,12 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
                 <div style="display:grid;grid-template-columns:28px 1fr 100px;gap:3px 6px;align-items:center;padding:2px 2px;${rowBg}margin:1px 0;cursor:pointer;"
                      data-xp-row-d="${d}">
                     <div style="font-size:10px;font-weight:bold;color:${dColor};">D${d}${tierLabel}</div>
-                    <div style="height:7px;background:#1a252f;border-radius:3px;overflow:hidden;display:flex;">
+                    <div style="height:7px;background:#1a252f;border-radius:3px;overflow:hidden;display:flex;${endlessRec > 0 ? 'box-shadow:0 0 0 1px rgba(0,217,224,0.55);' : ''}">
                         <div style="width:${blueW.toFixed(1)}%;height:100%;background:#2980b9;"></div>
                         <div style="width:${yellowW.toFixed(1)}%;height:100%;background:#f1c40f;"></div>
                         <div style="width:${greenW.toFixed(1)}%;height:100%;background:#2ecc71;"></div>
                     </div>
-                    <div style="text-align:right;font-size:9px;line-height:1.2;">${earnedLabel}</div>
+                    <div style="text-align:right;font-size:9px;line-height:1.2;">${earnedLabel}${endlessRec > 0 ? `<div style="color:#00d9e0;" title="Best endless: ${endlessRec} waves beyond the final wave">🌊 +${endlessRec}</div>` : ''}</div>
                 </div>`;
         }
         html += '</div>';  // close inner
@@ -1189,6 +1206,7 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
         const baseArmor = Math.floor((selectedD - 1) / 2);
         const cleared = isStageCleared(_meta, tpl.id, selectedD);
         const statusLine = cleared ? '✅ Cleared' : '⚔️ Not cleared';
+        const endlessRec = getEndlessBest(_meta, tpl.id, selectedD);
         const xpBudgetDisplay = (() => {
             const base     = getStageXPBudget(selectedD);
             const yellow   = Math.round(base * XP_ALL_MODS_MULT);
@@ -1261,6 +1279,7 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
                 <span style="background:#34495e;padding:3px 8px;border-radius:4px;color:#ecf0f1;font-size:11px;font-weight:bold;">🛡️ +${baseArmor} base armor</span>
                 <span style="background:#34495e;padding:3px 8px;border-radius:4px;color:#ecf0f1;font-size:11px;font-weight:bold;">${xpBudgetDisplay}</span>
                 <span style="background:#34495e;padding:3px 8px;border-radius:4px;color:#ecf0f1;font-size:11px;font-weight:bold;">${statusLine}</span>
+                ${endlessRec > 0 ? `<span style="background:#0a3a40;border:1px solid #00d9e0;padding:3px 8px;border-radius:4px;color:#00d9e0;font-size:11px;font-weight:bold;" title="Best endless run: ${endlessRec} waves beyond the final wave">🌊 Endless best: +${endlessRec}</span>` : ''}
             </div>
             <div style="font-size:10px;font-weight:bold;color:#f1c40f;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px;">📋 Wave Preview</div>
             <div style="display:flex;gap:5px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:3px 1px 8px;">${waveCardsHtml}</div>
@@ -1908,6 +1927,7 @@ function _autoSaveMidRun(engine, templateId, difficulty, gameMode, mapData, modi
             poolCap:           engine.state.poolCap,
             wave:              engine.state.wave,
             maxWaves:          engine.state.maxWaves,
+            endless:           engine.state.endless || false,
             xpEarned:          engine.state.xpEarned,
             combo:             0,
             comboDecayTimer:   0,
@@ -2028,7 +2048,7 @@ function _showLoadRunModal() {
                     ${templateName} · D${slot.difficulty} · ${slot.gameMode}
                 </div>
                 <div style="font-size:11px;color:#95a5a6;margin-top:2px;">
-                    Wave ${slot.state.wave}/${slot.state.maxWaves} &nbsp;·&nbsp;
+                    Wave ${slot.state.wave}/${slot.state.endless ? '🌊∞' : slot.state.maxWaves} &nbsp;·&nbsp;
                     💧${manaStr} &nbsp;·&nbsp;
                     💎${gemCount} gems &nbsp;·&nbsp;
                     ${dateStr}
@@ -2074,6 +2094,185 @@ function _showLoadRunModal() {
     document.body.appendChild(overlay);
 }
 
+// ─── Battle end handling (victory / defeat / endless) ────────────────────────
+
+/** "MVP: Ruby Tower Lv.5 — 42% of all damage" line for the end-of-battle summary. */
+function _mvpSummaryHtml(engine) {
+    if (!engine) return '';
+    let total = 0, best = null;
+    for (const st of engine.structures) {
+        const d = st.stats?.totalDmg || 0;
+        total += d;
+        if (d > 0 && (!best || d > best.stats.totalDmg)) best = st;
+    }
+    if (!best || total <= 0) return '';
+    const pct     = Math.round((best.stats.totalDmg / total) * 100);
+    const gemName = best.gem ? (GEMS[best.gem.color]?.label ?? '') : '';
+    const label   = `${gemName ? gemName + ' ' : ''}${best.type === 'trap' ? 'Trap' : 'Tower'}${best.gem ? ` Lv.${best.gem.level}` : ''}`;
+    return `
+        <div style="background:#152030;border:1px solid #2c4a66;border-radius:8px;padding:8px 12px;margin-top:8px;text-align:left;">
+            <div style="font-size:11px;font-weight:bold;color:#f1c40f;">🏆 MVP: ${label} — ${pct}% of all damage</div>
+            <div style="font-size:11px;color:#bdc3c7;margin-top:2px;">☠️ ${fmtN(best.stats.kills || 0)} kills · 💥 ${fmtN(Math.floor(best.stats.totalDmg))} damage</div>
+        </div>`;
+}
+
+/**
+ * Generic end-of-battle overlay (replaces the old blocking alert()s).
+ * @param {{ title, titleColor, subtitle, bodyHtml, buttons: Array<{label, sub?, bg, border, onClick}> }} opts
+ */
+function _showBattleEndOverlay({ title, titleColor, subtitle, bodyHtml, buttons }) {
+    const stale = document.getElementById('vc-endrun-overlay');
+    if (stale) stale.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'vc-endrun-overlay';
+    overlay.style.cssText = [
+        'position:fixed', 'inset:0', 'background:rgba(10,15,22,0.94)',
+        'z-index:500', 'display:flex', 'align-items:center', 'justify-content:center',
+        'padding:16px', 'font-family:inherit'
+    ].join(';');
+
+    const card = document.createElement('div');
+    card.style.cssText = [
+        'background:#0f1620', 'border:1px solid #2c3e50', 'border-radius:14px',
+        'padding:20px 16px', 'display:flex', 'flex-direction:column', 'gap:10px',
+        'width:100%', 'max-width:400px', 'max-height:85vh', 'overflow-y:auto',
+        '-webkit-overflow-scrolling:touch', 'text-align:center'
+    ].join(';');
+
+    card.innerHTML = `
+        <div style="font-size:22px;font-weight:bold;color:${titleColor};">${title}</div>
+        ${subtitle ? `<div style="font-size:13px;color:#bdc3c7;">${subtitle}</div>` : ''}
+        ${bodyHtml || ''}
+    `;
+
+    buttons.forEach(b => {
+        const btn = document.createElement('button');
+        btn.style.cssText = [
+            'width:100%', 'padding:14px 12px', 'margin-top:4px',
+            `background:${b.bg}`, `border:2px solid ${b.border}`,
+            'border-radius:10px', 'color:white', 'font-weight:bold',
+            'font-size:15px', 'cursor:pointer', 'line-height:1.3'
+        ].join(';');
+        btn.innerHTML = b.sub
+            ? `${b.label}<div style="font-size:11px;font-weight:normal;color:rgba(255,255,255,0.75);margin-top:3px;">${b.sub}</div>`
+            : b.label;
+        btn.onclick = () => b.onClick(overlay);
+        card.appendChild(btn);
+    });
+
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    return overlay;
+}
+
+/**
+ * Shared game-over handler for fresh battles and resumed autosaves.
+ *
+ * XP rules (anti-farming by design):
+ *  • Normal victory: clearStage + recordStageXP + addXP happen exactly ONCE,
+ *    when the final wave clears — before the endless choice is offered.
+ *  • Endless: no in-run XP is banked. At run end (death or voluntary exit) the
+ *    only payout is the record-gated, hard-capped bonus from recordEndlessResult.
+ *  • Defeat: salvage XP through recordStageXP as before.
+ *
+ * @param ctx { templateId, difficulty, xpMult, modifiers, destroyUi, getUi }
+ */
+function _handleBattleEnd(isWin, xp, ctx) {
+    const { templateId, difficulty, xpMult, modifiers, destroyUi, getUi } = ctx;
+    const tplName = TEMPLATES.find(t => t.id === templateId)?.name ?? templateId;
+    const modNote = modifiers.length > 0
+        ? `<div style="font-size:12px;color:#f39c12;">${modifiers.map(id => RUN_MODIFIERS.find(m => m.id === id)?.emoji ?? '').join('')} ${xpMult.toFixed(2)}× XP modifiers</div>`
+        : '';
+    const mvpHtml    = _mvpSummaryHtml(_engine);
+    const wasEndless = !!(_engine && _engine.state.endless);
+
+    const finishRun = (overlay) => {
+        overlay.remove();
+        endVocabSession(); // push locally-learned words to app SRS (no-op for SRS pools)
+        destroyUi();
+        _showCamp();
+    };
+
+    if (isWin && !wasEndless) {
+        // ── Final wave cleared: bank the victory NOW, then offer Endless ─────
+        clearStage(_meta, templateId, difficulty);
+        const awardedXP  = recordStageXP(_meta, templateId, difficulty, xp, xpMult);
+        addXP(_meta, awardedXP);
+        const repeatNote = awardedXP === 0
+            ? `<div style="font-size:11px;color:#95a5a6;">(already maxed — try harder modifiers!)</div>` : '';
+        const best = getEndlessBest(_meta, templateId, difficulty);
+        _showBattleEndOverlay({
+            title: '🏆 Victory!',
+            titleColor: '#2ecc71',
+            subtitle: `${tplName} — D${difficulty}`,
+            bodyHtml: `
+                <div style="font-size:16px;font-weight:bold;color:#f1c40f;">+${fmtN(Math.floor(awardedXP))} XP banked</div>
+                ${repeatNote}${modNote}${mvpHtml}`,
+            buttons: [
+                {
+                    label: '🏆 Claim Victory', bg: '#2ecc71', border: '#27ae60',
+                    onClick: finishRun
+                },
+                {
+                    label: '🌊 Endless: keep going',
+                    sub: `Waves keep scaling. New record waves earn bonus XP (capped at ${Math.round(ENDLESS_XP_CAP_FRAC * 100)}% of this stage's base XP).`
+                        + (best > 0 ? ` Best: +${best} waves.` : ''),
+                    bg: '#2c4a66', border: '#3498db',
+                    onClick: (overlay) => {
+                        overlay.remove();
+                        _engine.state.endless = true;
+                        const ui = getUi();
+                        if (ui) ui.enterEndless();
+                        _engine.start();
+                    }
+                }
+            ]
+        });
+        return;
+    }
+
+    if (wasEndless) {
+        // ── Endless run over — the base victory XP was already banked ────────
+        const extraWaves = Math.max(0, (_engine._lastClearedWave || 0) - _engine.state.maxWaves);
+        const { bonus, newRecord, best } = recordEndlessResult(_meta, templateId, difficulty, extraWaves);
+        if (bonus > 0) addXP(_meta, bonus);
+        _showBattleEndOverlay({
+            title: '🌊 Endless Run Over',
+            titleColor: '#3498db',
+            subtitle: `${tplName} — D${difficulty} · victory already banked ✓`,
+            bodyHtml: `
+                <div style="font-size:14px;color:#ecf0f1;">Survived <strong style="color:#3498db;">+${extraWaves}</strong> wave${extraWaves === 1 ? '' : 's'} beyond the final wave</div>
+                ${newRecord
+                    ? `<div style="font-size:13px;color:#f1c40f;">✨ New record: +${best} waves!</div>`
+                    : `<div style="font-size:12px;color:#95a5a6;">Best: +${best} waves</div>`}
+                <div style="font-size:14px;font-weight:bold;color:${bonus > 0 ? '#2ecc71' : '#95a5a6'};">
+                    ${bonus > 0 ? `🌊 Endless bonus: +${fmtN(bonus)} XP` : 'No new record waves — no bonus XP'}
+                </div>
+                ${mvpHtml}`,
+            buttons: [
+                { label: '⛺ Return to Camp', bg: '#2ecc71', border: '#27ae60', onClick: finishRun }
+            ]
+        });
+        return;
+    }
+
+    // ── Normal defeat ────────────────────────────────────────────────────────
+    const awardedXP = recordStageXP(_meta, templateId, difficulty, xp, xpMult);
+    addXP(_meta, awardedXP);
+    _showBattleEndOverlay({
+        title: '💀 Defeated',
+        titleColor: '#e74c3c',
+        subtitle: `${tplName} — D${difficulty}`,
+        bodyHtml: `
+            <div style="font-size:15px;font-weight:bold;color:#f1c40f;">You salvaged +${fmtN(Math.floor(awardedXP))} XP</div>
+            ${modNote}${mvpHtml}`,
+        buttons: [
+            { label: '⛺ Return to Camp', bg: '#2ecc71', border: '#27ae60', onClick: finishRun }
+        ]
+    });
+}
+
 /**
  * Restore a run from an autosave snapshot.
  * Creates a fresh engine with the saved map, then overwrites state + structures.
@@ -2090,32 +2289,29 @@ function _resumeFromSave(snapshot) {
         showCard: (mode, onRes) => {
             const overlay = document.getElementById('vc-vocab-modal');
             showCard(mode, overlay, onRes);
-        }
+        },
+        showChestQuiz: (count, onComplete) => showChestQuiz(count, onComplete)
     };
 
     let ui;
     const effectiveMeta = { ..._meta, skills: getEffectiveSkills(_meta) };
     const resumeModifiers = snapshot.modifiers || [];
     const resumeXpMult    = combinedXpMult(resumeModifiers);
+    const resumeCtx = {
+        templateId: snapshot.templateId,
+        difficulty: snapshot.difficulty,
+        xpMult:     resumeXpMult,
+        modifiers:  resumeModifiers,
+        destroyUi:  () => { if (ui) { ui.destroy(); ui = null; } },
+        getUi:      () => ui
+    };
     _engine = new VcEngine(mapData, effectiveMeta, snapshot.difficulty, (eng, evts) => {
         if (ui) ui.draw(eng, evts);
         if (evts && evts.some(e => e.type === 'waveClear')) {
             _autoSaveMidRun(eng, snapshot.templateId, snapshot.difficulty, snapshot.gameMode, mapData, resumeModifiers);
         }
     }, (isWin, xp) => {
-        const awardedXP = recordStageXP(_meta, snapshot.templateId, snapshot.difficulty, xp, resumeXpMult);
-        addXP(_meta, awardedXP);
-        endVocabSession(); // push locally-learned words to app SRS (no-op for SRS pools)
-        if (ui) { ui.destroy(); ui = null; }
-        const modNote = resumeModifiers.length > 0 ? ` [${resumeModifiers.map(id => RUN_MODIFIERS.find(m=>m.id===id)?.emoji).join('')} ${resumeXpMult.toFixed(2)}× XP]` : '';
-        if (isWin) {
-            clearStage(_meta, snapshot.templateId, snapshot.difficulty);
-            const repeatNote = awardedXP === 0 ? ' (already maxed — try harder modifiers!)' : '';
-            alert(`${TEMPLATES.find(t => t.id === snapshot.templateId)?.name} D${snapshot.difficulty} Cleared!${modNote} +${fmtN(Math.floor(awardedXP))} XP${repeatNote}`);
-        } else {
-            alert(`Defeated!${modNote} You salvaged +${fmtN(Math.floor(awardedXP))} XP`);
-        }
-        _showCamp();
+        _handleBattleEnd(isWin, xp, resumeCtx);
     }, snapshot.gameMode, resumeModifiers);
 
     // ── Overwrite constructor defaults with saved state ──────────────────────
@@ -2133,8 +2329,8 @@ function _resumeFromSave(snapshot) {
         gem:      s.gem ? { ...s.gem } : null,
         cooldown: 0,
         stats:    s.stats
-            ? { ...s.stats }
-            : { manaLeeched: 0, poisonDealt: 0, slowApplied: 0, armorTorn: 0, critHits: 0, totalDmg: 0 }
+            ? { kills: 0, ...s.stats } // kills defaulted for pre-feature snapshots
+            : { manaLeeched: 0, poisonDealt: 0, slowApplied: 0, armorTorn: 0, critHits: 0, totalDmg: 0, kills: 0 }
     }));
     console.log(`[VC RESTORE] ${_engine.structures.length} structures loaded from snapshot. engine.tileSize at this point=${_engine.tileSize}`);
     _engine.structures.forEach((s,i) => console.log(`  [VC RESTORE] #${i} type=${s.type} c=${s.c} r=${s.r} x=${s.x} y=${s.y}`));
@@ -2162,6 +2358,8 @@ function _resumeFromSave(snapshot) {
         }
         _engine.speedMult = _speedMult;
         _screens.game.querySelector('#vc-btn-speed').textContent = `⚡${_speedMult}x`;
+        // Snapshot was taken mid-endless — restore the tracker's endless state.
+        if (_engine.state.endless && ui) ui.enterEndless();
         _engine.start();
     });
 }
@@ -2195,13 +2393,22 @@ function _startBattle(templateId, difficulty, gameMode = 'hard', modifiers = [])
         showCard: (mode, onRes) => {
             const overlay = document.getElementById('vc-vocab-modal');
             showCard(mode, overlay, onRes);
-        }
+        },
+        showChestQuiz: (count, onComplete) => showChestQuiz(count, onComplete)
     };
 
     let ui;
     // Build a meta snapshot with active skill levels applied for this run
     const effectiveMeta = { ..._meta, skills: getEffectiveSkills(_meta) };
     const runXpMult = combinedXpMult(modifiers);
+    const runCtx = {
+        templateId,
+        difficulty,
+        xpMult:    runXpMult,
+        modifiers,
+        destroyUi: () => { if (ui) { ui.destroy(); ui = null; } },
+        getUi:     () => ui
+    };
     _engine = new VcEngine(mapData, effectiveMeta, difficulty, (eng, evts) => {
         if (ui) ui.draw(eng, evts);
         // Auto-save: wave just fully cleared (enemies=0, queue=0) — perfect checkpoint.
@@ -2209,19 +2416,7 @@ function _startBattle(templateId, difficulty, gameMode = 'hard', modifiers = [])
             _autoSaveMidRun(eng, templateId, difficulty, gameMode, mapData, modifiers);
         }
     }, (isWin, xp) => {
-        const awardedXP = recordStageXP(_meta, templateId, difficulty, xp, runXpMult);
-        addXP(_meta, awardedXP);
-        endVocabSession(); // push locally-learned words to app SRS (no-op for SRS pools)
-        if (ui) { ui.destroy(); ui = null; }
-        const modNote = modifiers.length > 0 ? ` [${modifiers.map(id => RUN_MODIFIERS.find(m=>m.id===id)?.emoji).join('')} ${runXpMult.toFixed(2)}× XP]` : '';
-        if (isWin) {
-            clearStage(_meta, templateId, difficulty);
-            const repeatNote = awardedXP === 0 ? ' (already maxed — try harder modifiers!)' : '';
-            alert(`${TEMPLATES.find(t=>t.id===templateId)?.name} D${difficulty} Cleared!${modNote} +${fmtN(Math.floor(awardedXP))} XP${repeatNote}`);
-        } else {
-            alert(`Defeated!${modNote} You salvaged +${fmtN(Math.floor(awardedXP))} XP`);
-        }
-        _showCamp();
+        _handleBattleEnd(isWin, xp, runCtx);
     }, gameMode, modifiers);
 
     // gameMode already stored on _engine via constructor
