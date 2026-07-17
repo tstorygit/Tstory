@@ -65,9 +65,12 @@ main/
     │
     └── games/
         ├── caro/           # Caro (Vocab Recall) game files
+        ├── chao/           # Chi Garden (virtual pet) game files
         ├── memory/         # Memory Match game files
         ├── neko/           # NekoNihongo (Idle Clicker) game files
         ├── tbb/            # Turn-Based Battle RPG game files
+        ├── tower/          # Polyglot Tower (wave defense) game files
+        ├── legend/         # Legend of Vocab (action-adventure) game files
         ├── eu/             # Vocab Universalis (Grand Strategy) game files
         ├── vocabcraft/     # VocabCraft (Tower Defense) game files
         └── survivor/       # Yōkai Survivor (Bullet Hell) — canonical reference implementation
@@ -99,6 +102,7 @@ game module → GameVocabManager → srs_db
 The single vocabulary brain for all games. Responsibilities:
 - Selects the next quiz word (`getNextWord()`) using one of three pedagogical modes: `auto`, `manual`, or `random`.
 - Records answers and updates SM-2 scheduling state (`gradeWord()`).
+- Drops an in-flight pull without grading (`discardWord(refId)`) — call this when a quiz UI is dismissed mid-question so the pending word is neither stat-counted nor written to any SRS schedule. Never poke `_pendingPulls` directly.
 - Operates in two scheduling modes: **Local** (self-contained SM-2, progress exportable) and **Global** (delegates directly to `srs_db`, answers affect the player's main flashcard reviews in real time). The mode is set automatically via the `globalSrs` flag in `setPool()`.
 - Exposes static helpers that games must use instead of touching storage directly: `loadSrsPool()`, `defaultConfig()`, `configLimits`.
 
@@ -222,7 +226,7 @@ const mgr = new GameVocabManager(_meta.vocabConfig);
 
 On save, use `renderVocabSettings`'s `onSave` callback to mirror the updated `vocabMgr.config` back into `_meta.vocabConfig`, then persist to `localStorage`. Do not hardcode clamp limits — read them from `GameVocabManager.configLimits`.
 
-Games must also persist the **pool source** alongside the vocab config so the settings label ("Currently: Your SRS library") survives page reloads. Store it in `_meta.poolSource` and restore the runtime variable from it in `loadMeta()`. See `survivor.js` for the reference implementation.
+Games must also make sure the settings label ("Currently: Your SRS library") is correct whenever the settings panel opens. The current pattern is to call `setPool()` when (re)creating the manager and read `vocabMgr.getPoolSource()` — do not track a separate `_poolSource` variable by hand. See `survivor.js` (`_getOrCreateVocabMgr`) for the reference implementation.
 
 ### 4.5 Reference implementation
 
@@ -235,7 +239,7 @@ Games must also persist the **pool source** alongside the vocab config so the se
 - Delegating the settings panel to `renderVocabSettings(mgr, el, onSave, _poolSource)` — passing `_poolSource` so the panel greys out the correct fields — while keeping game-specific settings (audio, deck picker, danger-zone resets) in the game's own overlay.
 - Doing the lifetime stat rollup from `vocabMgr.getStats()` once at run-end (`showGameOver`) rather than accumulating per-answer.
 
-**`games/survivor/surv_ui.js`** shows the correct pattern for a game with a **custom quiz UI** that doesn't use `showGameQuiz` — keeping the `getNextWord → render → gradeWord` call pattern identical to the standard components while preserving game-specific visual theming. It calls `injectVocabBadgeStyles()` at init and applies `gvm-badge-unscheduled` / `gvm-badge-real` to signal unscheduled vs. scheduled reviews.
+**`games/survivor/surv_ui.js`** delegates its quizzes to the standard `showGameQuiz` / `showQuizSequence` components (which own the badge styling) rather than hand-rolling a quiz UI. If a game genuinely needs a custom quiz UI, keep the `getNextWord → render → gradeWord` call pattern identical to the standard components, call `injectVocabBadgeStyles()` at init, apply `gvm-badge-unscheduled` / `gvm-badge-real` to signal unscheduled vs. scheduled reviews, and call `discardWord(refId)` if the UI is dismissed before an answer.
 
 ---
 
@@ -311,19 +315,22 @@ Games must also persist the **pool source** alongside the vocab config so the se
 
 See **§ 4** for the full vocabulary system architecture. Summary of the infrastructure files:
 
-*   **`games_ui.js`**: The "Games" tab main menu and game loader. Maintains the `GAME_REGISTRY` and handles the `init()` and `launch()` lifecycle of each game.
+*   **`games_ui.js`**: The "Games" tab main menu and game loader. Maintains the `GAME_REGISTRY` and handles the `init()` and `launch()` lifecycle of each game. Games may additionally export an optional **`suspend()`** function — it is called whenever the game's screens are hidden (returning to the games list, or navigating to another app tab via `suspendAllGames()` in app.js). Any game that runs a rAF loop, interval, or autosave timer must implement it to stop those cleanly.
 *   **`vocab_selector.js`**: Reusable deck-picker UI for a game's setup screen.
 *   **`game_vocab_mgr.js`** & **`game_vocab_mgr_ui.js`**: The vocabulary brain and its standard UI components. **This is the most important context for a game developer** — read § 4 before touching any game's vocab code.
 
 ### 5.8. The Mini-Games (`main/js/games/*`)
 
-*   **`caro/`**: A simple self-rating swipe game.
-*   **`memory/`**: A classic card-matching game with a cosmetic shop.
-*   **`tbb/`**: **Turn-Based Battle.** An RPG where vocab quizzes are attacks/defenses.
-*   **`eu/`**: **Vocab Universalis.** A grand strategy map-painting game.
-*   **`vocabcraft/`**: A tower defense game where vocab answers generate resources.
-*   **`survivor/`**: **Yōkai Survivor.** A Vampire Survivors clone where leveling up triggers vocab quizzes. **Canonical reference implementation** for `GameVocabManager` integration — see § 4.4.
-*   **`neko/`**: **NekoNihongo.** An idle clicker where vocab reviews are timed events that boost production.
+*   **`caro/`**: A self-rating swipe/flashcard game with undo and a session summary. (Historical exception: grades via `srsDb.gradeWordInGame` directly — predates the GVM rule.)
+*   **`chao/`**: **Chi Garden.** A virtual-pet garden: SRS reviews earn Seishin, spent on fruits/hats/eggs; pets compete in race/karate/pageant; AI-generated diary.
+*   **`memory/`**: A card-matching game (boards up to 24 cards) with combo scoring, a cosmetic shop, and per-pair SM-2 grading via `GameVocabManager` (`memory_vocab.js`).
+*   **`tbb/`**: **Turn-Based Battle.** An RPG where vocab quizzes are attacks/defenses, with telegraphed enemies, stances, and a Final Duel when one enemy remains.
+*   **`tower/`**: **Polyglot Tower.** Wave defense; answering vocab at wave start grants power buffs. Implements the `suspend()` hook (snapshots a mid-battle run).
+*   **`legend/`**: **Legend of Vocab.** A Zelda-like action-adventure; vocab gates level-ups and "Second Wind" saves from fatal blows.
+*   **`eu/`**: **Vocab Universalis.** A grand strategy map-painting game; its per-province scheduler is intentionally its own engine, with a GVM-driven Free Drill and app-SRS export on quit/victory.
+*   **`vocabcraft/`**: A tower defense game where vocab answers cast spells; seeded map generation with deterministic fallbacks; vocab flows through `GameVocabManager` (`vc_vocab.js`).
+*   **`survivor/`**: **Yōkai Survivor.** A Vampire Survivors clone where leveling up triggers vocab quizzes. **Canonical reference implementation** for `GameVocabManager` integration — see § 4.5.
+*   **`neko/`**: **NekoNihongo.** An idle clicker where vocab reviews are timed events that boost production. Intentionally runs its own internal mini-SRS (predates `GameVocabManager`); includes a Cat Expeditions / Souvenir Album side-system (`neko_expeditions.js`).
 
 ### 5.9. Data & Assets
 
@@ -487,6 +494,8 @@ showMyQuizUI(challenge.wordObj, challenge.options, challenge.correctIdx, (isCorr
 ```
 
 `gradeWord` also accepts a numeric SM-2 grade `0–3` instead of a boolean, for games that want finer control (`0`=blackout, `1`=hard, `2`=good, `3`=easy).
+
+If the quiz UI can be dismissed before the player answers (close button, game over, screen change), call `mgr.discardWord(challenge.refId)` instead of grading — it drops the in-flight pull without recording an answer or touching any SRS schedule.
 
 ### 7.5 Using the standard quiz UI components
 

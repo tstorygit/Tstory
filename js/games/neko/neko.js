@@ -2,6 +2,11 @@
 // export { init, launch }
 
 import { mountVocabSelector, getDeckConfig } from '../../vocab_selector.js';
+import {
+    initExpeditions, expedDefaultState, normalizeExpedState,
+    getAlbumBonus, expedRecordAnswer, renderExpedTab, tickExpeditions,
+    EXPED_SOUVENIRS,
+} from './neko_expeditions.js';
 
 let _screens = null;
 let _onExit  = null;
@@ -477,6 +482,7 @@ function _freshGame() {
         srs:[],
         currentCardId: null,
         leechDojo: false,  // true when player is in leech dojo mode
+        exped: expedDefaultState(),  // Cat Expeditions & Souvenir Album (additive system)
     };
 }
 
@@ -510,6 +516,8 @@ function _getFishPerSec() {
     m *= _getWordBonus(activeWords, bloomLvl);
 
     m *= Math.pow(_g.rebirthUpgrades.guide.effect, _g.rebirthUpgrades.guide.count);
+
+    m *= getAlbumBonus(_g.exped); // Souvenir album: +0.5% per unique souvenir (max +6%)
 
     // ── Happy Cat Logic ──
     const isHappy = _pendingReviews.length === 0 || Date.now() < _happyBoostEnd;
@@ -547,6 +555,8 @@ function _getClickPower() {
     m *= _getWordBonus(activeWords, bloomLvl);
 
     m *= Math.pow(_g.rebirthUpgrades.guide.effect, _g.rebirthUpgrades.guide.count); // Spirit Guide
+
+    m *= getAlbumBonus(_g.exped); // Souvenir album: +0.5% per unique souvenir (max +6%)
 
     // Happy cat + sunspot (shared)
     const isHappy = _pendingReviews.length === 0 || Date.now() < _happyBoostEnd;
@@ -600,6 +610,7 @@ function _getMultiplierBreakdown() {
     const activeWords = _g.srs.filter(s => _activeIds.has(s.id)).length;
     const bloom      = _getWordBonus(activeWords, bloomLvl);
     const guide    = Math.pow(_g.rebirthUpgrades.guide.effect, _g.rebirthUpgrades.guide.count);
+    const album    = getAlbumBonus(_g.exped);
     const sunspot  = (isHappy && _g.bellUpgrades.sunspot.count > 0)
         ? Math.pow(_g.bellUpgrades.sunspot.effect, _g.bellUpgrades.sunspot.count) : 1;
 
@@ -612,13 +623,13 @@ function _getMultiplierBreakdown() {
 
     // tuna/paw are already baked into the respective bases, don't multiply again
     // Shared multiplier set (applied to both idle and click equally)
-    const sharedMult = catnip * warp * nap * bells * bloom * guide * moodMult * sunspot * comboMult;
+    const sharedMult = catnip * warp * nap * bells * bloom * guide * album * moodMult * sunspot * comboMult;
     const idleMultTotal  = sharedMult; // idle has no extra mult beyond shared
     const clickMultTotal = sharedMult * clickWords;
     const globalAmp = 1 + (_g.rebirthUpgrades.global_amp?.count || 0) * (_g.rebirthUpgrades.global_amp?.effect || 0);
 
     return {
-        isHappy, moodMult, comboMult, activeWords, globalAmp, bloomLvl,
+        isHappy, moodMult, comboMult, activeWords, globalAmp, bloomLvl, album,
         idle:  { base: idleBase,  catnip, tuna, warp, nap, bells, bloom, sunspot, guide, multTotal: idleMultTotal,  finalFps:   idleBase  * idleMultTotal * globalAmp },
         click: { base: clickBase, paw, catnip, warp, nap, bells, bloom, sunspot, guide, clickWords, multTotal: clickMultTotal, finalClick: clickBase * clickMultTotal * globalAmp },
     };
@@ -626,7 +637,10 @@ function _getMultiplierBreakdown() {
 
 function _getLearnCost() {
     // Linear scaling: 100 + n × 300
-    const n      = _g.srs.filter(s => new Set(_vocabQueue.map(v=>v.id)).has(s.id)).length;
+    // (Set hoisted out of the filter callback — it used to be rebuilt per srs
+    //  item per frame, which is O(n²) inside the rAF loop)
+    const activeIds = new Set(_vocabQueue.map(v => v.id));
+    const n      = _g.srs.filter(s => activeIds.has(s.id)).length;
     const base   = 100 + (n * 300);
     const scholar = Math.pow(_g.bellUpgrades.scholar.effect, _g.bellUpgrades.scholar.count);
     const wisdom  = Math.pow(_g.rebirthUpgrades.wisdom.effect, _g.rebirthUpgrades.wisdom.count);
@@ -764,6 +778,9 @@ function _loadGame() {
         
         if (p.stats) _g.stats = { ..._g.stats, ...p.stats };
 
+        // Expeditions — new field; old saves get a fully-defaulted state
+        _g.exped = normalizeExpedState(p.exped);
+
         ['upgrades','clickUpgrades','bellUpgrades','rebirthUpgrades'].forEach(type => {
             if (p[type]) {
                 for (const k in p[type]) {
@@ -784,6 +801,10 @@ function _loadGame() {
 function _startGameLoop() {
     if (_rafId) cancelAnimationFrame(_rafId);
     if (_saveInterval) clearInterval(_saveInterval);
+    // Defensive: drop handlers from a previous launch that wasn't ended via
+    // Quit (e.g. leaving through the app's main nav) — otherwise they stack.
+    if (_visibilityHandler)   { document.removeEventListener('visibilitychange', _visibilityHandler); _visibilityHandler = null; }
+    if (_beforeUnloadHandler) { window.removeEventListener('beforeunload', _beforeUnloadHandler); _beforeUnloadHandler = null; }
 
     _saveInterval = setInterval(() => _saveGame(false), 10000);
 
@@ -917,6 +938,9 @@ function _startGameLoop() {
             if (wakeupPill) wakeupPill.style.display = 'none';
         }
 
+        // Expeditions: ready badge, return toasts, live countdowns (self-throttled)
+        tickExpeditions();
+
         _updateUI();
         _rafId = requestAnimationFrame(loop);
     }
@@ -1021,7 +1045,8 @@ function _buyUpgrade(shopType, key) {
         const costFish = Math.floor(upg.cost * Math.pow(costScaleExp, upg.count) * discount);
         const costYarn = Math.floor(rawYarnCost * discount);
         const vocabReq = upg.vocabReq || 0;
-        const activeCount = _g.srs.filter(s => new Set(_vocabQueue.map(v => v.id)).has(s.id)).length;
+        const _buyActiveIds = new Set(_vocabQueue.map(v => v.id));
+        const activeCount = _g.srs.filter(s => _buyActiveIds.has(s.id)).length;
         if (activeCount < vocabReq) {
             _toast(`Needs ${vocabReq} active words (have ${activeCount})`, '#e17055');
             return;
@@ -1077,7 +1102,9 @@ function _rebirth() {
     if (_g.rebirthUpgrades.starter.count > 0) _g.upgrades.box.count = 10;
     _saveGame();
     _updateUI();
-    _switchTab('rebirth');
+    // Note: the spirit-shop tab id is 'spirit' — 'rebirth' matched nothing and
+    // left the whole content pane blank after rebirthing.
+    _switchTab('spirit');
     _toast(`REBIRTH! +${_fmtN(earned)} Spirits`, 'var(--nk-spirit)');
 }
 
@@ -1361,6 +1388,21 @@ function _loadFlashcard() {
     }
 }
 
+/**
+ * Yarn granted by one correct Dojo answer (before the leech-dojo division).
+ * Extracted so Cat Expeditions can reward "N answers' worth" of yarn with the
+ * exact same formula — the math is unchanged from the original inline block.
+ */
+function _yarnPerAnswer() {
+    let yarn = 1;
+    if (Math.random() < (_g.bellUpgrades.weaver.count * _g.bellUpgrades.weaver.effect)) yarn *= 2;
+    if (_g.bellUpgrades.thread.count > 0) yarn = Math.ceil(yarn * Math.pow(_g.bellUpgrades.thread.effect, _g.bellUpgrades.thread.count));
+    if (_g.rebirthUpgrades.weaver_soul.count > 0) yarn *= (1 + _g.rebirthUpgrades.weaver_soul.count); // ×2, ×3, ×4... (additive +1 per lvl)
+    if (_g.bellUpgrades.focus.count > 0) yarn += _g.bellUpgrades.focus.count;
+    if (_g.bellUpgrades.loom?.count > 0) yarn += _g.bellUpgrades.loom.effect * Math.pow(3, _g.bellUpgrades.loom.count - 1);
+    return Math.ceil(yarn * _getTranscendenceMult());
+}
+
 function _checkAnswer(selectedId, btnEl, correctId, event) {
     if (_isProcessingAnswer) return;
     _isProcessingAnswer = true;
@@ -1370,14 +1412,8 @@ function _checkAnswer(selectedId, btnEl, correctId, event) {
     if (selectedId === correctId) {
         // Correct
         btnEl.classList.add('nk-quiz-correct');
-        
-        let yarn = 1;
-        if (Math.random() < (_g.bellUpgrades.weaver.count * _g.bellUpgrades.weaver.effect)) yarn *= 2;
-        if (_g.bellUpgrades.thread.count > 0) yarn = Math.ceil(yarn * Math.pow(_g.bellUpgrades.thread.effect, _g.bellUpgrades.thread.count));
-        if (_g.rebirthUpgrades.weaver_soul.count > 0) yarn *= (1 + _g.rebirthUpgrades.weaver_soul.count); // ×2, ×3, ×4... (additive +1 per lvl)
-        if (_g.bellUpgrades.focus.count > 0) yarn += _g.bellUpgrades.focus.count;
-        if (_g.bellUpgrades.loom?.count > 0) yarn += _g.bellUpgrades.loom.effect * Math.pow(3, _g.bellUpgrades.loom.count - 1);
-        yarn = Math.ceil(yarn * _getTranscendenceMult());
+
+        let yarn = _yarnPerAnswer();
 
         // Leech dojo: yarn reward is /10 (minimum 1)
         if (_g.leechDojo) yarn = Math.max(1, Math.floor(yarn / 10));
@@ -1387,6 +1423,9 @@ function _checkAnswer(selectedId, btnEl, correctId, event) {
         if (_g.combo > _g.stats.highestCombo) _g.stats.highestCombo = _g.combo;
         _g.stats.correct++;
         _g.stats.yarnEarned += yarn;
+
+        // Expeditions: record accuracy + shave 1% off remaining travel times
+        expedRecordAnswer(_g.exped, true, _gameNow());
 
         // Interval math in seconds — use game clock so pause doesn't cause drift
         // In leech dojo: correct answer reduces wrongCount but doesn't unleech automatically
@@ -1424,6 +1463,9 @@ function _checkAnswer(selectedId, btnEl, correctId, event) {
         const comboDiv = _g.bellUpgrades.combo_saver.count > 0 ? 1.5 : 2;
         _g.combo = Math.floor(_g.combo / comboDiv);
         _g.stats.wrong++;
+
+        // Expeditions: record accuracy (wrong answers never slow trips down)
+        expedRecordAnswer(_g.exped, false, _gameNow());
 
         // Auto-leech if threshold hit
         const threshold = _getLeechThreshold();
@@ -1503,6 +1545,7 @@ function _initGameDOM() {
         <button class="nk-nav-btn active" data-target="click">👆 Click</button>
         <button class="nk-nav-btn" data-target="idle">📦 Idle</button>
         <button class="nk-nav-btn" data-target="dojo">🧠 Dojo<span class="nk-dojo-badge" id="nk-dojo-badge" style="display:none;"></span></button>
+        <button class="nk-nav-btn" data-target="exped">🧳 Trips<span class="nk-dojo-badge" id="nk-exped-badge" style="display:none;"></span></button>
         <button class="nk-nav-btn" data-target="bells">🔔 Bell</button>
         <button class="nk-nav-btn" data-target="spirit" id="nk-nav-spirit" style="display:${showSpirit?'block':'none'}; color:#a55eea;">👻 Spirit</button>
         <button class="nk-nav-btn" data-target="stats">📊 Stats</button>
@@ -1574,6 +1617,11 @@ function _initGameDOM() {
                 <div class="nk-quiz-grid"></div>
                 <div id="nk-quiz-leech-actions" style="margin-top:10px; width:100%; max-width:400px;"></div>
             </div>
+        </div>
+
+        <!-- EXPEDITIONS TAB -->
+        <div class="nk-tab-content" id="nk-tab-exped">
+            <div id="nk-exped-root"></div>
         </div>
 
         <!-- BELL TAB -->
@@ -1872,6 +1920,23 @@ function _initGameDOM() {
         });
     });
     _refreshDeckLabel();
+
+    // ── Expeditions module wiring (dependency injection — module owns no state) ──
+    initExpeditions({
+        getG:          () => _g,
+        gameNow:       _gameNow,
+        getFishPerSec: _getFishPerSec,
+        yarnPerAnswer: _yarnPerAnswer,
+        fmtN:          _fmtN,
+        formatTime:    _formatTime,
+        toast:         _toast,
+        saveGame:      () => _saveGame(false),
+        getGameEl:     () => _screens.game,
+        getActiveWordCount: () => {
+            const ids = new Set(_vocabQueue.map(v => v.id));
+            return _g.srs.filter(s => ids.has(s.id)).length;
+        },
+    });
 }
 
 // ─── EXPORT TO APP SRS ────────────────────────────────────────────────────────
@@ -2278,12 +2343,17 @@ function _renderStats() {
         const pending  = _pendingReviews.length;
         const due      = pending; // same source as dojo badge — active vocab only
 
-        // Next review countdown
+        // Next review countdown — only active (in current deck), non-leech words
+        // can ever come due, so dormant/leech items must not drive the timer
         let nextReviewText = '—';
         if (learned > 0 && pending === 0) {
-            const nextTime = Math.min(..._g.srs.map(s => s.nextReview));
-            const diffSec  = (nextTime - now) / 1000;
-            nextReviewText = diffSec <= 0 ? 'Now!' : _formatTime(diffSec);
+            const activeIds = new Set(_vocabQueue.map(v => v.id));
+            const activeSrs = _g.srs.filter(s => activeIds.has(s.id) && !_isLeech(s));
+            if (activeSrs.length > 0) {
+                const nextTime = Math.min(...activeSrs.map(s => s.nextReview));
+                const diffSec  = (nextTime - now) / 1000;
+                nextReviewText = diffSec <= 0 ? 'Now!' : _formatTime(diffSec);
+            }
         } else if (pending > 0) {
             nextReviewText = 'Now!';
         }
@@ -2320,6 +2390,8 @@ function _renderStats() {
         const bellProgress  = Math.min(100, Math.floor((_g.fish / bellsNeeded) * 100));
         const nextBells     = _calcBells();
         const nextSpirits   = _calcSpirits();
+        const souvUnique    = Object.keys(_g.exped?.souvenirs || {})
+            .filter(k => EXPED_SOUVENIRS[k] && _g.exped.souvenirs[k] > 0).length;
         progEl.innerHTML = `
             <div class="nk-stat-row"><span>🔔 Ascension Bells Earned</span><span>${_fmtN(_g.bells)}</span></div>
             <div class="nk-stat-row"><span>🔔 Next Ascend Reward</span><span>+${_fmtN(nextBells)} Bell${nextBells !== 1 ? 's' : ''}</span></div>
@@ -2327,6 +2399,8 @@ function _renderStats() {
             <div class="nk-stat-row"><span>👻 Spirits (Karma)</span><span>${_fmtN(_g.karma)}</span></div>
             <div class="nk-stat-row"><span>👻 Next Rebirth Reward</span><span>${_calcPotentialSpirits() > 0 ? '+' + _fmtN(_calcPotentialSpirits()) + ' Spirit' + (_calcPotentialSpirits() !== 1 ? 's' : '') + (_calcBells() > 0 ? ' (incl. ascend)' : '') : 'Need 100 Bells'}</span></div>
             <div class="nk-stat-row"><span>📈 Idle Prod. Multiplier</span><span>×${(1 + Math.log10(1 + _g.bells) * 0.2).toFixed(2)} (from bells, log)</span></div>
+            <div class="nk-stat-row"><span>🧳 Expeditions (success / sent)</span><span>${_g.exped?.totalSuccess || 0} / ${_g.exped?.totalTrips || 0}</span></div>
+            <div class="nk-stat-row"><span>📔 Souvenirs Collected</span><span>${souvUnique} / ${Object.keys(EXPED_SOUVENIRS).length} (+${(souvUnique * 0.5).toFixed(1)}% prod.)</span></div>
             ${_g.transcendence > 0 ? `<div class="nk-stat-row"><span>✦ Transcendence Bonus</span><span>×${_getTranscendenceMult().toFixed(2)} to all production</span></div>` : `<div class="nk-stat-row"><span>✦ Transcendence</span><span>Need ${_fmtN(_calcTranscendenceCost())} 👻 to unlock</span></div>`}
         `;
     }
@@ -2350,7 +2424,7 @@ function _renderVocabList() {
         summaryEl.innerHTML = `
             <div class="nk-stat-row"><span>📚 Total Vocabulary</span><span>${total}</span></div>
             <div class="nk-stat-row"><span>✅ Learned</span><span>${learned}</span></div>
-            <div class="nk-stat-row"><span>🔓 Unleaned</span><span>${total - learned}</span></div>
+            <div class="nk-stat-row"><span>🔓 Unlearned</span><span>${total - learned}</span></div>
             <div class="nk-stat-row"><span>⏳ Due for Review</span><span>${due > 0 ? '<span style="color:#e17055;font-weight:bold;">' + due + '</span>' : '0'}</span></div>
             ${leechCount > 0 ? `<div class="nk-stat-row"><span>🩸 Leeches</span><span style="color:#e17055;font-weight:bold;">${leechCount}</span></div>` : ''}
         `;
@@ -2438,6 +2512,7 @@ function _renderMultiplierPopup() {
             ${row('☀️ Sunspot',  b.idle.sunspot)}
             ${row(`📚 Words (${b.activeWords}w quad)`, b.idle.bloom)}
             ${row('👻 Guide',    b.idle.guide)}
+            ${row('📔 Souvenirs', b.album, 'var(--nk-gold)')}
             ${b.globalAmp > 1 ? row('🌌 Cosmic Amp', b.globalAmp, 'var(--nk-spirit)') : ''}
             ${_g.transcendence > 0 ? row(`✦ Transcendence (×${_g.transcendence})`, _getTranscendenceMult(), '#f9ca24') : ''}
             ${multRow('= Total ×Multiplier', b.idle.multTotal * (b.globalAmp > 1 ? b.globalAmp : 1) * _getTranscendenceMult())}
@@ -2455,6 +2530,7 @@ function _renderMultiplierPopup() {
             ${row('☀️ Sunspot',  b.click.sunspot)}
             ${row(`📚 Words (${b.activeWords}w quad)`, b.click.bloom)}
             ${row('👻 Guide',    b.click.guide)}
+            ${row('📔 Souvenirs', b.album, 'var(--nk-gold)')}
             ${b.click.clickWords > 1 ? row('🐾 Word Paw', b.click.clickWords) : ''}
             ${b.globalAmp > 1 ? row('🌌 Cosmic Amp', b.globalAmp, 'var(--nk-spirit)') : ''}
             ${_g.transcendence > 0 ? row(`✦ Transcendence (×${_g.transcendence})`, _getTranscendenceMult(), '#f9ca24') : ''}
@@ -2623,7 +2699,9 @@ function _updateShopBtns(shopKey, prefix) {
     const learnedCount = _g.srs.filter(s => new Set(_vocabQueue.map(v => v.id)).has(s.id)).length;
     for (const key in _g[shopKey]) {
         const upg       = _g[shopKey][key];
-        const costFish  = Math.floor(upg.cost * Math.pow(1.18, upg.count) * discount);
+        // Catnip Garden uses a steeper ×1.5 curve — keep display in sync with _buyUpgrade
+        const costScaleExp = (key === 'catnip' && shopKey === 'upgrades') ? 1.5 : 1.18;
+        const costFish  = Math.floor(upg.cost * Math.pow(costScaleExp, upg.count) * discount);
         const isLevelScaledYarn = (key === 'catnip' && shopKey === 'upgrades');
         const rawYarnCost = isLevelScaledYarn ? (upg.count + 1) : (upg.costYarn || 0);
         const costYarn  = Math.floor(rawYarnCost * discount);
@@ -2663,6 +2741,7 @@ function _switchTab(tabName) {
     g.querySelector(`.nk-nav-btn[data-target="${tabName}"]`)?.classList.add('active');
     
     if (tabName === 'stats') _renderStats();
+    if (tabName === 'exped') renderExpedTab();
     _updateUI();
 }
 

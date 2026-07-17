@@ -19,9 +19,15 @@ export const CONSTANTS = {
     gemBaseCost: 60,        // cost of a fresh level-1 gem
     gemCombineCost: 240,    // fixed combine fee
     vocabPenalty: 10,
-    // Enemy exit drains mana: boss=15% of maxMana, normal=5%, scaled
-    exitDrainNormal: 0.05,
-    exitDrainBoss:   0.15,
+    // Enemy exit drain: a leak costs a multiple of the enemy's own kill bounty.
+    // (The old poolCap-percentage drain grew ×1.8 with every pool level and
+    // turned one late leak into an unrecoverable death spiral.)
+    leakBountyMult:     5,  // normal enemy: lose ≈5 kills' worth of mana
+    // Boss bounty is already 12× a normal kill; ×2 makes a boss leak cost
+    // ≈24 kills (~3–4 waves of income) — brutal but survivable. The boss
+    // re-enters stronger and drains again each lap, so repeated failure
+    // still loses the run without one leak being an instant game-over.
+    leakBountyMultBoss: 2,
     towerBaseRange: 2.5,    // in tiles — multiplied by tileSize at render time
     trapBaseRange:  0.6     // in tiles (slightly wider than 0.5 to catch corner-cutters)
 };
@@ -450,6 +456,10 @@ export class VcEngine {
                         manaLeachMult: 1, berserk: false, spawnsSwarm: false, swarmSpawnTimer: 0,
                         pathIdx: e.pathIdx ?? 0,
                         x: e.x, y: e.y, wpIdx: e.wpIdx,
+                        manaValue: Math.max(1, Math.round((e.manaValue || 10) * 0.2)),
+                        _xpWeight: 0.3,
+                        _waveNum: e._waveNum || 1,
+                        _difficulty: e._difficulty || 1,
                         effects: { slow:0, slowTimer:0, poison:0, poisonTimer:0, poisonTick:0, lastHit:'', flashTimer:0, flashColor:'' }
                     };
                     swarmChild.id = Math.random().toString(36).substr(2, 9);
@@ -471,7 +481,9 @@ export class VcEngine {
             }
 
             if (e.hp <= 0) {
-                this.state.mana += 10 * (e.rewardMult || 1) * (this.buffs.poolMult || 1);
+                // Wave-scaled bounty (set by vc_enemies) — flat 10 starved the
+                // late game where gem costs double per level.
+                this.state.mana += (e.manaValue || 10) * (e.rewardMult || 1) * (this.buffs.poolMult || 1);
                 this.state.xpEarned += enemyXpValue(e);
                 this.state.combo++;
                 this.state.comboDecayTimer = 0;
@@ -492,6 +504,10 @@ export class VcEngine {
                             manaLeachMult: 1, berserk: false, spawnsSwarm: false, swarmSpawnTimer: 0,
                             pathIdx: e.pathIdx ?? 0,
                             x: e.x, y: e.y, wpIdx: e.wpIdx,
+                            manaValue: Math.max(1, Math.round((e.manaValue || 10) * 0.3)),
+                            _xpWeight: (e._xpWeight || 1) * 0.25,
+                            _waveNum: e._waveNum || 1,
+                            _difficulty: e._difficulty || 1,
                             effects: { slow:0, slowTimer:0, poison:0, poisonTimer:0, poisonTick:0, lastHit:'', flashTimer:0, flashColor:'' }
                         };
                         child.id = Math.random().toString(36).substr(2, 9);
@@ -515,6 +531,7 @@ export class VcEngine {
                             berserk: false, spawnsSwarm: false, swarmSpawnTimer: 0,
                             pathIdx: e.pathIdx ?? 0,
                             x: e.x, y: e.y, wpIdx: e.wpIdx,
+                            manaValue: Math.max(1, Math.round((e.manaValue || 10) * 0.3)),
                             _xpWeight: (e._xpWeight || 1) * 0.25,  // minis give 25% XP each
                             _waveNum: e._waveNum || 1,
                             _difficulty: e._difficulty || 1,
@@ -534,9 +551,11 @@ export class VcEngine {
             const waypoints = this.map.waypointSets[pathIdx] || this.map.waypointSets[0];
             const target = waypoints[e.wpIdx];
             if (!target) {
-                // Mana drain: enemy reaching exit costs % of maxMana
-                const drainPct = e.isBoss ? CONSTANTS.exitDrainBoss : CONSTANTS.exitDrainNormal;
-                const drain = Math.ceil(this.state.poolCap * drainPct * (e.manaLeachMult || 1));
+                // Mana drain: a leak costs a multiple of the enemy's own bounty.
+                // Scale-invariant — hurts the same fraction of income at wave 3
+                // and wave 60, and no longer punishes pool level-ups.
+                const bountyMult = e.isBoss ? CONSTANTS.leakBountyMultBoss : CONSTANTS.leakBountyMult;
+                const drain = Math.ceil((e.manaValue || 10) * bountyMult * (e.manaLeachMult || 1));
                 this.state.mana -= drain;
                 this.state._waveLeaked = true;
                 this.state.combo = 0;  // combo resets when enemy leaks

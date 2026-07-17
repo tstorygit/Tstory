@@ -63,6 +63,13 @@ function _injectPanel() {
     `;
     document.body.appendChild(panel);
     document.getElementById('srs-stats-close').addEventListener('click', closeStatsPanel);
+
+    // Close on Escape while the panel is open
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && panel.classList.contains('open')) {
+            closeStatsPanel();
+        }
+    });
 }
 
 // ─── OPEN / CLOSE ─────────────────────────────────────────────────────────────

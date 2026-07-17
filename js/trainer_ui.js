@@ -12,7 +12,6 @@ const SPEAKER_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height=
 
 // ─── STATE ───────────────────────────────────────────────────────────────────
 
-let pregenAbortController = null;
 let activeSpeakBtn = null;
 
 // ─── INIT ────────────────────────────────────────────────────────────────────
@@ -51,8 +50,12 @@ export function initTrainer() {
             const wordEl = e.target.closest('.clickable-word');
             if (!wordEl) return;
             e.stopPropagation();
-            const wordData = JSON.parse(decodeURIComponent(wordEl.getAttribute('data-word')));
-            openTrainerWordPopup(wordData);
+            try {
+                const wordData = JSON.parse(decodeURIComponent(wordEl.getAttribute('data-word')));
+                openTrainerWordPopup(wordData);
+            } catch (err) {
+                console.warn('[trainer_ui] Could not parse word data for popup:', err);
+            }
         });
     }
 
@@ -804,8 +807,12 @@ async function handlePregen() {
     btn.textContent = 'Generating…';
     btn.disabled = true;
 
+    // Pin the deck id at click time so a deck switch during the (long) AI call
+    // can't cache the sentences under the wrong deck.
+    const deckId = trainerMgr.getActiveDeckId();
+
     try {
-        await trainerMgr.generateTrainerSentences(rank, false, () => {});
+        await trainerMgr.generateTrainerSentences(rank, false, () => {}, null, deckId);
         btn.textContent = '✓ Ready!';
     } catch (e) {
         btn.textContent = 'Failed — retry?';

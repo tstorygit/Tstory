@@ -23,8 +23,8 @@ export const PERK_DEFS = {
     // ── Tier 3 (cost 3 AP, max 5, req 30 AP spent) ──────────────────
     multExpGainT3:   { name: 'Enlightenment',       desc: '+2% Multiplicative EXP/lvl',       tier: 3, cost: 3, maxLvl: 5,   valuePerLvl: 2,   apReq: 30 },
     bonusStatPtsT3:  { name: 'Potential Unleashed', desc: '+1 Bonus Stat Point at Lvl 1',     tier: 3, cost: 3, maxLvl: 5,   valuePerLvl: 1,   apReq: 30 },
-    survivorT3:      { name: 'Last Stand',          desc: '+15 HP when falling below 25% HP', tier: 3, cost: 3, maxLvl: 5,   valuePerLvl: 15,  apReq: 30 },
-    counterT3:       { name: 'Riposte',             desc: 'On correct parry: +10% ATK next attack per level', tier: 3, cost: 3, maxLvl: 5, valuePerLvl: 10, apReq: 30 },
+    survivorT3:      { name: 'Last Stand',          desc: '+15 HP/lvl when falling below 25% HP (once per wave)', tier: 3, cost: 3, maxLvl: 5,   valuePerLvl: 15,  apReq: 30 },
+    counterT3:       { name: 'Riposte',             desc: 'After taking a hit: +10% dmg per level on your next strike', tier: 3, cost: 3, maxLvl: 5, valuePerLvl: 10, apReq: 30 },
     // ── Tier 4 (cost 4 AP, max 3, req 60 AP spent) ──────────────────
     godhandT4:       { name: 'God Hand',            desc: '+25 Base ATK per level',           tier: 4, cost: 4, maxLvl: 3,   valuePerLvl: 25,  apReq: 60 },
     titanHpT4:       { name: 'Titan\'s Heart',      desc: '+50 Base HP per level',            tier: 4, cost: 4, maxLvl: 3,   valuePerLvl: 50,  apReq: 60 },

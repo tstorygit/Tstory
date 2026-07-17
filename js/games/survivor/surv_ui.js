@@ -20,6 +20,12 @@ let _onLeaveRound = null;
 let dom   = {};
 let kills = 0;
 
+// HUD render caches — the weapon/passive slot lists and vocab bar only change
+// on discrete events, so rebuilding DOM/innerHTML every frame was pure churn.
+let _wpnSig       = '';
+let _pasSig       = '';
+let _vocabBarNext = 0;   // next elapsed-time checkpoint for a vocab bar refresh
+
 // ── Per-run counters (reset in resetGameUI) ──────────────────────────────────
 let _runBestStreak = 0;
 let _runStreak     = 0;
@@ -145,6 +151,10 @@ export function initUI(container, engineFunctions, vocabMgr, metaCallbacks) {
                         <strong id="surv-sum-time" class="surv-sum-val"></strong>
                     </div>
                     <div class="surv-sum-row">
+                        <span class="surv-sum-label">⚔️ Level Reached</span>
+                        <strong id="surv-sum-level" class="surv-sum-val"></strong>
+                    </div>
+                    <div class="surv-sum-row">
                         <span class="surv-sum-label">💀 Enemies Defeated</span>
                         <strong id="surv-sum-kills" class="surv-sum-val"></strong>
                     </div>
@@ -205,6 +215,7 @@ export function initUI(container, engineFunctions, vocabMgr, metaCallbacks) {
         sum:          _container.querySelector('#surv-summary-overlay'),
         sumTitle:     _container.querySelector('#surv-sum-title'),
         sumTime:      _container.querySelector('#surv-sum-time'),
+        sumLevel:     _container.querySelector('#surv-sum-level'),
         sumKills:     _container.querySelector('#surv-sum-kills'),
         sumQuiz:      _container.querySelector('#surv-sum-quiz'),
         sumStreak:    _container.querySelector('#surv-sum-streak'),
@@ -310,6 +321,9 @@ export function resetGameUI(vocabMgr, metaData) {
     _runStreak      = 0;
     _runBestStreak  = 0;
     _manuallyPaused = false;
+    _wpnSig         = '';
+    _pasSig         = '';
+    _vocabBarNext   = 0;
     dom.hud.style.display = 'flex';
     dom.sum.style.display = 'none';
     dom.btnPause.textContent = '⏸';
@@ -330,19 +344,31 @@ export function drawHUD(hp, maxHp, xp, xpNext, level, time) {
     dom.hpFill.className   = 'surv-hp-fill' + (hpPct < 30 ? ' danger' : hpPct < 60 ? ' warning' : '');
     dom.hpText.textContent = `${Math.ceil(hp)}`;
 
-    dom.wpnList.innerHTML = _engine.getActiveWeapons().map(w => {
-        const def = WEAPONS[w.id];
-        return `<div class="surv-slot" title="${def.name} Lv.${w.level}">${def.icon}<span class="surv-slot-lvl">${w.level}</span></div>`;
-    }).join('');
+    // Rebuild the slot lists only when a weapon/passive is added or levelled —
+    // not every frame.
+    const weapons = _engine.getActiveWeapons();
+    const wpnSig  = weapons.map(w => w.id + w.level).join(',');
+    if (wpnSig !== _wpnSig) {
+        _wpnSig = wpnSig;
+        dom.wpnList.innerHTML = weapons.map(w => {
+            const def = WEAPONS[w.id];
+            return `<div class="surv-slot" title="${def.name} Lv.${w.level}">${def.icon}<span class="surv-slot-lvl">${w.level}</span></div>`;
+        }).join('');
+    }
 
-    dom.pasList.innerHTML = _engine.getActivePassives().map(p => {
-        const def = PASSIVES[p.id];
-        return `<div class="surv-slot" title="${def.name} Lv.${p.level}">${def.icon}<span class="surv-slot-lvl">${p.level}</span></div>`;
-    }).join('');
+    const passives = _engine.getActivePassives();
+    const pasSig   = passives.map(p => p.id + p.level).join(',');
+    if (pasSig !== _pasSig) {
+        _pasSig = pasSig;
+        dom.pasList.innerHTML = passives.map(p => {
+            const def = PASSIVES[p.id];
+            return `<div class="surv-slot" title="${def.name} Lv.${p.level}">${def.icon}<span class="surv-slot-lvl">${p.level}</span></div>`;
+        }).join('');
+    }
 
-    // Live vocab stats — updated every frame via the engine's draw callback.
-    // Kept brief so it doesn't clutter the HUD.
-    if (dom.vocabBar && _vocabMgr) {
+    // Live vocab stats — refreshed at most 4×/s; getStats() every frame is waste.
+    if (dom.vocabBar && _vocabMgr && time >= _vocabBarNext) {
+        _vocabBarNext = time + 0.25;
         const stats = _vocabMgr.getStats();
         const acc   = Math.round(stats.accuracy * 100);
         const due   = stats.dueCount;
@@ -630,6 +656,7 @@ export function showGameOver(isWin, exitCallback) {
     const m = Math.floor(t / 60).toString().padStart(2, '0');
     const s = Math.floor(t % 60).toString().padStart(2, '0');
     dom.sumTime.textContent   = `${m}:${s}`;
+    dom.sumLevel.textContent  = `Lv. ${_engine.getPlayerLevel ? _engine.getPlayerLevel() : '—'}`;
     dom.sumKills.textContent  = kills.toLocaleString();
 
     // Read correct/wrong from vocabMgr — it's the single source of truth

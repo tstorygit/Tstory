@@ -38,6 +38,27 @@
     box-shadow: 0 0 20px rgba(0,0,0,0.8);
 }
 
+/* ── Minimap ── */
+.leg-minimap {
+    position: absolute; top: 58px; right: 6px; z-index: 15;
+    background: rgba(0, 0, 0, 0.55); border: 1px solid rgba(241,196,15,0.35);
+    border-radius: 6px; padding: 4px 5px; pointer-events: none;
+}
+.leg-minimap-title {
+    font-size: 8px; font-weight: bold; color: #f1c40f;
+    text-align: center; margin-bottom: 3px; letter-spacing: 1px; white-space: nowrap;
+}
+.leg-minimap-grid { display: grid; gap: 2px; }
+.leg-mm-cell {
+    width: 12px; height: 10px; border-radius: 2px;
+    font-size: 8px; line-height: 10px; text-align: center; color: #f1c40f;
+}
+.leg-mm-void   { background: transparent; }
+.leg-mm-unseen { background: rgba(255,255,255,0.10); }
+.leg-mm-seen   { background: rgba(46,204,113,0.45); }
+.leg-mm-cur    { background: #2ecc71; box-shadow: 0 0 4px #2ecc71; color: #000; }
+.leg-mm-exit.leg-mm-unseen { background: rgba(241,196,15,0.25); }
+
 /* ── Overlays ── */
 .leg-overlay {
     position: absolute; inset: 0; background: rgba(0,0,0,0.85);

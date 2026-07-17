@@ -1,12 +1,12 @@
-import { mountVocabSelector, getBannedWords } from '../../vocab_selector.js';
-import * as srsDb from '../../srs_db.js';
+import { mountVocabSelector } from '../../vocab_selector.js';
+import { GameVocabManager } from '../../game_vocab_mgr.js';
 import { loadMeta, saveMeta, addXP, resetSkills, SKILL_DEFS, getDefaultSave,
          clearStage, highestDifficultyCleared, isStageCleared, isStageUnlocked,
          getEffectiveSkills, recordStageXP, getStageXPBudget, XP_ALL_MODS_MULT,
          RUN_MODIFIERS, combinedXpMult,
          saveMidRun, loadMidRunSlots, deleteMidRunSlot } from './vc_meta.js';
 import { generateMap, getValidTemplates, getTemplateMinimap, TEMPLATES, getHexWorldLayout, HEX_TIER_COLORS } from './vc_mapgen.js';
-import { setVocabQueue, showCard } from './vc_vocab.js';
+import { setVocabQueue, showCard, endVocabSession } from './vc_vocab.js';
 import { VcEngine } from './vc_engine.js';
 import { VcUI, fmtN } from './vc_ui.js';
 import { getWavePreview } from './vc_enemies.js';
@@ -173,6 +173,7 @@ export function init(screens, onExit) {
             if (_engine) _engine.pause();
             if (confirm("Flee the battle? You will lose any XP gained in this map.")) {
                 if (_engine) _engine.stop();
+                endVocabSession(); // push locally-learned words to app SRS (no-op for SRS pools)
                 _showCamp();
             } else {
                 if (_engine) _engine.resume();
@@ -191,21 +192,14 @@ export function init(screens, onExit) {
 }
 
 /**
- * Build a vocab queue directly from the SRS database.
- * Includes all statuses (0–5) and respects the vocabcraft ban list.
+ * Build a vocab queue from the player's SRS library.
+ * Delegates to GameVocabManager.loadSrsPool() per the contract — this module
+ * never reads srs_db or vocab localStorage directly. The vocabcraft ban list
+ * is applied later by GameVocabManager.setPool(bannedKey) in vc_vocab.js.
  * Returns the queue array — empty if no SRS words exist.
  */
 function _buildSrsQueue() {
-    const banned = new Set(getBannedWords(BANNED_KEY));
-    return Object.values(srsDb.getAllWords())
-        .filter(w => !banned.has(w.word))
-        .map(w => ({
-            word:   w.word,
-            furi:   w.furi,
-            trans:  w.translation,
-            status: w.status,
-            deckId: 'srs',
-        }));
+    return GameVocabManager.loadSrsPool();
 }
 
 export function launch() {
@@ -259,7 +253,7 @@ function _renderSetup() {
     const el = _screens.setup;
     if (!el) return;
 
-    const srsCount = Object.keys(srsDb.getAllWords()).length;
+    const srsCount = GameVocabManager.loadSrsPool().length;
 
     _selector = mountVocabSelector(el, {
         bannedKey: BANNED_KEY,
@@ -1221,9 +1215,11 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
         }));
 
         const waveCardsHtml = preview.map(w => {
-            const isBoss = w.isBoss;
-            const cardBg  = isBoss ? '#3d0a0a' : '#1e2d3d';
-            const cardBdr = isBoss ? '#e74c3c' : '#2c4a66';
+            const isBoss  = w.isBoss;
+            const isRush  = w.theme === 'rush';
+            const isElite = w.theme === 'elite';
+            const cardBg  = isBoss ? '#3d0a0a' : isRush ? '#2d1e10' : isElite ? '#231030' : '#1e2d3d';
+            const cardBdr = isBoss ? '#e74c3c' : isRush ? '#e67e22' : isElite ? '#9b59b6' : '#2c4a66';
             const numClr  = isBoss ? '#e74c3c' : '#7fb3d3';
             const emojis  = isBoss
                 ? `<div style="font-size:20px;line-height:1.1;margin:2px 0;">👹</div>`
@@ -1233,10 +1229,13 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
             const hpLine = `<div style="font-size:9px;color:${isBoss?'#f39c12':'#aac8e0'};">❤️ ${lo===hi?fmtN(lo):fmtN(lo)+'–'+fmtN(hi)}</div>`;
             const armorVal = Math.max(...w.types.map(t=>t.armor));
             const flags = [armorVal>0?`🛡️${fmtN(armorVal)}`:null, w.types.some(t=>t.immune.length)?'🚫':null, w.types.some(t=>t.regen>0)?'💚':null].filter(Boolean).join(' ');
+            // Composition is deterministic — the count shown is exact, not an estimate.
+            const unitCount = w.types.reduce((a, t) => a + t.count, 0);
+            const countLine = isBoss ? 'BOSS' : isRush ? `💨 ${unitCount}` : isElite ? `💪 ${unitCount}` : `${unitCount}×`;
             return `<div data-wcard="${w.wave}" style="flex-shrink:0;width:60px;min-height:95px;background:${cardBg};border:1px solid ${cardBdr};border-radius:7px;padding:4px 2px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:1px;text-align:center;">
                 <div style="font-size:10px;font-weight:bold;color:${numClr};">W${w.wave}${isBoss?' 🔥':''}</div>
                 ${emojis}
-                <div style="font-size:9px;color:#bdc3c7;">${isBoss?'BOSS':'~'+w.slots}</div>
+                <div style="font-size:9px;color:#bdc3c7;">${countLine}</div>
                 ${hpLine}
                 <div style="font-size:9px;color:#95a5a6;">${flags||'–'}</div>
             </div>`;
@@ -1301,7 +1300,11 @@ function _showHexDetail(tpl, node, colors, tplLockedActual = false) {
                     <div style="font-size:10px;color:#95a5a6;">${t.desc}</div></div>
                     <div style="font-size:10px;color:#7fb3d3;white-space:nowrap;text-align:right;">❤️${t.hp}<br>🛡️${t.armor}</div>
                 </div>`).join('');
-                det2.innerHTML = `<div style="font-size:11px;font-weight:bold;color:#7fb3d3;margin-bottom:5px;">Wave ${wNum}${w.isBoss?' — 🔥 Boss':''}</div>${rows}`;
+                const themeLabel = w.isBoss ? ' — 🔥 Boss'
+                    : w.theme === 'rush'  ? ' — 💨 Rush (fast, tight spawns, −HP)'
+                    : w.theme === 'elite' ? ' — 💪 Elite (few, +70% HP)'
+                    : '';
+                det2.innerHTML = `<div style="font-size:11px;font-weight:bold;color:#7fb3d3;margin-bottom:5px;">Wave ${wNum}${themeLabel}</div>${rows}`;
             });
         });
     }
@@ -2102,6 +2105,7 @@ function _resumeFromSave(snapshot) {
     }, (isWin, xp) => {
         const awardedXP = recordStageXP(_meta, snapshot.templateId, snapshot.difficulty, xp, resumeXpMult);
         addXP(_meta, awardedXP);
+        endVocabSession(); // push locally-learned words to app SRS (no-op for SRS pools)
         if (ui) { ui.destroy(); ui = null; }
         const modNote = resumeModifiers.length > 0 ? ` [${resumeModifiers.map(id => RUN_MODIFIERS.find(m=>m.id===id)?.emoji).join('')} ${resumeXpMult.toFixed(2)}× XP]` : '';
         if (isWin) {
@@ -2207,6 +2211,7 @@ function _startBattle(templateId, difficulty, gameMode = 'hard', modifiers = [])
     }, (isWin, xp) => {
         const awardedXP = recordStageXP(_meta, templateId, difficulty, xp, runXpMult);
         addXP(_meta, awardedXP);
+        endVocabSession(); // push locally-learned words to app SRS (no-op for SRS pools)
         if (ui) { ui.destroy(); ui = null; }
         const modNote = modifiers.length > 0 ? ` [${modifiers.map(id => RUN_MODIFIERS.find(m=>m.id===id)?.emoji).join('')} ${runXpMult.toFixed(2)}× XP]` : '';
         if (isWin) {

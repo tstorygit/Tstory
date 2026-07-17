@@ -1,61 +1,291 @@
-// memory.js
-import { initSetup } from './memory_setup.js';
-import { startBoard } from './memory_board.js';
-import { initShop, openShop } from './memory_shop.js';
+/* memory.css — Memory Match game styles (scoped: .mem-*)
+   Injected by memory.js as <link id="memory-styles">.
+   Base board/shop classes live in the app's global styles.css; this file
+   contains the game's own additions and mobile/touch refinements. */
 
-let _screens = null;
-let _onExitGlobal = null;
-
-// Dynamically create containers inside the provided main screen
-let _viewSetup, _viewGame, _viewShop;
-
-export function init(screens, onExit) {
-    // screens.setup is the DOM node passed from games_ui.js for this specific game
-    const root = screens.setup; 
-    root.innerHTML = `
-        <div id="mem-container-setup"></div>
-        <div id="mem-container-game" style="display:none; height:100%; flex-direction:column;"></div>
-        <div id="mem-container-shop" class="mem-shop-overlay" style="display:none;"></div>
-    `;
-
-    _viewSetup = root.querySelector('#mem-container-setup');
-    _viewGame = root.querySelector('#mem-container-game');
-    _viewShop = root.querySelector('#mem-container-shop');
-    
-    _screens = screens;
-    _onExitGlobal = onExit;
-
-    initShop(_viewShop);
-    initSetup(_viewSetup, _handleStartGame, _handleOpenShop);
+/* ── Cards: touch behaviour + new 24-card layout + peek reveal ─────────── */
+.mem-card {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    -webkit-user-select: none;
 }
-
-export function launch() {
-    _show('setup');
-    // Ensure header title is correct
-    const hdr = document.getElementById('games-header-title');
-    if (hdr) hdr.textContent = 'Memory — Setup';
+.mem-card.peeking .mem-card-inner {
+    transform: rotateY(180deg);
 }
-
-function _show(viewName) {
-    _viewSetup.style.display = viewName === 'setup' ? 'block' : 'none';
-    _viewGame.style.display = viewName === 'game' ? 'flex' : 'none';
-    
-    const hdr = document.getElementById('games-header-title');
-    if (hdr) {
-        if (viewName === 'setup') hdr.textContent = 'Memory — Setup';
-        if (viewName === 'game') hdr.textContent = 'Memory — Match!';
+.mem-grid-24 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    max-width: 520px;
+    margin: 0 auto;
+}
+@media (min-width: 640px) {
+    .mem-grid-24 {
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        max-width: 760px;
     }
 }
 
-function _handleStartGame(validWords, config) {
-    _show('game');
-    startBoard(_viewGame, validWords, config, () => {
-        _show('setup'); // Return to setup on quit/finish
-    });
+/* ── Board header (extends the global .mem-board-header) ───────────────── */
+.mem-board-header {
+    flex-wrap: wrap;
+    gap: 4px 12px;
+}
+.mem-hud-btns {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+.mem-peek-btn {
+    min-height: 40px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1px solid #f5a623;
+    background: rgba(245, 166, 35, 0.12);
+    color: #b97a00;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+.mem-peek-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+.mem-quit-btn {
+    width: auto;
+    padding: 6px 12px;
+    margin: 0;
+    min-height: 40px;
 }
 
-function _handleOpenShop() {
-    openShop(() => {
-        // On shop close, we just stay where we were (setup handles it automatically)
-    });
+/* ── Setup screen additions ────────────────────────────────────────────── */
+.mem-setup-toprow {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.mem-coin-pill {
+    font-size: 13px;
+    font-weight: 700;
+    color: #b97a00;
+    background: rgba(245, 166, 35, 0.12);
+    border: 1px solid rgba(245, 166, 35, 0.5);
+    border-radius: 20px;
+    padding: 3px 10px;
+    white-space: nowrap;
+}
+.mem-setup-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 15px;
+}
+.mem-setup-actions #mem-btn-start { flex: 2; }
+.mem-setup-actions #mem-btn-shop { flex: 1; }
+.mem-setup-actions #mem-btn-vocab-cfg { flex: 0 0 52px; }
+.mem-touch-btn {
+    min-height: 44px;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+.mem-btn-secondary {
+    background: var(--surface-color, #f4f6f8);
+    color: var(--text-main, #333);
+    border: 1px solid var(--border-color, #ccc);
+}
+.mem-setup-stats {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--text-muted, #888);
+    text-align: center;
+}
+.mem-setup-stats:empty { display: none; }
+
+/* ── Round summary ─────────────────────────────────────────────────────── */
+.mem-summary-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.82);
+    z-index: 150;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 14px;
+}
+.mem-summary-box {
+    background: var(--surface-color, #fff);
+    border-radius: 14px;
+    width: 100%;
+    max-width: 440px;
+    max-height: 94%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+.mem-summary-head {
+    padding: 18px 18px 12px;
+    text-align: center;
+    border-bottom: 1px solid var(--border-color, #eee);
+    flex-shrink: 0;
+}
+.mem-summary-head h2 {
+    margin: 0 0 6px;
+    font-size: 20px;
+    color: var(--text-main, #333);
+}
+.mem-summary-coins {
+    font-size: 24px;
+    font-weight: 800;
+    color: #f5a623;
+}
+.mem-summary-substats {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--text-muted, #888);
+}
+.mem-summary-srsline {
+    margin-top: 8px;
+    font-size: 11.5px;
+    color: var(--text-muted, #888);
+    background: var(--bg-color, #f7f7f7);
+    border: 1px solid var(--border-color, #eee);
+    border-radius: 8px;
+    padding: 6px 8px;
+    line-height: 1.4;
+}
+.mem-summary-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 8px 14px;
+}
+.mem-summary-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 2px;
+    border-bottom: 1px dashed var(--border-color, #eee);
+}
+.mem-summary-row:last-child { border-bottom: none; }
+.mem-summary-word {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+.mem-summary-kanji {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text-main, #333);
+}
+.mem-summary-kana {
+    font-size: 12px;
+    color: var(--text-muted, #888);
+}
+.mem-summary-eng {
+    font-size: 12px;
+    color: var(--primary-color, #4A90E2);
+    font-weight: 600;
+}
+.mem-summary-empty {
+    text-align: center;
+    color: var(--text-muted, #888);
+    font-size: 13px;
+    padding: 16px 0;
+}
+.mem-grade-badge {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 12px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.mem-grade-3 { background: rgba(46, 204, 113, 0.15);  color: #1a7a4a; }
+.mem-grade-2 { background: rgba(241, 196, 15, 0.15);  color: #9a7d0a; }
+.mem-grade-1 { background: rgba(230, 126, 34, 0.15);  color: #b35c00; }
+.mem-grade-0 { background: rgba(231, 76, 60, 0.15);   color: #c0392b; }
+.mem-summary-actions {
+    display: flex;
+    gap: 8px;
+    padding: 12px 14px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 12px));
+    border-top: 1px solid var(--border-color, #eee);
+    flex-shrink: 0;
+}
+.mem-summary-actions .primary-btn { flex: 1; font-size: 13px; padding: 8px 6px; }
+
+/* ── Toast ─────────────────────────────────────────────────────────────── */
+.mem-toast {
+    position: fixed;
+    bottom: 90px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(30, 30, 30, 0.92);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 10px 18px;
+    border-radius: 20px;
+    z-index: 12000;
+    pointer-events: none;
+    animation: memToastIn 0.2s ease-out;
+    white-space: nowrap;
+}
+@keyframes memToastIn {
+    from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ── Vocab settings modal ──────────────────────────────────────────────── */
+.mem-vocab-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 2100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+.mem-vocab-box {
+    background: var(--surface-color, #fff);
+    border-radius: 14px;
+    width: 100%;
+    max-width: 460px;
+    max-height: 90%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+.mem-vocab-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color, #eee);
+    color: var(--text-main, #333);
+    flex-shrink: 0;
+}
+.mem-vocab-close {
+    background: none;
+    border: 1px solid var(--border-color, #ccc);
+    color: var(--text-muted, #888);
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+.mem-vocab-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 14px 16px;
 }

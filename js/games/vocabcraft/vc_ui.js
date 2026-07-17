@@ -1,5 +1,6 @@
 import { GEMS, CONSTANTS, gemTotalCostColor, gemUpgradeCost, gemDamage, gemFireSpeed, gemRange, gemCritChance, gemCritMult, gemPoisonDps, gemSlowAmount, gemManaDrain, gemArmorTear } from './vc_engine.js';
 import { TILE_PATH, TILE_GRASS, getWaypointsForPaths } from './vc_mapgen.js';
+import { getWaveMeta } from './vc_enemies.js';
 
 /** Format any number >9999 as compact string: 1.2M, 3.4B, 1.2T etc. */
 export function fmtN(n) {
@@ -215,17 +216,13 @@ export class VcUI {
         // after every rotation or resize that changes tileSize.
         if (this.tileSize > 0 && newTileSize !== this.tileSize) {
             const oldTs = this.tileSize;
-            console.log(`[VC RESIZE] tileSize changing ${oldTs} → ${newTileSize}. Reprojecting ${this.engine.structures.length} structures.`);
             for (const s of this.engine.structures) {
                 const c = Math.round((s.x - oldTs / 2) / oldTs);
                 const r = Math.round((s.y - oldTs / 2) / oldTs);
                 s.x = c * newTileSize + newTileSize / 2;
                 s.y = r * newTileSize + newTileSize / 2;
                 s.c = c; s.r = r;
-                console.log(`  [VC RESIZE] type=${s.type} c=${c} r=${r} → x=${s.x} y=${s.y}`);
             }
-        } else {
-            console.log(`[VC INITGRID] tileSize unchanged or first init: this.tileSize=${this.tileSize} newTileSize=${newTileSize}`);
         }
 
         this.tileSize = newTileSize;
@@ -565,7 +562,14 @@ export class VcUI {
         for (let i = 0; i < this.engine.state.maxWaves; i++) {
             const icon = document.createElement('div');
             icon.className = 'vc-wave-icon';
-            icon.title = 'Tap to Enrage (answer a word)';
+            // Mark the wave rhythm so spikes are readable at a glance:
+            // every 5-wave block runs mixed → mixed → RUSH → ELITE → BOSS.
+            const meta = getWaveMeta(i + 1, this.engine.difficulty);
+            let flavor = '';
+            if (meta.isBoss)              { icon.classList.add('boss');  flavor = '👹 BOSS — '; }
+            else if (meta.theme === 'rush')  { icon.classList.add('rush');  flavor = '💨 Rush wave — '; }
+            else if (meta.theme === 'elite') { icon.classList.add('elite'); flavor = '💪 Elite wave — '; }
+            icon.title = `Wave ${i + 1} — ${flavor}Tap to Enrage (answer a word)`;
             icon.onclick = () => {
                 if (this.engine.state.status === 'playing' && i === this.engine.state.wave) {
                     this.engine.pause();
@@ -951,10 +955,13 @@ export class VcUI {
         const speed = gemFireSpeed(gem, gemDef, this.engine.meta.skills);
         const range = gemRange(gem, isTrap, this.tileSize);
 
-        // Accurate trap multipliers for the UI display
-        const trapDmgMult = isTrap ? 0.20 + ((this.engine.meta.skills.trapSpecialty || 0) * 0.01) : 1;
-        const trapSpecMult = isTrap ? 2.5 + ((this.engine.meta.skills.trapSpecialty || 0) * 0.1) : 1;
-        const trapFireMult = isTrap ? 3.0 + ((this.engine.meta.skills.trapSpecialty || 0) * 0.02) : 1;
+        // Trap multipliers for the UI display — MUST mirror the engine exactly:
+        //   damage  → applyGemEffect: 0.20 + trapSpecialty × 0.015
+        //   special → applyGemEffect: 1.5  + trapSpecialty × 0.075
+        //   fire    → updateStructures: 2.0 + trapSpecialty × 0.015
+        const trapDmgMult  = isTrap ? 0.20 + ((this.engine.meta.skills.trapSpecialty || 0) * 0.015) : 1;
+        const trapSpecMult = isTrap ? 1.5  + ((this.engine.meta.skills.trapSpecialty || 0) * 0.075) : 1;
+        const trapFireMult = isTrap ? 2.0  + ((this.engine.meta.skills.trapSpecialty || 0) * 0.015) : 1;
 
         // Always show the clean final damage number. The ℹ️ icon is always
         // rendered so it's tappable even at pool P1 with no combo active.
@@ -1179,12 +1186,17 @@ export class VcUI {
         rangeWrap.appendChild(rangeSlider);
         btnRow.appendChild(rangeWrap);
 
-        // ── Remove button ─────────────────────────────────────────────────────
+        // ── Salvage button ────────────────────────────────────────────────────
+        // Refund 50% of the gem's full forge cost. Destroying gems for free made
+        // any mis-forge unrecoverable; a partial refund keeps experimentation
+        // viable without letting the player launder mana through re-forging.
+        const salvage = Math.floor(gemTotalCostColor(gem.color, gem.level, this.engine.meta.skills) * 0.5);
         const sellBtn = document.createElement('button');
         sellBtn.className = 'vc-btn';
         sellBtn.style.cssText = 'background:#7f8c8d;border-color:#636e72;';
-        sellBtn.textContent = '✕ Remove';
+        sellBtn.textContent = `♻️ Salvage (+${fmtN(salvage)} 💧)`;
         sellBtn.onclick = () => {
+            this.engine.state.mana += salvage;
             structRef.gem = null;
             this._structuresDirty = true;
             this.selectTile(this.selectedTile.r, this.selectedTile.c, this.selectedTile.type);
@@ -1401,7 +1413,8 @@ export class VcUI {
             this.topBar.comboWrap.style.opacity = combo > 0 ? '1' : '0';
         }
         if (combo > 0) {
-            const divisor = Math.max(1, 5 - ((engineState.meta?.skills?.scholarGrace || 0) * 0.1));
+            // Must match VcEngine's comboDivisor coefficient (0.075) or the HUD lies
+            const divisor = Math.max(1, 5 - ((engineState.meta?.skills?.scholarGrace || 0) * 0.075));
             const mult = (1 + Math.log(combo) / divisor).toFixed(2);
             if (this.topBar.comboMult) this.topBar.comboMult.textContent = `(×${mult})`;
             const col = combo >= 100 ? '#ecf0f1' : combo >= 25 ? '#f1c40f' : '#e67e22';
@@ -1636,63 +1649,75 @@ export class VcUI {
 
         this._updateEnemyStatWindowInBar(engineState);
 
-        if (eventMsg?.type === 'dmg') {
-            const fl = document.createElement('div');
-            fl.className = 'vc-float';
-            fl.style.left = eventMsg.x + 'px';
-            fl.style.top = eventMsg.y + 'px';
-            fl.style.color = GEMS[eventMsg.color]?.color ?? '#fff';
-            fl.textContent = fmtN(eventMsg.amt);
-            this.gridEl.appendChild(fl);
-            setTimeout(() => fl.remove(), 800);
-        } else if (eventMsg?.type === 'shieldDmg') {
-            // Gold shield-damage float — slightly offset upward so it doesn't overlap the HP float
-            const fl = document.createElement('div');
-            fl.className = 'vc-float';
-            fl.style.left = eventMsg.x + 'px';
-            fl.style.top  = (eventMsg.y - 14) + 'px';
-            fl.style.color = '#f1c40f';
-            fl.style.textShadow = '0 0 6px #f39c12';
-            fl.textContent = '🛡️' + fmtN(eventMsg.amt);
-            this.gridEl.appendChild(fl);
-            setTimeout(() => fl.remove(), 700);
-        } else if (eventMsg?.type === 'poolLevelUp') {
-            const bar = this.topBar.manaBar;
-            if (bar) {
-                bar.style.transition = 'none';
-                bar.style.background = '#fff';
-                setTimeout(() => { bar.style.transition = 'width 0.2s, background 0.3s'; }, 80);
+        // The engine batches all events raised during a tick and flushes them as
+        // an ARRAY (see VcEngine._tickEvents). The old code read `eventMsg.type`
+        // directly, which never matched on an array — every damage float, mana
+        // leak warning, pool level-up and wave bonus toast was silently dropped.
+        const events = Array.isArray(eventMsg) ? eventMsg : (eventMsg ? [eventMsg] : []);
+        let dmgFloats = 0; // cap floats per frame — beyond ~12 they just overlap
+        for (const ev of events) {
+            if (ev.type === 'dmg') {
+                if (dmgFloats >= 12) continue;
+                dmgFloats++;
+                const fl = document.createElement('div');
+                fl.className = 'vc-float';
+                fl.style.left = ev.x + 'px';
+                fl.style.top = ev.y + 'px';
+                fl.style.color = GEMS[ev.color]?.color ?? '#fff';
+                fl.textContent = fmtN(ev.amt);
+                this.gridEl.appendChild(fl);
+                setTimeout(() => fl.remove(), 800);
+            } else if (ev.type === 'shieldDmg') {
+                if (dmgFloats >= 12) continue;
+                dmgFloats++;
+                // Gold shield-damage float — slightly offset upward so it doesn't overlap the HP float
+                const fl = document.createElement('div');
+                fl.className = 'vc-float';
+                fl.style.left = ev.x + 'px';
+                fl.style.top  = (ev.y - 14) + 'px';
+                fl.style.color = '#f1c40f';
+                fl.style.textShadow = '0 0 6px #f39c12';
+                fl.textContent = '🛡️' + fmtN(ev.amt);
+                this.gridEl.appendChild(fl);
+                setTimeout(() => fl.remove(), 700);
+            } else if (ev.type === 'poolLevelUp') {
+                const bar = this.topBar.manaBar;
+                if (bar) {
+                    bar.style.transition = 'none';
+                    bar.style.background = '#fff';
+                    setTimeout(() => { bar.style.transition = 'width 0.2s, background 0.3s'; }, 80);
+                }
+                const fl = document.createElement('div');
+                fl.className = 'vc-float';
+                fl.style.cssText = 'left:50%;top:20px;transform:translateX(-50%);font-size:14px;color:#f1c40f;text-shadow:0 0 8px #f39c12,1px 1px 0 #000;white-space:nowrap;';
+                fl.textContent = `✨ Pool Lv${ev.level} — gems +${(ev.level-1)*5}%`;
+                this.gridEl.appendChild(fl);
+                setTimeout(() => fl.remove(), 1400);
+            } else if (ev.type === 'manaLeak') {
+                const fl = document.createElement('div');
+                fl.className = 'vc-float';
+                fl.style.left = (ev.x || 50) + 'px';
+                fl.style.top  = (ev.y || 50) + 'px';
+                fl.style.color = '#e74c3c';
+                fl.style.fontSize = '14px';
+                fl.textContent = '-' + fmtN(ev.amt) + '💧';
+                this.gridEl.appendChild(fl);
+                setTimeout(() => fl.remove(), 900);
+            } else if (ev.type === 'waveClear') {
+                const fl = document.createElement('div');
+                fl.className = 'vc-float';
+                fl.style.cssText = 'left:50%;top:30px;transform:translateX(-50%);font-size:15px;color:#f1c40f;text-shadow:0 0 8px #f39c12,1px 1px 0 #000;';
+                fl.textContent = `✨ Perfect Wave +${fmtN(ev.bonus)} XP`;
+                this.gridEl.appendChild(fl);
+                setTimeout(() => fl.remove(), 1200);
+            } else if (ev.type === 'earlyCall') {
+                const fl = document.createElement('div');
+                fl.className = 'vc-float';
+                fl.style.cssText = 'left:50%;top:48px;transform:translateX(-50%);font-size:14px;color:#2ecc71;text-shadow:0 0 8px #27ae60,1px 1px 0 #000;white-space:nowrap;';
+                fl.textContent = `⚡ Early Call +${fmtN(ev.bonus)} 💧`;
+                this.gridEl.appendChild(fl);
+                setTimeout(() => fl.remove(), 1400);
             }
-            const fl = document.createElement('div');
-            fl.className = 'vc-float';
-            fl.style.cssText = 'left:50%;top:20px;transform:translateX(-50%);font-size:14px;color:#f1c40f;text-shadow:0 0 8px #f39c12,1px 1px 0 #000;white-space:nowrap;';
-            fl.textContent = `✨ Pool Lv${eventMsg.level} — gems +${(eventMsg.level-1)*5}%`;
-            this.gridEl.appendChild(fl);
-            setTimeout(() => fl.remove(), 1400);
-        } else if (eventMsg?.type === 'manaLeak') {
-            const fl = document.createElement('div');
-            fl.className = 'vc-float';
-            fl.style.left = (eventMsg.x || 50) + 'px';
-            fl.style.top  = (eventMsg.y || 50) + 'px';
-            fl.style.color = '#e74c3c';
-            fl.style.fontSize = '14px';
-            fl.textContent = '-' + fmtN(eventMsg.amt) + '💧';
-            this.gridEl.appendChild(fl);
-            setTimeout(() => fl.remove(), 900);
-        } else if (eventMsg?.type === 'waveClear') {
-            const fl = document.createElement('div');
-            fl.className = 'vc-float';
-            fl.style.cssText = 'left:50%;top:30px;transform:translateX(-50%);font-size:15px;color:#f1c40f;text-shadow:0 0 8px #f39c12,1px 1px 0 #000;';
-            fl.textContent = `✨ Perfect Wave +${fmtN(eventMsg.bonus)} XP`;
-            this.gridEl.appendChild(fl);
-            setTimeout(() => fl.remove(), 1200);
-        } else if (eventMsg?.type === 'earlyCall') {
-            const fl = document.createElement('div');
-            fl.className = 'vc-float';
-            fl.style.cssText = 'left:50%;top:48px;transform:translateX(-50%);font-size:14px;color:#2ecc71;text-shadow:0 0 8px #27ae60,1px 1px 0 #000;white-space:nowrap;';
-            fl.textContent = `⚡ Early Call +${fmtN(eventMsg.bonus)} 💧`;
-            this.gridEl.appendChild(fl);
-            setTimeout(() => fl.remove(), 1400);
         }
     }
 

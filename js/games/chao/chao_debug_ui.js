@@ -45,6 +45,7 @@ export function renderDebugTab(container, stateManager, showToast, onStateChange
         chi.equippedHat = "Golden Crown";
         stateManager.save();
         showToast(`${chi.name} equipped a Golden Crown! (Nikki will mention this)`);
+        onStateChanged();
     });
 
     container.querySelector('#dbg-reset-diary').addEventListener('click', () => {

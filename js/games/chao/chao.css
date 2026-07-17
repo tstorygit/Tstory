@@ -154,6 +154,19 @@
     border: 1px solid rgba(255, 255, 255, 0.3); white-space: nowrap; z-index: 10;
 }
 
+/* Study Hall */
+.chao-study-chips {
+    display: flex; gap: 10px; flex-wrap: wrap;
+}
+.chao-study-chip {
+    flex: 1; min-width: 90px;
+    background: #282a36; border: 1px solid #444; border-radius: 8px;
+    padding: 10px 8px; text-align: center; font-size: 18px;
+    display: flex; flex-direction: column; gap: 2px; align-items: center;
+}
+.chao-study-chip b { color: #f1fa8c; font-size: 20px; }
+.chao-study-chip span { font-size: 11px; color: #888; }
+
 /* Mobile Portrait Support */
 @media (max-width: 768px) {
     .nikki-layout { flex-direction: column; }

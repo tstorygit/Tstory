@@ -38,8 +38,21 @@ export function initDataManager() {
     document.getElementById('data-import-file').addEventListener('change', handleImportFileChange);
     document.getElementById('btn-confirm-import').addEventListener('click', handleImportConfirm);
 
-    // Sync
-    document.getElementById('btn-sync-now').addEventListener('click', handleSync);
+    // Sync — persist any URL the user typed, then sync with proper error surfacing.
+    // (Previously handleSync was the raw click handler: the typed URL was ignored
+    //  and a failed sync became an unhandled rejection with no UI feedback.)
+    const syncUrlInput = document.getElementById('data-sync-url');
+    syncUrlInput.addEventListener('change', () => {
+        dataMgr.setSyncUrl(syncUrlInput.value.trim());
+    });
+    document.getElementById('btn-sync-now').addEventListener('click', async () => {
+        dataMgr.setSyncUrl(syncUrlInput.value.trim());
+        try {
+            await handleSync();
+        } catch (err) {
+            showStatus('sync-status', 'error', `Sync failed: ${err.message}`);
+        }
+    });
 
     // Initial render
     renderStoryList();

@@ -10,20 +10,22 @@ export const WEAPONS = {
     star:  { id: 'star',  name: 'Morning Star', icon: '☄️', type: 'arc',        range: 65, arc: Math.PI/2, damage: 2.0, clear: TILE.ROCK }
 };
 
+// lungeRange: distance at which the enemy telegraphs an attack (0 = never lunges)
+// windup:     telegraph duration in seconds before the lunge fires
 export const ENEMIES = [
-    { id: 'slime', emoji: '💧', hpMult: 1.0, speed: 50,  atkMult: 1.0, xp: 15, ai: 'chase' },
-    { id: 'bat',   emoji: '🦇', hpMult: 0.5, speed: 100, atkMult: 0.8, xp: 10, ai: 'wander' },
-    { id: 'orc',   emoji: '👹', hpMult: 2.0, speed: 35,  atkMult: 1.5, xp: 25, ai: 'chase' },
-    { id: 'ghost', emoji: '👻', hpMult: 0.8, speed: 70,  atkMult: 1.2, xp: 20, ai: 'chase_fly' } 
+    { id: 'slime', emoji: '💧', hpMult: 1.0, speed: 50,  atkMult: 1.0, xp: 15, ai: 'chase',     lungeRange: 90,  windup: 0.50 },
+    { id: 'bat',   emoji: '🦇', hpMult: 0.5, speed: 100, atkMult: 0.8, xp: 10, ai: 'wander',    lungeRange: 0,   windup: 0 },
+    { id: 'orc',   emoji: '👹', hpMult: 2.0, speed: 35,  atkMult: 1.5, xp: 25, ai: 'chase',     lungeRange: 110, windup: 0.65 },
+    { id: 'ghost', emoji: '👻', hpMult: 0.8, speed: 70,  atkMult: 1.2, xp: 20, ai: 'chase_fly', lungeRange: 100, windup: 0.45 }
 ];
 
 export const BOSSES = [
-    { id: 'dragon', emoji: '🐉', hpMult: 6, speed: 50, atkMult: 2.0, xp: 300, ai: 'chase' }
+    { id: 'dragon', emoji: '🐉', hpMult: 6, speed: 55, atkMult: 2.0, xp: 300, ai: 'chase', lungeRange: 150, windup: 0.8 }
 ];
 
 export const PERKS = {
-    hp:    { name: 'Titan Blood',   desc: '+50 Base HP', cost: 1 },
-    mp:    { name: 'Mystic Mind',   desc: '+20 Base MP', cost: 1 },
-    exp:   { name: 'Scholar',       desc: '+10% EXP Gain', cost: 2 },
-    dodge: { name: 'Reflexes',      desc: '-0.5s Dodge Cooldown', cost: 2 }
+    hp:    { name: 'Titan Blood',     desc: '+50 Base HP', cost: 1 },
+    mp:    { name: 'Mystic Mind',     desc: '+20 Base MP', cost: 1 },
+    exp:   { name: 'Scholar',         desc: '+10% EXP Gain', cost: 2 },
+    dodge: { name: 'Guardian Spirit', desc: '+1 Second Wind per stage (cheat death with a vocab answer)', cost: 2 }
 };

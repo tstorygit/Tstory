@@ -206,53 +206,155 @@ export function enemyTypeWeight(typeDef) {
          * (typeDef.manaLeachMult > 1 ? typeDef.manaLeachMult * 0.5 : 1);
 }
 
-// Which enemy types can appear each wave — based on difficulty (1-10)
-function wavePool(waveNum, difficulty) {
+// ─── Deterministic per-wave RNG ───────────────────────────────────────────────
+// Wave composition must be identical in the pre-battle preview and in the
+// actual battle, so all composition randomness is seeded from (wave, difficulty).
+function _mulberry32(a) {
+    return function () {
+        a |= 0; a = (a + 0x6D2B79F5) | 0;
+        let t = Math.imul(a ^ (a >>> 15), 1 | a);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+// ─── Scaling curves ───────────────────────────────────────────────────────────
+// HP: linear × gentle compound. The old curve was pure 1.15^wave, which
+// exploded (wave 45 ≈ 538× wave 1) while player income grew only linearly —
+// the source of the mid-run difficulty wall. The new curve reaches
+// wave 17 ≈ 9×, wave 45 ≈ 74×, matching achievable gem/economy growth.
+export function waveHpBase(waveNum, difficulty) {
+    const diffMult = Math.pow(1.15, difficulty - 1);
+    return 18 * GLOBAL_SCALE * diffMult
+        * (1 + 0.22 * (waveNum - 1))
+        * Math.pow(1.045, waveNum - 1);
+}
+
+// Armor: grows every 4 waves instead of every 2 — flat armor is a hard counter
+// to fast low-damage gems (traps), and the old rate made them useless late.
+export function waveArmorBase(waveNum, difficulty) {
+    return Math.max(0, Math.floor(
+        ((difficulty - 1) / 2 + Math.max(0, (waveNum - 3) / 4)) * GLOBAL_SCALE
+    ));
+}
+
+export function waveSlots(waveNum, difficulty) {
+    return Math.round(5 + waveNum * 1.1 + difficulty * 0.6);
+}
+
+// Boss milestone multiplier — applied on top of waveHpBase.
+export function bossHpMult(waveNum) {
+    return 5 + waveNum * 0.1;
+}
+
+// Base mana bounty for killing a wave-appropriate normal enemy.
+// Grows with the wave so income keeps pace with exponentially-priced gems;
+// the old flat 10-mana bounty starved every build past the mid-game.
+export function killManaBase(waveNum, difficulty) {
+    return 6 + waveNum * 0.7 + difficulty * 1.5;
+}
+
+function _typeManaValue(typeDef, waveNum, difficulty, hpMult = 1) {
+    // Tanky types pay more, swarm bodies pay less; sqrt keeps it moderate.
+    return Math.max(1, Math.round(
+        killManaBase(waveNum, difficulty)
+        * Math.sqrt(Math.max(0.05, typeDef.hpMult))
+        * (hpMult > 1 ? Math.sqrt(hpMult) : 1)
+    ));
+}
+
+// ─── Enemy type unlock schedule ──────────────────────────────────────────────
+// Wave thresholds shift earlier at higher difficulty, but never below the
+// floor — no more Colossus ambushes on wave 1 of a D6 map (the old pool
+// unlocked whole tiers by difficulty alone).
+const UNLOCK_TABLE = [
+    { id: 'fast',        wave: 2,  floor: 2  },
+    { id: 'swarm',       wave: 3,  floor: 2  },
+    { id: 'armored',     wave: 5,  floor: 3  },
+    { id: 'healer',      wave: 7,  floor: 4  },
+    { id: 'ghost',       wave: 9,  floor: 5  },
+    { id: 'giant',       wave: 11, floor: 6  },
+    { id: 'splitter',    wave: 13, floor: 7  },
+    { id: 'manasucker',  wave: 15, floor: 8  },
+    { id: 'berserker',   wave: 17, floor: 9  },
+    { id: 'cursed',      wave: 21, floor: 12 },
+    { id: 'swarmleader', wave: 25, floor: 14 },
+    { id: 'phantom',     wave: 30, floor: 17 },
+    { id: 'titan',       wave: 36, floor: 20 },
+];
+
+function _unlockWave(entry, difficulty) {
+    return Math.max(entry.floor, entry.wave - Math.floor((difficulty - 1) / 2));
+}
+
+// Which enemy types can appear on a given wave.
+export function wavePool(waveNum, difficulty) {
     const pool = ['normal'];
-    if (waveNum >= 2  || difficulty >= 2)  pool.push('fast');
-    if (waveNum >= 3  || difficulty >= 2)  pool.push('swarm');
-    if (waveNum >= 5  || difficulty >= 3)  pool.push('armored');
-    if (waveNum >= 6  || difficulty >= 5)  pool.push('healer');
-    if (waveNum >= 8  || difficulty >= 7)  pool.push('ghost');
-    // New enemy types — higher difficulty/wave thresholds
-    if (waveNum >= 10 || difficulty >= 6)  pool.push('giant');
-    if (waveNum >= 12 || difficulty >= 6)  pool.push('splitter');
-    if (waveNum >= 14 || difficulty >= 8)  pool.push('manasucker');
-    if (waveNum >= 16 || difficulty >= 8)  pool.push('berserker');
-    if (waveNum >= 20 || difficulty >= 10) pool.push('cursed');
-    if (waveNum >= 24 || difficulty >= 12) pool.push('swarmleader');
-    if (waveNum >= 30 || difficulty >= 14) pool.push('phantom');
-    if (waveNum >= 36 || difficulty >= 16) pool.push('titan');
+    for (const u of UNLOCK_TABLE) {
+        if (waveNum >= _unlockWave(u, difficulty)) pool.push(u.id);
+    }
     return pool;
 }
 
-// Pick enemy types for a wave — weighted so new types appear occasionally,
-// not every single enemy. Waves feel varied but readable.
-function pickWaveComposition(totalSlots, waveNum, difficulty) {
-    const pool = wavePool(waveNum, difficulty);
-    const result =[];
-
-    for (let i = 0; i < totalSlots; i++) {
-        // Bias toward normal for first few slots, then random from pool
-        let pick;
-        if (pool.length === 1 || (i === 0 && waveNum <= 3)) {
-            pick = 'normal';
-        } else {
-            // Weight: normal=4, common=2, rare/powerful=1
-            const rareTypes = new Set(['giant','titan','swarmleader','phantom','cursed']);
-            const commonTypes = new Set(['fast','swarm','armored','healer','ghost','splitter','manasucker','berserker']);
-            const weights = pool.map(id =>
-                id === 'normal' ? 4 : rareTypes.has(id) ? 1 : commonTypes.has(id) ? 2 : 1
-            );
-            const total = weights.reduce((a, b) => a + b, 0);
-            let r = Math.random() * total;
-            let idx = 0;
-            for (let w of weights) { r -= w; if (r <= 0) break; idx++; }
-            pick = pool[Math.min(idx, pool.length - 1)];
-        }
-        result.push(pick);
+// ─── Wave archetypes ─────────────────────────────────────────────────────────
+// Every 5-wave block follows a readable rhythm:
+//   pos 1–2: mixed build-up waves
+//   pos 3:   RUSH spike  — many fast bodies at reduced HP
+//   pos 4:   ELITE spike — few enemies at greatly increased HP
+//   pos 0:   BOSS
+// Spikes are intentional, previewed, and marked in the wave tracker.
+export function getWaveMeta(waveNum, difficulty) {
+    if (waveNum % 5 === 0) {
+        return { theme: 'boss', isSpike: false, isBoss: true, slotMult: 1, hpMult: 1 };
     }
-    return result;
+    const pos = waveNum % 5;
+    if (pos === 3) return { theme: 'rush',  isSpike: true,  isBoss: false, slotMult: 1.35, hpMult: 0.85 };
+    if (pos === 4) return { theme: 'elite', isSpike: true,  isBoss: false, slotMult: 0.60, hpMult: 1.70 };
+    return { theme: 'mixed', isSpike: false, isBoss: false, slotMult: 1, hpMult: 1 };
+}
+
+const RUSH_TYPES  = ['fast', 'swarm', 'berserker', 'manasucker', 'phantom'];
+const ELITE_TYPES = ['armored', 'healer', 'giant', 'splitter', 'swarmleader', 'cursed', 'titan'];
+
+/**
+ * Deterministic composition for a wave. The same (waveNum, difficulty) always
+ * yields the same list, so the stage-select preview shows exactly what spawns.
+ * @returns {{ theme, isSpike, isBoss, hpMult, typeIds: string[], newTypes: string[] }}
+ */
+export function composeWave(waveNum, difficulty, modifiers = []) {
+    const meta = getWaveMeta(waveNum, difficulty);
+    if (meta.isBoss) return { ...meta, typeIds: ['boss'], newTypes: [] };
+
+    const rng  = _mulberry32(((waveNum * 2654435761) ^ (difficulty * 97)) >>> 0);
+    const pool = wavePool(waveNum, difficulty);
+    const densityMult = modifiers.includes('density') ? 1.5 : 1;
+    const slots = Math.max(3, Math.round(waveSlots(waveNum, difficulty) * meta.slotMult * densityMult));
+
+    // Types that unlock exactly this wave get a guaranteed showcase so the
+    // player meets each new threat deliberately, not by lottery.
+    const newTypes = UNLOCK_TABLE
+        .filter(u => _unlockWave(u, difficulty) === waveNum)
+        .map(u => u.id);
+
+    let themed = [];
+    if (meta.theme === 'rush')  themed = RUSH_TYPES.filter(t => pool.includes(t));
+    if (meta.theme === 'elite') themed = ELITE_TYPES.filter(t => pool.includes(t));
+
+    const typeIds = [];
+    for (const t of newTypes) typeIds.push(t, t);
+    while (typeIds.length < slots) {
+        if (themed.length > 0 && rng() < 0.7) {
+            typeIds.push(themed[Math.floor(rng() * themed.length)]);
+        } else if (pool.length > 1 && rng() < 0.45) {
+            const others = pool.slice(1);
+            typeIds.push(others[Math.floor(rng() * others.length)]);
+        } else {
+            typeIds.push('normal');
+        }
+    }
+    typeIds.length = slots; // trim if the showcase overfilled a small wave
+
+    return { ...meta, typeIds, newTypes };
 }
 
 /**
@@ -273,12 +375,11 @@ export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, way
     // GCFW roundtrip: +50% HP and speed per additional loop
     const loopMult = Math.pow(1.5, loop - 1);
 
-    const diffMult   = Math.pow(1.15, difficulty - 1);
     const numPaths   = waypointSets.length;
 
     if (isBossWave) {
         const spawn = waypointSets[0][0];
-        let hpBase = 18 * GLOBAL_SCALE * diffMult * Math.pow(1.15, waveNum) * 4;
+        const hpBase = waveHpBase(waveNum, difficulty) * bossHpMult(waveNum);
         const armor = Math.max(0, Math.floor((waveNum - 2) / 2) + Math.floor((difficulty - 1) / 2)) + 3;
         const bossEnrageMult = isEnraged ? (1 + enrageLevel * 0.1) : 1;
         const hp = hpBase * bossEnrageMult * modeHpMult * loopMult;
@@ -294,6 +395,7 @@ export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, way
             immune: [],
             pathIdx: 0,
             x: spawn.x, y: spawn.y, wpIdx: 1,
+            manaValue: Math.round(killManaBase(waveNum, difficulty) * 12),
             _xpWeight: 4.0 * 1.3,   // boss: ×4 HP, regen
             _waveNum: waveNum,
             _difficulty: difficulty,
@@ -310,13 +412,15 @@ export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, way
         return [bossEntry];
     }
 
-    const slots       = Math.round((4 + Math.floor(waveNum * 1.2) + Math.floor(difficulty / 2)) * (modifiers.includes('density') ? 1.5 : 1));
-    const composition = pickWaveComposition(slots, waveNum, difficulty);
+    const comp        = composeWave(waveNum, difficulty, modifiers);
+    const composition = comp.typeIds;
 
-    let hpBase = 18 * GLOBAL_SCALE * diffMult * Math.pow(1.15, waveNum);
-    const baseArmor  = Math.floor(((difficulty - 1) / 2 + Math.max(0, Math.floor((waveNum - 2) / 2))) * GLOBAL_SCALE);
+    const hpBase     = waveHpBase(waveNum, difficulty) * comp.hpMult;
+    const baseArmor  = waveArmorBase(waveNum, difficulty);
     // Enrage multiplier: 1.0 + 0.1 per enrage level (Lv1=1.1×, Lv10=2.0×, Lv20=3.0×)
     const enrageMult = isEnraged ? (1 + enrageLevel * 0.1) : 1;
+    // Rush waves spawn on a tighter cadence — the pressure is the point.
+    const spawnGap   = comp.theme === 'rush' ? 0.45 : 0.7;
 
     const enemies  = [];
     let spawnIdx   = 0;
@@ -332,7 +436,7 @@ export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, way
             const armor   = Math.max(0, baseArmor + typeDef.armorBonus) + (isEnraged ? Math.ceil(enrageLevel / 3) : 0);
 
             const baseEnemy = {
-                delay: spawnIdx * 0.7,
+                delay: spawnIdx * spawnGap,
                 typeId,
                 isBoss: false,
                 emoji: typeDef.emoji,
@@ -350,6 +454,7 @@ export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, way
                 swarmSpawnTimer: typeDef.spawnsSwarm ? 3.0 : 0,
                 pathIdx,
                 x: spawn.x, y: spawn.y, wpIdx: 1,
+                manaValue: _typeManaValue(typeDef, waveNum, difficulty, comp.hpMult),
                 _xpWeight: enemyTypeWeight(typeDef),
                 _waveNum: waveNum,
                 _difficulty: difficulty,
@@ -429,29 +534,27 @@ export function buildWaveEnemies(waveNum, difficulty, isBossWave, isEnraged, way
     return enemies;
 }
 /**
- * Returns a deterministic per-wave preview for the stage-select UI.
- * Shows which enemy types can appear each wave with their real stats at `difficulty`.
+ * Returns the EXACT per-wave preview for the stage-select UI.
+ * Composition is deterministic (seeded from wave+difficulty), so what the
+ * preview shows is precisely what spawns in battle — including spike waves.
  *
- * @param {number} totalWaves   Total waves for the stage (e.g. 5 + difficulty + bonusWaves)
- * @param {number} difficulty   Stage difficulty 1-10
- * @returns {Array<WavePreview>}
+ * @param {number} totalWaves   Total waves for the stage
+ * @param {number} difficulty   Stage difficulty (1-18)
+ * @returns {Array<{wave, isBoss, isSpike, theme, slots, types}>}
  */
 export function getWavePreview(totalWaves, difficulty) {
-    const diffMult  = Math.pow(1.15, difficulty - 1);
-    const baseArmor = Math.floor(((difficulty - 1) / 2) * GLOBAL_SCALE);
-
     const result = [];
     for (let waveNum = 1; waveNum <= totalWaves; waveNum++) {
-        const isBossWave = (waveNum % 5 === 0);
-        const hpBase     = 18 * GLOBAL_SCALE * diffMult * Math.pow(1.15, waveNum);
+        const meta   = getWaveMeta(waveNum, difficulty);
+        const hpBase = waveHpBase(waveNum, difficulty);
 
-        if (isBossWave) {
+        if (meta.isBoss) {
             const armor = Math.max(0,
                 Math.floor((waveNum - 2) / 2) + Math.floor((difficulty - 1) / 2)
             ) + 3;
-            const hp = Math.floor(hpBase * 4);
+            const hp = Math.floor(hpBase * bossHpMult(waveNum));
             result.push({
-                wave: waveNum, isBoss: true,
+                wave: waveNum, isBoss: true, isSpike: false, theme: 'boss',
                 slots: 1,
                 types: [{
                     typeId: 'boss', emoji: '👹', label: 'BOSS',
@@ -462,24 +565,33 @@ export function getWavePreview(totalWaves, difficulty) {
                 }]
             });
         } else {
-            const pool  = wavePool(waveNum, difficulty);
-            const slots = 4 + Math.floor(waveNum * 1.2) + Math.floor(difficulty / 2);
-            const types = pool.map(typeId => {
-                const def = ENEMY_TYPES[typeId];
-                return {
-                    typeId,
-                    emoji:  def.emoji,
-                    label:  def.label,
-                    count:  def.spawnCount,
-                    hp:     Math.floor(hpBase * def.hpMult),
-                    armor:  Math.max(0, baseArmor + def.armorBonus),
-                    speed:  Math.floor((38 + difficulty * 2) * GLOBAL_SCALE * def.speedMult / 40 * 100) / 100,
-                    immune: def.immune,
-                    regen:  def.regen,
-                    desc:   def.desc
-                };
+            const comp      = composeWave(waveNum, difficulty);
+            const baseArmor = waveArmorBase(waveNum, difficulty);
+            const counts    = new Map();
+            comp.typeIds.forEach(t => counts.set(t, (counts.get(t) || 0) + 1));
+
+            const types = [...counts.entries()]
+                .sort((a, b) => b[1] - a[1])
+                .map(([typeId, slotCount]) => {
+                    const def = ENEMY_TYPES[typeId];
+                    return {
+                        typeId,
+                        emoji:  def.emoji,
+                        label:  def.label,
+                        count:  slotCount * def.spawnCount,
+                        hp:     Math.floor(hpBase * comp.hpMult * def.hpMult),
+                        armor:  Math.max(0, baseArmor + def.armorBonus),
+                        speed:  Math.floor((38 + difficulty * 2) * GLOBAL_SCALE * def.speedMult / 40 * 100) / 100,
+                        immune: def.immune,
+                        regen:  def.regen,
+                        desc:   def.desc
+                    };
+                });
+            result.push({
+                wave: waveNum, isBoss: false,
+                isSpike: comp.isSpike, theme: comp.theme,
+                slots: comp.typeIds.length, types
             });
-            result.push({ wave: waveNum, isBoss: false, slots, types });
         }
     }
     return result;

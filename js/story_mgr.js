@@ -69,10 +69,20 @@ export async function createNewStory(theme, onProgress, onRawTextReady, onEnrich
 
     stories.push(newStory);
     saveStoryList(stories);
-    
+
     activeStoryId = newStory.id;
 
-    return await generateNextBlock(null, onProgress, onRawTextReady, onEnrichedReady);
+    try {
+        return await generateNextBlock(null, onProgress, onRawTextReady, onEnrichedReady);
+    } catch (err) {
+        // Don't leave an empty story husk in the library when the very first
+        // block fails to generate.
+        const fresh = getStoryList().find(s => s.id === newStory.id);
+        if (fresh && fresh.blocks.length === 0) {
+            deleteStory(newStory.id);
+        }
+        throw err;
+    }
 }
 
 export async function createStoryFromRawText(rawText, onProgress, onRawTextReady, storyType = 'imported', onEnrichedReady = null) {
@@ -451,7 +461,7 @@ export async function regenerateLastBlock(onProgress, onRawTextReady, onEnriched
         stories[storyIndex] = storyData;
         saveStoryList(stories);
 
-        return await generateNextBlock(chosenOption, onProgress, onRawTextReady);
+        return await generateNextBlock(chosenOption, onProgress, onRawTextReady, onEnrichedReady);
     }
 }
 
@@ -480,16 +490,20 @@ export async function updateBlockText(blockIndex, newText, onProgress) {
 
         let fs = getStoryList();
         let fsi = fs.findIndex(s => s.id === activeStoryId);
-        fs[fsi].blocks[blockIndex] = block;
-        saveStoryList(fs);
+        if (fsi !== -1 && fs[fsi].blocks[blockIndex]) {
+            fs[fsi].blocks[blockIndex] = block;
+            saveStoryList(fs);
+        }
 
         onProgress(100, "Ready!");
         return block;
     } catch (err) {
         let fs = getStoryList();
         let fsi = fs.findIndex(s => s.id === activeStoryId);
-        fs[fsi].blocks[blockIndex].isProcessing = false;
-        saveStoryList(fs);
+        if (fsi !== -1 && fs[fsi].blocks[blockIndex]) {
+            fs[fsi].blocks[blockIndex].isProcessing = false;
+            saveStoryList(fs);
+        }
         throw err;
     }
 }
@@ -510,8 +524,10 @@ export function updateBlockData(blockIndex, newEnrichedData) {
 
     let fs = getStoryList();
     let fsi = fs.findIndex(s => s.id === activeStoryId);
-    fs[fsi].blocks[blockIndex] = block;
-    saveStoryList(fs);
+    if (fsi !== -1 && fs[fsi].blocks[blockIndex]) {
+        fs[fsi].blocks[blockIndex] = block;
+        saveStoryList(fs);
+    }
 
     return block;
 }

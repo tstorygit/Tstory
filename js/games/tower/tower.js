@@ -52,6 +52,14 @@ const SAVE_KEY = 'polyglot_tower_save';
 let _save = null;
 let _speedMult = 1;
 
+// init() is re-run every time the game is opened from the Games list. These
+// module-level handles let init() tear down the previous session's timers and
+// cached elements instead of stacking new ones on top (stacked _autoBuyTicker
+// intervals used to multi-buy 2x/3x faster after re-entering the game).
+let _labIntervalId = null;
+let _autoBuyIntervalId = null;
+let _hpBarEl = null;
+
 // ─── MUSIC ───────────────────────────────────────────────────────────────────
 let _audio = null;
 const MUSIC_TRACKS = ['tower1.mp3', 'tower2.mp3', 'tower3.mp3'];
@@ -66,20 +74,51 @@ function _saveAutoBuyPref(autoBuy) {
     localStorage.setItem(AUTOBUY_PREF_KEY, JSON.stringify(autoBuy));
 }
 
-function _getMuted() {
-    return localStorage.getItem(MUSIC_PREF_KEY) === 'true';
+// Volume is a 4-step cycle instead of a binary mute: 🔊 100% → 🔉 60% → 🔈 25% → 🔇 off.
+// The legacy MUSIC_PREF_KEY mute flag is migrated on first read and kept in sync.
+const MUSIC_VOL_KEY = 'polyglot_tower_volume';
+const VOL_STEPS = [1, 0.6, 0.25, 0];
+
+function _getVolume() {
+    const raw = localStorage.getItem(MUSIC_VOL_KEY);
+    if (raw !== null) {
+        const v = parseFloat(raw);
+        if (!isNaN(v)) return Math.max(0, Math.min(1, v));
+    }
+    // Migrate from the old boolean mute preference
+    return localStorage.getItem(MUSIC_PREF_KEY) === 'true' ? 0 : 1;
 }
-function _setMuted(val) {
-    localStorage.setItem(MUSIC_PREF_KEY, val ? 'true' : 'false');
-    if (_audio) _audio.muted = val;
+function _setVolume(v) {
+    localStorage.setItem(MUSIC_VOL_KEY, String(v));
+    localStorage.setItem(MUSIC_PREF_KEY, v === 0 ? 'true' : 'false'); // keep legacy key in sync
+    if (_audio) {
+        _audio.volume = v * 0.5; // 0.5 was the historical max loudness
+        _audio.muted = v === 0;
+    }
     _updateMuteBtn();
+}
+function _cycleVolume() {
+    const cur = _getVolume();
+    // Find the nearest step, then advance to the next one
+    let idx = 0, bestDist = Infinity;
+    VOL_STEPS.forEach((s, i) => {
+        const d = Math.abs(s - cur);
+        if (d < bestDist) { bestDist = d; idx = i; }
+    });
+    _setVolume(VOL_STEPS[(idx + 1) % VOL_STEPS.length]);
+}
+function _volumeIcon(v) {
+    if (v <= 0) return '🔇';
+    if (v <= 0.3) return '🔈';
+    if (v <= 0.7) return '🔉';
+    return '🔊';
 }
 function _updateMuteBtn() {
     const btn = document.querySelector('#tw-mute-btn');
     if (!btn) return;
-    const muted = _getMuted();
-    btn.textContent = muted ? '🔇' : '🔊';
-    btn.title = muted ? 'Unmute Music' : 'Mute Music';
+    const v = _getVolume();
+    btn.textContent = _volumeIcon(v);
+    btn.title = v === 0 ? 'Music: off (tap to cycle volume)' : `Music volume: ${Math.round(v * 100)}% (tap to cycle)`;
 }
 function _pickRandomTrack(exclude) {
     const available = MUSIC_TRACKS.filter(t => t !== exclude);
@@ -90,8 +129,9 @@ function _musicPlay() {
     const basePath = './js/games/tower/bgm/';
     let track = MUSIC_TRACKS[Math.floor(Math.random() * MUSIC_TRACKS.length)];
     _audio = new Audio(basePath + track);
-    _audio.muted = _getMuted();
-    _audio.volume = 0.5;
+    const vol = _getVolume();
+    _audio.muted = vol === 0;
+    _audio.volume = vol * 0.5;
     _audio.addEventListener('ended', () => {
         const next = _pickRandomTrack(track);
         track = next;
@@ -375,7 +415,7 @@ export function init(screens, onExit) {    _screens = screens;
                 <h3 style="color:#00ffff; margin-top:0; text-align:center;">Mechanics Guide</h3>
                 <div style="color:#ccc; font-size:13px; line-height:1.5;">
                     <h4 style="color:#f1c40f; margin-bottom:5px;">🧠 Knowledge System</h4>
-                    <p style="margin-top:0;">Between waves, you'll answer Vocabulary questions. Each correct answer gives you a <b>Knowledge Stack</b>. Knowledge acts as a powerful global multiplier for your Damage, Health, Regen, Cash, and Coins.</p>
+                    <p style="margin-top:0;">Between waves, you'll answer Vocabulary questions. Each correct answer gives you a <b>Knowledge Stack</b>. Knowledge acts as a powerful global multiplier for your Damage, Health, Regen, Cash, and Coins.<br><b style="color:#e74c3c;">☠ Boss waves</b> (every 10th) grant <b>DOUBLE Knowledge</b> per correct answer — and the boss's health bar is shown at the top of the battlefield.</p>
                     
                     <h4 style="color:#f1c40f; margin-bottom:5px;">🔥 Combo Multiplier</h4>
                     <p style="margin-top:0;">Consecutive correct answers build your Combo. Higher combos multiply the Knowledge Stacks gained per answer: <br>• 3+ Streak: <b>x1.5</b><br>• 5+ Streak: <b>x2.0</b><br>• 10+ Streak: <b>x3.0</b></p>
@@ -620,7 +660,7 @@ export function init(screens, onExit) {    _screens = screens;
     });
 
     _screens.game.querySelector('#tw-mute-btn').addEventListener('click', () => {
-        _setMuted(!_getMuted());
+        _cycleVolume();
     });
 
     _screens.game.querySelector('#tw-vocab-mode-pill').addEventListener('click', () => {
@@ -642,6 +682,8 @@ export function init(screens, onExit) {    _screens = screens;
             modal.style.display = 'none';
             _engine.stop();
             _saveRunSnapshot();
+            _clearVocabOverlays();
+            if (_vocabMgr) _vocabMgr.resume();
             _showHub();
         };
         modal.querySelector('#tw-end-run-yes').onclick = () => {
@@ -716,8 +758,10 @@ export function init(screens, onExit) {    _screens = screens;
                 active: false, wave: 1, diff: 1, cash: 0, earnedCoinsDrops: 0, earnedCoinsWave: 0,
                 knowledgeStacks: 0, combo: 0, abilityCharge: 0, targetMode: 'closest',
                 vocabQuestions: 0, vocabCorrect: 0, failedWords: {}, boughtDefense: false,
+                vocabMode: 'normal', vocabBuffer: 0,
                 levels: { offense: {}, defense: {}, utility: {} },
-                autoBuy: { offense: false, defense: false, coins: false, cash: false }
+                autoBuy: { offense: false, defense: false, coins: false, cash: false },
+                ultFuel: {}
             };
             _saveGame(); _saveAutoBuyPref({ offense: false, defense: false, coins: false, cash: false }); _showHub();
         }
@@ -742,6 +786,10 @@ export function init(screens, onExit) {    _screens = screens;
     const nextBtn = _screens.setup.querySelector('#tw-diff-next');
 
     const updateDiffUI = () => {
+        // Clamp: maxDiff can shrink (ascension resets it to 1) — without this
+        // the selector could still start a run at the old, higher tier.
+        if (_save && selectedDiff > (_save.maxDiff || 1)) selectedDiff = _save.maxDiff || 1;
+        if (selectedDiff < 1) selectedDiff = 1;
         diffVal.textContent = selectedDiff;
         _screens.setup.querySelector('#tw-diff-lbl-num').textContent = selectedDiff;
         targetVal.textContent = Math.round(26 * Math.log(selectedDiff) + 10);
@@ -805,15 +853,20 @@ export function init(screens, onExit) {    _screens = screens;
     prevBtn.onclick = () => { selectedDiff--; updateDiffUI(); };
     nextBtn.onclick = () => { selectedDiff++; updateDiffUI(); };
 
+    // Tear down the previous session's engine before building a new one on the
+    // fresh DOM (init runs once per game open — see games_ui.js).
+    if (_engine) _engine.destroy();
+    _hpBarEl = _screens.game.querySelector('#tw-run-hp-bar');
+
     _engine = new TowerEngine(_screens.game.querySelector('#tw-canvas'), {
-        onHpUpdate: () => _updateRunHUD(),
+        onHpUpdate: () => _updateHpBar(),
         onEnemyKill: (cash, x, y, type) => {
             const cashBoostMult = (_engine.buffs && _engine.buffs.cashBoost > 0) ? 5 : 1;
             _run.cash += cash * cashBoostMult;
             
             // Coin drops scale with wave and difficulty so drops stay relevant all game.
             const coinMult = (_engine.stats.coinBonus || 1) * (1 + (_save.lab.levels.coinYield || 0) * 0.1);
-            const isElite = ['fast','tank','ranged','healer','shielded','spawner'].includes(type);
+            const isElite = ['fast','tank','ranged','healer','shielded','spawner','splitter'].includes(type);
             let coinDrop = 0;
             if (type === 'boss') {
                 // Boss: guaranteed drop scaling with wave and diff
@@ -848,8 +901,8 @@ export function init(screens, onExit) {    _screens = screens;
             }
             
             _checkAchievements();
-            _updateRunHUD();
-            _renderRunUpgrades();
+            _scheduleHudUpdate();
+            _scheduleRunUpgradesRender();
         },
         onWaveComplete: () => {
             let waveCash = _engine.stats.cashWave || 0;
@@ -889,8 +942,10 @@ export function init(screens, onExit) {    _screens = screens;
         onCritHit: () => _updateQuest('crit_kills', 1)
     });
 
-    setInterval(_labTicker, 1000);
-    setInterval(_autoBuyTicker, 250);
+    if (_labIntervalId) clearInterval(_labIntervalId);
+    if (_autoBuyIntervalId) clearInterval(_autoBuyIntervalId);
+    _labIntervalId = setInterval(_labTicker, 1000);
+    _autoBuyIntervalId = setInterval(_autoBuyTicker, 250);
     init._updateDiffUI = updateDiffUI;
 }
 
@@ -962,6 +1017,7 @@ export function launch() {
     if (_save.lab.levels.cashBonusMult === undefined) _save.lab.levels.cashBonusMult = 0;
 
     if (!_save.stats) _save.stats = { totalCorrect: 0, sessionCorrect: 0, highestStreak: 0, wordsMastered:[], bossesKilled: 0, highestWaveNoDef: 0 };
+    if (!_save.stats.wordsMastered) _save.stats.wordsMastered = [];
     if (_save.stats.bossesKilled === undefined) _save.stats.bossesKilled = 0;
     if (_save.stats.highestWaveNoDef === undefined) _save.stats.highestWaveNoDef = 0;
     if (!_save.relics) _save.relics =[];
@@ -977,6 +1033,9 @@ export function launch() {
 
     setGvmTheme('dark');
 
+    // Always overlay the saved config on the canonical defaults (Overview §7.1)
+    // so saves from before a config field existed still get sane values.
+    _save.vocabConfig = { ...GameVocabManager.defaultConfig(), ...(_save.vocabConfig || {}) };
     _vocabMgr = new GameVocabManager(_save.vocabConfig);
     const srsPool = GameVocabManager.loadSrsPool();
     
@@ -989,6 +1048,28 @@ export function launch() {
     } else {
         _openDeckSelector();
     }
+}
+
+// Called by games_ui.js whenever the Games list is shown and all game screens
+// are hidden (e.g. the player taps the Games tab mid-battle). Without this the
+// engine's rAF loop, the music, and the run itself kept going invisibly — the
+// tower could die while the player was browsing the menu.
+export function suspend() {
+    if (!_screens || !_save) return;
+    const inBattle = _screens.game && _screens.game.style.display !== 'none';
+    if (inBattle && _run && _run.active) {
+        // Same semantics as "Pause & Leave": stop the engine and snapshot the
+        // run so it can be resumed from the hub later.
+        if (_engine) _engine.stop();
+        _saveRunSnapshot();
+        _clearVocabOverlays();
+        if (_vocabMgr) _vocabMgr.resume();
+    } else {
+        _saveGame();
+    }
+    // Push local-deck progress to the app SRS (no-op when globalSrs is active).
+    if (_vocabMgr) _vocabMgr.exportToAppSrs(null, 'skip');
+    _musicStop();
 }
 
 function _saveGame() {
@@ -2306,6 +2387,10 @@ function _resumeRun() {
     _run.active = true;
     if (!_run.autoBuy) _run.autoBuy = _loadAutoBuyPref();
     if (!_run.ultFuel) _run.ultFuel = {};
+    // Snapshots saved before these fields existed must not crash / misbehave
+    if (!_run.vocabMode) _run.vocabMode = 'normal';
+    if (_run.vocabBuffer === undefined) _run.vocabBuffer = 0;
+    if (!_run.failedWords) _run.failedWords = {};
     
     _screens.setup.style.display = 'none';
     _screens.game.style.display = 'flex';
@@ -2327,8 +2412,14 @@ function _resumeRun() {
     _updateVocabModeUI();
     _renderRunUpgrades();
     _renderUltWeaponsOverlay();
-    
-    _engine.startWave(_run.wave);
+
+    // If the run was paused while the vocab buffer was in debt (continuous
+    // mode), the player still owes an answer before the wave may start.
+    if (_run.vocabMode === 'continuous' && (_run.vocabBuffer || 0) < 0) {
+        _showDebtQuiz();
+    } else {
+        _engine.startWave(_run.wave);
+    }
 }
 
 function _updateVocabModeUI() {
@@ -2364,42 +2455,10 @@ function _openVocabPanel() {
         title: (isUnscheduled) => isUnscheduled ? '📖 Vocab (unscheduled)' : '📖 Vocab',
         subtitle: `Buffer: ${bufStr}`,
         onAnswer: (isCorrect, wordObj) => {
-            _run.vocabQuestions++;
-            if (isCorrect) {
-                _run.combo++;
-                _run.vocabCorrect++;
-                _save.stats.totalCorrect++;
-                _save.stats.sessionCorrect++;
-                _updateQuest('answer_vocab', 1);
-                _updateQuest('vocab_streak', _run.combo);
-                _save.gems += 1;
-
-                if (_run.combo > _save.stats.highestStreak) _save.stats.highestStreak = _run.combo;
-                if (_save.lab.levels.vocabMastery > 0 && wordObj && !_save.stats.wordsMastered.includes(wordObj.kanji)) {
-                    _save.stats.wordsMastered.push(wordObj.kanji);
-                }
-
-                _tickUltFuelOnVocab();
-
-                let comboMult = 1;
-                if (_run.combo >= 10) comboMult = 3;
-                else if (_run.combo >= 5) comboMult = 2;
-                else if (_run.combo >= 3) comboMult = 1.5;
-                
-                const gain = 1 * comboMult;
-                _run.knowledgeStacks += gain;
-                _engine.spawnFloatText(`+${gain} Knowledge!`, '#2ecc71', true);
-                _run.vocabBuffer = (_run.vocabBuffer || 0) + 1;
-                _run.combo = 0;
-                _engine.spawnFloatText('Missed Buff...', '#e74c3c', true);
-                if (wordObj) {
-                    const label = wordObj.kanji || wordObj.hiragana;
-                    _run.failedWords[label] = (_run.failedWords[label] || 0) + 1;
-                }
-                // Wrong answer still counts as an attempt — buffer advances,
-                // but no knowledge/gems reward.
-                _run.vocabBuffer = (_run.vocabBuffer || 0) + 1;
-            }
+            _applyVocabAnswer(isCorrect, wordObj);
+            // Both right and wrong answers count as an attempt — the buffer
+            // advances either way; only correct answers give knowledge/gems.
+            _run.vocabBuffer = (_run.vocabBuffer || 0) + 1;
 
             _engine.stats = _getTowerStats();
             _updateRunHUD();
@@ -2411,6 +2470,155 @@ function _openVocabPanel() {
         onEmpty: () => { /* nothing — panel closes itself */ },
         onClose: () => {
             // Panel was dismissed with ✕ — nothing extra needed, game was never paused
+        }
+    });
+}
+
+// ─── SHARED VOCAB ANSWER LOGIC ───────────────────────────────────────────────
+// Applies all rewards/penalties for one vocab answer. Used by every quiz
+// call-site (normal wave quiz, continuous panel, debt quiz) so the rules can
+// never drift apart again. Boss waves (every 10th) grant double Knowledge.
+function _isBossWave() {
+    return _run.wave % 10 === 0;
+}
+
+// Knowledge the NEXT correct answer will grant (combo multiplier of the streak
+// the player is about to reach, doubled on boss waves). Used to show the exact
+// stakes on quiz subtitles so answering feels concretely impactful.
+function _nextKnowledgeGain() {
+    const streak = _run.combo + 1;
+    let mult = 1;
+    if (streak >= 10) mult = 3;
+    else if (streak >= 5) mult = 2;
+    else if (streak >= 3) mult = 1.5;
+    return mult * (_isBossWave() ? 2 : 1);
+}
+
+function _applyVocabAnswer(isCorrect, wordObj) {
+    _run.vocabQuestions++;
+    if (isCorrect) {
+        _run.combo++;
+        _run.vocabCorrect++;
+        _save.stats.totalCorrect++;
+        _save.stats.sessionCorrect++;
+        _updateQuest('answer_vocab', 1);
+        _updateQuest('vocab_streak', _run.combo);
+        _save.gems += 1;
+
+        if (_run.combo > _save.stats.highestStreak) _save.stats.highestStreak = _run.combo;
+        if (_save.lab.levels.vocabMastery > 0 && wordObj && !_save.stats.wordsMastered.includes(wordObj.kanji)) {
+            _save.stats.wordsMastered.push(wordObj.kanji);
+        }
+
+        _tickUltFuelOnVocab();
+
+        let comboMult = 1;
+        if (_run.combo >= 10) comboMult = 3;
+        else if (_run.combo >= 5) comboMult = 2;
+        else if (_run.combo >= 3) comboMult = 1.5;
+
+        let gain = 1 * comboMult;
+        const bossBonus = _isBossWave();
+        if (bossBonus) gain *= 2;
+        _run.knowledgeStacks += gain;
+        _engine.spawnFloatText(`+${gain} Knowledge!${bossBonus ? ' ☠×2' : ''}`, '#2ecc71', true);
+    } else {
+        _run.combo = 0;
+        _engine.spawnFloatText('Missed Buff...', '#e74c3c', true);
+        if (wordObj) {
+            const label = wordObj.kanji || wordObj.hiragana;
+            _run.failedWords[label] = (_run.failedWords[label] || 0) + 1;
+        }
+    }
+}
+
+// ─── THROTTLED IN-RUN UI UPDATES ─────────────────────────────────────────────
+// onEnemyKill can fire dozens of times per second at high waves; rebuilding
+// the full upgrade DOM (4 tabs of rows) per kill tanks the frame rate. These
+// schedulers coalesce bursts into at most one rebuild per interval.
+let _upgRenderQueued = false;
+let _lastUpgRender = 0;
+function _scheduleRunUpgradesRender() {
+    const now = performance.now();
+    if (now - _lastUpgRender > 400) {
+        _lastUpgRender = now;
+        _renderRunUpgrades();
+        return;
+    }
+    if (_upgRenderQueued) return;
+    _upgRenderQueued = true;
+    setTimeout(() => {
+        _upgRenderQueued = false;
+        _lastUpgRender = performance.now();
+        if (_run.active) _renderRunUpgrades();
+    }, Math.max(50, 400 - (now - _lastUpgRender)));
+}
+
+let _hudUpdateQueued = false;
+function _scheduleHudUpdate() {
+    if (_hudUpdateQueued) return;
+    _hudUpdateQueued = true;
+    setTimeout(() => {
+        _hudUpdateQueued = false;
+        if (_run.active) _updateRunHUD();
+    }, 100);
+}
+
+// Cheap per-frame HP bar update (regen ticks call this every frame — the full
+// HUD update does ~10 DOM queries and card-level math and is far too heavy).
+function _updateHpBar() {
+    if (!_engine || !_engine.stats) return;
+    const hpBar = _hpBarEl || (_hpBarEl = _screens.game.querySelector('#tw-run-hp-bar'));
+    if (!hpBar) return;
+    const pct = Math.max(0, _engine.stats.currentHp / _engine.stats.health) * 100;
+    hpBar.style.width = `${pct}%`;
+}
+
+// Removes any lingering quiz overlays (e.g. run ended while a quiz was open).
+// Prevents stacked/stale overlays from acting on a new run's state.
+function _clearVocabOverlays() {
+    const uiLayer = _screens.game.querySelector('#tw-ui-layer');
+    if (uiLayer) uiLayer.querySelectorAll('.gvm-overlay').forEach(el => el.remove());
+}
+
+// ─── DEBT QUIZ (continuous mode, buffer < 0) ─────────────────────────────────
+// Blocking quiz shown when the vocab buffer is exhausted. Extracted so it can
+// be triggered both from _startNextWave and from recovery paths (panel closed
+// while in debt, resuming a paused run that was left in debt).
+function _showDebtQuiz() {
+    const uiLayer = _screens.game.querySelector('#tw-ui-layer');
+    if (!uiLayer || uiLayer.querySelector('.gvm-overlay')) return;
+
+    _engine.pause();
+    _vocabMgr.pause();
+
+    const boss = _isBossWave();
+    const _afterAnswer = () => {
+        _engine.stats = _getTowerStats();
+        _updateRunHUD();
+        _updateVocabModeUI();
+        _renderRunUpgrades();
+        _vocabMgr.resume();
+        _engine.resume();
+        _saveRunSnapshot();
+        _engine.startWave(_run.wave);
+    };
+
+    showGameQuiz(_vocabMgr, {
+        container: uiLayer,
+        title: boss ? `☠️ BOSS Wave ${_run.wave} — Answer to Continue` : `⚠️ Wave ${_run.wave} — Answer to Continue`,
+        titleColor: boss ? '#e74c3c' : undefined,
+        subtitle: boss
+            ? `Boss wave — correct: +${_nextKnowledgeGain()} Knowledge (DOUBLE)! Buffer at ${_run.vocabBuffer}.`
+            : `Correct: +${_nextKnowledgeGain()} Knowledge. Buffer at ${_run.vocabBuffer} — paused until you answer.`,
+        onAnswer: (isCorrect, wordObj) => {
+            _applyVocabAnswer(isCorrect, wordObj);
+            _run.vocabBuffer = 0; // debt cleared either way
+            _checkAchievements();
+            _afterAnswer();
+        },
+        onEmpty: () => {
+            _afterAnswer();
         }
     });
 }
@@ -2487,149 +2695,59 @@ function _startNextWave() {
             return;
         }
 
-        // Buffer depleted (went negative) — must pause until player answers
-        // If the continuous panel is already open, don't stack another overlay.
-        // The existing panel will keep running and the next wave trigger will
-        // fire once the buffer recovers via _openVocabPanel answers.
+        // Buffer depleted (went negative) — must pause until player answers.
+        // If the continuous panel is already open, don't stack another overlay:
+        // poll until the buffer recovers (panel answers advance it), and if the
+        // player closes the panel while still in debt, fall back to the
+        // blocking debt quiz (previously this soft-locked the game).
         const uiLayer = _screens.game.querySelector('#tw-ui-layer');
         if (uiLayer.querySelector('.gvm-overlay')) {
-            // Panel already open — player is already answering, just wait.
-            // We do NOT start the wave yet; it will be started when the buffer
-            // clears (handled by the wave-start check below in the ticker).
-            // For now, pause the engine silently.
             _engine.pause();
-            // Poll until buffer clears then resume
             const pollId = setInterval(() => {
-                if ((_run.vocabBuffer || 0) >= 0 && !uiLayer.querySelector('.gvm-overlay.gvm-continuous')) {
+                if (!_run.active || _screens.game.style.display === 'none') {
+                    // Run ended / player left mid-debt — stop polling.
                     clearInterval(pollId);
-                    _vocabMgr.resume();
+                    return;
+                }
+                if ((_run.vocabBuffer || 0) >= 0) {
+                    clearInterval(pollId);
+                    if (!uiLayer.querySelector('.gvm-overlay')) _vocabMgr.resume();
                     _engine.resume();
                     _engine.startWave(_run.wave);
-                } else if ((_run.vocabBuffer || 0) >= 0) {
-                    // Buffer recovered while panel still open — start wave, panel stays
+                } else if (!uiLayer.querySelector('.gvm-overlay')) {
+                    // Panel closed while still in debt — show the blocking quiz.
                     clearInterval(pollId);
-                    _engine.resume();
-                    _engine.startWave(_run.wave);
+                    _showDebtQuiz();
                 }
             }, 200);
             return;
         }
 
-        _engine.pause();
-        _vocabMgr.pause();
-
-        showGameQuiz(_vocabMgr, {
-            container: uiLayer,
-            title: `⚠️ Wave ${_run.wave} — Answer to Continue`,
-            subtitle: `Buffer at ${_run.vocabBuffer} — game paused until you answer.`,
-            onAnswer: (isCorrect, wordObj) => {
-                _run.vocabQuestions++;
-                if (isCorrect) {
-                    _run.combo++;
-                    _run.vocabCorrect++;
-                    _save.stats.totalCorrect++;
-                    _save.stats.sessionCorrect++;
-                    _updateQuest('answer_vocab', 1);
-                    _updateQuest('vocab_streak', _run.combo);
-                    _save.gems += 1;
-
-                    if (_run.combo > _save.stats.highestStreak) _save.stats.highestStreak = _run.combo;
-                    if (_save.lab.levels.vocabMastery > 0 && wordObj && !_save.stats.wordsMastered.includes(wordObj.kanji)) {
-                        _save.stats.wordsMastered.push(wordObj.kanji);
-                    }
-
-                    _tickUltFuelOnVocab();
-
-                    let comboMult = 1;
-                    if (_run.combo >= 10) comboMult = 3;
-                    else if (_run.combo >= 5) comboMult = 2;
-                    else if (_run.combo >= 3) comboMult = 1.5;
-
-                    const gain = 1 * comboMult;
-                    _run.knowledgeStacks += gain;
-                    _engine.spawnFloatText(`+${gain} Knowledge!`, '#2ecc71', true);
-                    _run.vocabBuffer = 0; // back to neutral after paying debt
-                } else {
-                    _run.combo = 0;
-                    _engine.spawnFloatText('Missed Buff...', '#e74c3c', true);
-                    if (wordObj) {
-                        const label = wordObj.kanji || wordObj.hiragana;
-                        _run.failedWords[label] = (_run.failedWords[label] || 0) + 1;
-                    }
-                    // Wrong answer clears debt but gives no buffer
-                    _run.vocabBuffer = 0;
-                }
-
-                _engine.stats = _getTowerStats();
-                _updateRunHUD();
-                _updateVocabModeUI();
-                _renderRunUpgrades();
-                _vocabMgr.resume();
-                _engine.resume();
-                _checkAchievements();
-                _saveRunSnapshot();
-                _engine.startWave(_run.wave);
-            },
-            onEmpty: () => {
-                _engine.stats = _getTowerStats();
-                _updateRunHUD();
-                _updateVocabModeUI();
-                _renderRunUpgrades();
-                _vocabMgr.resume();
-                _engine.resume();
-                _saveRunSnapshot();
-                _engine.startWave(_run.wave);
-            }
-        });
+        _showDebtQuiz();
         return;
     }
 
     // ── Normal mode: classic blocking quiz ───────────────────────────────────
     _engine.pause();
     _vocabMgr.pause();
-    
+
     const uiLayer = _screens.game.querySelector('#tw-ui-layer');
-    
+    const bossWave = _isBossWave();
+
     showGameQuiz(_vocabMgr, {
         container: uiLayer,
-        title: `Wave ${_run.wave} Approaching`,
-        subtitle: 'Correct answer grants +1 Knowledge Stack & 1 Gem!',
+        title: bossWave ? `☠️ BOSS Wave ${_run.wave} Approaching!` : `Wave ${_run.wave} Approaching`,
+        titleColor: bossWave ? '#e74c3c' : undefined,
+        subtitle: (() => {
+            const gain = _nextKnowledgeGain();
+            const streakStr = _run.combo >= 2 ? ` (🔥${_run.combo} streak)` : '';
+            return bossWave
+                ? `☠ Boss wave — DOUBLE Knowledge! Correct: +${gain} Knowledge & 1 Gem${streakStr}`
+                : `Correct: +${gain} Knowledge & 1 Gem${streakStr}`;
+        })(),
         onAnswer: (isCorrect, wordObj) => {
-            _run.vocabQuestions++;
-            if (isCorrect) {
-                _run.combo++;
-                _run.vocabCorrect++;
-                _save.stats.totalCorrect++;
-                _save.stats.sessionCorrect++;
-                _updateQuest('answer_vocab', 1);
+            _applyVocabAnswer(isCorrect, wordObj);
 
-                _save.gems += 1; 
-
-                if (_run.combo > _save.stats.highestStreak) _save.stats.highestStreak = _run.combo;
-                
-                if (_save.lab.levels.vocabMastery > 0 && wordObj && !_save.stats.wordsMastered.includes(wordObj.kanji)) {
-                    _save.stats.wordsMastered.push(wordObj.kanji);
-                }
-                
-                _tickUltFuelOnVocab();
-
-                let comboMult = 1;
-                if (_run.combo >= 10) comboMult = 3;
-                else if (_run.combo >= 5) comboMult = 2;
-                else if (_run.combo >= 3) comboMult = 1.5;
-
-                const gain = 1 * comboMult;
-                _run.knowledgeStacks += gain;
-                _engine.spawnFloatText(`+${gain} Knowledge!`, '#2ecc71', true);
-            } else {
-                _run.combo = 0;
-                _engine.spawnFloatText('Missed Buff...', '#e74c3c', true);
-                if (wordObj) {
-                    const label = wordObj.kanji || wordObj.hiragana;
-                    _run.failedWords[label] = (_run.failedWords[label] || 0) + 1;
-                }
-            }
-            
             _engine.stats = _getTowerStats();
             _updateRunHUD();
             _renderRunUpgrades(); 
@@ -2680,6 +2798,8 @@ function _checkUnlock() {
 function _handleDeath() {
     _run.active = false;
     _save.currentRun = null;
+    _clearVocabOverlays();
+    if (_vocabMgr) _vocabMgr.resume();
     
     const totalCoins = _run.earnedCoinsDrops + _run.earnedCoinsWave;
     _save.coins += totalCoins;
@@ -2743,7 +2863,8 @@ function _handleDeath() {
 }
 
 function _updateRunHUD() {
-    _screens.game.querySelector('#tw-run-wave').textContent = _run.wave;
+    // Boss waves (every 10th) are telegraphed with a skull in the wave counter.
+    _screens.game.querySelector('#tw-run-wave').textContent = _run.wave + (_run.wave % 10 === 0 ? ' ☠' : '');
     _screens.game.querySelector('#tw-run-cash-val').textContent = fmt(_run.cash);
     
     const totalCoins = _save.coins + _run.earnedCoinsDrops + _run.earnedCoinsWave;
@@ -2774,10 +2895,12 @@ function _updateRunHUD() {
     
     const comboEl = _screens.game.querySelector('#tw-run-combo');
     if (_run.combo >= 3) {
-        let text = ' x1.5';
-        if (_run.combo >= 10) text = ' x3.0';
-        else if (_run.combo >= 5) text = ' x2.0';
-        comboEl.textContent = text;
+        let mult = 'x1.5';
+        if (_run.combo >= 10) mult = 'x3.0';
+        else if (_run.combo >= 5) mult = 'x2.0';
+        comboEl.textContent = ` 🔥${_run.combo} ${mult}`;
+    } else if (_run.combo > 0) {
+        comboEl.textContent = ` 🔥${_run.combo}`;
     } else {
         comboEl.textContent = '';
     }
@@ -3057,7 +3180,12 @@ function _renderRunUpgrades() {
 
 function _autoBuyTicker() {
     if (!_run || !_run.active || !_run.autoBuy) return;
-    if (_engine && _engine.state === 'PAUSED') return;
+    if (!_engine || !_screens) return;
+    // Only auto-buy while the battle screen is actually running. Without the
+    // visibility check, a paused run left via "Pause & Leave" kept auto-buying
+    // in the hub with stale engine stats.
+    if (_screens.game.style.display === 'none') return;
+    if (_engine.state === 'PAUSED' || _engine.state === 'STOPPED') return;
 
     const AUTO_TABS = [
         { key: 'offense', cat: 'offense', filter: null },
@@ -3101,8 +3229,8 @@ function _autoBuyTicker() {
             _run.levels[best.cat][best.id] = (_run.levels[best.cat][best.id] || 0) + best.count;
             if (best.cat === 'defense') _run.boughtDefense = true;
             if (_engine) _engine.stats = _getTowerStats();
-            _updateRunHUD();
-            _renderRunUpgrades();
+            _scheduleHudUpdate();
+            _scheduleRunUpgradesRender();
         }
     }
 }
@@ -3136,12 +3264,22 @@ function _openDeckSelector() {
         const queue = await selector.getQueue();
         if (queue.length > 0) {
             const hasSrs = queue.some(w => w.deckId === 'srs');
+            // Restore previously exported local SM-2 progress for custom decks
+            // (importState must come before setPool). Global SRS pools keep
+            // their state in srs_db, so nothing to import there.
+            if (!hasSrs && _save.vocabState) _vocabMgr.importState(_save.vocabState);
             _vocabMgr.setPool(queue, 'tower_banned', { globalSrs: hasSrs });
             _saveGame();
         }
         dsWrap.style.display = 'none';
         if (hub) hub.style.display = 'flex';
         _showHub();
+        // Players with no SRS words enter via the deck selector and skip the
+        // launch() hub path — run the daily systems here so they aren't locked
+        // out of login rewards and quests. All three are idempotent per day.
+        _checkDailyLogin();
+        _generateDailyQuests();
+        _checkAchievements();
     };
 
     actions.appendChild(applyBtn);

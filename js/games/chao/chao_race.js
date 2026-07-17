@@ -4,12 +4,24 @@ import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
 import { getChiTrueStat } from './chao_state.js';
 
 export class ChaoRace3D {
-    constructor(container, stateManager, onWinner) {
+    /**
+     * @param {HTMLElement} container
+     * @param {ChaoStateManager} stateManager
+     * @param {object|Function} callbacks
+     *   Either a function (legacy: onWinner) or an object:
+     *   { onWinner(chi), onPlayerFinish(place, total) }
+     */
+    constructor(container, stateManager, callbacks) {
         this.container = container;
         this.state = stateManager;
-        this.onWinner = onWinner;
+        if (typeof callbacks === 'function') callbacks = { onWinner: callbacks };
+        this.onWinner = (callbacks && callbacks.onWinner) || null;
+        this.onPlayerFinish = (callbacks && callbacks.onPlayerFinish) || null;
         this.racers = [];
         this.ranking = [];
+        this.paused = false;
+        this.cheerRemaining = 0;
+        this.cheerMult = 1;
         this.clock = new THREE.Clock();
         this.animationId = null;
 
@@ -203,7 +215,7 @@ export class ChaoRace3D {
 
         this.racers.forEach(racer => {
             if (racer.isPlayer) playerRacer = racer;
-            if (racer.state !== 'FINISHED') {
+            if (racer.state !== 'FINISHED' && !this.paused) {
                 this.updateRacer(racer, delta, time);
             }
             packCenterX += racer.mesh.position.x;
@@ -243,7 +255,31 @@ export class ChaoRace3D {
         this.renderer.render(this.scene, this.camera);
     }
 
+    /** Freezes racer movement (used while the cheer quiz overlay is open). */
+    pause()  { this.paused = true;  }
+    resume() { this.paused = false; }
+
+    /**
+     * Temporarily boosts the player's speed (from a successful cheer quiz).
+     * @param {number} mult      speed multiplier, e.g. 1.6
+     * @param {number} duration  seconds
+     */
+    applyCheer(mult, duration) {
+        this.cheerMult = mult;
+        this.cheerRemaining = duration;
+        const player = this.racers.find(r => r.isPlayer);
+        if (player) player.mesh.material.emissive = new THREE.Color(0xAA8800);
+    }
+
     updateRacer(racer, delta, time) {
+        if (racer.isPlayer && this.cheerRemaining > 0) {
+            this.cheerRemaining -= delta;
+            delta = delta * this.cheerMult;
+            if (this.cheerRemaining <= 0 && racer.mesh.material.emissive) {
+                racer.mesh.material.emissive = new THREE.Color(0x444400);
+            }
+        }
+
         if (racer.state === 'START') {
             racer.state = 'RUN1';
         }
@@ -296,9 +332,12 @@ export class ChaoRace3D {
                 racer.state = 'FINISHED';
                 racer.mesh.position.y = 9;
                 this.ranking.push(racer.chi);
-                
+
                 if (this.ranking.length === 1 && this.onWinner) {
                     this.onWinner(racer.chi);
+                }
+                if (racer.isPlayer && this.onPlayerFinish) {
+                    this.onPlayerFinish(this.ranking.length, this.racers.length);
                 }
             }
         }

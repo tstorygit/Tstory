@@ -71,6 +71,7 @@ function _paint(ctx, tileType, px, py, ts, roomCleared) {
         case TILE.POST:   _drawPost(ctx, px, py, ts);                break;
         case TILE.STUMP:  _drawStump(ctx, px, py, ts);               break;
         case TILE.SHRINE: _drawShrine(ctx, px, py, ts);              break;
+        case TILE.STAIRS: _drawStairs(ctx, px, py, ts, roomCleared); break;
         case TILE.CHEST:  _drawChest(ctx, px, py, ts, roomCleared);  break;
         default:          _drawFloor(ctx, px, py, ts);               break;
     }

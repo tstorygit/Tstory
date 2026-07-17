@@ -4,6 +4,8 @@ import { openPopup, closePopup } from '../../popup_manager.js';
 import * as srsDb from '../../srs_db.js';
 import { generateNikkiEntry } from './chao_nikki_mgr.js';
 import { speakText, stopSpeech } from '../../tts_api.js';
+import { getKeyList } from '../../ai_api.js';
+import { getChiTrueStat } from './chao_state.js';
 
 const EYE_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
 const SPEAKER_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>`;
@@ -13,14 +15,21 @@ let activeSpeakBtn = null;
 
 export function renderNikkiTab(container, stateManager) {
     const chi = stateManager.getActiveChi();
-    
+    const hasApiKey = getKeyList().length > 0;
+
+    const noKeyNotice = hasApiKey ? '' : `
+        <div style="background: rgba(241, 250, 140, 0.08); border: 1px solid #f1fa8c; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; font-size: 13px; color: #f1fa8c;">
+            💡 ${chi.name} needs an AI to write new diary entries. Add a Gemini API key in <b>Settings</b> to enable daily diaries. Existing entries below stay readable.
+        </div>`;
+
     container.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
             <h3 style="margin:0;">📔 ${chi.name}'s Nikki</h3>
-            <button id="btn-force-nikki" class="chao-action-btn" style="margin:0; padding: 6px 12px; font-size:12px;">✏️ Force Write Entry</button>
+            <button id="btn-force-nikki" class="chao-action-btn" style="margin:0; padding: 6px 12px; font-size:12px;" ${hasApiKey ? '' : 'disabled title="Requires an API key (Settings)"'}>✏️ Write Entry Now</button>
         </div>
+        ${noKeyNotice}
         <div id="nikki-status" style="color: #f1fa8c; font-size: 13px; font-weight: bold; height: 20px; margin-bottom: 10px;"></div>
-        
+
         <div class="nikki-layout">
             <div id="nikki-list" class="nikki-sidebar"></div>
             <div id="nikki-reader" class="nikki-content">
@@ -189,8 +198,10 @@ export function renderNikkiTab(container, stateManager) {
             statusEl.textContent = "Error: " + e.message;
         } finally {
             const btn = container.querySelector('#btn-force-nikki');
-            btn.disabled = false;
-            btn.textContent = "✏️ Force Write Entry";
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = "✏️ Write Entry Now";
+            }
         }
     });
 
@@ -206,7 +217,9 @@ function renderEntry(entry, readerEl, chi, stateManager) {
 
     const words = entry.enrichedData?.words || [];
     const sentences = entry.enrichedData?.sentences || [];
-    const isKanaLevel = chi.stats.wisdom <= 500;
+    // True wisdom (level*100 + points), matching the threshold used when the
+    // entry text was generated in chao_nikki_mgr.js.
+    const isKanaLevel = getChiTrueStat(chi, 'wisdom') <= 500;
     
     // Calculate sentence boundaries
     const strip = s => s.replace(/[\s\u3000]/g, '');

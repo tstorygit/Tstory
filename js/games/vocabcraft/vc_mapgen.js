@@ -6,6 +6,22 @@ export const TILE_PATH  = 0;
 export const TILE_GRASS = 1;
 export const TILE_ROCK  = 2;
 
+// ─── Seeded RNG ───────────────────────────────────────────────────────────────
+// Every random decision in map generation draws from _rng, which is re-seeded
+// at the start of generateMap(). A map is therefore fully reproducible from its
+// seed (stored on the returned mapData), while different runs of the same
+// template still look different.
+let _rng = Math.random;
+
+function _mulberry32(a) {
+    return function () {
+        a |= 0; a = (a + 0x6D2B79F5) | 0;
+        let t = Math.imul(a ^ (a >>> 15), 1 | a);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
 // ─── Template Catalogue ───────────────────────────────────────────────────────
 // skeleton: array of { fx, fy } — fractional coords (0..1) of the grid
 // multiPath: true if this template has multiple entry lanes
@@ -222,48 +238,75 @@ export function getValidTemplates(tier) {
  *   paths — array of tile-coord path arrays (one per entrance).
  *   Single-entrance: paths.length === 1.  Multi-entrance: paths.length >= 2.
  */
-export function generateMap(cols, rows, tier, templateId = null) {
+export function generateMap(cols, rows, tier, templateId = null, seed = null) {
+    if (seed === null || seed === undefined) seed = (Math.random() * 0xFFFFFFFF) >>> 0;
+    _rng = _mulberry32(seed >>> 0);
+
     const valid = getValidTemplates(tier);
     let tpl = templateId
         ? TEMPLATES.find(t => t.id === templateId) || valid[0]
-        : valid[Math.floor(Math.random() * valid.length)];
+        : valid[Math.floor(_rng() * valid.length)];
+
+    // Validity gates (checked every attempt):
+    //   minLen  — total path coverage; keeps maps from being mostly dead space.
+    //   minLane — per-lane minimum for multipath maps so no lane is a trivially
+    //             short rush lane that enemies cross before towers can react.
+    const minLen  = Math.floor(cols * rows * 0.15);
+    const minLane = Math.floor((cols + rows) * 0.45);
 
     for (let attempt = 0; attempt < 10; attempt++) {
+        // Early attempts add seeded jitter for per-run variety; later attempts
+        // fall back to the deterministic layout, which is valid by construction.
+        const jitter = attempt < 6 ? 1 : 0;
         let paths;
 
         if      (tpl.type === 'spiral')     paths = [_spiralGenerator(cols, rows)];
         else if (tpl.type === 'figure8')    paths = [_figure8Generator(cols, rows)];
-        else if (tpl.type === 'comb')       paths = [_combGenerator(cols, rows)];
+        else if (tpl.type === 'comb')       paths = [_combGenerator(cols, rows, jitter)];
         else if (tpl.type === 'doubleloop') paths = [_doubleLoopGenerator(cols, rows)];
         else if (tpl.type === 'labyrinth')  paths = [_labyrinthGenerator(cols, rows)];
-        else if (tpl.type === 'pinwheel')   paths = [_pinwheelGenerator(cols, rows)];
         else if (tpl.type === 'trident')    paths = _tridentGenerator(cols, rows);
         else if (tpl.type === 'fourcorners') paths = _fourCornersGenerator(cols, rows);
         else if (tpl.type === 'siege')      paths = _siegeGenerator(cols, rows);
         else if (tpl.type === 'delta')      paths = _deltaGenerator(cols, rows);
         else if (tpl.type === 'uturn')      paths = _uturnGenerator(cols, rows);
-        else                                paths = [_skeletonWalk(tpl.skeleton, cols, rows)];
+        else                                paths = [_skeletonWalk(tpl.skeleton, cols, rows, jitter)];
 
-        const allTiles   = paths.flat();
-        // Use raw length (not unique) — repeat-visit generators like pinwheel and
-        // crossroads intentionally revisit tiles; unique count would undercount them.
-        // 15% threshold: all generators pass on first attempt on a 9×13 grid.
-        const minLen     = Math.floor(cols * rows * 0.15);
+        const allTiles = paths.flat();
 
-        if (allTiles.length >= minLen) {
+        const totalOk = allTiles.length >= minLen;
+        const lanesOk = paths.every(p => p.length >= Math.min(minLane, minLen));
+        // Continuity: every consecutive pair ≤ 1 tile apart. Jitter can make a
+        // skeleton self-cross, which leaves de-dup gaps — reject and retry.
+        const contOk  = paths.every(p => _isContinuous(p));
+
+        if (totalOk && lanesOk && contOk) {
             const grid = _buildGrid(allTiles, cols, rows, tier);
             const wallEdges = _buildWallEdges(paths, grid, cols, rows);
-            return { grid, paths, cols, rows, templateId: tpl.id, usedFallback: false, wallEdges };
+            return { grid, paths, cols, rows, templateId: tpl.id, usedFallback: false, wallEdges, seed };
         }
     }
 
     // Fallback: gauntlet so we never return null.
     // usedFallback:true lets the caller show a warning notification.
     console.warn(`[VocabCraft] Map gen failed after 10 attempts — falling back to gauntlet.`);
-    const fallbackPath = _skeletonWalk(TEMPLATES[0].skeleton, cols, rows);
+    const fallbackPath = _skeletonWalk(TEMPLATES[0].skeleton, cols, rows, 0);
     const grid = _buildGrid(fallbackPath, cols, rows, tier);
     const wallEdges = _buildWallEdges([fallbackPath], grid, cols, rows);
-    return { grid, paths: [fallbackPath], cols, rows, templateId: 'gauntlet', usedFallback: true, wallEdges };
+    return { grid, paths: [fallbackPath], cols, rows, templateId: 'gauntlet', usedFallback: true, wallEdges, seed };
+}
+
+/**
+ * True when every consecutive pair of tiles is at most 1 step apart
+ * (0 allowed — some generators intentionally emit duplicate waypoints).
+ */
+function _isContinuous(path) {
+    if (!path || path.length < 2) return false;
+    for (let i = 0; i + 1 < path.length; i++) {
+        const d = Math.abs(path[i].x - path[i + 1].x) + Math.abs(path[i].y - path[i + 1].y);
+        if (d > 1) return false;
+    }
+    return true;
 }
 
 /**
@@ -339,20 +382,20 @@ export function getTemplateMinimap(templateId, w = 70, h = 90) {
         `;
 
     } else if (tpl.type === 'trident') {
-        // 3 spawners → base bottom-right
-        const bx = (w-pad).toFixed(1), by = (h-pad).toFixed(1);
-        const s1x = (pad+iw*0.1).toFixed(1), s1y = String(pad);   // top-left
-        const s2x = (w-pad).toFixed(1),       s2y = String(pad);   // top-right
-        const s3x = String(pad),               s3y = (h/2).toFixed(1); // left-mid
+        // 3 dogleg lanes → base bottom-right (matches _tridentGenerator)
+        const P = (fx, fy) => `${toX(fx).toFixed(1)},${toY(fy).toFixed(1)}`;
+        const laneA = `M${P(0.02,0.08)} L${P(0.35,0.08)} L${P(0.35,0.40)} L${P(0.88,0.40)} L${P(0.88,0.88)}`;
+        const laneB = `M${P(0.98,0.02)} L${P(0.98,0.55)} L${P(0.45,0.55)} L${P(0.45,0.88)} L${P(0.88,0.88)}`;
+        const laneC = `M${P(0.02,0.50)} L${P(0.20,0.50)} L${P(0.20,0.88)} L${P(0.88,0.88)}`;
         extraSvg = `
-            <path d="M${s1x},${s1y} L${bx},${by}" fill="none" stroke="${stroke}" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
-            <path d="M${s2x},${s2y} L${bx},${by}" fill="none" stroke="${stroke2}" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
-            <path d="M${s3x},${s3y} L${bx},${by}" fill="none" stroke="${stroke}" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
-            <circle cx="${s1x}" cy="${s1y}" r="${dotR}" fill="${entry}"/>
-            <circle cx="${s2x}" cy="${s2y}" r="${dotR}" fill="${entry}"/>
-            <circle cx="${s3x}" cy="${s3y}" r="${dotR}" fill="${entry}"/>
-            <circle cx="${bx}" cy="${by}" r="${dotR+1}" fill="${exit}"/>
-            <circle cx="${bx}" cy="${by}" r="6" fill="none" stroke="${exit}" stroke-width="1.5" opacity="0.6"/>`;
+            <path d="${laneA}" fill="none" stroke="${stroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"/>
+            <path d="${laneB}" fill="none" stroke="${stroke2}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"/>
+            <path d="${laneC}" fill="none" stroke="${entry}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.7"/>
+            <circle cx="${toX(0.02).toFixed(1)}" cy="${toY(0.08).toFixed(1)}" r="${dotR}" fill="${entry}"/>
+            <circle cx="${toX(0.98).toFixed(1)}" cy="${toY(0.02).toFixed(1)}" r="${dotR}" fill="${entry}"/>
+            <circle cx="${toX(0.02).toFixed(1)}" cy="${toY(0.50).toFixed(1)}" r="${dotR}" fill="${entry}"/>
+            <circle cx="${toX(0.88).toFixed(1)}" cy="${toY(0.88).toFixed(1)}" r="${dotR+1}" fill="${exit}"/>
+            <circle cx="${toX(0.88).toFixed(1)}" cy="${toY(0.88).toFixed(1)}" r="6" fill="none" stroke="${exit}" stroke-width="1.5" opacity="0.6"/>`;
 
     } else if (tpl.type === 'comb') {
         const spineY = (h*0.62).toFixed(1), toothTop = (pad+0.08*ih).toFixed(1);
@@ -379,20 +422,18 @@ export function getTemplateMinimap(templateId, w = 70, h = 90) {
             <circle cx="${toX(1.0).toFixed(1)}" cy="${toY(0.9).toFixed(1)}" r="${dotR}" fill="${exit}"/>`;
 
     } else if (tpl.type === 'fourcorners') {
+        // Edge-hugging L-shaped lanes → center (matches _fourCornersGenerator)
         const cx2 = (w/2).toFixed(1), cy2 = (h/2).toFixed(1);
-        const tl = [String(pad), String(pad)];
-        const tr = [(w-pad).toFixed(1), String(pad)];
-        const bl = [String(pad), (h-pad).toFixed(1)];
-        const br = [(w-pad).toFixed(1), (h-pad).toFixed(1)];
+        const L = String(pad), R = (w-pad).toFixed(1), T = String(pad), B = (h-pad).toFixed(1);
         extraSvg = `
-            <path d="M${tl[0]},${tl[1]} L${cx2},${cy2}" fill="none" stroke="${stroke}" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
-            <path d="M${tr[0]},${tr[1]} L${cx2},${cy2}" fill="none" stroke="${stroke2}" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
-            <path d="M${bl[0]},${bl[1]} L${cx2},${cy2}" fill="none" stroke="${stroke}" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
-            <path d="M${br[0]},${br[1]} L${cx2},${cy2}" fill="none" stroke="${stroke2}" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
-            <circle cx="${tl[0]}" cy="${tl[1]}" r="${dotR}" fill="${entry}"/>
-            <circle cx="${tr[0]}" cy="${tr[1]}" r="${dotR}" fill="${entry}"/>
-            <circle cx="${bl[0]}" cy="${bl[1]}" r="${dotR}" fill="${entry}"/>
-            <circle cx="${br[0]}" cy="${br[1]}" r="${dotR}" fill="${entry}"/>
+            <path d="M${L},${T} L${cx2},${T} L${cx2},${cy2}" fill="none" stroke="${stroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"/>
+            <path d="M${R},${T} L${R},${cy2} L${cx2},${cy2}" fill="none" stroke="${stroke2}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"/>
+            <path d="M${R},${B} L${cx2},${B} L${cx2},${cy2}" fill="none" stroke="${stroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"/>
+            <path d="M${L},${B} L${L},${cy2} L${cx2},${cy2}" fill="none" stroke="${stroke2}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"/>
+            <circle cx="${L}" cy="${T}" r="${dotR}" fill="${entry}"/>
+            <circle cx="${R}" cy="${T}" r="${dotR}" fill="${entry}"/>
+            <circle cx="${L}" cy="${B}" r="${dotR}" fill="${entry}"/>
+            <circle cx="${R}" cy="${B}" r="${dotR}" fill="${entry}"/>
             <circle cx="${cx2}" cy="${cy2}" r="${dotR+1}" fill="${exit}"/>
             <circle cx="${cx2}" cy="${cy2}" r="8" fill="none" stroke="${exit}" stroke-width="1.5" opacity="0.6"/>`;
 
@@ -483,7 +524,11 @@ function _buildWallEdges(paths, grid, cols, rows) {
 }
 
 // ─── Grid builder ─────────────────────────────────────────────────────────────
-// Cellular automata pass clusters rocks into organic blobs instead of static.
+// Cellular automata pass clusters rocks into organic blobs instead of static,
+// followed by two fairness passes that guarantee buildable space:
+//   Phase 3 — every path tile keeps ≥1 grass tile in its 8-neighbourhood, so no
+//             stretch of road is ever un-towerable.
+//   Phase 4 — at least 45% of all non-path tiles are grass overall.
 
 function _buildGrid(allPathTiles, cols, rows, tier) {
     const grid   = Array(rows).fill(0).map(() => Array(cols).fill(TILE_ROCK));
@@ -493,15 +538,19 @@ function _buildGrid(allPathTiles, cols, rows, tier) {
             grid[p.y][p.x] = TILE_PATH;
     });
 
-    // Phase 1 — seed noise
-    const rockChance = 0.18 + tier * 0.01;
+    // Phase 1 — seeded noise. Rock density is nearly flat across difficulty:
+    // challenge should come from the enemies, not from unbuildable terrain.
+    // (The old 0.18 + tier×0.01 reached 36% rocks at D18 before clustering.)
+    const rockChance = 0.15 + Math.min(0.06, tier * 0.004);
     const raw = Array(rows).fill(0).map((_, r) =>
         Array(cols).fill(0).map((__, c) =>
-            pathSet.has(`${c},${r}`) ? null : (Math.random() < rockChance ? TILE_ROCK : TILE_GRASS)
+            pathSet.has(`${c},${r}`) ? null : (_rng() < rockChance ? TILE_ROCK : TILE_GRASS)
         )
     );
 
-    // Phase 2 — one cellular automata pass: majority vote in 3×3 window
+    // Phase 2 — one cellular automata pass: majority vote in 3×3 window.
+    // Out-of-bounds neighbours are ignored (the old "border counts as rock"
+    // rule grew rock walls hugging every map edge).
     for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
             if (pathSet.has(`${c},${r}`)) continue;
@@ -509,15 +558,63 @@ function _buildGrid(allPathTiles, cols, rows, tier) {
             for (let dr = -1; dr <= 1; dr++) {
                 for (let dc = -1; dc <= 1; dc++) {
                     const nr = r + dr, nc = c + dc;
-                    if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) { rockCount++; total++; continue; }
+                    if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
                     if (pathSet.has(`${nc},${nr}`)) { total++; continue; }
                     if (raw[nr][nc] === TILE_ROCK) rockCount++;
                     total++;
                 }
             }
-            grid[r][c] = (rockCount > total / 2) ? TILE_ROCK : TILE_GRASS;
+            grid[r][c] = (total > 0 && rockCount > total / 2) ? TILE_ROCK : TILE_GRASS;
         }
     }
+
+    // Phase 3 — build-space guarantee along the path.
+    const ORTHO = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+    const DIAG  = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+    for (const p of allPathTiles) {
+        if (p.y < 0 || p.y >= rows || p.x < 0 || p.x >= cols) continue;
+        let hasGrass = false;
+        const rockNeighbours = [];
+        for (const [dc, dr] of [...ORTHO, ...DIAG]) {
+            const nr = p.y + dr, nc = p.x + dc;
+            if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+            if (grid[nr][nc] === TILE_GRASS) { hasGrass = true; break; }
+            if (grid[nr][nc] === TILE_ROCK) {
+                // Prefer orthogonal spots — they hug the path tighter.
+                rockNeighbours.push({ r: nr, c: nc, ortho: dr === 0 || dc === 0 });
+            }
+        }
+        if (!hasGrass && rockNeighbours.length > 0) {
+            const orthoRocks = rockNeighbours.filter(n => n.ortho);
+            const pickFrom   = orthoRocks.length > 0 ? orthoRocks : rockNeighbours;
+            const pick       = pickFrom[Math.floor(_rng() * pickFrom.length)];
+            grid[pick.r][pick.c] = TILE_GRASS;
+        }
+    }
+
+    // Phase 4 — global buildable floor: ≥45% of non-path tiles must be grass.
+    const rocks = [];
+    let grassCount = 0, nonPath = 0;
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            if (grid[r][c] === TILE_PATH) continue;
+            nonPath++;
+            if (grid[r][c] === TILE_GRASS) grassCount++;
+            else rocks.push({ r, c });
+        }
+    }
+    // Seeded shuffle of the rock list, then flip until the floor is met.
+    for (let i = rocks.length - 1; i > 0; i--) {
+        const j = Math.floor(_rng() * (i + 1));
+        [rocks[i], rocks[j]] = [rocks[j], rocks[i]];
+    }
+    let k = 0;
+    while (nonPath > 0 && grassCount / nonPath < 0.45 && k < rocks.length) {
+        const { r, c } = rocks[k++];
+        grid[r][c] = TILE_GRASS;
+        grassCount++;
+    }
+
     return grid;
 }
 
@@ -525,13 +622,36 @@ function _buildGrid(allPathTiles, cols, rows, tier) {
 // Axis-aligned segments use _forceLine (straight, deterministic).
 // Diagonal segments use _mathLine (parametric — simple, finite, cardinal-adjacent).
 
-function _skeletonWalk(skeleton, cols, rows) {
+function _skeletonWalk(skeleton, cols, rows, jitter = 0) {
     if (skeleton.length < 2) return _fallbackWalk(cols, rows);
 
     const points = skeleton.map(p => ({
         x: Math.round(Math.max(0, Math.min(cols - 1, p.fx * (cols - 1)))),
-        y: Math.round(Math.max(0, Math.min(rows - 1, p.fy * (rows - 1))))
+        y: Math.round(Math.max(0, Math.min(rows - 1, p.fy * (rows - 1)))),
+        fx: p.fx, fy: p.fy
     }));
+
+    // Seeded jitter on interior waypoints for per-run variety.
+    //  • Border-touching coordinates (fx/fy ≈ 0 or 1) never move, so entrances
+    //    and exits stay glued to the map edge.
+    //  • Waypoints sharing the same fractional coordinate shift together, so
+    //    designed straight sweeps (e.g. zigzag rows) stay straight.
+    // If the jittered path self-crosses, generateMap's continuity check rejects
+    // it and retries — the deterministic layout is always a valid fallback.
+    if (jitter > 0) {
+        const xShift = new Map(), yShift = new Map();
+        for (let i = 1; i < points.length - 1; i++) {
+            const p = points[i];
+            if (p.fx > 0.01 && p.fx < 0.99) {
+                if (!xShift.has(p.fx)) xShift.set(p.fx, (Math.floor(_rng() * 3) - 1) * jitter);
+                p.x = Math.max(1, Math.min(cols - 2, p.x + xShift.get(p.fx)));
+            }
+            if (p.fy > 0.01 && p.fy < 0.99) {
+                if (!yShift.has(p.fy)) yShift.set(p.fy, (Math.floor(_rng() * 3) - 1) * jitter);
+                p.y = Math.max(1, Math.min(rows - 2, p.y + yShift.get(p.fy)));
+            }
+        }
+    }
 
     const visited = new Set();
     const path    = [];
@@ -552,7 +672,11 @@ function _skeletonWalk(skeleton, cols, rows) {
             _forceLine(sx, sy, goal.x, goal.y, visited, path, cols, rows);
         }
     }
-    return path;
+    // Visited-set dedup can leave gaps where consecutive segments overlap
+    // (e.g. Z-Slash: the diagonal's tail runs along the bottom row, so the
+    // final sweep skips those tiles). Bridge any gap with a cardinal walk so
+    // the waypoint chain is always step-by-step traversable.
+    return _ensureCardinal(path, cols, rows);
 }
 
 // ─── Parametric Math Line ─────────────────────────────────────────────────────
@@ -628,46 +752,46 @@ function _ensureCardinal(path, cols, rows) {
 
 // ─── Generator 2: Spiral ─────────────────────────────────────────────────────
 
+// REDESIGNED: the old ring-by-ring spiral shrank bounds by 1 per ring, so the
+// arms were wall-to-wall — on 9×13 the "spiral" was a solid filled rectangle
+// of path with ZERO interior build space (towers could only sit on the border
+// ring). Arms now step inward by 2, leaving a 1-tile grass corridor between
+// laps so towers can be built inside the coil.
 function _spiralGenerator(cols, rows) {
     const path = [], visited = new Set();
     const key = (x, y) => `${x},${y}`;
-    let left = 1, right = cols - 2, top = 1, bottom = rows - 2;
-    const entryY = Math.floor(rows / 2);
-    for (let x = 0; x <= left; x++) {
-        const pt = { x, y: entryY };
-        if (!visited.has(key(pt.x, pt.y))) { visited.add(key(pt.x, pt.y)); path.push(pt); }
+    const push = (x, y) => {
+        x = Math.max(0, Math.min(cols - 1, x));
+        y = Math.max(0, Math.min(rows - 1, y));
+        if (!visited.has(key(x, y))) { visited.add(key(x, y)); path.push({ x, y }); }
+    };
+
+    const margin = 1;
+    let x = margin, y = margin;
+    const w = cols - 2 * margin, h = rows - 2 * margin;
+
+    // Entry from the left border into the spiral's top-left corner
+    push(0, y);
+    push(x, y);
+
+    const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]]; // R, D, L, U
+    // Leg lengths: R:w-1, D:h-1, L:w-1, then every leg is 2 shorter than the
+    // leg two turns earlier — that guarantees the 1-tile gap between arms.
+    const lens = [w - 1, h - 1, w - 1];
+    for (let i = 3; ; i++) {
+        const next = lens[i - 2] - 2;
+        if (next <= 0) break;
+        lens.push(next);
     }
-    while (left <= right && top <= bottom) {
-        for (let x = left; x <= right; x++) {
-            const pt = { x, y: top };
-            if (!visited.has(key(pt.x, pt.y))) { visited.add(key(pt.x, pt.y)); path.push(pt); }
-        }
-        top++;
-        for (let y = top; y <= bottom; y++) {
-            const pt = { x: right, y };
-            if (!visited.has(key(pt.x, pt.y))) { visited.add(key(pt.x, pt.y)); path.push(pt); }
-        }
-        right--;
-        if (top <= bottom) {
-            for (let x = right; x >= left; x--) {
-                const pt = { x, y: bottom };
-                if (!visited.has(key(pt.x, pt.y))) { visited.add(key(pt.x, pt.y)); path.push(pt); }
-            }
-            bottom--;
-        }
-        if (left <= right) {
-            for (let y = bottom; y >= top; y--) {
-                const pt = { x: left, y };
-                if (!visited.has(key(pt.x, pt.y))) { visited.add(key(pt.x, pt.y)); path.push(pt); }
-            }
-            left++;
-        }
+    let dir = 0;
+    for (const len of lens) {
+        const [dx, dy] = DIRS[dir % 4];
+        for (let s = 0; s < len; s++) { x += dx; y += dy; push(x, y); }
+        dir++;
     }
-    if (path.length > 0) {
-        const last = path[path.length - 1];
-        // Spiral inward to the center — the base is at the heart of the map
-        _forceLine(last.x, last.y, Math.floor(cols / 2), Math.floor(rows / 2), visited, path, cols, rows);
-    }
+
+    // Final approach into the exact center — the base sits at the heart.
+    _forceLine(x, y, Math.floor(cols / 2), Math.floor(rows / 2), visited, path, cols, rows);
     return _ensureCardinal(path, cols, rows);
 }
 
@@ -718,71 +842,76 @@ function _figure8Generator(cols, rows) {
 
     return path;
 }
+// ─── Multi-lane point router ─────────────────────────────────────────────────
+// Walks a lane through a list of axis-aligned waypoints using _forceLine.
+// Each lane keeps its own visited set so lanes may cross each other freely
+// (crossings are legitimate — wall edges handle the visuals) but never
+// self-cross.
+
+function _walkPoints(points, cols, rows) {
+    const path = [], visited = new Set();
+    const key = (x, y) => `${x},${y}`;
+    let { x, y } = points[0];
+    x = Math.max(0, Math.min(cols - 1, x));
+    y = Math.max(0, Math.min(rows - 1, y));
+    visited.add(key(x, y)); path.push({ x, y });
+    for (let i = 1; i < points.length; i++) {
+        const tx = Math.max(0, Math.min(cols - 1, points[i].x));
+        const ty = Math.max(0, Math.min(rows - 1, points[i].y));
+        _forceLine(x, y, tx, ty, visited, path, cols, rows);
+        x = tx; y = ty;
+    }
+    // Bridge dedup gaps (overlapping segments) — see _skeletonWalk.
+    return _ensureCardinal(path, cols, rows);
+}
+
 // ─── Generator: Trident (multi-path) ────────────────────────────────────────
-// 3 spawners: top-left, top-right, left-middle → base at bottom-right corner.
+// 3 spawners: top-left, top-right, left-middle → base near bottom-right.
+// REDESIGNED: the old version routed all three lanes down the same column,
+// collapsing the map into a single lane. Each lane now has distinct territory
+// with doglegs of comparable length; lanes B and C share only a short final
+// approach along the bottom row.
 
 function _tridentGenerator(cols, rows) {
-    const baseX = cols - 2, baseY = rows - 2;
-    const spawns = [
-        { x: 1,              y: 0 },           // top-left
-        { x: cols - 2,       y: 0 },           // top-right
-        { x: 0,              y: Math.floor(rows / 2) }  // left-middle
+    const bx = cols - 2, by = rows - 2;
+    const c1 = Math.max(2, Math.floor(cols * 0.35));   // lane-A dogleg column
+    const r1 = Math.max(2, Math.floor(rows * 0.40));   // lane-A crossover row
+    const rB = Math.max(3, Math.floor(rows * 0.55));   // lane-B crossover row
+    const cB = Math.max(2, Math.floor(cols * 0.45));   // lane-B descent column
+    const rC = Math.floor(rows / 2);                   // lane-C spawn row
+
+    const lanes = [
+        // A — top-left: east, south, east across the middle, south to base
+        [{ x: 0, y: 1 }, { x: c1, y: 1 }, { x: c1, y: r1 }, { x: bx, y: r1 }, { x: bx, y: by }],
+        // B — top-right: down the right wall, cut inward, descend, approach along bottom
+        [{ x: cols - 1, y: 0 }, { x: cols - 1, y: rB }, { x: cB, y: rB }, { x: cB, y: by }, { x: bx, y: by }],
+        // C — left-middle: short east, long descent, approach along bottom
+        [{ x: 0, y: rC }, { x: 2, y: rC }, { x: 2, y: by }, { x: bx, y: by }]
     ];
-    return spawns.map(spawn => {
-        const path = [], visited = new Set();
-        const key = (x, y) => `${x},${y}`;
-        const addPt = (x, y) => {
-            x = Math.max(0, Math.min(cols - 1, x));
-            y = Math.max(0, Math.min(rows - 1, y));
-            if (!visited.has(key(x, y))) { visited.add(key(x, y)); path.push({ x, y }); }
-        };
-        // Walk from spawn to base: first go toward base column, then toward base row
-        let cx = spawn.x, cy = spawn.y;
-        addPt(cx, cy);
-        // Move horizontally toward baseX
-        const stepX = cx < baseX ? 1 : -1;
-        while (cx !== baseX) { cx += stepX; addPt(cx, cy); }
-        // Move vertically toward baseY
-        const stepY = cy < baseY ? 1 : -1;
-        while (cy !== baseY) { cy += stepY; addPt(cx, cy); }
-        return path;
-    });
+    return lanes.map(pts => _walkPoints(pts, cols, rows));
 }
 
 // ─── Generator: Four Corners (multi-path) ────────────────────────────────────
 // 4 spawners at the four corners → base at center. Total encirclement.
+// REDESIGNED: the old diagonal staircases were short and unreadable. Each lane
+// now runs along its own map edge to the midpoint, then turns straight into the
+// center — four equal-length, rotationally symmetric approach corridors.
 
 function _fourCornersGenerator(cols, rows) {
     const cx = Math.floor(cols / 2), cy = Math.floor(rows / 2);
-    const corners = [
-        { x: 0,        y: 0 },
-        { x: cols - 1, y: 0 },
-        { x: 0,        y: rows - 1 },
-        { x: cols - 1, y: rows - 1 }
+    const lanes = [
+        [{ x: 0, y: 0 },               { x: cx, y: 0 },        { x: cx, y: cy }], // TL: top edge → down
+        [{ x: cols - 1, y: 0 },        { x: cols - 1, y: cy }, { x: cx, y: cy }], // TR: right edge → in
+        [{ x: cols - 1, y: rows - 1 }, { x: cx, y: rows - 1 }, { x: cx, y: cy }], // BR: bottom edge → up
+        [{ x: 0, y: rows - 1 },        { x: 0, y: cy },        { x: cx, y: cy }]  // BL: left edge → in
     ];
-    return corners.map(corner => {
-        const path = [], visited = new Set();
-        const key = (x, y) => `${x},${y}`;
-        const addPt = (x, y) => {
-            x = Math.max(0, Math.min(cols - 1, x));
-            y = Math.max(0, Math.min(rows - 1, y));
-            if (!visited.has(key(x, y))) { visited.add(key(x, y)); path.push({ x, y }); }
-        };
-        let px = corner.x, py = corner.y;
-        addPt(px, py);
-        // Walk diagonally: alternate x then y steps toward center
-        while (px !== cx || py !== cy) {
-            if (px !== cx) { px += px < cx ? 1 : -1; addPt(px, py); }
-            if (py !== cy) { py += py < cy ? 1 : -1; addPt(px, py); }
-        }
-        return path;
-    });
+    return lanes.map(pts => _walkPoints(pts, cols, rows));
 }
 
 // ─── Generator 8: Labyrinth ───────────────────────────────────────────────────
 // ─── Generator 6: Comb ───────────────────────────────────────────────────────
 
-function _combGenerator(cols, rows) {
+function _combGenerator(cols, rows, jitter = 0) {
     const path = [], visited = new Set();
     const key = (x, y) => `${x},${y}`;
     const addPt = (x, y) => {
@@ -796,6 +925,16 @@ function _combGenerator(cols, rows) {
         Math.floor(cols * 0.15), Math.floor(cols * 0.38),
         Math.floor(cols * 0.62), Math.floor(cols * 0.85),
     ];
+    // Seeded tooth jitter — keep ≥2 columns between teeth so they stay distinct.
+    if (jitter > 0) {
+        for (let i = 0; i < toothCols.length; i++) {
+            const off = (Math.floor(_rng() * 3) - 1) * jitter;
+            const nx  = Math.max(1, Math.min(cols - 2, toothCols[i] + off));
+            const prevOk = i === 0 || nx - toothCols[i - 1] >= 2;
+            const nextOk = i === toothCols.length - 1 || toothCols[i + 1] - nx >= 2;
+            if (prevOk && nextOk) toothCols[i] = nx;
+        }
+    }
     for (let x = 0; x <= toothCols[0]; x++) addPt(x, spineY);
     toothCols.forEach((tx, i) => {
         for (let y = spineY; y >= toothTop; y--) addPt(tx, y);
@@ -852,7 +991,7 @@ function _labyrinthGenerator(cols, rows) {
     ];
     function carve(c, r) {
         visited[r][c] = true;
-        for (const d of cellDirs.slice().sort(() => Math.random() - 0.5)) {
+        for (const d of cellDirs.slice().sort(() => _rng() - 0.5)) {
             const nc = c + d.dc, nr = r + d.dr;
             if (nc < 0 || nc >= cellCols || nr < 0 || nr >= cellRows || visited[nr][nc]) continue;
             walls[r][c][d.wall] = false; walls[nr][nc][d.opp] = false; carve(nc, nr);
@@ -965,7 +1104,7 @@ function _fallbackWalk(cols, rows) {
         { startEdge: 'top',  endEdge: 'bottom' },
         { startEdge: 'left', endEdge: 'bottom' },
     ];
-    const { startEdge, endEdge } = edgeConfigs[Math.floor(Math.random() * edgeConfigs.length)];
+    const { startEdge, endEdge } = edgeConfigs[Math.floor(_rng() * edgeConfigs.length)];
     const startPos = _edgeEntry(startEdge, cols, rows);
     const endPos   = _edgeEntry(endEdge,   cols, rows);
     const visited  = new Set(), path = [];
@@ -992,7 +1131,7 @@ function _fallbackWalk(cols, rows) {
                 }).length;
             if (adjCount > 1) return null;
             const newDist = Math.abs(endPos.x - nx) + Math.abs(endPos.y - ny);
-            return { nx, ny, weight: (newDist < dist ? 3 : 1) + Math.random() * 1.5 };
+            return { nx, ny, weight: (newDist < dist ? 3 : 1) + _rng() * 1.5 };
         }).filter(Boolean);
         if (candidates.length === 0) break;
         candidates.sort((a, b) => b.weight - a.weight);
@@ -1012,5 +1151,5 @@ function _edgeEntry(edge, cols, rows) {
 }
 
 function _rand(min, max) {
-    return Math.floor(Math.random() * (max - min + 1)) + min;
+    return Math.floor(_rng() * (max - min + 1)) + min;
 }

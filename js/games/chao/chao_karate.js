@@ -4,17 +4,26 @@ import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
 import { getChiTrueStat } from './chao_state.js';
 
 export class ChaoKarate3D {
-    constructor(container, stateManager, uiContainer) {
+    /**
+     * @param {HTMLElement} container   3D render area
+     * @param {ChaoStateManager} stateManager
+     * @param {HTMLElement} uiContainer contains #karate-log / #karate-result / hp bars
+     * @param {Function}   [onMatchEnd] (playerWon:boolean) => void
+     */
+    constructor(container, stateManager, uiContainer, onMatchEnd) {
         this.container = container;
         this.state = stateManager;
         this.uiContainer = uiContainer;
-        
+        this.onMatchEnd = onMatchEnd || null;
+
         this.logEl = this.uiContainer.querySelector('#karate-log');
         this.resultEl = this.uiContainer.querySelector('#karate-result');
 
         this.clock = new THREE.Clock();
         this.animationId = null;
         this.isMatchOver = false;
+        this.paused = false;
+        this.nextAttackCrit = false;
 
         this.setupFighters();
         this.initScene();
@@ -107,8 +116,35 @@ export class ChaoKarate3D {
         });
     }
 
+    pause()  { this.paused = true;  }
+    resume() { this.paused = false; }
+
+    /**
+     * Result of the spectator "Cheer" vocab quiz.
+     * Success: heals the player Chi (scaled by its Connection) and guarantees
+     * a critical hit on its next attack. Failure: the Chi gets flustered.
+     */
+    applyCheer(success, connection = 0) {
+        if (this.isMatchOver) return;
+        const player = this.fighters[0];
+        if (success) {
+            const healPct = 0.10 + Math.min(0.15, (connection || 0) / 400);
+            const heal = Math.floor(player.maxHp * healPct);
+            player.hp = Math.min(player.maxHp, player.hp + heal);
+            this.nextAttackCrit = true;
+            this.updateDOMHP();
+            this.logMessage(`📣 Your cheer inspires <b>${player.chi.name}</b>! Recovered ${heal} HP — next attack will be a sure critical!`);
+        } else {
+            this.logMessage(`📣 The cheer fell flat... <b>${player.chi.name}</b> looks a bit embarrassed.`);
+        }
+    }
+
     combatTurn() {
         if (this.isMatchOver) return;
+        if (this.paused) {
+            setTimeout(() => this.combatTurn(), 300);
+            return;
+        }
 
         const attacker = this.fighters[this.turnIndex];
         const defender = this.fighters[this.turnIndex === 0 ? 1 : 0];
@@ -117,13 +153,16 @@ export class ChaoKarate3D {
         let dodgeChance = Math.max(0.05, Math.min(0.95, 0.10 + (defender.agi - attacker.agi) / 10000));
         let critChance = Math.max(0.05, Math.min(0.95, 0.10 + (attacker.wis - defender.wis) / 10000));
 
+        const forcedCrit = this.nextAttackCrit && attacker.id === 1;
+        if (forcedCrit) this.nextAttackCrit = false;
+
         let hitResultText = "";
         let finalDamage = 0;
 
-        if (Math.random() < dodgeChance) {
+        if (!forcedCrit && Math.random() < dodgeChance) {
             hitResultText = "Dodged!";
         } else {
-            if (Math.random() < critChance) {
+            if (forcedCrit || Math.random() < critChance) {
                 finalDamage = Math.floor(damage * 1.5);
                 hitResultText = `CRITICAL HIT! (${finalDamage} dmg)`;
             } else {
@@ -148,8 +187,10 @@ export class ChaoKarate3D {
             if (defender.hp <= 0) {
                 this.isMatchOver = true;
                 this.logMessage(`<b>${defender.chi.name}</b> fainted!`);
-                this.resultEl.innerHTML = `<span style="color:#50fa7b;">${attacker.chi.name} Wins the match!</span>`;
+                const playerWon = attacker.id === 1;
+                this.resultEl.innerHTML = `<span style="color:${playerWon ? '#50fa7b' : '#ff5555'};">${attacker.chi.name} Wins the match!</span>`;
                 this.resultEl.style.display = 'block';
+                if (this.onMatchEnd) this.onMatchEnd(playerWon);
                 return;
             }
 
@@ -231,6 +272,7 @@ export class ChaoKarate3D {
     }
 
     destroy() {
+        this.isMatchOver = true; // stops any pending combatTurn timers
         if (this.animationId) cancelAnimationFrame(this.animationId);
         this.resizeObserver.disconnect();
         if (this.renderer.domElement.parentNode) {

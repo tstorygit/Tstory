@@ -237,11 +237,16 @@ export const PASSIVES = {
     magnet:  { id: 'magnet',  name: 'Kitsune Tail',   icon: '🦊', maxLevel: 5, desc: '+25% Pickup Radius per level.', stat: 'magnetMult',    value:  0.25 },
     tome:    { id: 'tome',    name: 'Ancient Scroll',  icon: '📜', maxLevel: 5, desc: '-5% Cooldown per level.',       stat: 'cooldownMult',  value: -0.05 },
     health:  { id: 'health',  name: 'Rice Ball',       icon: '🍙', maxLevel: 5, desc: '+20% Max HP per level.',        stat: 'hpMult',        value:  0.2  },
+    charm:   { id: 'charm',   name: 'Omamori Charm',   icon: '🧿', maxLevel: 5, desc: '+8% XP from gems per level.',   stat: 'xpMult',        value:  0.08 },
 };
 
 export const ENEMIES = {
     grunt:  { id: 'grunt',  emoji: '👻', hp: 10,   speed: 60,  damage: 5,  xp: 1   },
     dasher: { id: 'dasher', emoji: '💨', hp: 8,    speed: 110, damage: 3,  xp: 2   },
     tank:   { id: 'tank',   emoji: '👹', hp: 45,   speed: 40,  damage: 15, xp: 5   },
+    // Mid-game (minute 4+): fragile but very fast — swarms punish standing still
+    swarm:  { id: 'swarm',  emoji: '🦇', hp: 4,    speed: 145, damage: 2,  xp: 1   },
+    // Late-game (minute 6+): slow wall of HP that forces repositioning
+    brute:  { id: 'brute',  emoji: '🗿', hp: 110,  speed: 28,  damage: 22, xp: 9   },
     boss:   { id: 'boss',   emoji: '👺', hp: 1500, speed: 50,  damage: 30, xp: 100, isBoss: true }
 };

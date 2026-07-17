@@ -274,8 +274,9 @@ export function showGameQuiz(vocabMgr, options = {}) {
 
         const closePanel = () => {
             if (_currentChallenge?.refId) {
-                // Grade pending word as wrong so GVM _pendingPulls stays clean
-                vocabMgr.gradeWord(_currentChallenge.refId, false);
+                // Drop the pending word without grading — dismissing the panel
+                // mid-question must not write a failure into the SRS schedule.
+                vocabMgr.discardWord(_currentChallenge.refId);
                 _currentChallenge = null;
             }
             overlay.remove();

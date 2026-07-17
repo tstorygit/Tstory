@@ -125,29 +125,108 @@ export class ChaoGarden3D {
     spawnChis() {
         const chisData = this.state.data.chis;
         chisData.forEach((chi, index) => {
-            const geo = new THREE.SphereGeometry(1, 32, 32);
-            
-            const r = chi.dna.cheerfulness / 100;
-            const b = chi.dna.calmness / 100;
-            const g = chi.dna.kindness / 100;
-            
-            const mat = new THREE.MeshLambertMaterial({ color: new THREE.Color(r, g, b) });
-            const mesh = new THREE.Mesh(geo, mat);
-            mesh.castShadow = true;
-            
-            mesh.position.set((index - chisData.length/2) * 2.5, 1, 0);
-            
-            mesh.userData = {
-                chiId: chi.id,
-                baseY: 1,
-                bounceSpeed: 2 + Math.log10(chi.stats.agility + 1) * 0.8,
-                moveSpeed: 0.3 + (chi.stats.agility / 99) * 1.5,
-                offset: Math.random() * Math.PI * 2,
-                happyTimer: 0
-            };
+            this._spawnChiMesh(chi, (index - chisData.length / 2) * 2.5, 0);
+        });
+    }
 
-            this.scene.add(mesh);
-            this.chiMeshes.push(mesh);
+    _spawnChiMesh(chi, x, z) {
+        const geo = new THREE.SphereGeometry(1, 32, 32);
+
+        const r = chi.dna.cheerfulness / 100;
+        const b = chi.dna.calmness / 100;
+        const g = chi.dna.kindness / 100;
+
+        const mat = new THREE.MeshLambertMaterial({ color: new THREE.Color(r, g, b) });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.castShadow = true;
+
+        mesh.position.set(x, 1, z);
+
+        mesh.userData = {
+            chiId: chi.id,
+            baseY: 1,
+            bounceSpeed: 2 + Math.log10(chi.stats.agility + 1) * 0.8,
+            moveSpeed: 0.3 + (chi.stats.agility / 99) * 1.5,
+            offset: Math.random() * Math.PI * 2,
+            happyTimer: 0,
+            hatMesh: null,
+            hatName: null
+        };
+
+        this.scene.add(mesh);
+        this.chiMeshes.push(mesh);
+        this._updateHat(mesh, chi);
+        return mesh;
+    }
+
+    _buildHatMesh(hatName) {
+        const group = new THREE.Group();
+        if (hatName === 'Straw Hat') {
+            const brim = new THREE.Mesh(
+                new THREE.CylinderGeometry(1.1, 1.1, 0.08, 16),
+                new THREE.MeshLambertMaterial({ color: 0xE8C872 })
+            );
+            const top = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.5, 0.6, 0.35, 16),
+                new THREE.MeshLambertMaterial({ color: 0xD9B25F })
+            );
+            top.position.y = 0.2;
+            group.add(brim);
+            group.add(top);
+        } else if (hatName === 'Wizard Cap') {
+            const cone = new THREE.Mesh(
+                new THREE.ConeGeometry(0.55, 1.2, 16),
+                new THREE.MeshLambertMaterial({ color: 0x6A4FBF })
+            );
+            cone.position.y = 0.5;
+            group.add(cone);
+        } else if (hatName === 'Golden Crown') {
+            const ring = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.5, 0.5, 0.4, 8, 1, true),
+                new THREE.MeshLambertMaterial({ color: 0xFFD700, side: THREE.DoubleSide })
+            );
+            ring.position.y = 0.15;
+            group.add(ring);
+        } else {
+            return null;
+        }
+        group.position.y = 0.85;
+        return group;
+    }
+
+    _updateHat(mesh, chi) {
+        const chiData = chi || this.state.data.chis.find(c => c.id === mesh.userData.chiId);
+        const wanted = chiData ? (chiData.equippedHat || null) : null;
+        if (mesh.userData.hatName === wanted) return;
+
+        if (mesh.userData.hatMesh) {
+            mesh.remove(mesh.userData.hatMesh);
+            mesh.userData.hatMesh = null;
+        }
+        mesh.userData.hatName = wanted;
+        if (wanted) {
+            const hat = this._buildHatMesh(wanted);
+            if (hat) {
+                mesh.add(hat);
+                mesh.userData.hatMesh = hat;
+            }
+        }
+    }
+
+    /**
+     * Reconciles the 3D scene with the current state: spawns meshes for
+     * newly hatched Chis and refreshes equipped hats. Safe to call any time.
+     */
+    syncChis() {
+        this.state.data.chis.forEach(chi => {
+            let mesh = this.chiMeshes.find(m => m.userData.chiId === chi.id);
+            if (!mesh) {
+                const angle = Math.random() * Math.PI * 2;
+                mesh = this._spawnChiMesh(chi, Math.cos(angle) * 4, Math.sin(angle) * 4);
+                mesh.userData.happyTimer = 1.5;
+            } else {
+                this._updateHat(mesh, chi);
+            }
         });
     }
 

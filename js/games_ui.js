@@ -36,8 +36,8 @@ const GAME_REGISTRY = [
         id:     'memory',
         icon:   '🎴',
         title:  'Memory Match',
-        desc:   'Find pairs of Kanji and Meanings or Readings. Earn coins to unlock custom card designs!',
-        loader: () => import(`./games/memory/memory.js?v=${Date.now()}`),
+        desc:   'Find Kanji/Meaning/Reading pairs on boards up to 24 cards. Combo coins, a card-back shop, and SRS grading of every matched word!',
+        loader: () => import('./games/memory/memory.js'),
         headerTitle: 'Memory — Setup',
         screens: {
             setup:  { classes: 'content-scroll', style: 'padding:0;' },
@@ -47,7 +47,7 @@ const GAME_REGISTRY = [
         id:     'neko',
         icon:   '🐾',
         title:  'NekoNihongo — Idle Dojo',
-        desc:   'Pet cats, earn fish, and review vocab flashcards in this idle clicker. Ascend and Rebirth for permanent power!',
+        desc:   'Pet cats, earn fish, and review vocab flashcards in this idle clicker. Ascend and Rebirth for permanent power, and send cats on souvenir expeditions!',
         loader: () => import('./games/neko/neko.js'),
         headerTitle: 'NekoNihongo — Setup',
         screens: {
@@ -66,7 +66,6 @@ const GAME_REGISTRY = [
         screens: {
             setup:   { classes: 'content-scroll' },
             game:    { classes: 'content-scroll' },
-            summary: { classes: 'content-scroll' },
         },
     },
 {
@@ -207,7 +206,21 @@ export function initGames() {
     showList();
 }
 
+/**
+ * Notify every loaded game that its screens are (about to be) hidden so it
+ * can stop rAF loops / autosave timers. suspend() is optional per module.
+ * Called by showList() and by app.js when the user navigates to another tab.
+ */
+export function suspendAllGames() {
+    for (const game of GAME_REGISTRY) {
+        try { _moduleCache[game.id]?.suspend?.(); }
+        catch (e) { console.warn(`[Games] suspend() failed for "${game.id}":`, e); }
+    }
+}
+
 function showList() {
+    suspendAllGames();
+
     // Hide all game screens
     for (const game of GAME_REGISTRY) {
         for (const key of Object.keys(game.screens)) {

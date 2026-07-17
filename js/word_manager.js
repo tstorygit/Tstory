@@ -7,6 +7,13 @@
 import * as srsDb from './srs_db.js';
 import { openPopup, closePopup } from './popup_manager.js';
 
+/** Escape user/AI-provided strings before inserting them into innerHTML. */
+function _esc(s) {
+    return String(s ?? '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 // --- DOM ELEMENTS ---
 const listContainer = document.getElementById('vocab-list');
 const searchInput   = document.getElementById('vocab-search');
@@ -137,19 +144,19 @@ export function renderVocabList() {
             <div class="vocab-status-dot" style="background-color:${statusColors[w.status]||'#ccc'}"></div>
             <div class="vocab-info">
                 <div class="vocab-main-line">
-                    <span class="vocab-word">${w.word}</span>
-                    ${w.base && w.base !== w.word ? `<span style="font-size:12px; color:var(--text-muted); font-weight:normal; margin-left:4px;">(${w.base})</span>` : ''}
-                    <span class="vocab-furi" style="margin-left:4px;">${w.furi || ''}</span>
+                    <span class="vocab-word">${_esc(w.word)}</span>
+                    ${w.base && w.base !== w.word ? `<span style="font-size:12px; color:var(--text-muted); font-weight:normal; margin-left:4px;">(${_esc(w.base)})</span>` : ''}
+                    <span class="vocab-furi" style="margin-left:4px;">${_esc(w.furi || '')}</span>
                     ${srsBadge}
                 </div>
                 <div class="vocab-trans">
-                    ${w.translation || 'No translation'}
+                    ${_esc(w.translation || 'No translation')}
                     <span style="font-size:10px; color:var(--text-muted); margin-left:8px;" title="AI Enriched Date">✨ ${aiDateText}</span>
                 </div>
             </div>
             <div class="vocab-actions">
                 <button class="vocab-edit-btn" title="Edit Reading" aria-label="Edit Reading">⚙️</button>
-                <button class="vocab-delete-btn" title="Delete word" aria-label="Delete ${w.word}">🗑</button>
+                <button class="vocab-delete-btn" title="Delete word" aria-label="Delete ${_esc(w.word)}">🗑</button>
             </div>
         `;
         
@@ -184,9 +191,13 @@ function _openPopupForWord(wordData) {
         note:          '',
         translation:   wordData.translation || '',
     };
+    // Capture the actual DB key — the token has no `word` field and its `base`
+    // may differ from the storage key, which made updateWordStatus() a silent
+    // no-op for words whose base form differs from the stored key.
+    const dbKey = wordData.word;
     openPopup(token, {
         onSave: (wd, newStatus) => {
-            srsDb.updateWordStatus(wd.word || wd.base, newStatus);
+            srsDb.updateWordStatus(dbKey, newStatus);
             closePopup();
             renderVocabList();
         }
@@ -201,7 +212,7 @@ function _confirmDelete(wordText) {
     const banner = document.createElement('div');
     banner.className = 'vocab-delete-confirm';
     banner.innerHTML = `
-        <span>Delete <strong>${wordText}</strong> from your SRS deck?</span>
+        <span>Delete <strong>${_esc(wordText)}</strong> from your SRS deck?</span>
         <button class="vocab-delete-confirm-yes">Delete</button>
         <button class="vocab-delete-confirm-no">Cancel</button>
     `;

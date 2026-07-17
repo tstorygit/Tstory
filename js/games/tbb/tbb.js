@@ -2,21 +2,22 @@
 // export { init, launch }
 
 import { mountVocabSelector, getDeckConfig } from '../../vocab_selector.js';
-import * as srsDb             from '../../srs_db.js';
+import { GameVocabManager }   from '../../game_vocab_mgr.js';
+import { renderVocabSettings, setGvmTheme } from '../../game_vocab_mgr_ui.js';
 import { spawnEnemy }         from './tbb_enemies.js';
 import { getFloorData }       from './tbb_floors.js';
 import { PERK_DEFS, REBIRTH_MIN_LEVEL, REBIRTH_AP_DIVIDER,
          totalApSpent, canSpendAp, computePerkBonuses, calcRebirthAp } from './tbb_ascension.js';
-import { computePlayerDamage, getAttackMultiplier, handleWrongAnswerRetaliation,
-         handlePlayerDefense, actionExp,
-         timeAdjustExp, applyExpBonuses, expToNextLevel,
-         generateMcOptions } from './tbb_battle.js';
+import { computePlayerDamage, handleWrongAnswerRetaliation,
+         actionExp, timeAdjustExp, applyExpBonuses, expToNextLevel } from './tbb_battle.js';
 
 // ─── Module State ─────────────────────────────────────────────────────────────
 let _screens  = null;
 let _onExit   = null;
 let _selector = null;
 let _vocabQueue = [];
+let _vocabMgr   = null;   // GameVocabManager — the ONLY route to the SRS database
+let _visibilityHooked = false;
 
 const SAVE_KEY     = 'tbb_save';
 const BANNED_KEY   = 'tbb_banned_words';
@@ -35,7 +36,6 @@ const AGI_SPD = 1;
 const BASE_ANSWER_SECS = 20;
 const MIN_ANSWER_SECS  = 5;
 const MAX_FLOORS = 100;
-const ENEMIES_PER_FLOOR_UNLOCK = 1;
 
 // ─── Game State (_g) ──────────────────────────────────────────────────────────
 let _g = null;
@@ -59,6 +59,8 @@ function _defaultSave() {
         floorActionsDone:     {},   // floor# -> true, persisted so unlock/repeat logic survives sessions
         unlockedFeatures:     {},   // featureKey -> true
         autoProgressFloor:    false, // auto-advance to next floor after clearing current
+        vocabConfig:          null,  // GameVocabManager config snapshot (renderVocabSettings onSave)
+        poolSource:           'srs', // 'srs' | 'mixed' | 'custom' — refreshed from mgr.getPoolSource()
     };
 }
 
@@ -89,6 +91,8 @@ function _writeSave() {
         floorActionsDone:     Object.assign({}, _g.floorActionsDone),
         unlockedFeatures:     Object.assign({}, _g.unlockedFeatures),
         autoProgressFloor:    _g.autoProgressFloor ?? false,
+        vocabConfig:          _g.vocabConfig ?? null,
+        poolSource:           _g.poolSource ?? 'srs',
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(s));
 }
@@ -129,13 +133,13 @@ function _initGameState() {
         // ── Group battle state ──────────────────────────────────────────
         enemyGroup:           [],    // array of 4 enemy objects with .trans + .dead
         selectedGroupIdx:     null,  // which card the player has targeted
-        groupTargetWord:      null,  // vocab word for this group encounter
-        groupIsDrill:         false,
-        // ── legacy challenge (kept for _prepareChallenge compat) ────────
-        challengeWord:        null,
-        isDrill:              false,
-        mcOptions:            [],
-        correctIdx:           -1,
+        groupChallenge:       null,  // GameVocabManager challenge {refId, type, wordObj, options, correctIdx}
+        groupTargetWord:      null,  // challenge.wordObj (display convenience)
+        groupIsDrill:         false, // true when challenge.type === 'unscheduled'
+        telegraphIdx:         null,  // enemy card currently charging an attack (⚡)
+        riposteArmed:         false, // set after taking a hit; next strike gets Riposte bonus
+        lastStandUsed:        false, // Last Stand perk trigger — once per wave
+        stanceIsWild:         false, // WILD stance re-rolls the attack type every strike
         answerDisabled:       false,
         answerTimeLeft:       1.0,
         combo:                0,
@@ -155,6 +159,40 @@ function _initGameState() {
 export function init(screens, onExit) {
     _screens = screens;
     _onExit  = onExit;
+
+    if (!_visibilityHooked) {
+        _visibilityHooked = true;
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                _pauseAnswerTimer();
+                _vocabMgr?.pause();
+            } else {
+                // Only resume if no blocking UI is open (overlay or deck modal own
+                // their pause/resume pairs and will unpause when they close).
+                const blocked = (_dom?.overlay && _dom.overlay.style.display !== 'none')
+                    || document.getElementById('tbb-change-deck-overlay');
+                if (!blocked) {
+                    _vocabMgr?.resume();
+                    _resumeAnswerTimer();
+                }
+            }
+        });
+    }
+}
+
+/**
+ * Called by games_ui when the player navigates back to the games list without
+ * using the in-game Exit button. Freezes clocks and flushes progress.
+ */
+export function suspend() {
+    if (!_g) return;
+    _stopTimer();
+    _cancelPendingChallenge();
+    _vocabMgr?.pause();
+    // Contract: push local vocab progress at session end.
+    // No-op while the pool runs in Global SRS mode (answers are already live).
+    _vocabMgr?.exportToAppSrs(null, 'skip');
+    _writeSave();
 }
 
 export async function launch() {
@@ -281,20 +319,55 @@ async function _startGameFromSetup() {
 }
 
 // ─── Game Initialisation ──────────────────────────────────────────────────────
+function _mapQueue(queue) {
+    return queue.map(w => ({
+        word:   w.word,
+        furi:   w.furi   || w.word,
+        trans:  w.trans  || '—',
+        pos:    w.pos    || 'other',
+        deckId: w.deckId || 'custom',
+    }));
+}
+
+function _buildVocabMgr() {
+    const savedCfg = (_g?.vocabConfig) || _loadSave().vocabConfig || {};
+    _vocabMgr = new GameVocabManager({ ...GameVocabManager.defaultConfig(), ...savedCfg });
+    // TBB has always graded every answer straight into the app SRS (live/mixed
+    // mode). globalSrs:true preserves that behaviour through the manager.
+    _vocabMgr.setPool(_vocabQueue, BANNED_KEY, { globalSrs: true });
+    if (_g) _g.poolSource = _vocabMgr.getPoolSource();
+}
+
 function _startGameWithQueue(queue) {
-    _vocabQueue = queue.map(w => ({ word: w.word, furi: w.furi || w.word, trans: w.trans || '—' }));
-    
+    _vocabQueue = _mapQueue(queue);
+
     if (!_g) {
         _initGameState();
         _g.quickStrikeMode = true;
     }
+    _buildVocabMgr();
 
     _show('game');
     _buildGameDOM();
-    
+
     if (!_g.enemyGroup || _g.enemyGroup.length === 0) {
         _spawnEnemyAndBegin();
+    } else if (_g.phase === 'game_over' || _g.currentHp <= 0) {
+        // The previous session ended in defeat and the player left from the
+        // game-over screen. Re-show it instead of dealing an unanswerable hand.
+        _g.phase = 'game_over';
+        _renderAll();
+        _updateComboDisplay();
+        _renderGameOverOverlay();
     } else {
+        // Re-entering with a battle in progress: clear any stale interaction
+        // state and deal a fresh question (the manager was just rebuilt).
+        _g.answerDisabled = false;
+        _g.cardFlash      = null;
+        _g.groupChallenge = null;
+        const alive = _g.enemyGroup.map((e, i) => e.dead ? null : i).filter(i => i !== null);
+        if (alive.length === 0) { _spawnEnemyAndBegin(); return; }
+        _prepareGroupVocabAmong(alive);
         _renderAll();
         _updateComboDisplay();
     }
@@ -326,103 +399,102 @@ function _spawnEnemyAndBegin() {
         };
     });
 
-    _prepareGroupVocab();
+    _g.lastStandUsed = false;   // Last Stand may trigger once per wave
+    _g.riposteArmed  = false;   // Riposte doesn't carry across waves
+    _g.telegraphIdx  = null;
 
     _g.selectedGroupIdx = null;
     _g.answerDisabled   = false;
     _g.phase            = 'player_attack';
     _g.narration        = `${templateEnemy.emoji} ${templateEnemy.name} ×4 appear! (Lv.${templateEnemy.level}) Select your weapon, then strike!`;
 
+    _prepareGroupVocab();
+
     _renderAll();
     _updateComboDisplay();
 }
 
-function _prepareGroupVocab() {
-    if (!_vocabQueue.length) return;
+/**
+ * Drop the current in-flight challenge without grading it (floor jump, deck
+ * change, timeout, rebirth…). Frees the word for re-selection.
+ */
+function _cancelPendingChallenge() {
+    if (_g?.groupChallenge && _vocabMgr) {
+        _vocabMgr.discardWord(_g.groupChallenge.refId);
+    }
+    if (_g) _g.groupChallenge = null;
+}
 
-    // Pick a word (same SRS logic as before)
-    const globalSrsData = srsDb.getAllWords();
-    const now = new Date();
-    let dueCandidates = [], notDueCandidates = [];
-    _vocabQueue.forEach(w => {
-        const entry = globalSrsData[w.word];
-        if (!entry || !entry.dueDate || new Date(entry.dueDate) <= now) dueCandidates.push(w);
-        else notDueCandidates.push({ wordObj: w, lastUpdated: new Date(entry.lastUpdated).getTime() });
-    });
+/** Roll a telegraphed "charging" enemy for this question (35% chance). */
+function _pickTelegraph(aliveIndices) {
+    _g.telegraphIdx = (aliveIndices.length > 0 && Math.random() < 0.35)
+        ? aliveIndices[Math.floor(Math.random() * aliveIndices.length)]
+        : null;
+}
 
-    let word = null, isDrill = false;
-    if (dueCandidates.length > 0) {
-        word = dueCandidates[Math.floor(Math.random() * dueCandidates.length)];
-    } else if (notDueCandidates.length > 0) {
-        notDueCandidates.sort((a, b) => a.lastUpdated - b.lastUpdated);
-        const topN = notDueCandidates.slice(0, 5);
-        word = topN[Math.floor(Math.random() * topN.length)].wordObj;
-        isDrill = true;
-    } else {
-        word = _vocabQueue[Math.floor(Math.random() * _vocabQueue.length)];
+/** Distribute the challenge's answer options across the surviving cards. */
+function _assignChallengeToCards(challenge, aliveIndices) {
+    const correct     = challenge.options[challenge.correctIdx];
+    const distractors = challenge.options.filter((_, i) => i !== challenge.correctIdx);
+
+    // ── Duel mode: a lone survivor carries BOTH options stacked on its card ──
+    // Without this, the last enemy of every wave would show the correct answer
+    // by default — a guaranteed-correct freebie that pollutes SRS grading.
+    if (aliveIndices.length === 1 && distractors.length > 0) {
+        const card = _g.enemyGroup[aliveIndices[0]];
+        const duo  = [correct, distractors[0]];
+        if (Math.random() < 0.5) duo.reverse();
+        card.opts  = duo;
+        card.trans = null;
+        return;
     }
 
-    _g.groupTargetWord = word;
-    _g.groupIsDrill    = isDrill;
+    const picks = [correct, ...distractors.slice(0, aliveIndices.length - 1)];
+    while (picks.length < aliveIndices.length) picks.push('???');
+    for (let i = picks.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [picks[i], picks[j]] = [picks[j], picks[i]];
+    }
+    aliveIndices.forEach((cardIdx, k) => {
+        const card = _g.enemyGroup[cardIdx];
+        card.trans = picks[k];
+        card.opts  = null;
+    });
+}
 
-    // Generate 4 MC options: 1 correct + 3 distractors, shuffle across 4 cards
-    const opts = generateMcOptions(word, _vocabQueue); // returns 4 items [correct, ...distractors] shuffled
-    _g.enemyGroup.forEach((e, i) => { e.trans = opts[i] ?? `Option ${i+1}`; });
+function _prepareGroupVocab() {
+    const alive = _g.enemyGroup.map((e, i) => e.dead ? null : i).filter(i => i !== null);
+    _prepareGroupVocabAmong(alive);
 }
 
 /**
- * Attrition mode: reassign MC options only among the surviving cards.
- * Dead cards keep their .trans but their slot is visually greyed out.
+ * Deal a fresh vocab challenge among the surviving cards.
+ * Word selection, distractors and SRS typing all come from GameVocabManager.
  * @param {number[]} aliveIndices - indices of non-dead cards
  */
 function _prepareGroupVocabAmong(aliveIndices) {
-    if (!_vocabQueue.length) return;
+    if (!_vocabMgr || !aliveIndices.length) return;
+    _cancelPendingChallenge();
 
-    // Pick a new target word
-    const globalSrsData = srsDb.getAllWords();
-    const now = new Date();
-    let dueCandidates = [], notDueCandidates = [];
-    _vocabQueue.forEach(w => {
-        const entry = globalSrsData[w.word];
-        if (!entry || !entry.dueDate || new Date(entry.dueDate) <= now) dueCandidates.push(w);
-        else notDueCandidates.push({ wordObj: w, lastUpdated: new Date(entry.lastUpdated).getTime() });
-    });
-
-    let word = null, isDrill = false;
-    if (dueCandidates.length > 0) {
-        word = dueCandidates[Math.floor(Math.random() * dueCandidates.length)];
-    } else if (notDueCandidates.length > 0) {
-        notDueCandidates.sort((a, b) => a.lastUpdated - b.lastUpdated);
-        const topN = notDueCandidates.slice(0, 5);
-        word = topN[Math.floor(Math.random() * topN.length)].wordObj;
-        isDrill = true;
-    } else {
-        word = _vocabQueue[Math.floor(Math.random() * _vocabQueue.length)];
+    const challenge = _vocabMgr.getNextWord(null, Math.max(2, aliveIndices.length));
+    if (!challenge) {
+        _g.groupChallenge  = null;
+        _g.groupTargetWord = null;
+        _g.narration = '📚 No vocabulary available — open ☰ Menu → Change Vocabulary.';
+        _stopTimer();
+        return;
     }
 
-    _g.groupTargetWord = word;
-    _g.groupIsDrill    = isDrill;
+    _g.groupChallenge  = challenge;
+    _g.groupTargetWord = challenge.wordObj;                 // {kanji, kana, eng}
+    _g.groupIsDrill    = challenge.type === 'unscheduled';
 
-    // Generate exactly as many options as there are survivors (max 4)
-    const n = aliveIndices.length;
-    const correct = word.trans;
-    const pool = _vocabQueue
-        .filter(w => w.word !== word.word && w.trans !== correct)
-        .map(w => w.trans);
-    for (let i = pool.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [pool[i], pool[j]] = [pool[j], pool[i]];
+    _assignChallengeToCards(challenge, aliveIndices);
+    if (aliveIndices.length === 1 && _g.enemyGroup[aliveIndices[0]].opts) {
+        _g.narration = '⚔️ Final duel — pick the true meaning!';
     }
-    const opts = [correct, ...pool.slice(0, n - 1)];
-    while (opts.length < n) opts.push(`Option ${opts.length + 1}`);
-    for (let i = opts.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [opts[i], opts[j]] = [opts[j], opts[i]];
-    }
-
-    aliveIndices.forEach((cardIdx, optIdx) => {
-        _g.enemyGroup[cardIdx].trans = opts[optIdx];
-    });
+    _pickTelegraph(aliveIndices);
+    _startAnswerTimer();
 }
 
 function _showFloorLandingOverlay(onDismiss) {
@@ -652,50 +724,6 @@ function _executeFloorEffect(effectKey, floor) {
     }
 }
 
-function _prepareChallenge() {
-    if (!_vocabQueue.length) return;
-    
-    const globalSrsData = srsDb.getAllWords();
-    const now = new Date();
-    
-    let dueCandidates = [];
-    let notDueCandidates = [];
-    
-    _vocabQueue.forEach(w => {
-        const entry = globalSrsData[w.word];
-        if (!entry || !entry.dueDate || new Date(entry.dueDate) <= now) {
-            dueCandidates.push(w);
-        } else {
-            notDueCandidates.push({wordObj: w, lastUpdated: new Date(entry.lastUpdated).getTime()});
-        }
-    });
-    
-    let word = null;
-    let isDrill = false;
-    
-    if (dueCandidates.length > 0) {
-        word = dueCandidates[Math.floor(Math.random() * dueCandidates.length)];
-    } else if (notDueCandidates.length > 0) {
-        // Sort by oldest lastUpdated
-        notDueCandidates.sort((a, b) => a.lastUpdated - b.lastUpdated);
-        // Pick from the top 5 least recently seen to add slight randomness
-        const topN = notDueCandidates.slice(0, 5);
-        word = topN[Math.floor(Math.random() * topN.length)].wordObj;
-        isDrill = true;
-    } else {
-        // Fallback
-        word = _vocabQueue[Math.floor(Math.random() * _vocabQueue.length)];
-    }
-    
-    _g.challengeWord  = word;
-    _g.isDrill        = isDrill;
-    _g.mcOptions      = generateMcOptions(word, _vocabQueue);
-    _g.correctIdx     = _g.mcOptions.indexOf(word.trans);
-    _g.answerDisabled = false;
-    _g.answerTimeLeft = 1.0;
-    _startAnswerTimer();
-}
-
 function _calcAnswerSecs() {
     const pb = _g._pb ?? {};
     return Math.max(MIN_ANSWER_SECS, BASE_ANSWER_SECS + (pb.answerTimeSecs ?? 0));
@@ -703,10 +731,12 @@ function _calcAnswerSecs() {
 
 function _startAnswerTimer() {
     _stopTimer();
-    _timerPaused    = false;
-    _timerElapsedMs = 0;
-    _timerStartMs   = Date.now();
-    const totalMs   = _calcAnswerSecs() * 1000;
+    _timerPaused      = false;
+    _timerElapsedMs   = 0;
+    _timerStartMs     = Date.now();
+    _g.answerTimeLeft = 1.0;
+    const totalMs     = _calcAnswerSecs() * 1000;
+    _updateTimerBar();
 
     _timerInterval = setInterval(() => {
         if (_timerPaused) return;
@@ -716,9 +746,94 @@ function _startAnswerTimer() {
         if (_g.answerTimeLeft <= 0) {
             clearInterval(_timerInterval);
             _timerInterval = null;
-            // Group battle has no timeout penalty — timer is kept for perk compat only
+            _onAnswerTimeout();
         }
     }, 80);
+}
+
+function _updateTimerBar() {
+    if (!_dom.timerBar) return;
+    const f = _g.answerTimeLeft ?? 1;
+    _dom.timerBar.style.width = (f * 100).toFixed(1) + '%';
+    _dom.timerBar.style.background =
+        f > 0.5 ? 'var(--tbb-hp-green)' : f > 0.25 ? 'var(--tbb-hp-yellow)' : 'var(--tbb-hp-red)';
+}
+
+/**
+ * Timer ran out. The player takes a hit and loses the combo, but the SRS word
+ * is NOT graded wrong — an expired timer usually means AFK, not "didn't know".
+ */
+function _onAnswerTimeout() {
+    if (!_g || _g.phase !== 'player_attack' || _g.answerDisabled) return;
+    _g.answerDisabled = true;
+    _cancelPendingChallenge();
+
+    _g.combo = 0;
+    _updateComboDisplay();
+
+    const aliveIndices = _g.enemyGroup.map((e, i) => e.dead ? null : i).filter(i => i !== null);
+    const attackerIdx  = (_g.telegraphIdx !== null && !_g.enemyGroup[_g.telegraphIdx]?.dead)
+        ? _g.telegraphIdx
+        : aliveIndices[Math.floor(Math.random() * aliveIndices.length)];
+    const attacker = _g.enemyGroup[attackerIdx];
+
+    if (attacker) {
+        const charged = attackerIdx === _g.telegraphIdx;
+        const { dmg, narration } = handleWrongAnswerRetaliation(_g, attacker, charged ? 1.5 : 1);
+        const applied = _applyPlayerDamage(dmg);
+        _g.riposteArmed = true;
+        _g.narration = applied.dodged
+            ? `⏳ Too slow! ${attacker.name} lunges — but you dodge!`
+            : `⏳ Too slow! ${charged ? '⚡ Charged attack! ' : ''}${narration}`;
+        if (!applied.dodged) _spawnFloatPlayer(`-${applied.dmg}`, '#e74c3c');
+        else                 _spawnFloatPlayer('DODGE!', '#3dba6f');
+    } else {
+        _g.narration = '⏳ Time drifts by…';
+    }
+    _g.telegraphIdx = null;
+
+    _updateHpBars();
+    _updateNarration();
+
+    setTimeout(() => {
+        if (!_g || _g.phase === 'game_over') return;
+        if (_g.currentHp <= 0) { _handlePlayerDefeated(); return; }
+        _g.selectedGroupIdx = null;
+        _g.answerDisabled   = false;
+        const alive = _g.enemyGroup.map((e, i) => e.dead ? null : i).filter(i => i !== null);
+        _prepareGroupVocabAmong(alive);
+        _renderGroupCards();
+        _renderTargetWord();
+        _updateMultBadges();
+        _updateDueCount();
+        _updateNarration();
+    }, 900);
+}
+
+/**
+ * Apply incoming damage to the player, factoring in AGI dodge and the
+ * Last Stand perk (once per wave, can save you from a lethal blow).
+ * @returns {{dmg:number, dodged:boolean}}
+ */
+function _applyPlayerDamage(dmg) {
+    const dodgeChance = _dodgeChance();
+    if (Math.random() < dodgeChance) return { dmg: 0, dodged: true };
+
+    _g.currentHp = Math.max(0, _g.currentHp - dmg);
+
+    const pb        = _g._pb ?? {};
+    const threshold = Math.ceil(_g.playerHp * 0.25);
+    if ((pb.survivorHpBonus ?? 0) > 0 && !_g.lastStandUsed && _g.currentHp <= threshold) {
+        _g.lastStandUsed = true;
+        _g.currentHp = Math.min(_g.playerHp, _g.currentHp + pb.survivorHpBonus);
+        _spawnFloatPlayer(`🛡 LAST STAND +${pb.survivorHpBonus}`, '#9b59b6');
+    }
+    return { dmg, dodged: false };
+}
+
+/** AGI → dodge: 0.4% per SPD point, capped at 30%. Base SPD 10 ≈ 4%. */
+function _dodgeChance() {
+    return Math.min(0.30, (_g.playerSpd ?? 0) * 0.004);
 }
 
 function _pauseAnswerTimer() {
@@ -741,98 +856,137 @@ function _stopTimer() {
 }
 
 // ─── Group Battle: select target card ─────────────────────────────────────────
-function _selectGroupEnemy(idx) {
+/**
+ * @param {number}      idx  - enemy card index
+ * @param {number|null} optK - duel mode only: which of the two stacked options
+ *                             was tapped (0/1). null = the card body itself.
+ */
+function _selectGroupEnemy(idx, optK = null) {
     if (_g.answerDisabled || _g.phase !== 'player_attack') return;
-    if (_g.enemyGroup[idx]?.dead) return;
+    const card = _g.enemyGroup[idx];
+    if (!card || card.dead) return;
+    // Duel card: the answer must come from one of the two option buttons
+    if (card.opts && optK === null) return;
 
     // Selecting an enemy ALWAYS fires the attack with the currently selected weapon
     _g.selectedGroupIdx = idx;
     _renderGroupCards();
-    _onGroupAttack(_g.attackType);
+    _onGroupAttack(card.opts ? card.opts[optK] : null);
 }
 
 // ─── Group Battle: type button clicked — sets stance ONLY ─────────────────────
 function _onTypeButtonClick(rawType) {
     if (_g.phase !== 'player_attack') return;
 
-    // Wild randomly picks a type for the next attack
-    const resolvedType = rawType === 'wild'
-        ? ['slash','pierce','magic'][Math.floor(Math.random() * 3)]
-        : rawType;
-    _g.attackType = resolvedType;
+    // WILD is a persistent stance: a random weapon is rolled on EVERY strike
+    // (+15% damage as the gamble reward).
+    _g.stanceIsWild = (rawType === 'wild');
+    if (!_g.stanceIsWild) _g.attackType = rawType;
     _updateAtkBtnHighlight();
     _updateMultBadges();
-    // Show feedback in narration so player knows what stance they're in
     const labels = { slash: '⚔ SLASH', pierce: '🗡 PIERCE', magic: '✦ MAGIC' };
-    const rawLabel = rawType === 'wild' ? `? WILD → ${resolvedType.toUpperCase()}` : labels[resolvedType];
-    _g.narration = `Stance: ${rawLabel} — now tap an enemy to attack!`;
+    _g.narration = _g.stanceIsWild
+        ? 'Stance: ? WILD — random weapon every strike, +15% dmg. Tap an enemy!'
+        : `Stance: ${labels[rawType]} — now tap an enemy to attack!`;
     _updateNarration();
 }
 
 // ─── Group Battle: fire attack (called when player taps an enemy card) ────────
-function _onGroupAttack(rawType) {
+/** @param {string|null} answerOverride - duel mode: the option text the player chose */
+function _onGroupAttack(answerOverride = null) {
     if (_g.answerDisabled || _g.phase !== 'player_attack') return;
     if (_g.selectedGroupIdx === null) return;
 
+    const challenge = _g.groupChallenge;
+    if (!challenge) return;   // no vocab loaded — nothing to answer
+
     _g.answerDisabled = true;
+    const timeFrac = _g.answerTimeLeft ?? 1;   // capture speed before stopping the clock
     _stopTimer();
 
     const idx          = _g.selectedGroupIdx;
     const targetCard   = _g.enemyGroup[idx];
-    const word         = _g.groupTargetWord;
-    const resolvedType = rawType === 'wild'
+    const isWild       = _g.stanceIsWild;
+    const resolvedType = isWild
         ? ['slash','pierce','magic'][Math.floor(Math.random() * 3)]
-        : rawType;
-    _g.attackType = resolvedType;
-    _updateAtkBtnHighlight();
+        : _g.attackType;
 
-    const isCorrect = targetCard.trans === word.trans;
+    const correctStr = challenge.options[challenge.correctIdx];
+    const isCorrect  = (answerOverride ?? targetCard.trans) === correctStr;
 
-    // SRS grading
-    srsDb.gradeWordInGame({ word: word.word, furi: word.furi, translation: word.trans }, isCorrect ? 2 : 0, true);
+    // SRS grading — through GameVocabManager (handles unscheduled-review rules)
+    _vocabMgr.gradeWord(challenge.refId, isCorrect);
+    _g.groupChallenge = null;
 
     // Combo
     if (isCorrect) _g.combo++; else _g.combo = 0;
     const comboMult = _g.combo > 1 ? (1 + 0.2 * Math.log2(_g.combo)) : 1.0;
     _updateComboDisplay();
 
-    const wildNote = rawType === 'wild' ? ` (Wild→${resolvedType})` : '';
+    const wildNote = isWild ? ` (Wild→${resolvedType})` : '';
 
     if (isCorrect) {
         // ── Correct: deal real HP damage to the enemy ────────────────────
-        const { dmg, mult, feedback } = computePlayerDamage(targetCard, resolvedType, _g.playerAtk, _g._pb);
+        let { dmg, mult, feedback } = computePlayerDamage(targetCard, resolvedType, _g.playerAtk, _g._pb, isWild);
+
+        // Riposte perk: bonus damage on the first strike after taking a hit
+        let riposteNote = '';
+        if (_g.riposteArmed && (_g._pb.counterAtkPct ?? 0) > 0) {
+            dmg = Math.round(dmg * (1 + _g._pb.counterAtkPct / 100));
+            riposteNote = ' ↩Riposte!';
+        }
+        _g.riposteArmed = false;
+
+        // Interrupt: striking the charging enemy deals +25% and cancels the charge
+        let interruptNote = '';
+        if (_g.telegraphIdx === idx) {
+            dmg = Math.round(dmg * 1.25);
+            _g.telegraphIdx = null;
+            interruptNote = ' ⚡Interrupted!';
+        }
+
         targetCard.currentHp = Math.max(0, targetCard.currentHp - dmg);
         const died = targetCard.currentHp <= 0;
         if (died) targetCard.dead = true;
 
-        // EXP: type multiplier + combo
+        // EXP: answer speed × type multiplier × combo, + kill bonus
         let rawExp = actionExp(targetCard.expYield, true);
-        rawExp     = timeAdjustExp(rawExp, 1.0);
+        rawExp     = timeAdjustExp(rawExp, timeFrac);
         rawExp     = Math.round(rawExp * comboMult * mult);
+        if (died) rawExp += Math.round(targetCard.expYield * 0.5);
         const gained = applyExpBonuses(rawExp, _g._pb.additiveExpPct, _g._pb.multExpPct);
 
         _g.cardFlash = { correct: idx, wrong: null };
 
+        const notes = `${wildNote}${riposteNote}${interruptNote}`;
         const hpStr = died ? ' ☠️' : ` [${targetCard.currentHp}/${targetCard.maxHp} HP]`;
-        if (feedback === 'weakness') _g.narration = `⚡ Weakness!${wildNote} -${dmg} dmg${hpStr}`;
-        else if (feedback === 'resist') _g.narration = `🛡 Resisted${wildNote}. -${dmg} dmg${hpStr}`;
-        else if (feedback === 'crit')   _g.narration = `💥 Crit!${wildNote} -${dmg} dmg${hpStr}`;
-        else                            _g.narration = `✓ Hit!${wildNote} -${dmg} dmg${hpStr}`;
+        if (feedback === 'weakness') _g.narration = `⚡ Weakness!${notes} -${dmg} dmg${hpStr}`;
+        else if (feedback === 'resist') _g.narration = `🛡 Resisted${notes}. -${dmg} dmg${hpStr}`;
+        else if (feedback === 'crit')   _g.narration = `💥 Crit!${notes} -${dmg} dmg${hpStr}`;
+        else                            _g.narration = `✓ Hit!${notes} -${dmg} dmg${hpStr}`;
 
+        let advanceFreshWave = false;
         if (died) {
             _g.totalEnemiesDefeated++;
             _g.enemiesOnFloorKilled++;
-            _g.narration = `☠️ ${targetCard.name} defeated!${wildNote}`;
+            _g.narration = `☠️ ${targetCard.name} defeated!${notes} +${gained} EXP`;
 
             // Floor unlock: 4 kills = floor cleared
             if (_g.enemiesOnFloorKilled >= 4) {
                 _g.enemiesOnFloorKilled = 0;
+
+                // Floor-clear reward: recover 10% max HP
+                const prevHp = _g.currentHp;
+                _g.currentHp = Math.min(_g.playerHp, _g.currentHp + Math.max(1, Math.round(_g.playerHp * 0.10)));
+                if (_g.currentHp > prevHp) _spawnFloatPlayer(`+${_g.currentHp - prevHp} HP`, '#27ae60');
+
                 const nextFloor = _g.currentFloor + 1;
                 if (nextFloor <= MAX_FLOORS) {
                     const wasNew = nextFloor > _g.maxUnlockedFloor;
                     if (wasNew) _g.maxUnlockedFloor = nextFloor;
                     if (_g.autoProgressFloor) {
                         _g.currentFloor = nextFloor;
+                        advanceFreshWave = true;   // endless mode must rebuild the wave on the new floor
                         _g.narration = `🗺️ Floor cleared! → Floor ${nextFloor}!`;
                     } else if (wasNew) {
                         _g.narration = `🗺️ Floor ${nextFloor} unlocked! (Menu → Go to Floor)`;
@@ -849,7 +1003,6 @@ function _onGroupAttack(rawType) {
             feedback === 'weakness' ? '#d4a847' :
             feedback === 'crit'     ? '#9b6fff' :
             feedback === 'resist'   ? '#e07070' : '#3dba6f');
-        _spawnFloatPlayer(`+${gained} EXP`, '#3498db');
         _renderGroupCards();
         _updateHpBars();
         _updateNarration();
@@ -861,22 +1014,16 @@ function _onGroupAttack(rawType) {
             _g.answerDisabled = false;
 
             if (_g.battleMode === 'endless') {
+                if (advanceFreshWave) { _spawnEnemyAndBegin(); return; }
                 if (died) {
-                    // Replace dead slot with fresh enemy of same type
-                    const fresh = spawnEnemy(_g.currentFloor);
-                    _g.enemyGroup[idx] = {
-                        ...fresh,
-                        name: _g.enemy.name, emoji: _g.enemy.emoji,
-                        weakTo: _g.enemy.weakTo, resists: _g.enemy.resists,
-                        maxHp: _g.enemy.maxHp, currentHp: _g.enemy.maxHp,
-                        dead: false, trans: null,
-                    };
+                    // Replace dead slot with a fresh copy of the wave template
+                    _g.enemyGroup[idx] = { ..._g.enemy, currentHp: _g.enemy.maxHp, dead: false, trans: null };
                 }
-                _prepareGroupVocab();
                 const aliveCount = _g.enemyGroup.filter(e => !e.dead).length;
                 _g.narration = died
                     ? `${_g.enemy.emoji} A new ${_g.enemy.name} appears! (${aliveCount} standing)`
                     : `${targetCard.name} staggers but stands! Keep attacking!`;
+                _prepareGroupVocab();
                 _renderAll();
                 _updateComboDisplay();
             } else {
@@ -885,11 +1032,11 @@ function _onGroupAttack(rawType) {
                 if (aliveIndices.length === 0) {
                     _spawnEnemyAndBegin();  // whole wave cleared
                 } else {
-                    _prepareGroupVocabAmong(aliveIndices);
                     const nAlive = aliveIndices.length;
                     _g.narration = died
                         ? (nAlive === 1 ? `⚔️ One enemy remains!` : `${nAlive} enemies remain!`)
                         : `${targetCard.name} fights back! [${targetCard.currentHp}/${targetCard.maxHp} HP]`;
+                    _prepareGroupVocabAmong(aliveIndices);
                     _renderGroupCards();
                     _renderTargetWord();
                     _updateMultBadges();
@@ -899,15 +1046,25 @@ function _onGroupAttack(rawType) {
         }, 1000);
 
     } else {
-        // ── Wrong: targeted enemy retaliates ─────────────────────────────
-        const { dmg, narration } = handleWrongAnswerRetaliation(_g, targetCard);
-        _g.currentHp = Math.max(0, _g.currentHp - dmg);
+        // ── Wrong: an enemy retaliates (a charging enemy hits 1.5×) ──────
+        const attackerIdx = (_g.telegraphIdx !== null && !_g.enemyGroup[_g.telegraphIdx]?.dead)
+            ? _g.telegraphIdx : idx;
+        const attacker  = _g.enemyGroup[attackerIdx];
+        const charged   = attackerIdx === _g.telegraphIdx;
+        _g.telegraphIdx = null;
 
-        const correctIdx = _g.enemyGroup.findIndex(e => !e.dead && e.trans === word.trans);
+        const { dmg, narration } = handleWrongAnswerRetaliation(_g, attacker, charged ? 1.5 : 1);
+        const applied = _applyPlayerDamage(dmg);
+        _g.riposteArmed = true;
+
+        const correctIdx = _g.enemyGroup.findIndex(e => !e.dead && e.trans === correctStr);
         _g.cardFlash = { correct: correctIdx, wrong: idx };
 
-        _g.narration = `✗ Wrong!${wildNote} ${narration}`;
-        _spawnFloatPlayer(`-${dmg}`, '#e74c3c');
+        _g.narration = applied.dodged
+            ? `✗ Wrong!${wildNote} ${attacker.name} strikes — but you dodge!`
+            : `✗ Wrong!${wildNote} ${charged ? '⚡ Charged attack! ' : ''}${narration}`;
+        if (applied.dodged) _spawnFloatPlayer('DODGE!', '#3dba6f');
+        else                _spawnFloatPlayer(`-${applied.dmg}`, '#e74c3c');
         _renderGroupCards();
         _updateHpBars();
         _updateNarration();
@@ -932,14 +1089,9 @@ function _onGroupAttack(rawType) {
     }
 }
 
-function _handleEnemyDefeated() {
-    // Kept for compatibility — group system handles wins inline in _onGroupAttack.
-    _writeSave();
-    _g.phase = 'summary';
-    _renderSummaryOverlay();
-}
-
 function _handlePlayerDefeated() {
+    _stopTimer();
+    _cancelPendingChallenge();
     _writeSave();
     _g.phase = 'game_over';
     _renderGameOverOverlay();
@@ -956,14 +1108,18 @@ function _addExp(amount) {
         _g.playerLevel++;
         _g.statPointsToAllocate += STAT_PTS_PER_LEVEL;
         _computeDerivedStats();
-        // Restore HP delta from VIT
-        _g.currentHp = Math.min(_g.currentHp, _g.playerHp);
+        // Level-up surge: restore 30% of max HP
+        const prevHp = Math.min(_g.currentHp, _g.playerHp);
+        _g.currentHp = Math.min(_g.playerHp, prevHp + Math.max(1, Math.round(_g.playerHp * 0.30)));
+        if (_g.currentHp > prevHp) _spawnFloatPlayer(`▲ LV UP +${_g.currentHp - prevHp} HP`, '#f1c40f');
         _g.showLvlUp = true;
+        _writeSave();
         setTimeout(() => { _g.showLvlUp = false; _updateStats(); }, 3000);
     }
     _computeDerivedStats();
     _updateStats();
     _updateExpBar();
+    _updateHpBars();
 }
 
 // ─── DOM Building ─────────────────────────────────────────────────────────────
@@ -988,7 +1144,7 @@ function _buildGameDOM() {
             <div class="tbb-bar-wrap tbb-exp-wrap"><div class="tbb-bar tbb-exp-bar" id="tbb-exp-bar" style="width:0%"></div></div>
         </div>
         <div class="tbb-stats-right">
-            <span class="tbb-floor-badge">Floor <span id="tbb-floor">0</span> <button class="tbb-explore-btn" id="tbb-explore-btn" title="Explore">🗺️</button></span>
+            <span class="tbb-floor-badge">Floor <span id="tbb-floor">0</span> · <span id="tbb-floor-kills" title="Kills on this floor">☠0/4</span> <button class="tbb-explore-btn" id="tbb-explore-btn" title="Explore">🗺️</button></span>
             <span class="tbb-stat-pip" id="tbb-exp-label">EXP 0</span>
             <span class="tbb-stat-pip" id="tbb-atk-pill">ATK 15</span>
             <span class="tbb-lvlup-notif" id="tbb-lvlup">▲ LEVEL UP!</span>
@@ -1003,6 +1159,7 @@ function _buildGameDOM() {
         <div class="tbb-word-furi" id="tbb-word-furi"></div>
         <span class="tbb-status-dot" id="tbb-status-dot"></span>
         <span class="tbb-due-count" id="tbb-due-count" style="display:none"></span>
+        <div class="tbb-timer-wrap"><div class="tbb-timer-bar" id="tbb-timer-bar" style="width:100%"></div></div>
     </div>
 
     <!-- ── NARRATION ─────────────────────────────────────────────────── -->
@@ -1039,6 +1196,8 @@ function _buildGameDOM() {
     // Cache refs
     _dom = {
         floor:        root.querySelector('#tbb-floor'),
+        floorKills:   root.querySelector('#tbb-floor-kills'),
+        timerBar:     root.querySelector('#tbb-timer-bar'),
         narration:    root.querySelector('#tbb-narration'),
         playerHpBar:  root.querySelector('#tbb-player-hp-bar'),
         playerHpLbl:  root.querySelector('#tbb-player-hp-label'),
@@ -1060,9 +1219,12 @@ function _buildGameDOM() {
         atkBtns:      root.querySelectorAll('.tbb-atk-btn'),
     };
 
-    // Wire enemy cards
+    // Wire enemy cards (duel option buttons bubble up to the card listener)
     _dom.ecards.forEach(card => {
-        card.addEventListener('click', () => _selectGroupEnemy(parseInt(card.dataset.idx)));
+        card.addEventListener('click', (ev) => {
+            const opt = ev.target.closest('.tbb-ec-opt');
+            _selectGroupEnemy(parseInt(card.dataset.idx), opt ? parseInt(opt.dataset.k) : null);
+        });
     });
 
     // Wire attack type buttons
@@ -1108,29 +1270,33 @@ function _renderAll() {
 
 function _renderTargetWord() {
     const w = _g.groupTargetWord;
-    if (!w) return;
-    _dom.wordKanji.textContent = w.word;
-    _dom.wordFuri.textContent  = (w.furi && w.furi !== w.word) ? w.furi : '';
-    if (_g.groupIsDrill) {
+    if (!w) {
+        _dom.wordKanji.textContent = '—';
+        _dom.wordFuri.textContent  = '';
+        return;
+    }
+    // GameVocabManager wordObj shape: {kanji, kana, eng}
+    const kanji = w.kanji ?? w.word;
+    const kana  = w.kana  ?? w.furi;
+    _dom.wordKanji.textContent = kanji;
+    _dom.wordFuri.textContent  = (kana && kana !== kanji) ? kana : '';
+
+    const type = _g.groupChallenge?.type;
+    if (type === 'new') {
+        _dom.statusDot.className = 'tbb-status-dot new';
+        _dom.statusDot.title = 'New word';
+    } else if (_g.groupIsDrill) {
         _dom.statusDot.className = 'tbb-status-dot drill';
-        _dom.statusDot.title = 'Free Drill';
+        _dom.statusDot.title = 'Unscheduled review — correct answers don\'t change your SRS interval';
     } else {
         _dom.statusDot.className = 'tbb-status-dot due';
-        _dom.statusDot.title = 'Scheduled Review';
+        _dom.statusDot.title = 'Scheduled review';
     }
 }
 
 function _updateDueCount() {
     if (!_dom.dueCount) return;
-    // Only show when the session queue contains SRS words
-    const hasSrs = _vocabQueue.some(w => w.deckId === 'srs') ||
-                   _vocabQueue.length > 0; // always show if we have a queue
-    if (!hasSrs) { _dom.dueCount.style.display = 'none'; return; }
-    const now = new Date();
-    const due = _vocabQueue.filter(w => {
-        const entry = srsDb.getAllWords()[w.word];
-        return !entry || !entry.dueDate || new Date(entry.dueDate) <= now;
-    }).length;
+    const due = _vocabMgr ? _vocabMgr.getStats().dueCount : 0;
     if (due === 0) {
         _dom.dueCount.style.display = 'none';
     } else {
@@ -1155,17 +1321,25 @@ function _renderGroupCards() {
             else if (i === flash.wrong) flashCls = ' flash-wrong';
         }
 
-        card.className = 'tbb-ecard' + (e.dead ? ' dead' : '') + (sel ? ' sel' : '') + flashCls;
+        const tele = _g.telegraphIdx === i && !e.dead;
+        card.className = 'tbb-ecard' + (e.dead ? ' dead' : '') + (sel ? ' sel' : '') + (tele ? ' tele' : '') + flashCls;
         const hpLabel = e.dead ? '💀' : `${e.currentHp}/${e.maxHp}`;
+        const cursorTxt = sel ? '▼ ATTACK' : (tele ? '⚡ CHARGING' : '');
+        const answerHtml = (!e.dead && e.opts)
+            ? `<div class="tbb-ec-duo">
+                   <button class="tbb-ec-opt" data-k="0">${e.opts[0]}</button>
+                   <button class="tbb-ec-opt" data-k="1">${e.opts[1]}</button>
+               </div>`
+            : `<div class="tbb-ec-trans">${e.trans ?? ''}</div>`;
         card.innerHTML = `
-            <div class="tbb-ec-cursor">${sel ? '▼ ATTACK' : ''}</div>
+            <div class="tbb-ec-cursor${tele && !sel ? ' tele' : ''}">${cursorTxt}</div>
             <div class="tbb-ec-icon">${e.emoji}</div>
             <div class="tbb-ec-info">
                 <div class="tbb-ec-name">${e.name}</div>
                 <div class="tbb-ec-hpbg"><div class="tbb-ec-hpfill" style="width:${hpPct}%;background:${hpCol}"></div></div>
                 <div class="tbb-ec-hplbl">${hpLabel}</div>
             </div>
-            <div class="tbb-ec-trans">${e.trans}</div>`;
+            ${answerHtml}`;
     });
 }
 
@@ -1195,6 +1369,7 @@ function _updateHpBars() {
     _dom.playerHpBar.style.background = pFrac > 0.5 ? 'var(--tbb-hp-green)' : pFrac > 0.25 ? 'var(--tbb-hp-yellow)' : 'var(--tbb-hp-red)';
     _dom.playerHpLbl.textContent = `${_g.currentHp} / ${_g.playerHp}`;
     _dom.floor.textContent = _g.currentFloor;
+    if (_dom.floorKills) _dom.floorKills.textContent = `☠${Math.min(4, _g.enemiesOnFloorKilled)}/4`;
 }
 
 function _updateExpBar() {
@@ -1215,8 +1390,10 @@ function _updateStats() {
 function _updateAtkBtnHighlight() {
     if (!_dom.atkBtns) return;
     _dom.atkBtns.forEach(btn => {
-        // Always highlight the active stance (weapon buttons set stance, enemy taps attack)
-        const isActive = btn.dataset.type === _g.attackType;
+        // Highlight the active stance; WILD is its own persistent stance
+        const isActive = _g.stanceIsWild
+            ? btn.dataset.type === 'wild'
+            : btn.dataset.type === _g.attackType;
         btn.classList.toggle('tbb-atk-btn-active', isActive);
     });
 }
@@ -1242,54 +1419,33 @@ function _showOverlay(html) {
     _dom.overlay.innerHTML = html;
     _dom.overlay.style.display = 'flex';
     _pauseAnswerTimer();
+    _vocabMgr?.pause();   // freeze the SM-2 clock while blocking UI is up
 }
 function _closeOverlay() {
     _dom.overlay.style.display = 'none';
+    _vocabMgr?.resume();
     _resumeAnswerTimer();
-}
-
-function _renderSummaryOverlay() {
-    const e = _g.enemy;
-    const comboLine = _g.combo >= 2
-        ? `<p style="color:#f5a623;font-weight:800;">🔥 ${_g.combo}× Combo streak continues!</p>`
-        : '';
-    _showOverlay(`
-        <div class="tbb-dialog">
-            <div class="tbb-dialog-title">⚔️ Victory!</div>
-            <div class="tbb-dialog-body">
-                <p>${e.emoji} <b>${e.name}</b> (Lv.${e.level}) defeated!</p>
-                <p>Floor: ${_g.currentFloor} | Enemies: ${_g.totalEnemiesDefeated}</p>
-                ${comboLine}
-                ${_g.maxUnlockedFloor > _g.currentFloor ? `<p class="tbb-unlocked">🗺️ Floor ${_g.maxUnlockedFloor} unlocked!</p>` : ''}
-            </div>
-            <div class="tbb-dialog-actions">
-                <button class="tbb-dialog-btn tbb-dialog-btn-primary" id="tbb-next-btn">Next Enemy ▶</button>
-                ${_g.maxUnlockedFloor > _g.currentFloor ? `<button class="tbb-dialog-btn" id="tbb-nextfloor-btn">Go to Floor ${_g.maxUnlockedFloor} ▶</button>` : ''}
-            </div>
-        </div>
-    `);
-    _dom.overlay.querySelector('#tbb-next-btn').addEventListener('click', () => {
-        _closeOverlay();
-        _spawnEnemyAndBegin();
-    });
-    const nextFloorBtn = _dom.overlay.querySelector('#tbb-nextfloor-btn');
-    if (nextFloorBtn) nextFloorBtn.addEventListener('click', () => {
-        _g.currentFloor = _g.maxUnlockedFloor;
-        _closeOverlay();
-        _spawnEnemyAndBegin();
-    });
 }
 
 function _renderGameOverOverlay() {
     const canRebirth = _g.playerLevel >= REBIRTH_MIN_LEVEL;
     const apGain = canRebirth ? Math.floor(_g.playerLevel / REBIRTH_AP_DIVIDER) : 0;
 
+    // End-of-run vocab rollup — read once from the manager (source of truth)
+    const vs = _vocabMgr ? _vocabMgr.getStats() : null;
+    const answered = vs ? vs.correct + vs.wrong : 0;
+    const accPct   = answered > 0 ? Math.round(vs.correct / answered * 100) : null;
+    const vocabLine = (vs && answered > 0)
+        ? `<div class="tbb-run-stats">📚 Session: <b>✓${vs.correct}</b> · ✗${vs.wrong}${accPct !== null ? ` · 🎯 ${accPct}%` : ''} · 🔥 Best combo ${vs.highestCombo}${vs.dueCount > 0 ? ` · 📬 ${vs.dueCount} still due` : ''}</div>`
+        : '';
+
     _showOverlay(`
         <div class="tbb-dialog tbb-dialog-over">
             <div class="tbb-dialog-title tbb-red">💀 Defeated!</div>
             <div class="tbb-dialog-body">
-                <p>You fell on Floor <b>${_g.currentFloor}</b>.</p>
+                <p>You fell on Floor <b>${_g.currentFloor}</b> (best: ${Math.max(_g.maxUnlockedFloor, _g.currentFloor)}).</p>
                 <p>Player Lv.${_g.playerLevel} | Enemies slain: ${_g.totalEnemiesDefeated}</p>
+                ${vocabLine}
                 ${canRebirth ? `<p class="tbb-rebirth-info">🔄 Rebirth available! Gain <b>${apGain} AP</b> and start fresh with permanent perks.</p>` : `<p class="tbb-muted">Reach Lv.${REBIRTH_MIN_LEVEL} to unlock Rebirth.</p>`}
             </div>
             <div class="tbb-dialog-actions">
@@ -1304,6 +1460,7 @@ function _renderGameOverOverlay() {
         _computeDerivedStats();
         _g.currentHp = _g.playerHp;
         _g.currentFloor = 0;
+        _g.enemiesOnFloorKilled = 0;
         _g.combo = 0;
         _updateComboDisplay();
         _spawnEnemyAndBegin();
@@ -1331,6 +1488,7 @@ function _doRebirth() {
     _g.statPointsToAllocate = _g._pb.bonusStatPts;
     _g.currentHp = _g.playerHp;
     _g.currentFloor = 0;
+    _g.enemiesOnFloorKilled = 0;
     _g.combo = 0;
     _writeSave();
     _spawnEnemyAndBegin();
@@ -1538,6 +1696,7 @@ function _showMenuOverlay() {
             <div class="tbb-dialog-actions">
                 ${jumpUnlocked ? `<button class="tbb-dialog-btn tbb-dialog-btn-primary" id="tbb-floor-go">Go to Floor</button>` : ''}
                 <button class="tbb-dialog-btn" id="tbb-menu-change-vocab" style="margin-top:4px; border-color:#3498db; color:#3498db; font-weight:bold;">📚 Change Vocabulary</button>
+                <button class="tbb-dialog-btn" id="tbb-menu-vocab-settings">⚙️ Vocab Settings</button>
                 <button class="tbb-dialog-btn" id="tbb-menu-exit">Exit Game</button>
                 <button class="tbb-dialog-btn" id="tbb-wipe-btn" style="color:#e74c3c;border-color:#e74c3c;opacity:0.7;">🗑 Wipe All Progress</button>
                 <button class="tbb-dialog-btn" id="tbb-menu-close">Close</button>
@@ -1578,6 +1737,11 @@ function _showMenuOverlay() {
         });
     }
 
+    const vocabSettingsBtn = _dom.overlay.querySelector('#tbb-menu-vocab-settings');
+    if (vocabSettingsBtn) {
+        vocabSettingsBtn.addEventListener('click', _showVocabSettingsOverlay);
+    }
+
     _dom.overlay.querySelector('#tbb-wipe-btn').addEventListener('click', () => {
         _showWipeConfirmOverlay();
     });
@@ -1590,10 +1754,43 @@ function _showMenuOverlay() {
     _dom.overlay.querySelector('#tbb-menu-close').addEventListener('click', _closeOverlay);
 }
 
+// ─── Vocab Settings (GameVocabManager standard panel) ─────────────────────────
+function _showVocabSettingsOverlay() {
+    if (!_vocabMgr) return;
+    setGvmTheme('dark');   // TBB is inherently dark-themed
+
+    _showOverlay(`
+        <div class="tbb-dialog tbb-stats-dialog" style="max-width:24em;">
+            <div class="tbb-dialog-title">⚙️ Vocabulary Settings</div>
+            <div class="tbb-dialog-body"><div id="tbb-vocab-settings-wrap"></div></div>
+            <div class="tbb-dialog-actions">
+                <button class="tbb-dialog-btn tbb-dialog-btn-primary" id="tbb-vs-close">Back</button>
+            </div>
+        </div>
+    `);
+
+    const wrap = _dom.overlay.querySelector('#tbb-vocab-settings-wrap');
+    renderVocabSettings(_vocabMgr, wrap, (updatedConfig) => {
+        // Panel already wrote the values into _vocabMgr.config — just persist.
+        _g.vocabConfig = updatedConfig;
+        _writeSave();
+        _closeOverlay();
+    }, _vocabMgr.getPoolSource());
+
+    _dom.overlay.querySelector('#tbb-vs-close').addEventListener('click', () => {
+        _closeOverlay();
+        _showMenuOverlay();
+    });
+}
+
 // ─── Change Deck Modal ────────────────────────────────────────────────────────
 function _openChangeDeckModal() {
     const existing = document.getElementById('tbb-change-deck-overlay');
     if (existing) existing.remove();
+
+    // Block the battle clocks while the deck picker is open
+    _pauseAnswerTimer();
+    _vocabMgr?.pause();
 
     const overlay = document.createElement('div');
     overlay.id = 'tbb-change-deck-overlay';
@@ -1629,7 +1826,11 @@ function _openChangeDeckModal() {
     });
 
     const statusEl = overlay.querySelector('#tbb-cdm-status');
-    overlay.querySelector('#tbb-cdm-cancel').addEventListener('click', () => overlay.remove());
+    overlay.querySelector('#tbb-cdm-cancel').addEventListener('click', () => {
+        overlay.remove();
+        _vocabMgr?.resume();
+        _resumeAnswerTimer();
+    });
 
     overlay.querySelector('#tbb-cdm-confirm').addEventListener('click', async () => {
         const confirmBtn = overlay.querySelector('#tbb-cdm-confirm');
@@ -1650,11 +1851,16 @@ function _openChangeDeckModal() {
 
         if (newDeckCfg) _saveDeckCfg(newDeckCfg);
 
-        _vocabQueue = rawQueue.map(w => ({
-            word:   w.word,
-            furi:   w.furi  || w.word,
-            trans:  w.trans || '—'
-        }));
+        // Free the in-flight word on the OLD manager, then rebuild around the
+        // new queue — without this the manager kept quizzing the old pool.
+        _cancelPendingChallenge();
+        _vocabQueue = _mapQueue(rawQueue);
+        _buildVocabMgr();
+        _writeSave();
+
+        _g.selectedGroupIdx = null;
+        _g.answerDisabled   = false;
+        _g.cardFlash        = null;
 
         const aliveIndices = _g.enemyGroup.map((e, i) => e.dead ? null : i).filter(i => i !== null);
         if (aliveIndices.length === 0) {
@@ -1663,8 +1869,10 @@ function _openChangeDeckModal() {
             _prepareGroupVocabAmong(aliveIndices);
             _renderGroupCards();
             _renderTargetWord();
+            _updateDueCount();
+            _updateNarration();
         }
-        
+
         overlay.remove();
     });
 }
@@ -1691,7 +1899,8 @@ function _showWipeConfirmOverlay() {
     _dom.overlay.querySelector('#tbb-wipe-confirm').addEventListener('click', () => {
         localStorage.removeItem(SAVE_KEY);
         _closeOverlay();
-        _initGameState(_g.battleMode);
+        _cancelPendingChallenge();
+        _initGameState();
         _g.currentHp = _g.playerHp;
         _spawnEnemyAndBegin();
         _renderAll();
@@ -1795,7 +2004,16 @@ function _injectStyles() {
 .tbb-word-furi   { font-size: 0.8em; color: var(--tbb-silver); font-style: italic; text-align: center; min-height: 1em; }
 .tbb-status-dot  { position: absolute; top: 0.4em; right: 0.6em; width: 0.55em; height: 0.55em; border-radius: 50%; }
 .tbb-status-dot.due   { background: #2ecc71; box-shadow: 0 0 0.3em #2ecc71; }
+.tbb-status-dot.new   { background: #3498db; box-shadow: 0 0 0.3em #3498db; }
 .tbb-status-dot.drill { background: linear-gradient(135deg,#ff0080,#ff8c00,#40e0d0,#9b59b6); box-shadow: 0 0 0.3em rgba(255,255,255,.4); }
+.tbb-timer-wrap {
+    width: 100%; max-width: 22em; height: 0.28em; margin-top: 0.35em;
+    background: rgba(255,255,255,0.07); border-radius: 0.15em; overflow: hidden;
+}
+.tbb-timer-bar {
+    height: 100%; border-radius: 0.15em; background: var(--tbb-hp-green);
+    transition: width .12s linear, background .3s;
+}
 .tbb-due-count {
     display: inline-flex; align-items: center; justify-content: center;
     position: absolute; top: 0.4em; right: 2.2em;
@@ -1883,6 +2101,33 @@ function _injectStyles() {
     word-break: break-word;
 }
 .tbb-ecard.sel .tbb-ec-trans { color: var(--tbb-gold2); }
+
+/* Telegraphed ("charging") enemy */
+.tbb-ecard.tele {
+    border-color: var(--tbb-hp-yellow);
+    animation: tbbTelePulse .7s ease-in-out infinite alternate;
+}
+@keyframes tbbTelePulse {
+    from { box-shadow: 0 0 0.45em rgba(243,156,18,.35); }
+    to   { box-shadow: 0 0 1.1em  rgba(243,156,18,.75); }
+}
+.tbb-ec-cursor.tele { color: var(--tbb-hp-yellow); }
+
+/* Final-duel card: both answer options stacked on the last survivor */
+.tbb-ec-duo {
+    border-top: 1px solid var(--tbb-border);
+    background: var(--tbb-card2);
+    display: flex; flex-direction: column;
+}
+.tbb-ec-opt {
+    border: none; border-top: 1px solid var(--tbb-border);
+    background: none; font-family: inherit; cursor: pointer;
+    padding: 0.45em 0.35em; min-height: 2.2em;
+    font-size: 0.85em; font-weight: 600; color: #c8c2b2;
+    text-align: center; line-height: 1.25; word-break: break-word;
+}
+.tbb-ec-opt:first-child { border-top: none; }
+.tbb-ec-opt:hover, .tbb-ec-opt:active { background: rgba(255,255,255,.07); color: var(--tbb-gold2); }
 
 /* ── Footer — 4 attack type buttons ─────────────────────────────────────── */
 .tbb-footer {
@@ -2007,6 +2252,7 @@ function _injectStyles() {
 .tbb-perk-info { flex: 1; }
 
 /* ── Misc ────────────────────────────────────────────────────────────────── */
+.tbb-run-stats    { font-size: 0.85em; color: var(--tbb-silver); background: rgba(255,255,255,.04); border-radius: 0.4em; padding: 0.5em 0.65em; }
 .tbb-muted        { color: var(--tbb-muted); font-size: 0.8em; }
 .tbb-red          { color: var(--tbb-accent); }
 .tbb-unlocked     { color: #2ecc71; font-weight: 700; }

@@ -157,6 +157,58 @@ export function recordReview({
     return event;
 }
 
+// ─── PUBLIC: UNDO A REVIEW ───────────────────────────────────────────────────
+
+/**
+ * Remove the most recent ReviewEvent from the log — used by the SRS "undo
+ * last answer" feature. Only removes the event if it is the newest entry AND
+ * belongs to the given word (safety check against undoing someone else's
+ * event, e.g. one recorded by a game in the meantime).
+ *
+ * Keeps the daily summary cache consistent. The streak is intentionally left
+ * untouched (a same-day undo cannot change day-level streak state).
+ *
+ * @param {string} word
+ * @returns {boolean} true if an event was removed
+ */
+export function undoLastReview(word) {
+    const log  = _getLog();
+    const last = log[log.length - 1];
+    if (!last || last.word !== word) return false;
+
+    log.pop();
+    _saveLog(log);
+
+    // ── Rewind the daily summary for the event's day ──────────────────────────
+    const key   = String(last.ts).slice(0, 10);
+    const daily = _getDaily();
+    const d     = daily[key];
+    if (d) {
+        d.total = Math.max(0, (d.total || 0) - 1);
+        if      (last.grade === 0) d.again = Math.max(0, (d.again || 0) - 1);
+        else if (last.grade === 1) d.hard  = Math.max(0, (d.hard  || 0) - 1);
+        else if (last.grade === 2) d.good  = Math.max(0, (d.good  || 0) - 1);
+        else if (last.grade === 3) d.easy  = Math.max(0, (d.easy  || 0) - 1);
+        else if (last.lingq !== null && last.lingq !== undefined) {
+            d.lingq = Math.max(0, (d.lingq || 0) - 1);
+        }
+
+        // Only drop the word from uniqueWords if no other event that day used it
+        const hasOther = log.some(e => e.word === word && String(e.ts).slice(0, 10) === key);
+        if (!hasOther && Array.isArray(d.uniqueWords)) {
+            d.uniqueWords = d.uniqueWords.filter(w => w !== word);
+        }
+
+        const srsTotal  = (d.again || 0) + (d.hard || 0) + (d.good || 0) + (d.easy || 0);
+        d.retentionPct  = srsTotal > 0
+            ? Math.round(((d.good || 0) + (d.easy || 0)) / srsTotal * 100)
+            : 0;
+        _saveDaily(daily);
+    }
+
+    return true;
+}
+
 // ─── PUBLIC: SUMMARY GETTERS ─────────────────────────────────────────────────
 
 /** Today's DaySummary (live from cache). */

@@ -2,6 +2,8 @@
 // export { init, launch }
 
 import { mountVocabSelector } from '../../vocab_selector.js';
+import { GameVocabManager } from '../../game_vocab_mgr.js';
+import { showGameQuiz } from '../../game_vocab_mgr_ui.js';
 import {
     CORE_INTERVAL_THRESHOLD, WORDS_PER_PROVINCE, CORE_ADM_COST,
     MONARCH_POINT_CAP, REBEL_TAKEBACK_TIME, STABILITY_MAX,
@@ -28,6 +30,8 @@ let _selectedProvinceId = null;
 let _activeMissionCategory = 'conquest'; // tracks which mission tab is open
 let _vocabIdSet = null;   // cached Set of vocab IDs — rebuilt on game start
 let _lastUiRender = 0;    // timestamp throttle for _updateUI
+let _vocabMgr = null;     // GameVocabManager — free-drill quizzes + app-SRS export
+let _lastPeriodicSec = 0; // 1 Hz scheduler for missions/victory/map updates
 
 function _freshGame() {
     return {
@@ -84,6 +88,9 @@ function _show(name) {
                 el.style.height          = '100%';
                 el.style.padding         = '0';
                 el.style.background      = _BG;
+                // Anchor for .eu-war-modal / #eu-toasts / .gvm-overlay (absolute, inset:0).
+                // games_ui.js does not give this screen a position, so set it here.
+                el.style.position        = 'relative';
             }
         } else {
             el.style.display = 'none';
@@ -119,6 +126,22 @@ function _renderSetup() {
     backBtn.innerHTML = '← Flee to Menu';
     backBtn.addEventListener('click', _onExit);
 
+    // Continue button — shown when a save with its own vocab list exists.
+    // Uses the exact word set the empire was built with, skipping re-selection.
+    let savedRaw = null;
+    try { savedRaw = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (e) { savedRaw = null; }
+    if (savedRaw && Array.isArray(savedRaw.provinces) && savedRaw.provinces.length > 0
+        && Array.isArray(savedRaw.vocabList) && savedRaw.vocabList.length > 0) {
+        const ownedCount = savedRaw.provinces.filter(p => p && p.owner === 'player').length;
+        const contBtn = document.createElement('button');
+        contBtn.className = 'eu-primary-btn eu-action-btn';
+        contBtn.style.background = '#2980b9';
+        contBtn.style.color = 'white';
+        contBtn.innerHTML = `▶️ Continue Empire (${ownedCount} province${ownedCount !== 1 ? 's' : ''}, ${savedRaw.vocabList.length} words)`;
+        contBtn.addEventListener('click', _continueGame);
+        actions.append(contBtn);
+    }
+
     actions.append(startBtn, backBtn);
 }
 
@@ -132,28 +155,75 @@ async function _startGame() {
         kana:  w.furi  || w.word,
         eng:   w.trans || '—',
     }));
+    _startGameCore();
+}
+
+function _continueGame() {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (e) { saved = null; }
+    if (!saved || !Array.isArray(saved.vocabList) || !saved.vocabList.length) return;
+    _vocabQueue = saved.vocabList.map(w => ({
+        id:    w.id    || w.kanji,
+        kanji: w.kanji || w.id,
+        kana:  w.kana  || w.kanji || w.id,
+        eng:   w.eng   || '—',
+    }));
+    _startGameCore();
+}
+
+function _startGameCore() {
     _vocabIdSet = new Set(_vocabQueue.map(v => v.id)); // cache once
+    _selectedProvinceId = null;
 
     _show('game');
     _loadGame();
+    _g.vocabList = _vocabQueue;     // persist the queue for Continue + migration
+    _reconcileVocabWithSave();      // migrate old saves / changed word selections safely
     _silentInitMissions(); // Suppress reward flood from unseen/old saves
 
     if (_g.provinces.length === 0) {
         _generateMap();
-        _g.nextEventTimer = _gameNow() + 60000; 
+        _g.nextEventTimer = _gameNow() + 60000;
     }
+
+    _buildVocabMgr();
 
     _initGameDOM();
     _updateSRSQueue();
     _updateUI();
     _startGameLoop();
     _switchTab('map');
+
+    if (_g._reconcileNotice) {
+        _toast(_g._reconcileNotice, '#c47a1e');
+        delete _g._reconcileNotice;
+    }
+}
+
+// GameVocabManager instance — powers the standard Free Drill quiz component and
+// the end-of-session export of learned words into the app-wide SRS.
+// The empire's own per-province scheduler stays the source of truth for the
+// map-painting mechanics (unrest, coring); the manager runs in random mode.
+function _buildVocabMgr() {
+    try {
+        _vocabMgr = new GameVocabManager({
+            ...GameVocabManager.defaultConfig(),
+            mode:        'random',
+            preQuizAnim: false,
+        });
+        _vocabMgr.setPool(
+            _vocabQueue.map(v => ({ word: v.id, furi: v.kana, trans: v.eng })),
+            BANNED_KEY
+        );
+    } catch (e) {
+        console.warn('[EU] Could not build GameVocabManager:', e);
+        _vocabMgr = null;
+    }
 }
 
 // ─── Core Logic & Math ────────────────────────────────────────────────────────
 
 function _generateMap() {
-    const MIN_PROVINCES = 20;
     const vocabProv  = Math.ceil(_vocabQueue.length / WORDS_PER_PROVINCE);
     const totalProv  = Math.max(MIN_PROVINCES, vocabProv);
     // Slightly wider than tall grid
@@ -264,7 +334,8 @@ function _diplomaticAnnex(provId) {
     const prov = _g.provinces.find(p => p.id === provId);
     if (!prov || prov.owner !== 'neutral') return;
 
-    const cost = prov.words.length * DIPLO_ANNEX_DIP_COST_PER_WORD * (prov.tier || 1);
+    // Floor of 25 DIP — word-free filler provinces must not be free to vassalise
+    const cost = Math.max(25, prov.words.length * DIPLO_ANNEX_DIP_COST_PER_WORD * (prov.tier || 1));
     if (_g.resources.dip < cost) {
         _toast(`Need ${cost} 🕊️ DIP to subjugate ${prov.name}`, '#e74c3c');
         return;
@@ -292,10 +363,11 @@ function _diplomaticAnnex(provId) {
 
 // ─── Diplomacy Panel ──────────────────────────────────────────────────────────
 
-// DIP costs for AE relief actions
-const DIPLO_GIFT_COST        = 50;   // Send Gifts: -10 AE
-const DIPLO_TREATY_COST      = 100;  // Sign Non-Aggression Treaty: -25 AE
-const DIPLO_APPEASE_COST     = 200;  // Grand Appeasement: -60 AE, costs stability
+// DIP/ADM costs for the Court diplomacy actions
+const DIP_GIFT_COST      = 30;   // Send Gifts: −10 AE
+const DIP_TREATY_COST    = 80;   // Non-Aggression Treaty: −25 AE
+const DIP_CONGRESS_COST  = 200;  // Peace Congress: −60 AE (needs AE > 40)
+const ADM_STABILISE_COST = 50;   // Stabilise Realm: +1 Stability
 
 function _fabricateClaims(provId) {
     const prov = _g.provinces.find(p => p.id === provId);
@@ -399,7 +471,13 @@ function _startGameLoop() {
 
     function loop() {
         if (!_screens.game || _screens.game.style.display === 'none') {
-            _rafId = requestAnimationFrame(loop);
+            // Screen was hidden by external navigation (games menu / app view
+            // switch) — games_ui never notifies us. Save once and fully stop;
+            // launch() rebuilds the loop on the next open. Without this the
+            // rAF + autosave interval run forever, and the constant lastTick
+            // bumps permanently disable the offline catch-up.
+            if (_g && !_g.victoryAchieved) _saveGame();
+            _stopGameLoop();
             return;
         }
         
@@ -412,7 +490,10 @@ function _startGameLoop() {
         }
 
         const now = Date.now();
-        const delta = (now - _g.lastTick) / 1000;
+        // Clamp delta — rAF stops in background tabs. Without this, returning to
+        // the tab after minutes applies all that time in one frame, instantly
+        // rebelling and losing provinces.
+        const delta = Math.min(2, (now - _g.lastTick) / 1000);
         _g.lastTick = now;
 
         const stats = _getEmpireStats();
@@ -492,8 +573,8 @@ function _startGameLoop() {
                 }
             }
             else if (p.cored) {
-                // Trade Fleets
-                if (!p.hasTradeFleet && Math.random() < 0.005 * delta) {
+                // Trade Fleets — only provinces that actually hold words can trade
+                if (!p.hasTradeFleet && p.words.length > 0 && Math.random() < 0.005 * delta) {
                     p.hasTradeFleet = true;
                     _renderMap();
                 }
@@ -507,15 +588,21 @@ function _startGameLoop() {
             _g.stability = Math.min(STABILITY_MAX, (_g.stability ?? STABILITY_MAX) + 0.01 * delta);
         }
 
-        if (Math.floor(now / 1000) % 2 === 0) {
+        const nowSec = Math.floor(now / 1000);
+        if (nowSec !== _lastPeriodicSec) {
+            _lastPeriodicSec = nowSec;
             _checkMissions();
             _checkVictory();
+            if (_g.victoryAchieved) return; // victory screen replaced the DOM — stop the loop
             _updateSRSQueue();
+            _updateMapDynamic();
+            _updateCourtDynamic();
         }
 
         _updateUI();
         _rafId = requestAnimationFrame(loop);
     }
+    _lastPeriodicSec = 0;
     _rafId = requestAnimationFrame(loop);
 }
 
@@ -586,9 +673,10 @@ function _startTradeMission(provId) {
     
     const words = prov.words.map(wid => _vocabQueue.find(v => v.id === wid)).filter(Boolean);
     const cards = words.sort(()=>0.5-Math.random()).slice(0, 5); // up to 5
-    
+
     prov.hasTradeFleet = false;
     _renderMap();
+    if (!cards.length) { _toast('No tradeable words in this province.', '#7f8c8d'); return; }
 
     _tradeState = { provId, rounds: cards.length, currentRound: 0, cards, done: false };
     _renderTradeModal();
@@ -653,11 +741,21 @@ function _triggerCoalitionWar() {
     const neutralWords = _g.provinces.filter(p=>p.owner==='neutral').flatMap(p=>p.words);
     const activeWords = _g.srs.sort((a,b)=>a.ease - b.ease).slice(0, 5).map(s=>s.id);
     const allIds = [...new Set([...neutralWords, ...activeWords])];
-    
-    let words = allIds.map(wid => _vocabQueue.find(v => v.id === wid)).filter(Boolean);
-    const cards = words.sort(()=>0.5-Math.random()).slice(0, 10);
 
-    _warState = { isCoalition: true, rounds: 10, winsNeeded: 7, wins: 0, currentRound: 0, cards, done: false };
+    let words = allIds.map(wid => _vocabQueue.find(v => v.id === wid)).filter(Boolean);
+    if (words.length < 10) {
+        // Pad from the full vocab so small pools still get a real fight
+        const extras = _vocabQueue.filter(v => !allIds.includes(v.id));
+        words = [...words, ...extras];
+    }
+    const cards = words.sort(()=>0.5-Math.random()).slice(0, 10);
+    if (!cards.length) return; // nothing to quiz on — skip the coalition entirely
+
+    // Rounds follow the actual card count so small vocab sets stay winnable
+    const rounds     = cards.length;
+    const winsNeeded = Math.max(1, Math.ceil(rounds * 0.7));
+
+    _warState = { isCoalition: true, rounds, winsNeeded, wins: 0, currentRound: 0, cards, done: false, tier: 3 };
     _renderWarModal();
 }
 
@@ -676,14 +774,20 @@ function _declareWar(provId) {
         return;
     }
 
-    const totalRounds = _g.ideas.quality ? 7 : 5;
-    const winsNeeded  = _g.ideas.drill   ? totalRounds - 1 : Math.ceil(totalRounds * 0.6);
-    const hasClaim    = !!_g.claimedProvinces?.[provId];
+    const desiredRounds = _g.ideas.quality ? 7 : 5;
+    const hasClaim      = !!_g.claimedProvinces?.[provId];
     const warWords = prov.words.map(wid => _vocabQueue.find(v => v.id === wid)).filter(Boolean);
-    const extras   = _vocabQueue.filter(v => !prov.words.includes(v.id)).sort(() => 0.5 - Math.random()).slice(0, Math.max(0, totalRounds - warWords.length));
-    const cards    =[...warWords, ...extras].slice(0, totalRounds).sort(() => 0.5 - Math.random());
+    const extras   = _vocabQueue.filter(v => !prov.words.includes(v.id)).sort(() => 0.5 - Math.random()).slice(0, Math.max(0, desiredRounds - warWords.length));
+    const cards    =[...warWords, ...extras].slice(0, desiredRounds).sort(() => 0.5 - Math.random());
+    if (!cards.length) { _toast('No vocabulary available for this war.', '#e74c3c'); return; }
 
-    _warState = { provId, fullCost, rounds: totalRounds, winsNeeded, wins: 0, currentRound: 0, cards, done: false, ignoresLeft: _g.advisors.captain ? 1 : 0, hasClaim };
+    // Rounds follow the actual card count (small vocab pools must stay winnable).
+    // Professional Army reduces the wins requirement by 1, as advertised.
+    const totalRounds = cards.length;
+    let winsNeeded    = Math.ceil(totalRounds * 0.6);
+    if (_g.ideas.drill) winsNeeded = Math.max(1, winsNeeded - 1);
+
+    _warState = { provId, fullCost, rounds: totalRounds, winsNeeded, wins: 0, currentRound: 0, cards, done: false, ignoresLeft: _g.advisors.captain ? 1 : 0, hasClaim, tier: tierMod };
     _renderWarModal();
 }
 
@@ -756,7 +860,9 @@ function _renderWarModal() {
     const card = cards[currentRound];
     if (!card) { _warState.currentRound++; _renderWarModal(); return; }
 
-    const pool = _vocabQueue.filter(v => v.id !== card.id).sort(() => 0.5 - Math.random()).slice(0, 3);
+    // Difficulty scales with province tier: tier 1 → 4 options, tier 2 → 5, tier 3 → 6
+    const nDistractors = Math.min(5, 2 + (_warState.tier || 1));
+    const pool = _vocabQueue.filter(v => v.id !== card.id).sort(() => 0.5 - Math.random()).slice(0, nDistractors);
     const options = [...pool, card].sort(() => 0.5 - Math.random());
     const provName = isCoalition ? "Coalition Forces" : _g.provinces.find(p => p.id === provId)?.name;
     const pips = Array.from({length: rounds}, (_, i) => {
@@ -966,6 +1072,26 @@ function _buildBuilding(provId, key, costStr) {
     _renderProvincePanel(prov);
 }
 
+function _developProvince(provId) {
+    const prov = _g.provinces.find(p => p.id === provId);
+    if (!prov || prov.owner !== 'player') return;
+    const tierNow = prov.tier || 1;
+    if (tierNow >= 3) return;
+    const devDucats = 120 * (tierNow + 1);
+    const devAdm    = 30;
+    if (_g.resources.ducats < devDucats || _g.resources.adm < devAdm) {
+        _toast(`Need ${devDucats} 💰 and ${devAdm} 📜 to develop ${prov.name}`, '#e74c3c');
+        return;
+    }
+    _g.resources.ducats -= devDucats;
+    _g.resources.adm    -= devAdm;
+    prov.tier = tierNow + 1;
+    _toast(`⛏️ ${prov.name} developed to Tier ${prov.tier}!`, '#8e6bbf');
+    _renderMap();
+    _renderProvincePanel(prov);
+    _updateUI();
+}
+
 function _formatTime(sec) {
     if (sec <= 0)    return 'Now';
     if (sec < 60)    return Math.floor(sec) + 's';
@@ -1004,6 +1130,9 @@ function _updateSRSQueue() {
         sleepScrn.style.display = 'flex';
         _g.currentCardId = null;
 
+        const drillBtn = sleepScrn.querySelector('#eu-drill-btn');
+        if (drillBtn) drillBtn.style.display = _vocabMgr ? 'inline-block' : 'none';
+
         const noSrsAtAll    = _g.srs.length === 0;
         const stillRebelling = _g.provinces.some(p => p.rebelling);
         const onboardingEl  = sleepScrn.querySelector('#eu-dojo-onboarding');
@@ -1023,7 +1152,7 @@ function _updateSRSQueue() {
             if (onboardingEl)  onboardingEl.style.display = 'none';
             if (iconEl)        iconEl.textContent  = stillRebelling ? '⚔️' : '🕊️';
             if (titleEl)       titleEl.textContent = stillRebelling ? 'Suppressing Rebellions…' : 'The Empire is at Peace';
-            if (msgEl)         msgEl.textContent   = 'No vocabulary reviews are currently due.';
+            if (msgEl)         msgEl.textContent   = 'No reviews due — expand your empire, or drill freely below.';
 
             if (timerEl && _g.srs.length > 0) {
                 const next    = Math.min(..._g.srs.map(s => s.nextReview));
@@ -1067,8 +1196,19 @@ function _loadFlashcard() {
 
     kanjiEl.textContent = correct.kanji;
     if (provEl) {
-        provEl.textContent = isVassal ? `🕊️ Diplomatic Integration Task: ${prov.name}` : `⚔️ Rebellion in ${prov ? prov.name : 'Unknown Province'}`;
-        provEl.style.color = isVassal ? '#3498db' : '#c0392b';
+        if (isVassal) {
+            provEl.textContent = `🕊️ Diplomatic Integration Task: ${prov.name}`;
+            provEl.style.color = '#3498db';
+        } else if (prov && prov.rebelling) {
+            provEl.textContent = `🔥 REBELLION in ${prov.name} — suppress it!`;
+            provEl.style.color = '#c0392b';
+        } else if (prov && prov.cored) {
+            provEl.textContent = `🏛️ Mastery review: ${prov.name}`;
+            provEl.style.color = '#2e6e40';
+        } else {
+            provEl.textContent = `⚔️ Unrest rising in ${prov ? prov.name : 'the Empire'}`;
+            provEl.style.color = '#c47a1e';
+        }
     }
 
     if (progressEl) {
@@ -1114,7 +1254,14 @@ function _checkAnswer(selectedId, btnEl, correctId, event) {
     _isProcessingAnswer = true;
 
     const srsItem = _g.srs.find(s => s.id === _g.currentCardId);
-    const prov = _g.provinces.find(p => p.id === srsItem?.provinceId);
+    if (!srsItem) {
+        // The card's province was lost/removed while the quiz was open — discard safely.
+        _isProcessingAnswer = false;
+        _g.currentCardId = null;
+        _updateSRSQueue();
+        return;
+    }
+    const prov = _g.provinces.find(p => p.id === srsItem.provinceId);
     const isVassal = prov && prov.owner === 'vassal';
 
     const gridEl = _screens.game?.querySelector('.eu-quiz-grid');
@@ -1165,7 +1312,8 @@ function _checkAnswer(selectedId, btnEl, correctId, event) {
         }
 
         if (prov && !prov.cored && !isVassal && _provinceCanBeCored(prov)) {
-            _toast(`📜 ${prov.name} is ready to Core! Spend ${CORE_ADM_COST} ADM on the map.`, '#f1c40f');
+            const coreCost = _g.ideas.bureauc ? Math.round(CORE_ADM_COST * IDEAS.bureauc.effect) : CORE_ADM_COST;
+            _toast(`📜 ${prov.name} is ready to Core! Spend ${coreCost} ADM on the map.`, '#f1c40f');
         }
 
         _spawnFloatingText(event.clientX, event.clientY, `+${milGain} 🗡️`, '#c0392b');
@@ -1202,6 +1350,68 @@ function _checkAnswer(selectedId, btnEl, correctId, event) {
     }
 }
 
+// ─── Free Drill (GameVocabManager standard quiz) ─────────────────────────────
+
+function _startFreeDrill() {
+    if (!_vocabMgr || !_g) return;
+    const res = showGameQuiz(_vocabMgr, {
+        container:   _screens.game,
+        continuous:  true,
+        title:       '🎓 Imperial Academy',
+        subtitle:    'Free practice — no unrest at stake. +2 🗡️ MIL per correct answer.',
+        optionCount: 4,
+        onAnswer: (isCorrect) => {
+            if (!_g) return;
+            if (isCorrect) {
+                _g.resources.mil = Math.min(MONARCH_POINT_CAP, _g.resources.mil + 2);
+                _g.stats.totalCorrect++;
+                _g.combo++;
+                if (_g.combo > _g.stats.highestCombo) _g.stats.highestCombo = _g.combo;
+            } else {
+                _g.stats.totalWrong++;
+                _g.combo = 0;
+            }
+        },
+        onClose: () => { if (_g) { _lastUiRender = 0; _updateUI(); } },
+        onEmpty: () => { _toast('No words available to drill.', '#7f8c8d'); },
+    });
+    // The game loop pauses while any .eu-active-overlay is present
+    res?.overlay?.classList.add('eu-active-overlay');
+}
+
+// ─── App-SRS Export (GameVocabManager bridge) ────────────────────────────────
+// Pushes the words the player has been learning in this empire into the
+// app-wide SRS via GameVocabManager.exportToAppSrs ('skip' policy: words the
+// player already tracks in the main SRS are never overwritten).
+function _exportProgressToAppSrs() {
+    try {
+        if (!_g || !Array.isArray(_g.srs) || !_g.srs.length || !_vocabQueue.length) return;
+        const activeSrs = {};
+        _g.srs.forEach(s => {
+            const w = _vocabQueue.find(v => v.id === s.id);
+            if (!w) return;
+            activeSrs[s.id] = {
+                id:         s.id,
+                kanji:      w.kanji,
+                kana:       w.kana,
+                eng:        w.eng,
+                pos:        'other',
+                interval:   s.interval,
+                ease:       s.ease,
+                nextReview: s.nextReview,
+                wrongCount: 0,
+                isLeech:    false,
+            };
+        });
+        if (!Object.keys(activeSrs).length) return;
+        const tmp = new GameVocabManager(GameVocabManager.defaultConfig());
+        tmp.importState({ activeSrs });
+        tmp.exportToAppSrs(null, 'skip');
+    } catch (e) {
+        console.warn('[EU] exportProgressToAppSrs failed:', e);
+    }
+}
+
 // ─── Map & DOM Rendering ──────────────────────────────────────────────────────
 
 function _initGameDOM() {
@@ -1211,8 +1421,8 @@ function _initGameDOM() {
     el.innerHTML = `
 <div class="eu-root">
     <div class="eu-topbar">
-        <div class="eu-res-box" title="Ducats (Gold)">💰 <span id="eu-val-ducats">0</span></div>
-        <div class="eu-res-box" title="Manpower">⚔️ <span id="eu-val-manpower">0</span></div>
+        <div class="eu-res-box" title="Ducats (Gold)">💰 <span id="eu-val-ducats">0</span><span class="eu-res-rate" id="eu-rate-ducats"></span></div>
+        <div class="eu-res-box" title="Manpower">⚔️ <span id="eu-val-manpower">0</span><span class="eu-res-rate" id="eu-rate-manpower"></span></div>
         <div class="eu-res-box eu-point-adm" title="Administrative Power">📜 <span id="eu-val-adm">0</span></div>
         <div class="eu-res-box eu-point-dip" title="Diplomatic Power">🕊️ <span id="eu-val-dip">0</span></div>
         <div class="eu-res-box eu-point-mil" title="Military Power">🗡️ <span id="eu-val-mil">0</span></div>
@@ -1224,6 +1434,7 @@ function _initGameDOM() {
         <div>OE: <strong id="eu-val-oe" style="color:#c0392b">0%</strong></div>
         <div>Rebels: <strong id="eu-val-rebels">0</strong></div>
         <div>Provinces: <strong id="eu-val-size">1</strong></div>
+        <div title="Victory: core every vocabulary province!">🏆 <strong id="eu-val-victory" style="color:#f5c842">0/0</strong></div>
         <div>Focus: <strong id="eu-val-focus" style="color:#f1c40f">📜 ADM</strong></div>
         <div style="margin-left:auto;">
             <button class="eu-icon-btn" id="eu-save-btn" title="Save Game">💾</button>
@@ -1306,6 +1517,9 @@ function _initGameDOM() {
                     </button>
                 </div>
                 <div id="eu-next-review-timer" style="margin-top:12px; font-weight:bold; color:#c0392b; font-size:14px;"></div>
+                <button class="eu-action-btn" id="eu-drill-btn" style="margin-top:14px; display:none; background:#3a5a7a; color:#d8ecf8; border-color:#2a4462; padding:12px 22px;">
+                    🎓 Free Drill — practice any word (+2 🗡️ per correct)
+                </button>
             </div>
 
             <div id="eu-dojo-quiz" class="eu-battle-screen" style="display:none;">
@@ -1340,8 +1554,14 @@ function _initGameDOM() {
     el.querySelector('#eu-save-btn').addEventListener('click', () => { _saveGame(); _toast('Game Saved!', '#27ae60'); });
     el.querySelector('#eu-reset-btn').addEventListener('click', _showResetMenu);
     el.querySelector('#eu-quit-btn').addEventListener('click', () => {
-        if (confirm('Abandon your empire?')) { _saveGame(); _stopGameLoop(); _onExit(); }
+        if (confirm('Abandon your empire?')) {
+            _saveGame();
+            _exportProgressToAppSrs(); // push learned words into the app-wide SRS
+            _stopGameLoop();
+            _onExit();
+        }
     });
+    el.querySelector('#eu-drill-btn')?.addEventListener('click', _startFreeDrill);
 
     _renderMap();
     _renderCourt();
@@ -1392,6 +1612,7 @@ function _renderMap() {
 
         const cell = document.createElement('div');
         cell.className = 'eu-map-cell';
+        cell.dataset.provId = prov.id;
         cell.style.left   = cx + 'px';
         cell.style.top    = cy + 'px';
         cell.style.width  = HW + 'px';
@@ -1412,8 +1633,10 @@ function _renderMap() {
 
         const showTier = prov.owner !== 'fog' && !cell.classList.contains('fog');
         const tierDots = showTier ? '◆'.repeat(prov.tier || 1) : '';
-        const rebelPct = prov.rebelling && prov.rebelTimer > 0
-            ? Math.min(100, Math.round((prov.rebelTimer / (prov.buildings.fort ? REBEL_TAKEBACK_TIME * 2 : REBEL_TAKEBACK_TIME)) * 100)) : 0;
+        // Render the bar for ANY rebelling province (even at 0%) so the 1 Hz
+        // updater has an element to animate — it can't create one after the fact.
+        const rebelPct = prov.rebelling
+            ? Math.min(100, Math.round(((prov.rebelTimer || 0) / (prov.buildings.fort ? REBEL_TAKEBACK_TIME * 2 : REBEL_TAKEBACK_TIME)) * 100)) : 0;
 
         let iconStr = '';
         const isCap = prov.id === _g.capitalId && prov.owner === 'player';
@@ -1431,7 +1654,7 @@ function _renderMap() {
             ${prov.owner === 'vassal' ? `<div class="eu-cell-unrest" style="color:#a8d8ea;">${Math.floor(prov.libertyDesire)}%</div>` : ''}
             ${iconStr ? `<div class="eu-cell-icons">${iconStr}</div>` : ''}
             ${tierDots ? `<div class="eu-cell-tier">${tierDots}</div>` : ''}
-            ${rebelPct > 0 ? `<div class="eu-rebel-timer-wrap"><div class="eu-rebel-timer-bar" style="width:${rebelPct}%"></div></div>` : ''}
+            ${prov.rebelling ? `<div class="eu-rebel-timer-wrap"><div class="eu-rebel-timer-bar" style="width:${rebelPct}%"></div></div>` : ''}
         `;
 
         cell.addEventListener('click', () => {
@@ -1492,7 +1715,8 @@ function _renderProvincePanel(prov) {
     if (isOwned || isVassal) {
         const provSrs = _g.srs.filter(s => s.provinceId === prov.id);
         const canCore = _provinceCanBeCored(prov);
-        const canAffordCore = _g.resources.adm >= CORE_ADM_COST;
+        const coreCost = _g.ideas.bureauc ? Math.round(CORE_ADM_COST * IDEAS.bureauc.effect) : CORE_ADM_COST;
+        const canAffordCore = _g.resources.adm >= coreCost;
 
         const wordRows = prov.words.map(wid => {
             const s = _g.srs.find(x => x.id === wid);
@@ -1518,7 +1742,7 @@ function _renderProvincePanel(prov) {
             </div>`;
         } else if (canCore) {
             coreSection = `<button class="eu-action-btn eu-core-btn" id="eu-btn-core" ${canAffordCore ? '' : 'disabled'}>
-                ✅ Core Province (${CORE_ADM_COST} 📜)
+                ✅ Core Province (${coreCost} 📜)
             </button>`;
         } else {
             const qualified = provSrs.filter(s => s.interval >= CORE_INTERVAL_THRESHOLD).length;
@@ -1529,7 +1753,7 @@ function _renderProvincePanel(prov) {
 
         html += `
             <div class="eu-prov-stats">
-                <div>${isVassal ? 'Liberty Desire' : 'Unrest'}: <strong style="color:${(isVassal?prov.libertyDesire:prov.unrest) > 50 ? '#c0392b' : '#27ae60'}">${prov.cored ? '—' : Math.floor(isVassal ? prov.libertyDesire : prov.unrest) + '%'}</strong></div>
+                <div>${isVassal ? 'Liberty Desire' : 'Unrest'}: <strong id="eu-prov-unrest-val" style="color:${(isVassal?prov.libertyDesire:prov.unrest) > 50 ? '#c0392b' : '#27ae60'}">${prov.cored ? '—' : Math.floor(isVassal ? prov.libertyDesire : prov.unrest) + '%'}</strong></div>
                 <div>Words: <strong>${prov.words.length}</strong></div>
             </div>
             <div style="background:#fcf9f2;border-radius:6px;padding:10px;margin-bottom:12px;border:1px solid #e0d9cc; box-shadow:inset 0 2px 4px rgba(0,0,0,0.02);">
@@ -1552,6 +1776,21 @@ function _renderProvincePanel(prov) {
                     ${prov.buildings.fort ? '✅ Fort' : '🏰 Build Fort (100 💰, 50 📜)'}
                 </button>
             </div>`;
+
+            const tierNow = prov.tier || 1;
+            if (tierNow < 3) {
+                const devDucats = 120 * (tierNow + 1);
+                const devAdm    = 30;
+                const canDev = _g.resources.ducats >= devDucats && _g.resources.adm >= devAdm;
+                html += `
+            <h4 style="margin:15px 0 5px; font-size:14px; color:#555; border-bottom:1px solid #ddd;">Development</h4>
+            <div style="font-size:11px;color:#777;margin-bottom:6px;">Raise the tier for more income and levies — the peaceful alternative to conquest.</div>
+            <button class="eu-action-btn" id="eu-btn-develop" ${canDev ? '' : 'disabled'} style="width:100%;background:#5a4a7a;color:#e8d8ff;border-color:#463862;">
+                ⛏️ Develop to ${'◆'.repeat(tierNow + 1)} (${devDucats} 💰, ${devAdm} 📜)
+            </button>`;
+            } else {
+                html += `<div style="margin-top:10px;font-size:11px;color:#7a5a00;text-align:center;">◆◆◆ Fully developed</div>`;
+            }
         }
     } else if (isAdj && !isVassal) {
         const stats      = _getEmpireStats();
@@ -1560,7 +1799,7 @@ function _renderProvincePanel(prov) {
         const scaledOwned = Math.min(stats.ownedCount, 15);
         const baseCost   = (60 + (scaledOwned * 20)) * tierMod;
         const warCost    = _g.ideas.drill ? Math.round(baseCost * IDEAS.drill.effect) : baseCost;
-        const annexCost  = prov.words.length * DIPLO_ANNEX_DIP_COST_PER_WORD * tierMod;
+        const annexCost  = Math.max(25, prov.words.length * DIPLO_ANNEX_DIP_COST_PER_WORD * tierMod); // same floor as _diplomaticAnnex
         const hasClaim   = !!_g.claimedProvinces?.[prov.id];
         const claimCost  = 50 + (prov.tier || 1) * 25;
         const canAffordClaim = _g.resources.dip >= claimCost;
@@ -1591,6 +1830,7 @@ function _renderProvincePanel(prov) {
         panel.querySelector('#eu-btn-market')?.addEventListener('click', () => _buildBuilding(prov.id, 'market', '50 💰'));
         panel.querySelector('#eu-btn-barracks')?.addEventListener('click', () => _buildBuilding(prov.id, 'barracks', '50 💰'));
         panel.querySelector('#eu-btn-fort')?.addEventListener('click', () => _buildBuilding(prov.id, 'fort', '100 💰, 50 📜'));
+        panel.querySelector('#eu-btn-develop')?.addEventListener('click', () => _developProvince(prov.id));
     } else if (isAdj && !isVassal) {
         panel.querySelector('#eu-btn-war')?.addEventListener('click', () => _declareWar(prov.id));
         panel.querySelector('#eu-btn-annex')?.addEventListener('click', () => _diplomaticAnnex(prov.id));
@@ -1660,12 +1900,6 @@ function _silentInitMissions() {
         }
     });
 }
-
-// AE management costs
-const AE_GIFT_COST      = 50;   // DIP → -10 AE
-const AE_TREATY_COST    = 100;  // DIP → -25 AE
-const AE_GIFT_REDUCTION = 10;
-const AE_TREATY_REDUCTION = 25;
 
 function _renderCourt() {
     const ideasBox = _screens.game?.querySelector('#eu-ideas-container');
@@ -1797,6 +2031,12 @@ function _renderCourt() {
     _renderDiplomacyPanel();
 
     // STATS
+    _renderStatsList();
+}
+
+function _renderStatsList() {
+    const statsList = _screens.game?.querySelector('#eu-stats-list');
+    if (!statsList || !_g) return;
     const stats = _getEmpireStats();
     const accuracy = (_g.stats.totalCorrect + _g.stats.totalWrong) > 0
         ? Math.round((_g.stats.totalCorrect / (_g.stats.totalCorrect + _g.stats.totalWrong)) * 100) : 0;
@@ -1877,12 +2117,6 @@ function _renderDiplomacyPanel() {
     const dip       = Math.floor(_g.resources.dip);
     const stability = (_g.stability ?? STABILITY_MAX);
 
-    // Costs
-    const GIFT_COST        = 30;   // DIP → −10 AE
-    const TREATY_COST      = 80;   // DIP → −25 AE
-    const CONGRESS_COST    = 200;  // DIP → −60 AE, requires AE > 40
-    const STABILISE_COST   = 50;   // ADM → +1 Stability
-
     const aeColor   = ae > 50 ? '#c0392b' : ae > 35 ? '#e67e22' : '#27ae60';
     const coalSecs  = ae > 50 ? Math.max(0, Math.round(_g.coalitionTimer)) : null;
 
@@ -1891,34 +2125,34 @@ function _renderDiplomacyPanel() {
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
                 <span style="font-size:18px;">🔥</span>
                 <div style="flex:1;">
-                    <div style="font-size:13px;font-weight:bold;color:#3d2010;">Aggressive Expansion: <span style="color:${aeColor}">${ae} / 100</span></div>
+                    <div style="font-size:13px;font-weight:bold;color:#3d2010;">Aggressive Expansion: <span id="eu-dip-ae-num" style="color:${aeColor}">${ae} / 100</span></div>
                     <div style="background:#e0d5c0;border-radius:4px;height:6px;margin-top:4px;overflow:hidden;">
-                        <div style="height:100%;width:${Math.min(100,ae)}%;background:${aeColor};transition:width 0.5s;border-radius:4px;"></div>
+                        <div id="eu-dip-ae-bar" style="height:100%;width:${Math.min(100,ae)}%;background:${aeColor};transition:width 0.5s;border-radius:4px;"></div>
                     </div>
-                    ${coalSecs !== null ? `<div style="font-size:11px;color:#c0392b;margin-top:3px;">⚠️ Coalition war in ${coalSecs}s — use diplomacy now!</div>` : ''}
+                    <div id="eu-dip-coal" style="font-size:11px;color:#c0392b;margin-top:3px;${coalSecs !== null ? '' : 'display:none;'}">⚠️ Coalition war in <span id="eu-dip-coal-secs">${coalSecs ?? 0}</span>s — use diplomacy now!</div>
                 </div>
             </div>
 
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
-                <button class="eu-action-btn" id="eu-dip-gift" ${dip >= GIFT_COST && ae > 0 ? '' : 'disabled'}
+                <button class="eu-action-btn" id="eu-dip-gift" ${dip >= DIP_GIFT_COST && ae > 0 ? '' : 'disabled'}
                     style="font-size:12px;padding:8px;background:#e8f4fb;border-color:#2980b9;color:#1a5276;text-align:left;">
                     🎁 Send Gifts<br>
-                    <span style="font-size:10px;color:#555;">${GIFT_COST} 🕊️ → −10 AE</span>
+                    <span style="font-size:10px;color:#555;">${DIP_GIFT_COST} 🕊️ → −10 AE</span>
                 </button>
-                <button class="eu-action-btn" id="eu-dip-treaty" ${dip >= TREATY_COST && ae > 0 ? '' : 'disabled'}
+                <button class="eu-action-btn" id="eu-dip-treaty" ${dip >= DIP_TREATY_COST && ae > 0 ? '' : 'disabled'}
                     style="font-size:12px;padding:8px;background:#f5eef8;border-color:#8e44ad;color:#512e5f;text-align:left;">
                     📄 Sign Non-Aggression<br>
-                    <span style="font-size:10px;color:#555;">${TREATY_COST} 🕊️ → −25 AE</span>
+                    <span style="font-size:10px;color:#555;">${DIP_TREATY_COST} 🕊️ → −25 AE</span>
                 </button>
-                <button class="eu-action-btn" id="eu-dip-congress" ${dip >= CONGRESS_COST && ae > 40 ? '' : 'disabled'}
+                <button class="eu-action-btn" id="eu-dip-congress" ${dip >= DIP_CONGRESS_COST && ae > 40 ? '' : 'disabled'}
                     style="font-size:12px;padding:8px;background:#fef9e7;border-color:#b7950b;color:#7d6608;text-align:left;">
                     🏛️ Peace Congress<br>
-                    <span style="font-size:10px;color:#555;">${CONGRESS_COST} 🕊️ → −60 AE (needs AE>40)</span>
+                    <span style="font-size:10px;color:#555;">${DIP_CONGRESS_COST} 🕊️ → −60 AE (needs AE>40)</span>
                 </button>
-                <button class="eu-action-btn" id="eu-dip-stabilise" ${_g.resources.adm >= STABILISE_COST && stability < STABILITY_MAX ? '' : 'disabled'}
+                <button class="eu-action-btn" id="eu-dip-stabilise" ${_g.resources.adm >= ADM_STABILISE_COST && stability < STABILITY_MAX ? '' : 'disabled'}
                     style="font-size:12px;padding:8px;background:#eafaf1;border-color:#27ae60;color:#1e8449;text-align:left;">
                     ⚖️ Stabilise Realm<br>
-                    <span style="font-size:10px;color:#555;">${STABILISE_COST} 📜 → +1 Stability</span>
+                    <span style="font-size:10px;color:#555;">${ADM_STABILISE_COST} 📜 → +1 Stability</span>
                 </button>
             </div>
 
@@ -1929,32 +2163,104 @@ function _renderDiplomacyPanel() {
         </div>`;
 
     panel.querySelector('#eu-dip-gift')?.addEventListener('click', () => {
-        _g.resources.dip -= GIFT_COST;
+        if (_g.resources.dip < DIP_GIFT_COST) return;
+        _g.resources.dip -= DIP_GIFT_COST;
         _g.ae = Math.max(0, _g.ae - 10);
         _toast('🎁 Gifts dispatched. −10 🔥 AE.', '#2980b9');
         _renderDiplomacyPanel(); _updateUI();
     });
     panel.querySelector('#eu-dip-treaty')?.addEventListener('click', () => {
-        _g.resources.dip -= TREATY_COST;
+        if (_g.resources.dip < DIP_TREATY_COST) return;
+        _g.resources.dip -= DIP_TREATY_COST;
         _g.ae = Math.max(0, _g.ae - 25);
         _toast('📄 Non-Aggression Pact signed. −25 🔥 AE.', '#8e44ad');
         _renderDiplomacyPanel(); _updateUI();
     });
     panel.querySelector('#eu-dip-congress')?.addEventListener('click', () => {
         if (_g.ae <= 40) { _toast('AE must exceed 40 to call a Peace Congress.', '#e74c3c'); return; }
-        _g.resources.dip -= CONGRESS_COST;
+        if (_g.resources.dip < DIP_CONGRESS_COST) return;
+        _g.resources.dip -= DIP_CONGRESS_COST;
         _g.ae = Math.max(0, _g.ae - 60);
         _g.coalitionTimer = Math.max(_g.coalitionTimer, 300); // reset coalition clock
         _toast('🏛️ Peace Congress convened! −60 🔥 AE. Coalition clock reset.', '#b7950b');
         _renderDiplomacyPanel(); _updateUI();
     });
     panel.querySelector('#eu-dip-stabilise')?.addEventListener('click', () => {
-        if (stability >= STABILITY_MAX) { _toast('Stability already at maximum.', '#27ae60'); return; }
-        _g.resources.adm -= STABILISE_COST;
+        if ((_g.stability ?? STABILITY_MAX) >= STABILITY_MAX) { _toast('Stability already at maximum.', '#27ae60'); return; }
+        if (_g.resources.adm < ADM_STABILISE_COST) return;
+        _g.resources.adm -= ADM_STABILISE_COST;
         _g.stability = Math.min(STABILITY_MAX, _g.stability + 1);
         _toast(`⚖️ Realm stabilised. Stability → ${Math.round(_g.stability)}.`, '#27ae60');
         _renderDiplomacyPanel(); _updateUI();
     });
+}
+
+// ─── 1 Hz dynamic updaters (no innerHTML rebuilds → buttons stay tappable) ──
+
+function _updateCourtDynamic() {
+    const g = _screens.game;
+    if (!g || !_g) return;
+    const courtPane = g.querySelector('#eu-tab-court');
+    if (!courtPane || !courtPane.classList.contains('active')) return;
+
+    const ae = Math.floor(_g.ae);
+    const aeColor = ae > 50 ? '#c0392b' : ae > 35 ? '#e67e22' : '#27ae60';
+    const numEl = g.querySelector('#eu-dip-ae-num');
+    if (numEl) { numEl.textContent = `${ae} / 100`; numEl.style.color = aeColor; }
+    const barEl = g.querySelector('#eu-dip-ae-bar');
+    if (barEl) { barEl.style.width = Math.min(100, ae) + '%'; barEl.style.background = aeColor; }
+    const coalEl = g.querySelector('#eu-dip-coal');
+    if (coalEl) {
+        if (ae > 50) {
+            coalEl.style.display = '';
+            const s = coalEl.querySelector('#eu-dip-coal-secs');
+            if (s) s.textContent = Math.max(0, Math.round(_g.coalitionTimer));
+        } else {
+            coalEl.style.display = 'none';
+        }
+    }
+
+    // Keep affordability states fresh without rebuilding the buttons
+    const dip = Math.floor(_g.resources.dip);
+    const setDis = (sel, enabled) => { const b = g.querySelector(sel); if (b) b.disabled = !enabled; };
+    setDis('#eu-dip-gift',      dip >= DIP_GIFT_COST     && _g.ae > 0);
+    setDis('#eu-dip-treaty',    dip >= DIP_TREATY_COST   && _g.ae > 0);
+    setDis('#eu-dip-congress',  dip >= DIP_CONGRESS_COST && _g.ae > 40);
+    setDis('#eu-dip-stabilise', _g.resources.adm >= ADM_STABILISE_COST && (_g.stability ?? STABILITY_MAX) < STABILITY_MAX);
+
+    _renderStatsList(); // plain rows, no buttons — safe to rebuild
+}
+
+function _updateMapDynamic() {
+    const g = _screens.game;
+    if (!g || !_g) return;
+    const mapPane = g.querySelector('#eu-tab-map');
+    if (!mapPane || !mapPane.classList.contains('active')) return;
+
+    g.querySelectorAll('.eu-map-cell').forEach(cell => {
+        const prov = _g.provinces.find(p => p.id === cell.dataset.provId);
+        if (!prov) return;
+        const unrestEl = cell.querySelector('.eu-cell-unrest');
+        if (unrestEl) {
+            unrestEl.textContent = Math.floor(prov.owner === 'vassal' ? prov.libertyDesire : prov.unrest) + '%';
+        }
+        const barEl = cell.querySelector('.eu-rebel-timer-bar');
+        if (barEl) {
+            const cap = prov.buildings?.fort ? REBEL_TAKEBACK_TIME * 2 : REBEL_TAKEBACK_TIME;
+            barEl.style.width = Math.min(100, Math.round(((prov.rebelTimer || 0) / cap) * 100)) + '%';
+        }
+    });
+
+    // Live-refresh the selected province's unrest number in the side panel
+    const provUnrestEl = g.querySelector('#eu-prov-unrest-val');
+    if (provUnrestEl && _selectedProvinceId) {
+        const p = _g.provinces.find(x => x.id === _selectedProvinceId);
+        if (p && !p.cored) {
+            const v = Math.floor(p.owner === 'vassal' ? p.libertyDesire : p.unrest);
+            provUnrestEl.textContent = v + '%';
+            provUnrestEl.style.color = v > 50 ? '#c0392b' : '#27ae60';
+        }
+    }
 }
 
 function _updateUI() {
@@ -1963,25 +2269,30 @@ function _updateUI() {
     _lastUiRender = now;
 
     const g = _screens.game;
-    if (!g || g.style.display === 'none') return;
+    if (!_g || !g || g.style.display === 'none') return;
 
     const stats = _getEmpireStats();
+    const setText = (sel, txt) => { const el = g.querySelector(sel); if (el) el.textContent = txt; };
 
-    g.querySelector('#eu-val-ducats').textContent    = Math.floor(_g.resources.ducats);
-    g.querySelector('#eu-val-manpower').textContent  = Math.floor(_g.resources.manpower);
-    g.querySelector('#eu-val-adm').textContent       = Math.floor(_g.resources.adm);
-    g.querySelector('#eu-val-dip').textContent       = Math.floor(_g.resources.dip);
-    g.querySelector('#eu-val-mil').textContent       = Math.floor(_g.resources.mil);
-    g.querySelector('#eu-val-stability').textContent = (_g.stability ?? STABILITY_MAX).toFixed(1);
-    g.querySelector('#eu-val-ae').textContent = Math.floor(_g.ae);
-    const coalEl = g.querySelector('#eu-val-coalition');
-    if (coalEl) {
-        if (_g.ae > 50) {
-            coalEl.textContent = `(${_formatTime(Math.ceil(_g.coalitionTimer))})`;
-        } else {
-            coalEl.textContent = '';
-        }
+    setText('#eu-val-ducats',    Math.floor(_g.resources.ducats));
+    setText('#eu-val-manpower',  Math.floor(_g.resources.manpower));
+    setText('#eu-val-adm',       Math.floor(_g.resources.adm));
+    setText('#eu-val-dip',       Math.floor(_g.resources.dip));
+    setText('#eu-val-mil',       Math.floor(_g.resources.mil));
+    setText('#eu-val-stability', (_g.stability ?? STABILITY_MAX).toFixed(1));
+    setText('#eu-val-ae',        Math.floor(_g.ae));
+
+    // Live income rates — clear economy feedback
+    const dRate = g.querySelector('#eu-rate-ducats');
+    if (dRate) {
+        dRate.textContent = `${stats.ducatsPerSec >= 0 ? '+' : ''}${stats.ducatsPerSec.toFixed(1)}/s`;
+        dRate.style.color = stats.ducatsPerSec >= 0 ? '#8fd19e' : '#ff9090';
     }
+    const mRate = g.querySelector('#eu-rate-manpower');
+    if (mRate) mRate.textContent = `+${stats.manpowerPerSec.toFixed(1)}/s`;
+
+    const coalEl = g.querySelector('#eu-val-coalition');
+    if (coalEl) coalEl.textContent = _g.ae > 50 ? `(${_formatTime(Math.ceil(_g.coalitionTimer))})` : '';
 
     // AE visual warning
     const aeBox = g.querySelector('#eu-ae-box');
@@ -1989,9 +2300,15 @@ function _updateUI() {
         aeBox.classList.toggle('eu-ae-warning',  _g.ae > 35 && _g.ae <= 50);
         aeBox.classList.toggle('eu-ae-critical', _g.ae > 50);
     }
-    g.querySelector('#eu-val-oe').textContent        = `${Math.floor(stats.overextension)}%`;
-    g.querySelector('#eu-val-rebels').textContent    = stats.rebellingCount;
-    g.querySelector('#eu-val-size').textContent      = stats.ownedCount;
+    setText('#eu-val-oe',     `${Math.floor(stats.overextension)}%`);
+    setText('#eu-val-rebels', stats.rebellingCount);
+    setText('#eu-val-size',   stats.ownedCount);
+
+    // Victory progress — core every vocabulary (non-filler) province to win
+    const scoreable  = _g.provinces.filter(p => !p.isFiller);
+    const coredScore = scoreable.filter(p => p.owner === 'player' && p.cored).length;
+    setText('#eu-val-victory', `${coredScore}/${scoreable.length}`);
+
     _updateFocusButtons();
 
     const timerEl = g.querySelector('#eu-next-review-timer');
@@ -2002,11 +2319,8 @@ function _updateUI() {
             ? 'Incident imminent...'
             : `Next incident in: ${_formatTime(diffSec)}`;
     }
-
-    if (g.querySelector('#eu-tab-court').classList.contains('active')) {
-        if (Math.random() < 0.05) _renderCourt();
-        else _renderDiplomacyPanel(); // always keep AE bar + coalition timer fresh
-    }
+    // Court tab dynamics are handled at 1 Hz by _updateCourtDynamic() — the old
+    // per-frame innerHTML rebuild here destroyed buttons mid-tap on mobile.
 }
 
 function _switchTab(tabName) {
@@ -2050,10 +2364,42 @@ function _loadGame() {
         _g.stability         = p.stability        ?? STABILITY_MAX;
         _g.nationalFocus     = p.nationalFocus    || 'adm';
         _g.combo             = p.combo            || 0;
-        _g.victoryAchieved   = p.victoryAchieved  || false;
+        _g.victoryAchieved   = false; // recomputed by _checkVictory (a finished save re-shows the victory screen)
         _g.capitalId         = p.capitalId        || null;
         _g.claimedProvinces  = p.claimedProvinces  || {};
         _g.coalitionTimer    = p.coalitionTimer    ?? 300;
+
+        // ── Normalize provinces/SRS from older save versions — default missing fields ──
+        _g.provinces = Array.isArray(_g.provinces) ? _g.provinces.filter(Boolean) : [];
+        _g.provinces.forEach(prov => {
+            prov.words         = Array.isArray(prov.words) ? prov.words : [];
+            prov.buildings     = prov.buildings || {};
+            prov.buildings.market   = !!prov.buildings.market;
+            prov.buildings.barracks = !!prov.buildings.barracks;
+            prov.buildings.fort     = !!prov.buildings.fort;
+            prov.tier          = prov.tier || 1;
+            prov.unrest        = typeof prov.unrest === 'number' ? prov.unrest : 0;
+            prov.libertyDesire = typeof prov.libertyDesire === 'number' ? prov.libertyDesire : 0;
+            prov.rebelTimer    = typeof prov.rebelTimer === 'number' ? prov.rebelTimer : 0;
+            prov.rebelling     = !!prov.rebelling;
+            prov.hasTradeFleet = !!prov.hasTradeFleet;
+            prov.cored         = !!prov.cored;
+            prov.isFiller      = prov.words.length === 0;
+        });
+        _g.srs = (Array.isArray(_g.srs) ? _g.srs : []).filter(s => s && s.id);
+        _g.srs.forEach(s => {
+            s.interval   = typeof s.interval   === 'number' ? s.interval   : 8;
+            s.ease       = typeof s.ease       === 'number' ? s.ease       : 1.5;
+            s.nextReview = typeof s.nextReview === 'number' ? s.nextReview : Date.now();
+        });
+        // Drop advisors/ideas that no longer exist in the data files
+        Object.keys(_g.advisors).forEach(k => { if (!ADVISORS[k]) delete _g.advisors[k]; });
+        Object.keys(_g.ideas).forEach(k => { if (!IDEAS[k]) delete _g.ideas[k]; });
+        // Repair a missing/invalid capital reference
+        if (_g.provinces.length && (!_g.capitalId || !_g.provinces.some(x => x.id === _g.capitalId))) {
+            const firstOwned = _g.provinces.find(x => x.owner === 'player');
+            if (firstOwned) _g.capitalId = firstOwned.id;
+        }
 
         // ── Offline catch-up: simulate at most OFFLINE_SIM_CAP_SEC of game time ──
         // Without this cap, any absence longer than ~50s causes every province to
@@ -2102,6 +2448,82 @@ function _loadGame() {
     }
 }
 
+// ─── Vocab ↔ save reconciliation ─────────────────────────────────────────────
+// The player may start with a different word selection than the one the save
+// was built with (changed decks, ranges, or random selection mode). Without a
+// remap, stale words never appear in the Battlefield (they are filtered out of
+// the review queue) while STILL generating unrest — an unwinnable soft-lock.
+// This migrates the save in place: stale words are retired, new words are
+// assigned to provinces, and SRS entries are relinked.
+function _reconcileVocabWithSave() {
+    if (!_g || _g.provinces.length === 0) return;
+
+    const queueIds = _vocabIdSet;
+
+    // 1. Strip stale/duplicate words from provinces
+    let removed = 0;
+    const seen = new Set();
+    _g.provinces.forEach(p => {
+        const before = p.words.length;
+        p.words = p.words.filter(wid => {
+            if (!queueIds.has(wid) || seen.has(wid)) return false;
+            seen.add(wid);
+            return true;
+        });
+        removed += before - p.words.length;
+    });
+
+    // 2. Assign queue words that have no province yet
+    const unassigned = _vocabQueue.filter(v => !seen.has(v.id));
+    let added = 0;
+    if (unassigned.length > 0) {
+        // Prefer neutral provinces (new conquest targets), then vassals, then owned.
+        // Cored provinces are never touched — they represent completed mastery.
+        const candidates = _g.provinces.filter(p => !p.cored);
+        const rank = p => p.owner === 'neutral' ? 0 : p.owner === 'vassal' ? 1 : 2;
+        candidates.sort((a, b) => rank(a) - rank(b));
+        let rr = 0;
+        unassigned.forEach(v => {
+            const target = candidates.find(p => p.words.length < WORDS_PER_PROVINCE)
+                        || (candidates.length ? candidates[rr++ % candidates.length] : null);
+            if (!target) return; // everything is cored — word stays unassigned
+            target.words.push(v.id);
+            added++;
+        });
+    }
+
+    // 3. Rebuild SRS ↔ province links; drop entries for stale or neutral-held words
+    const wordProv = new Map();
+    _g.provinces.forEach(p => p.words.forEach(wid => wordProv.set(wid, p)));
+    _g.srs = _g.srs.filter(s => {
+        const p = wordProv.get(s.id);
+        if (!p || p.owner === 'neutral') return false;
+        s.provinceId = p.id;
+        return true;
+    });
+
+    // 4. Create SRS entries for newly assigned words in owned/vassal provinces
+    const haveSrs = new Set(_g.srs.map(s => s.id));
+    _g.provinces.forEach(p => {
+        if (p.owner !== 'player' && p.owner !== 'vassal') return;
+        if (p.cored) return;
+        p.words.forEach((wid, i) => {
+            if (haveSrs.has(wid)) return;
+            haveSrs.add(wid);
+            _g.srs.push({ id: wid, nextReview: Date.now() + 60000 + i * 15000, interval: 8, ease: 1.5, provinceId: p.id });
+        });
+    });
+
+    // 5. Recompute filler status (affects the victory requirement)
+    _g.provinces.forEach(p => { p.isFiller = p.words.length === 0; });
+
+    if (removed > 0 || added > 0) {
+        _g._reconcileNotice =
+            `📖 Vocabulary updated: ${removed} word${removed !== 1 ? 's' : ''} retired, `
+            + `${added} new word${added !== 1 ? 's' : ''} assigned to provinces.`;
+    }
+}
+
 
 
 function _checkVictory() {
@@ -2115,6 +2537,7 @@ function _checkVictory() {
     _g.victoryAchieved = true;
     _stopGameLoop();
     _saveGame();
+    _exportProgressToAppSrs(); // mastered words flow into the app-wide SRS on victory too
 
     const accuracy = (_g.stats.totalCorrect + _g.stats.totalWrong) > 0
         ? Math.round((_g.stats.totalCorrect / (_g.stats.totalCorrect + _g.stats.totalWrong)) * 100) : 0;
@@ -2164,6 +2587,8 @@ function _checkVictory() {
 function _stopGameLoop() {
     if (_rafId) cancelAnimationFrame(_rafId);
     if (_saveInterval) clearInterval(_saveInterval);
+    _rafId = null;
+    _saveInterval = null;
 }
 
 // ─── Reset Feature ────────────────────────────────────────────────────────────
@@ -2174,7 +2599,7 @@ function _showResetMenu() {
 
     const modal = document.createElement('div');
     modal.id = 'eu-reset-modal';
-    modal.className = 'eu-war-modal';
+    modal.className = 'eu-war-modal eu-active-overlay'; // pauses the game loop while open
     modal.style.display = 'flex';
     modal.innerHTML = `
         <div class="eu-war-modal-inner" style="border-color:#7a3b1e; max-width:400px;">
@@ -2243,6 +2668,8 @@ function _doResetProgress() {
 
     // Fresh game state
     _g = _freshGame();
+    _g.vocabList = _vocabQueue;   // keep the word set — Continue button depends on it
+    _selectedProvinceId = null;   // old province ids would point at the wrong hexes
 
     // Rebuild the map fresh (same vocab queue)
     _generateMap();
@@ -2334,6 +2761,10 @@ function _spawnFloatingText(x, y, text, color) {
 .eu-point-adm { color: #f5c842; }
 .eu-point-dip { color: #7ec8e3; }
 .eu-point-mil { color: #e07070; }
+.eu-res-rate {
+    font-size: 9px; font-weight: normal; opacity: 0.85;
+    margin-left: 2px; color: #8fd19e;
+}
 
 /* ── Stats bar ── */
 .eu-stats-bar {
@@ -2639,6 +3070,10 @@ function _spawnFloatingText(x, y, text, color) {
     .eu-stats-list    { grid-template-columns: 1fr; }
     .eu-quiz-grid.eu-grid-6 { grid-template-columns: 1fr 1fr; }
     .eu-map-wrapper   { max-height: 320px; }
+    /* 7 resource boxes + 6 stat items must wrap, not overflow, on phones */
+    .eu-topbar        { flex-wrap: wrap; gap: 2px 4px; padding: 6px 4px; }
+    .eu-res-box       { font-size: 11px; padding: 2px 4px; }
+    .eu-stats-bar     { flex-wrap: wrap; gap: 4px 10px; }
 }
 `;
     document.head.appendChild(style);

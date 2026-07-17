@@ -1,14 +1,42 @@
-import * as srsDb from '../../srs_db.js';
+// vc_vocab.js — VocabCraft's vocab layer.
+//
+// All word selection and grading is delegated to GameVocabManager per the
+// app-wide contract (Overview.md §4/§7): game modules never touch srs_db or
+// vocab localStorage directly.
+//
+//  • SRS pools (deckId:'srs')  → Global mode: every answer grades the player's
+//    real SRS schedule immediately; unscheduled words follow the standard rule
+//    (correct = no interval promotion, wrong = counts).
+//  • Custom decks              → Local SM-2 engine inside the manager; newly
+//    learned words are pushed to the app SRS at session end via
+//    endVocabSession() with the safe 'skip' policy.
+import { GameVocabManager } from '../../game_vocab_mgr.js';
 
-let _activeQueue =[];
+const BANNED_KEY = 'vocabcraft_banned';
+
+let _mgr = null;
 let _cardBusy = false;  // prevent re-entrant card showing
 
 export function setVocabQueue(queue) {
-    _activeQueue = queue;
+    _mgr = new GameVocabManager(GameVocabManager.defaultConfig());
+    _mgr.setPool(queue || [], BANNED_KEY, {
+        globalSrs: (queue || []).some(w => w.deckId === 'srs')
+    });
+    // Local (custom deck) mode: seed a starting batch so 'auto' mode has
+    // material to schedule. No-op in Global SRS mode.
+    if (!_mgr.isGlobalSrs) _mgr.seedInitialWords(5);
+}
+
+/**
+ * Flush locally-learned words into the app SRS (custom decks only — a no-op
+ * for Global SRS pools where answers are already live). Call at run end.
+ */
+export function endVocabSession() {
+    if (_mgr) _mgr.exportToAppSrs(null, 'skip');
 }
 
 export function showCard(mode, container, onResolve) {
-    if (_activeQueue.length === 0) {
+    if (!_mgr || _mgr._pool.length === 0) {
         onResolve(true);
         return;
     }
@@ -19,64 +47,41 @@ export function showCard(mode, container, onResolve) {
         onResolve(true);
         return;
     }
-    _cardBusy = true;
 
-    // Detect whether the queue is SRS-sourced or a plain vocab deck.
-    // SRS words have deckId:'srs'; plain deck words have no SRS status so
-    // getNextGameWord would return nothing useful — pick randomly instead.
-    const isSrsQueue = _activeQueue.some(w => w.deckId === 'srs');
-
-    let wordObj, type, isSrs;
-    if (isSrsQueue) {
-        const selectionMode = mode === 'enrage' ? 'due' : 'mixed';
-        const result = srsDb.getNextGameWord(_activeQueue, selectionMode)
-                    || srsDb.getNextGameWord(_activeQueue, 'new');
-        if (!result?.wordObj) { _cardBusy = false; onResolve(true); return; }
-        wordObj = result.wordObj;
-        type    = result.type;
-        isSrs   = true;
-    } else {
-        // Plain deck: pick a random word every time
-        wordObj = _activeQueue[Math.floor(Math.random() * _activeQueue.length)];
-        // Normalise field names — plain decks may use 'translation' instead of 'trans'
-        if (!wordObj.trans && wordObj.translation) wordObj = { ...wordObj, trans: wordObj.translation };
-        type  = 'drill';
-        isSrs = false;
-    }
-
-    if (!wordObj) {
-        _cardBusy = false;
+    const challenge = _mgr.getNextWord(null, 4);
+    if (!challenge || !challenge.wordObj) {
         onResolve(true);
         return;
     }
+    _cardBusy = true;
 
-    let dotClass = 'drill';
-    let dotTitle = 'Free Drill';
-    if (isSrs) {
-        dotClass = type === 'new' ? 'new' : type === 'drill' ? 'drill' : 'due';
-        dotTitle  = type === 'new' ? 'New Word' : type === 'drill' ? 'Free Drill (Not Due)' : 'Scheduled Review';
+    const wordObj = challenge.wordObj; // { id, kanji, kana, eng, pos }
+
+    // Badge dot: real scheduled reviews vs everything else
+    let dotClass = 'drill', dotTitle = 'Free Drill (not due)';
+    if (challenge.type === 'due' || challenge.type === 'leech') {
+        dotClass = 'due';  dotTitle = 'Scheduled Review';
+    } else if (challenge.type === 'new') {
+        dotClass = 'new';  dotTitle = 'New Word';
     }
-
-    const pool = _activeQueue.filter(w => w.word !== wordObj.word).map(w => w.trans);
-    const distractors = pool.sort(() => 0.5 - Math.random()).slice(0, 3);
-    const options = [...distractors, wordObj.trans].sort(() => 0.5 - Math.random());
 
     const header = container.querySelector('.vc-vocab-header');
     const grid = container.querySelector('.vc-vocab-grid');
-    
+
     header.innerHTML = `
         <div class="vc-status-dot ${dotClass}" title="${dotTitle}"></div>
-        <div class="vc-vocab-furi">${wordObj.furi || ''}</div>
-        <div class="vc-vocab-kanji">${wordObj.word}</div>
+        <div class="vc-vocab-furi">${wordObj.kana !== wordObj.kanji ? (wordObj.kana || '') : ''}</div>
+        <div class="vc-vocab-kanji">${wordObj.kanji}</div>
     `;
 
     grid.innerHTML = '';
-    options.forEach(opt => {
+    challenge.options.forEach((opt, optIdx) => {
         const btn = document.createElement('button');
         btn.className = 'vc-vocab-opt';
         btn.textContent = opt;
         btn.onclick = () => {
-            const isCorrect = opt === wordObj.trans;
+            const isCorrect = optIdx === challenge.correctIdx;
+            _mgr.gradeWord(challenge.refId, isCorrect);
 
             if (isCorrect) {
                 // Flash green, show big ✓, close fast
@@ -97,7 +102,6 @@ export function showCard(mode, container, onResolve) {
                 container.appendChild(badge);
                 requestAnimationFrame(() => { badge.style.transform = 'translate(-50%,-50%) scale(1)'; });
 
-                if (isSrs) srsDb.gradeWordInGame({ word: wordObj.word, furi: wordObj.furi, translation: wordObj.trans }, 2, true);
                 [...grid.children].forEach(b => b.disabled = true);
 
                 setTimeout(() => {
@@ -108,10 +112,9 @@ export function showCard(mode, container, onResolve) {
             } else {
                 // Wrong: reveal correct answer, pause so player reads it
                 btn.classList.add('wrong');
-                const correctBtn = [...grid.children].find(b => b.textContent === wordObj.trans);
+                const correctBtn = grid.children[challenge.correctIdx];
                 if (correctBtn) correctBtn.classList.add('correct');
 
-                if (isSrs) srsDb.gradeWordInGame({ word: wordObj.word, furi: wordObj.furi, translation: wordObj.trans }, 0, true);
                 [...grid.children].forEach(b => b.disabled = true);
 
                 setTimeout(() => {

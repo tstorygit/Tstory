@@ -31,6 +31,7 @@ let currentCharId = 'ronin';
 // ── Elite / boss state ──
 let elitesSpawned = new Set(); // stores minute numbers already spawned
 let bossWarned    = false;     // only warn once per run
+let bossSpawned   = false;     // set once the boss successfully spawns
 
 // ── Screen shake ──
 
@@ -39,6 +40,9 @@ let lastEnemyHitSound = 0;
 
 const CELL_SIZE = 100;
 let spatialHash = new Map();
+
+// Cached vignette gradient (rebuilt only when the canvas size changes)
+let _vignette = null, _vignetteW = 0, _vignetteH = 0;
 
 const TILE_COLORS = [
     'rgba(20,40,20,1)',
@@ -137,10 +141,17 @@ export function startRun(characterId, metaUpgrades) {
 
     elitesSpawned  = new Set();
     bossWarned     = false;
+    bossSpawned    = false;
     elapsedTime    = 0;
     spawnTimer     = 0;
     gameState      = 'PLAYING';
     lastTime       = performance.now();
+
+    // Re-attach the resize listener — stop() removes it at run end, and
+    // initCanvas() only runs on launch, not on runs started from camp.
+    // addEventListener dedupes identical (target, type, fn) pairs, so this
+    // never stacks even when initCanvas already added it.
+    window.addEventListener('resize', resize);
 
     cancelAnimationFrame(rafId);
     rafId = requestAnimationFrame(gameLoop);
@@ -151,6 +162,8 @@ export function resume() {
     if (gameState === 'PAUSED') {
         lastTime  = performance.now();
         gameState = 'PLAYING';
+        // Cancel any stale pending frame so two loop chains can never run at once.
+        cancelAnimationFrame(rafId);
         rafId     = requestAnimationFrame(gameLoop);
     }
 }
@@ -191,6 +204,7 @@ export function applyPenalty() {
 export function getActiveWeapons()  { return activeWeapons; }
 export function getActivePassives() { return activePassives; }
 export function getElapsedTime()    { return elapsedTime; }
+export function getPlayerLevel()    { return player ? player.level : 1; }
 
 function recalcStats() {
     const oldMax = player.maxHp;
@@ -227,8 +241,9 @@ function gameLoop(time) {
         uiCallbacks.onBossWarning?.();
         Audio.playBossWarning();
     }
-    if (elapsedTime >= 900 && !poolEnemies.some(e => e.active && e.def.isBoss)) {
-        spawnBoss();
+    // Retries every frame until a pool slot is free (spawnBoss returns success)
+    if (elapsedTime >= 900 && !bossSpawned) {
+        bossSpawned = spawnBoss();
     }
 
     updatePlayer(dt);
@@ -244,6 +259,18 @@ function gameLoop(time) {
     checkCollisions();
     drawEverything();
 
+    // A chest pickup (PAUSED) or boss kill (GAME_OVER) may have changed the
+    // state mid-frame — never let a level-up quiz or death fire on top of it.
+    if (gameState !== 'PLAYING') return;
+
+    // Death takes priority over a pending level-up in the same frame.
+    if (player.hp <= 0) {
+        gameState = 'GAME_OVER';
+        Audio.playGameOver();
+        uiCallbacks.onGameOver(false);
+        return;
+    }
+
     if (player.xp >= player.xpToNext) {
         player.xp      -= player.xpToNext;
         player.level++;
@@ -251,12 +278,7 @@ function gameLoop(time) {
         gameState       = 'PAUSED';
         Audio.playLevelUp();
         uiCallbacks.onLevelUp();
-    }
-
-    if (player.hp <= 0) {
-        gameState = 'GAME_OVER';
-        Audio.playGameOver();
-        uiCallbacks.onGameOver(false);
+        return; // resume() restarts the loop after the quiz
     }
 
     rafId = requestAnimationFrame(gameLoop);
@@ -477,10 +499,14 @@ function updateWeapons(dt) {
 
             } else if (def.type === 'jupitel') {
                 // Single fast bolt toward nearest enemy, applies knockback on hit.
-                const nearest = poolEnemies
-                    .filter(e => e.active)
-                    .sort((a, b) => Math.hypot(a.x - player.x, a.y - player.y) -
-                                    Math.hypot(b.x - player.x, b.y - player.y))[0];
+                // Min-scan instead of filter+sort — we only need the closest one.
+                let nearest = null, nearestD = Infinity;
+                for (let ei = 0; ei < poolEnemies.length; ei++) {
+                    const en = poolEnemies[ei];
+                    if (!en.active) continue;
+                    const d = Math.hypot(en.x - player.x, en.y - player.y);
+                    if (d < nearestD) { nearestD = d; nearest = en; }
+                }
                 if (nearest) {
                     const dx = nearest.x - player.x;
                     const dy = nearest.y - player.y;
@@ -539,12 +565,18 @@ function spawnProjectile(opts) {
     p.boltArea       = null;
     p.pendingFor     = null;
     p.impactDuration = null;
-    Object.assign(p, { active: true, hitList: new Set() }, opts);
+    // Reuse the previous occupant's Set — orbital weapons spawn hitboxes every
+    // frame, so allocating a fresh Set here caused constant GC churn.
+    if (p.hitList) p.hitList.clear();
+    else           p.hitList = new Set();
+    p.active = true;
+    Object.assign(p, opts);
 }
 
+/** @returns {boolean} true if the boss was actually placed in the pool */
 function spawnBoss() {
     const e = poolEnemies.find(x => !x.active);
-    if (!e) return;
+    if (!e) return false;
     const angle = Math.random() * Math.PI * 2;
     const dist  = Math.max(canvas.width, canvas.height) * 0.7;
     Object.assign(e, {
@@ -552,9 +584,11 @@ function spawnBoss() {
         x: player.x + Math.cos(angle) * dist,
         y: player.y + Math.sin(angle) * dist,
         def: { ...ENEMIES.boss },
-        hp:  ENEMIES.boss.hp
+        hp:  ENEMIES.boss.hp,
+        maxHp: ENEMIES.boss.hp,
+        orbImmuneUntil: 0
     });
-    // boss entrance shake removed
+    return true;
 }
 
 function spawnEnemies(dt) {
@@ -569,12 +603,17 @@ function spawnEnemies(dt) {
     const currentMinute = Math.floor(elapsedTime / 60);
     if ([3, 6, 9, 12].includes(currentMinute) && !elitesSpawned.has(currentMinute)) {
         elitesSpawned.add(currentMinute);
-        _spawnOne({ ...ENEMIES.tank, isElite: true, hp: ENEMIES.tank.hp * 5, emoji: '👹' }, true);
+        // ✅ FIX: hp was pre-multiplied ×5 here AND again inside _spawnOne (isElite),
+        // giving elites 25× base HP instead of the intended 5×.
+        _spawnOne({ ...ENEMIES.tank, isElite: true, emoji: '👹' }, true);
     }
 
     const types = wave < 1 ? ['grunt'] :
                   wave < 2 ? ['grunt', 'grunt', 'dasher'] :
-                             ['grunt', 'dasher', 'tank'];
+                  wave < 4 ? ['grunt', 'dasher', 'tank'] :
+                  wave < 6 ? ['grunt', 'dasher', 'tank', 'swarm', 'swarm'] :
+                  wave < 9 ? ['dasher', 'tank', 'swarm', 'swarm', 'brute'] :
+                             ['dasher', 'tank', 'swarm', 'swarm', 'brute', 'brute'];
     for (let i = 0; i < count; i++) {
         _spawnOne(ENEMIES[types[Math.floor(Math.random() * types.length)]]);
     }
@@ -600,6 +639,8 @@ function _spawnOne(def, isElite = false) {
         active: true,
         def: scaledDef,
         hp:  scaledHp,
+        maxHp: scaledHp,          // for HP bars — def.hp is the unscaled base
+        orbImmuneUntil: 0,        // reset per-enemy orbital hit cooldown
         x: player.x + Math.cos(angle) * dist,
         y: player.y + Math.sin(angle) * dist
     });
@@ -627,7 +668,7 @@ function updateProjectiles(dt) {
             if (p.type === 'meteor_pending') {
                 p.type     = 'meteor_impact';
                 p.duration = p.impactDuration || 0.45;
-                p.hitList  = new Set(); // fresh hit list for the impact
+                p.hitList.clear(); // fresh hit list for the impact
                 Audio.playMeteorStrike();
                 continue;
             }
@@ -635,7 +676,7 @@ function updateProjectiles(dt) {
             if (p.type === 'heavens_drive' && p.pendingFor > 0) {
                 p.pendingFor = 0;
                 p.duration   = 0.35;
-                p.hitList    = new Set();
+                p.hitList.clear();
                 continue;
             }
             p.active = false;
@@ -706,36 +747,46 @@ function updateChests() {
     }
 }
 
+// Numeric cell key — avoids allocating a template string per enemy per frame.
+// Valid for cell coords within ±32768 (world ±3.27M px at CELL_SIZE 100).
+function _cellKey(cx, cy) {
+    return (cx + 32768) * 65536 + (cy + 32768);
+}
+
 function buildSpatialHash() {
     spatialHash.clear();
     for (let i = 0; i < poolEnemies.length; i++) {
         const e = poolEnemies[i];
         if (!e.active) continue;
-        const cx  = Math.floor(e.x / CELL_SIZE);
-        const cy  = Math.floor(e.y / CELL_SIZE);
-        const key = `${cx},${cy}`;
-        if (!spatialHash.has(key)) spatialHash.set(key, []);
-        spatialHash.get(key).push(e);
+        const key = _cellKey(Math.floor(e.x / CELL_SIZE), Math.floor(e.y / CELL_SIZE));
+        let bucket = spatialHash.get(key);
+        if (!bucket) { bucket = []; spatialHash.set(key, bucket); }
+        bucket.push(e);
     }
 }
+
+// Shared result buffer — getEnemiesNear is only ever consumed immediately and
+// never called re-entrantly, so one reusable array avoids per-projectile
+// allocations in the collision loop.
+const _nearBuf = [];
 
 function getEnemiesNear(x, y, radius) {
     const rCells = Math.ceil(radius / CELL_SIZE);
     const cx     = Math.floor(x / CELL_SIZE);
     const cy     = Math.floor(y / CELL_SIZE);
-    const result = [];
+    _nearBuf.length = 0;
     for (let i = cx - rCells; i <= cx + rCells; i++) {
         for (let j = cy - rCells; j <= cy + rCells; j++) {
-            const bucket = spatialHash.get(`${i},${j}`);
+            const bucket = spatialHash.get(_cellKey(i, j));
             if (bucket) {
                 for (let k = 0; k < bucket.length; k++) {
                     if (Math.hypot(bucket[k].x - x, bucket[k].y - y) <= radius)
-                        result.push(bucket[k]);
+                        _nearBuf.push(bucket[k]);
                 }
             }
         }
     }
-    return result;
+    return _nearBuf;
 }
 
 function checkCollisions() {
@@ -770,15 +821,24 @@ function checkCollisions() {
         const p = poolProjectiles[j];
         if (!p.active) continue;
 
-        const targets = getEnemiesNear(p.x, p.y, p.radius + 15);
-
-        // Types that never deal direct collision damage
+        // Types that never deal direct collision damage — skip before the
+        // (comparatively expensive) neighbourhood query.
         if (p.type === 'lov_controller' || p.type === 'meteor_pending' ||
             (p.type === 'heavens_drive' && p.pendingFor > 0)) continue;
+
+        const targets = getEnemiesNear(p.x, p.y, p.radius + 15);
 
         for (let k = 0; k < targets.length; k++) {
             const e = targets[k];
             if (p.hitList && p.hitList.has(e)) continue;
+
+            // Orbital 'hitbox' projectiles respawn every frame, which made their
+            // damage frame-rate dependent (60 hits/s at 60 Hz, 144 at 144 Hz).
+            // A short per-enemy immunity window fixes the cadence: ~3 hits/s.
+            if (p.type === 'hitbox') {
+                if (elapsedTime < (e.orbImmuneUntil || 0)) continue;
+                e.orbImmuneUntil = elapsedTime + 0.35;
+            }
 
             // Fine ellipse check for storm_gust (broad circle pass already done above)
             if (p.type === 'storm_gust') {
@@ -1302,7 +1362,9 @@ function drawEverything() {
         if (e.def.isBoss || e.def.isElite) {
             const bw     = e.def.isBoss ? 100 : 50;
             const by     = e.def.isBoss ? 52  : 26;
-            const hpPct  = Math.max(0, e.hp / e.def.hp);
+            // maxHp is the difficulty-scaled spawn HP; def.hp is the unscaled
+            // base and made elite bars overflow far beyond their width.
+            const hpPct  = Math.max(0, Math.min(1, e.hp / (e.maxHp || e.def.hp)));
             const barClr = hpPct > 0.5 ? '#2ecc71' : hpPct > 0.25 ? '#f39c12' : '#e74c3c';
             ctx.fillStyle = 'rgba(0,0,0,0.7)';
             ctx.beginPath(); ctx.roundRect(ex - bw / 2, ey + by, bw, 8, 4); ctx.fill();
@@ -1327,11 +1389,15 @@ function drawEverything() {
     }
     ctx.globalAlpha = 1.0;
 
-    // ── Vignette ──
-    const grad = ctx.createRadialGradient(cw / 2, ch / 2, cw * 0.3, cw / 2, ch / 2, cw * 0.8);
-    grad.addColorStop(0, 'transparent');
-    grad.addColorStop(1, 'rgba(0,0,0,0.45)');
-    ctx.fillStyle = grad;
+    // ── Vignette (gradient cached — rebuilding it every frame churned GC) ──
+    if (!_vignette || _vignetteW !== cw || _vignetteH !== ch) {
+        _vignette = ctx.createRadialGradient(cw / 2, ch / 2, cw * 0.3, cw / 2, ch / 2, cw * 0.8);
+        _vignette.addColorStop(0, 'transparent');
+        _vignette.addColorStop(1, 'rgba(0,0,0,0.45)');
+        _vignetteW = cw;
+        _vignetteH = ch;
+    }
+    ctx.fillStyle = _vignette;
     ctx.fillRect(0, 0, cw, ch);
 
     // ── Off-screen chest arrows (drawn after vignette so they're always visible) ──

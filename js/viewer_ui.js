@@ -13,6 +13,13 @@ const EYE_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"
 const SPEAKER_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>`;
 
 
+// --- HELPERS ---
+function escapeHtml(s) {
+    return String(s ?? '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 // --- STATE ---
 let currentBlockIndex = 0;
 let isLibraryView = true;
@@ -28,21 +35,33 @@ function showErrorModal(message, onRetry) {
     overlay.id = 'error-modal-overlay';
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:9999;';
     const box = document.createElement('div');
-    box.style.cssText = 'background:var(--bg-card,#1e1e2e);color:var(--text-primary,#cdd6f4);border:1px solid var(--border-color,#45475a);border-radius:12px;padding:28px 24px;max-width:380px;width:90%;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,0.5);';
+    box.style.cssText = 'background:var(--surface-color);color:var(--text-main);border:1px solid var(--border-color);border-radius:12px;padding:28px 24px;max-width:380px;width:90%;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,0.5);';
     box.innerHTML = `<div style="font-size:2rem;margin-bottom:12px;">⚠️</div>
         <div style="font-weight:700;font-size:1.05rem;margin-bottom:8px;">Something went wrong</div>
-        <div style="font-size:0.85rem;opacity:0.75;margin-bottom:20px;line-height:1.5;word-break:break-word;">${message}</div>
+        <div style="font-size:0.85rem;opacity:0.75;margin-bottom:20px;line-height:1.5;word-break:break-word;">${escapeHtml(message)}</div>
         <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;" id="error-modal-btns"></div>`;
     const btnRow = box.querySelector('#error-modal-btns');
     const menuBtn = document.createElement('button');
     menuBtn.textContent = '← Main Menu';
-    menuBtn.style.cssText = 'padding:9px 18px;border-radius:8px;border:1px solid var(--border-color,#45475a);background:transparent;color:var(--text-primary,#cdd6f4);cursor:pointer;font-size:0.9rem;';
+    menuBtn.style.cssText = 'padding:9px 18px;border-radius:8px;border:1px solid var(--border-color);background:transparent;color:var(--text-main);cursor:pointer;font-size:0.9rem;';
     menuBtn.onclick = () => { overlay.remove(); renderLibrary(); };
     btnRow.appendChild(menuBtn);
-    if (onRetry) {
+    // Missing/invalid API key → retrying is pointless; route the user to Settings instead.
+    const isKeyProblem = /api key/i.test(String(message));
+    if (isKeyProblem) {
+        const settingsBtn = document.createElement('button');
+        settingsBtn.textContent = '⚙️ Open Settings';
+        settingsBtn.style.cssText = 'padding:9px 18px;border-radius:8px;border:none;background:var(--primary-color);color:#fff;cursor:pointer;font-weight:700;font-size:0.9rem;';
+        settingsBtn.onclick = () => {
+            overlay.remove();
+            document.querySelector('.nav-btn[data-target="view-settings"]')?.click();
+        };
+        btnRow.appendChild(settingsBtn);
+    }
+    if (onRetry && !isKeyProblem) {
         const retryBtn = document.createElement('button');
         retryBtn.textContent = '↺ Try Again';
-        retryBtn.style.cssText = 'padding:9px 18px;border-radius:8px;border:none;background:var(--accent-color,#cba6f7);color:#1e1e2e;cursor:pointer;font-weight:700;font-size:0.9rem;';
+        retryBtn.style.cssText = 'padding:9px 18px;border-radius:8px;border:none;background:var(--primary-color);color:#fff;cursor:pointer;font-weight:700;font-size:0.9rem;';
         retryBtn.onclick = async () => { overlay.remove(); await onRetry(); };
         btnRow.appendChild(retryBtn);
     }
@@ -79,7 +98,71 @@ export function initViewer() {
         if (!isLibraryView) renderBlock(currentBlockIndex);
     });
 
+    // Single delegated click listener for speak buttons and word popups.
+    // Registered ONCE here — previously this was re-attached on every
+    // renderBlock() call, so handlers accumulated and fired N times per click
+    // (breaking the speak-button toggle after a few page turns).
+    storyContentDiv.addEventListener('click', _onStoryContentClick);
+
     renderLibrary();
+}
+
+function _onStoryContentClick(e) {
+    // Sentence speak
+    const speakBtn = e.target.closest('.btn-sentence-speak');
+    if (speakBtn) {
+        e.stopPropagation();
+        let jaText = '';
+        try { jaText = decodeURIComponent(speakBtn.getAttribute('data-ja') || ''); }
+        catch (_) { jaText = speakBtn.getAttribute('data-ja') || ''; }
+
+        // Toggle: if same button is active, stop
+        if (activeSpeakBtn === speakBtn) {
+            stopSpeech();
+            speakBtn.style.opacity = '0.7';
+            speakBtn.style.color = '';
+            activeSpeakBtn = null;
+            return;
+        }
+
+        // Reset previous active button
+        if (activeSpeakBtn) {
+            activeSpeakBtn.style.opacity = '0.7';
+            activeSpeakBtn.style.color = '';
+            activeSpeakBtn = null;
+        }
+
+        activeSpeakBtn = speakBtn;
+        speakBtn.style.opacity = '1';
+        speakBtn.style.color = 'var(--primary-color)';
+
+        speakText(jaText,
+            () => { /* onStart */ },
+            () => {
+                speakBtn.style.opacity = '0.7';
+                speakBtn.style.color = '';
+                if (activeSpeakBtn === speakBtn) activeSpeakBtn = null;
+            }
+        );
+        return;
+    }
+
+    // Word click
+    const wordEl = e.target.closest('.clickable-word');
+    if (wordEl) {
+        e.stopPropagation();
+        try {
+            const wordData = JSON.parse(decodeURIComponent(wordEl.getAttribute('data-word')));
+            openPopup(wordData, {
+                onSave: (wd, newStatus) => {
+                    srsDb.saveWord({ word: wd.base, furi: wd.furi, translation: wd.trans_base, status: newStatus });
+                    closePopup();
+                    if (!isLibraryView) renderBlock(currentBlockIndex);
+                    sessionStorage.setItem('srs-dirty', '1');
+                }
+            });
+        } catch(err) {}
+    }
 }
 
 function renderLibrary() {
@@ -396,7 +479,7 @@ function renderLibrary() {
         const infoDiv = document.createElement('div');
         infoDiv.innerHTML = `
             <div style="font-weight: bold; font-size: 16px;">
-                ${story.title}
+                ${escapeHtml(story.title)}
                 <span class="story-badge ${badgeClass}">${badgeText}</span>
             </div>
             <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Blocks: ${story.blocks.length} • ${new Date(story.created).toLocaleDateString()}</div>
@@ -486,7 +569,7 @@ function renderWordHtml(wordObj, useBgHighlight) {
 // Helper: render inline sentence-level action buttons (eye + speaker) + translation box
 let _sentenceBtnCounter = 0;
 function sentenceActionButtons(transText, jaText) {
-    const safeJa = jaText.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+    const safeJa = encodeURIComponent(jaText);
     const speakBtn = `<button class="btn-sentence-speak" data-ja="${safeJa}" title="Read aloud" style="margin-left:3px; background:none; border:none; cursor:pointer; color:var(--text-muted); padding:2px; line-height:1; display:inline-flex; align-items:center; opacity:0.7; transition:opacity 0.15s;">${SPEAKER_ICON}</button>`;
     if (!transText) return speakBtn;
     const uid = `strans-${_sentenceBtnCounter++}`;
@@ -642,7 +725,7 @@ function renderBlock(index) {
                 }
 
                 const optTransId = `opt-trans-${optLetter}`;
-                const safeOptRaw = optTextRaw.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+                const safeOptRaw = encodeURIComponent(optTextRaw);
                 html += `
                     <div class="option-row" style="display:flex; align-items:center; gap:10px; background:var(--surface-color); padding:10px; border-radius:8px; border: 2px solid var(--primary-color);">
                         <div style="flex:1;">
@@ -724,64 +807,10 @@ function renderBlock(index) {
         };
     }
 
-    // ── Per-sentence speak buttons ───────────────────────────────────────────
-    storyContentDiv.addEventListener('click', (e) => {
-        // Sentence speak
-        const speakBtn = e.target.closest('.btn-sentence-speak');
-        if (speakBtn) {
-            e.stopPropagation();
-            const jaText = decodeURIComponent(speakBtn.getAttribute('data-ja') || '').replace(/&#39;/g, "'").replace(/&quot;/g, '"');
+    // (Speak buttons and word popups are handled by the single delegated
+    //  listener attached once in initViewer — see _onStoryContentClick.)
 
-            // Toggle: if same button is active, stop
-            if (activeSpeakBtn === speakBtn) {
-                stopSpeech();
-                speakBtn.style.opacity = '0.7';
-                speakBtn.style.color = '';
-                activeSpeakBtn = null;
-                return;
-            }
-
-            // Reset previous active button
-            if (activeSpeakBtn) {
-                activeSpeakBtn.style.opacity = '0.7';
-                activeSpeakBtn.style.color = '';
-                activeSpeakBtn = null;
-            }
-
-            activeSpeakBtn = speakBtn;
-            speakBtn.style.opacity = '1';
-            speakBtn.style.color = 'var(--primary-color)';
-
-            speakText(jaText,
-                () => { /* onStart */ },
-                () => {
-                    speakBtn.style.opacity = '0.7';
-                    speakBtn.style.color = '';
-                    if (activeSpeakBtn === speakBtn) activeSpeakBtn = null;
-                }
-            );
-            return;
-        }
-
-        // Word click
-        const wordEl = e.target.closest('.clickable-word');
-        if (wordEl) {
-            e.stopPropagation();
-            try {
-                const wordData = JSON.parse(decodeURIComponent(wordEl.getAttribute('data-word')));
-                openPopup(wordData, {
-                    onSave: (wd, newStatus) => {
-                        srsDb.saveWord({ word: wd.base, furi: wd.furi, translation: wd.trans_base, status: newStatus });
-                        closePopup();
-                        if (!isLibraryView) renderBlock(currentBlockIndex);
-                        sessionStorage.setItem('srs-dirty', '1');
-                    }
-                });
-            } catch(e) {}
-        }
-    });
-
-    document.querySelectorAll('.btn-sentence-trans').forEach(btn => {
+    storyContentDiv.querySelectorAll('.btn-sentence-trans').forEach(btn => {
         btn.onclick = (e) => {
             const uid = e.currentTarget.getAttribute('data-target');
             const transBox = uid ? document.getElementById(uid) : null;
@@ -791,7 +820,7 @@ function renderBlock(index) {
         };
     });
 
-    document.querySelectorAll('.option-go-btn').forEach(btn => {
+    storyContentDiv.querySelectorAll('.option-go-btn').forEach(btn => {
         btn.onclick = () => triggerGeneration(btn.getAttribute('data-option'));
     });
 

@@ -1,15 +1,18 @@
 import { ChaoStateManager, createNewChi, getChiTrueStat } from './chao_state.js';
 import { syncEconomy } from './chao_economy.js';
 import { GameVocabManager } from '../../game_vocab_mgr.js';
+import { showGameQuiz, setGvmTheme } from '../../game_vocab_mgr_ui.js';
 import { ChaoGarden3D } from './chao_garden_ui.js';
 import { MatsuriPageant } from './chao_pageant.js';
 import { renderNikkiTab } from './chao_nikki_ui.js';
 import { renderMarketTab, MARKET_ITEMS } from './chao_market_ui.js';
 import { renderDebugTab } from './chao_debug_ui.js';
+import { renderStudyTab } from './chao_study_ui.js';
 import { generateNikkiEntry } from './chao_nikki_mgr.js';
 import { ChaoRace3D } from './chao_race.js';
 import { ChaoKarate3D } from './chao_karate.js';
 import * as srsDb from '../../srs_db.js';
+import { getKeyList } from '../../ai_api.js';
 
 // ==========================================
 // 1. MODULE VARIABLES
@@ -26,6 +29,7 @@ let _toastTimeout = null;
 let _activeViewedChiId = null;
 let _statTweenId = null;
 let _displayStats = {};
+let _docPointerHandler = null;
 
 // ==========================================
 // 2. HOISTED UTILITY FUNCTIONS
@@ -86,8 +90,9 @@ function handlePetChi(chiId) {
     if (chi) {
         chi.connection += 1;
         _state.save();
-        showToast(`Pet ${chi.name}! Connection +1 💖`);
+        showToast(`Pet ${chi.name}! Bond +1 💖`);
         if (_garden3D) _garden3D.triggerHappyBounce(chiId);
+        if (_activeViewedChiId === chiId) renderSA2StatWindow(chi);
     }
 }
 
@@ -143,7 +148,13 @@ function renderSA2StatWindow(chi) {
         _displayStats[stat] = getChiTrueStat(chi, stat);
     });
 
-    win.innerHTML = `<div class="sa2-stat-title">${chi.name}</div>` + Object.keys(statLabels).map(stat => {
+    const bondHtml = `
+        <div style="text-align:center; font-size:11px; color:#fff; -webkit-text-stroke: 0.4px black; margin-bottom:6px;"
+             title="Raise by petting, feeding, and helping your Chi. Boosts pageant appeal and cheer power!">
+            💖 Bond: ${chi.connection || 0}
+        </div>`;
+
+    win.innerHTML = `<div class="sa2-stat-title">${chi.name}</div>` + bondHtml + Object.keys(statLabels).map(stat => {
         const trueVal = Math.floor(_displayStats[stat]);
         const lvl = Math.floor(trueVal / 100);
         const pts = trueVal % 100;
@@ -192,10 +203,16 @@ function updateUI() {
             el.addEventListener('click', (e) => {
                 const fid = e.currentTarget.getAttribute('data-id');
                 const stat = e.currentTarget.getAttribute('data-stat');
-                
+                const chi = _state.getActiveChi(); // resolve at click time
+                if (!chi) return;
+
                 if (_state.data.fruits[fid] > 0) {
+                    if (!_garden3D) {
+                        showToast('The garden is still loading...');
+                        return; // don't consume the fruit before it can be eaten
+                    }
                     if (!chi.statPoints) chi.statPoints = { stamina: 0, strength: 0, agility: 0, wisdom: 0, swim: 0, fly: 0 };
-                    
+
                     if (chi.stats[stat] === 99 && chi.statPoints[stat] >= 99) {
                         showToast(`${chi.name}'s ${stat.toUpperCase()} is already MAX level!`);
                         return;
@@ -203,31 +220,92 @@ function updateUI() {
 
                     _state.data.fruits[fid]--;
                     _state.save();
-                    updateUI(); 
+                    updateUI();
 
-                    if (_garden3D) {
-                        _garden3D.spawnFruit(stat, () => {
-                            chi.statPoints[stat] += 25;
-                            
-                            if (chi.statPoints[stat] >= 100) {
-                                chi.statPoints[stat] -= 100;
-                                chi.stats[stat] = Math.min(99, chi.stats[stat] + 1);
-                                if (chi.stats[stat] === 99 && chi.statPoints[stat] > 99) chi.statPoints[stat] = 99;
-                                showToast(`${chi.name}'s ${stat.toUpperCase()} LEVEL UP!`);
-                            }
-                            
-                            chi.connection += 2;
-                            _state.save();
-                            startStatTween();
-                        });
-                    }
+                    _garden3D.spawnFruit(stat, () => {
+                        chi.statPoints[stat] += 25;
+
+                        if (chi.statPoints[stat] >= 100) {
+                            chi.statPoints[stat] -= 100;
+                            chi.stats[stat] = Math.min(99, chi.stats[stat] + 1);
+                            if (chi.stats[stat] === 99 && chi.statPoints[stat] > 99) chi.statPoints[stat] = 99;
+                            showToast(`${chi.name}'s ${stat.toUpperCase()} LEVEL UP!`);
+                        }
+
+                        chi.connection += 2;
+                        _state.save();
+                        startStatTween();
+                    });
                 }
             });
         });
     }
 }
 
+// ── Shared refresh after any purchase / state change from a sub-tab ─────────
+function onShopChanged() {
+    updateUI();
+    renderChiSelector();
+    if (_garden3D) _garden3D.syncChis();
+}
+
+function applyDebugVisibility() {
+    const dbgBtn = _screens.setup.querySelector('#chao-debug-tab-btn');
+    if (dbgBtn) dbgBtn.style.display = _state.data.debugUnlocked ? '' : 'none';
+}
+
+function renderStudyTabHere(container) {
+    renderStudyTab(container, _state, _vocabMgr, {
+        overlayHost: _screens.setup.querySelector('.chao-root'),
+        showToast,
+        onSeishinChanged: updateUI,
+    });
+}
+
+/**
+ * One-shot "Cheer" quiz used by the Race and Karate spectator mechanics.
+ * Calls onResult(true|false) after an answer, or onResult(null) if no
+ * vocabulary is available.
+ */
+function showCheerQuiz(onResult) {
+    const host = _screens.setup.querySelector('.chao-root');
+    if (!_vocabMgr || _vocabMgr.getStats().totalPoolSize === 0) {
+        showToast('No vocabulary available — learn some words first!');
+        onResult(null);
+        return;
+    }
+    setGvmTheme('dark');
+    _vocabMgr.pause();
+    showGameQuiz(_vocabMgr, {
+        container: host,
+        title: '📣 Cheer!',
+        titleColor: '#f1c40f',
+        subtitle: 'Answer correctly to fire up your Chi!',
+        showFurigana: true,
+        optionCount: 4,
+        onAnswer: (isCorrect) => {
+            _vocabMgr.resume();
+            onResult(isCorrect);
+        },
+        onEmpty: () => {
+            _vocabMgr.resume();
+            showToast('No words available right now!');
+            onResult(null);
+        }
+    });
+}
+
+function awardSeishin(amount, reason) {
+    _state.data.seishin += amount;
+    _state.data.stats.totalSeishinEarned = (_state.data.stats.totalSeishinEarned || 0) + amount;
+    _state.save();
+    updateUI();
+    if (reason) showToast(`${reason} +${amount} 🌸`);
+}
+
 async function checkAllDailyNikkis() {
+    // Diaries need the AI backend — degrade silently when no key is set.
+    if (getKeyList().length === 0) return;
     for (const chi of _state.data.chis) {
         await checkDailyNikki(chi);
     }
@@ -307,10 +385,11 @@ export function init(screens, onExit) {
             
             <div class="chao-tab-bar">
                 <button class="chao-tab-btn active" data-tab="chao-tab-garden">Garden</button>
+                <button class="chao-tab-btn" data-tab="chao-tab-study">Study</button>
                 <button class="chao-tab-btn" data-tab="chao-tab-market">Market</button>
                 <button class="chao-tab-btn" data-tab="chao-tab-compete">Compete</button>
                 <button class="chao-tab-btn" data-tab="chao-tab-nikki">Diary</button>
-                <button class="chao-tab-btn" data-tab="chao-tab-debug">Debug</button>
+                <button class="chao-tab-btn" data-tab="chao-tab-debug" id="chao-debug-tab-btn" style="display:none;">Debug</button>
             </div>
             
             <div class="chao-screen active" id="chao-tab-garden">
@@ -320,6 +399,8 @@ export function init(screens, onExit) {
                 <div id="feed-menu" class="chao-feed-menu"></div>
             </div>
             
+            <div class="chao-screen" id="chao-tab-study"></div>
+
             <div class="chao-screen" id="chao-tab-market"></div>
             
             <div class="chao-screen" id="chao-tab-compete">
@@ -355,10 +436,34 @@ export function init(screens, onExit) {
             }
             
             if (targetId === 'chao-tab-nikki') renderNikkiTab(container, _state);
-            else if (targetId === 'chao-tab-market') renderMarketTab(container, _state, showToast, updateUI);
-            else if (targetId === 'chao-tab-debug') renderDebugTab(container, _state, showToast, updateUI);
+            else if (targetId === 'chao-tab-market') renderMarketTab(container, _state, showToast, onShopChanged);
+            else if (targetId === 'chao-tab-study') renderStudyTabHere(container);
+            else if (targetId === 'chao-tab-debug') renderDebugTab(container, _state, showToast, onShopChanged);
             else updateUI();
         });
+    });
+
+    // ── Hidden debug unlock: tap the 🌸 Seishin counter 5 times quickly ──────
+    let _debugTaps = 0;
+    let _debugTapTimer = null;
+    _screens.setup.querySelector('.chao-currencies').addEventListener('click', () => {
+        _debugTaps++;
+        if (_debugTapTimer) clearTimeout(_debugTapTimer);
+        _debugTapTimer = setTimeout(() => { _debugTaps = 0; }, 2000);
+        if (_debugTaps >= 5) {
+            _debugTaps = 0;
+            _state.data.debugUnlocked = !_state.data.debugUnlocked;
+            _state.save();
+            applyDebugVisibility();
+            showToast(_state.data.debugUnlocked ? '🛠 Debug tools unlocked!' : '🛠 Debug tools hidden.');
+            if (!_state.data.debugUnlocked) {
+                // If the debug tab was open, bounce back to the garden.
+                const dbgBtn = _screens.setup.querySelector('#chao-debug-tab-btn');
+                if (dbgBtn.classList.contains('active')) {
+                    _screens.setup.querySelector('.chao-tab-btn[data-tab="chao-tab-garden"]').click();
+                }
+            }
+        }
     });
 
     _screens.setup.querySelector('#chao-exit-btn').addEventListener('click', () => {
@@ -385,7 +490,12 @@ export function init(screens, onExit) {
         requestAnimationFrame(() => {
             const renderArea = minigameContainer.querySelector('#pageant-render-area');
             const uiOverlay = minigameContainer.querySelector('#pageant-ui-overlay');
-            _pageant3D = new MatsuriPageant(_vocabMgr, _state, renderArea, uiOverlay);
+            _pageant3D = new MatsuriPageant(_vocabMgr, _state, renderArea, uiOverlay, (appeal, reward) => {
+                // Pageant awards + saves internally; refresh shell UI here.
+                updateUI();
+                if (appeal >= 80) showToast(`🏆 Pageant won! +${reward} 🌸`);
+                else showToast(`🎭 Pageant finished — +${reward} 🌸`);
+            });
             _pageant3D.startPageant();
         });
     });
@@ -393,21 +503,76 @@ export function init(screens, onExit) {
     _screens.setup.querySelector('#btn-start-race').addEventListener('click', () => {
         if (_karate3D) { _karate3D.destroy(); _karate3D = null; }
         if (_pageant3D) { _pageant3D.destroy(); _pageant3D = null; }
-        
+
+        let cheersLeft = 3;
+        let cheerBusy = false;
+
         minigameContainer.innerHTML = `
             <div id="race-render-area" style="background: #87CEEB;"></div>
             <div id="race-ui-overlay" style="margin-top: 10px; text-align: center; flex-shrink: 0;">
                 <h4 style="color:#f1fa8c; margin:0 0 5px 0;">Race Started!</h4>
-                <p style="font-size: 13px; color: #bbb; margin:0;">Chis will use their Run, Fly, Swim, and Power stats to navigate the course!</p>
+                <p style="font-size: 13px; color: #bbb; margin:0 0 8px 0;">Chis use their Run, Fly, Swim, and Power stats to navigate the course!</p>
+                <button id="btn-race-cheer" class="chao-action-btn" style="margin:0; padding:8px 16px; background:#f1c40f; color:#282a36;">📣 Cheer (3 left)</button>
             </div>
         `;
-        
+
         requestAnimationFrame(() => {
             const renderArea = minigameContainer.querySelector('#race-render-area');
             if (_race3D) _race3D.destroy();
-            _race3D = new ChaoRace3D(renderArea, _state, (winner) => {
-                const ui = minigameContainer.querySelector('#race-ui-overlay');
-                ui.innerHTML = `<h3 style="color:#50fa7b; margin:0;">🏁 ${winner.name} Wins! 🏁</h3>`;
+
+            const chi = _state.getActiveChi();
+            _race3D = new ChaoRace3D(renderArea, _state, {
+                onWinner: (winner) => {
+                    const h = minigameContainer.querySelector('#race-ui-overlay h4');
+                    if (h) h.textContent = `🏁 ${winner.name} takes 1st place!`;
+                },
+                onPlayerFinish: (place, total) => {
+                    const rewards = [50, 30, 20, 10, 5];
+                    const reward = rewards[Math.min(place, rewards.length) - 1] || 5;
+                    const medals = ['🥇', '🥈', '🥉'];
+                    const medal = medals[place - 1] || '🏳';
+
+                    if (place === 1) {
+                        _state.data.stats.totalRacesWon = (_state.data.stats.totalRacesWon || 0) + 1;
+                    }
+                    awardSeishin(reward, place === 1 ? '🥇 Race won!' : `${medal} Finished ${place}/${total}!`);
+
+                    const ui = minigameContainer.querySelector('#race-ui-overlay');
+                    if (ui) {
+                        ui.innerHTML = `
+                            <h3 style="color:${place === 1 ? '#50fa7b' : '#f1fa8c'}; margin:0 0 5px 0;">${medal} ${chi.name} finished ${place}${place === 1 ? 'st' : place === 2 ? 'nd' : place === 3 ? 'rd' : 'th'} of ${total}!</h3>
+                            <p style="color:#50fa7b; margin:0 0 8px 0;">Prize: <b>+${reward} 🌸 Seishin</b></p>
+                            <button id="btn-race-again" class="chao-action-btn" style="margin:0; padding:8px 16px;">🏁 Race Again</button>
+                        `;
+                        ui.querySelector('#btn-race-again').addEventListener('click', () => {
+                            _screens.setup.querySelector('#btn-start-race').click();
+                        });
+                    }
+                }
+            });
+
+            const cheerBtn = minigameContainer.querySelector('#btn-race-cheer');
+            cheerBtn.addEventListener('click', () => {
+                if (cheerBusy || cheersLeft <= 0 || !_race3D) return;
+                cheerBusy = true;
+                _race3D.pause();
+                showCheerQuiz((isCorrect) => {
+                    cheerBusy = false;
+                    if (_race3D) _race3D.resume();
+                    if (isCorrect === null) return;
+                    cheersLeft--;
+                    if (cheerBtn.isConnected) {
+                        cheerBtn.textContent = `📣 Cheer (${cheersLeft} left)`;
+                        cheerBtn.disabled = cheersLeft <= 0;
+                    }
+                    if (isCorrect && _race3D) {
+                        const duration = 4 + Math.min(6, (chi.connection || 0) / 10);
+                        _race3D.applyCheer(1.6, duration);
+                        showToast(`📣 ${chi.name} surges ahead! (${duration.toFixed(0)}s boost)`);
+                    } else if (!isCorrect) {
+                        showToast('The cheer fell flat...');
+                    }
+                });
             });
         });
     });
@@ -436,24 +601,71 @@ export function init(screens, onExit) {
                 <div id="karate-log" style="height: 80px; overflow-y: auto; background: #151520; border: 1px solid #444; border-radius: 6px; padding: 8px; font-size: 12px; color: #eee; font-family: monospace;">
                     Waiting to start...
                 </div>
+                <div style="text-align:center;">
+                    <button id="btn-karate-cheer" class="chao-action-btn" style="margin:0; padding:8px 16px; background:#f1c40f; color:#282a36;">📣 Cheer (once per match)</button>
+                </div>
                 <div id="karate-result" style="text-align: center; font-weight: bold; font-size: 16px;"></div>
             </div>
         `;
-        
+
         requestAnimationFrame(() => {
             const renderArea = minigameContainer.querySelector('#karate-render-area');
             if (_karate3D) _karate3D.destroy();
-            _karate3D = new ChaoKarate3D(renderArea, _state, minigameContainer);
+
+            const chi = _state.getActiveChi();
+            _karate3D = new ChaoKarate3D(renderArea, _state, minigameContainer, (playerWon) => {
+                const cheerBtn = minigameContainer.querySelector('#btn-karate-cheer');
+                if (cheerBtn) cheerBtn.disabled = true;
+
+                if (playerWon) {
+                    _state.data.stats.totalKarateWins = (_state.data.stats.totalKarateWins || 0) + 1;
+                    awardSeishin(40, '🥋 Match won!');
+                } else {
+                    awardSeishin(5, '🥋 Fight money:');
+                }
+
+                const resultEl = minigameContainer.querySelector('#karate-result');
+                if (resultEl) {
+                    resultEl.innerHTML += `
+                        <div style="margin-top:6px;">
+                            <span style="color:#50fa7b; font-size:13px;">+${playerWon ? 40 : 5} 🌸 Seishin</span>
+                            <button id="btn-karate-rematch" class="chao-action-btn" style="margin:0 0 0 10px; padding:6px 14px; font-size:13px;">🥋 Rematch</button>
+                        </div>
+                    `;
+                    resultEl.querySelector('#btn-karate-rematch').addEventListener('click', () => {
+                        _screens.setup.querySelector('#btn-start-karate').click();
+                    });
+                }
+            });
+
+            const cheerBtn = minigameContainer.querySelector('#btn-karate-cheer');
+            let cheerBusy = false;
+            cheerBtn.addEventListener('click', () => {
+                if (cheerBusy || !_karate3D || _karate3D.isMatchOver) return;
+                cheerBusy = true;
+                _karate3D.pause();
+                showCheerQuiz((isCorrect) => {
+                    cheerBusy = false;
+                    if (_karate3D) _karate3D.resume();
+                    if (isCorrect === null) return;
+                    if (cheerBtn.isConnected) cheerBtn.disabled = true;
+                    if (_karate3D) _karate3D.applyCheer(isCorrect, chi.connection || 0);
+                });
+            });
         });
     });
 
-    document.addEventListener('pointerdown', (e) => {
+    // init() runs on every game open — remove the previous document-level
+    // listener first so handlers don't accumulate across launches.
+    if (_docPointerHandler) document.removeEventListener('pointerdown', _docPointerHandler);
+    _docPointerHandler = (e) => {
         const statWindow = _screens.setup.querySelector('#sa2-stat-window');
         const renderArea = _screens.setup.querySelector('#cg-render-area');
         if (statWindow && statWindow.style.display === 'block') {
             if (renderArea && !renderArea.contains(e.target)) renderSA2StatWindow(null);
         }
-    });
+    };
+    document.addEventListener('pointerdown', _docPointerHandler);
 }
 
 export function launch() {
@@ -464,32 +676,34 @@ export function launch() {
     if (earned > 0) {
         showToast(`Earned ${formatSeishin(earned)} Seishin from studying!`);
     }
-    
+
     if (_state.data.chis.length === 0) {
         _state.data.chis.push(createNewChi('Pochi'));
         _state.data.activeChiId = _state.data.chis[0].id;
         _state.save();
     }
 
-    if (!_state.data.chis.find(c => c.name === 'GodChi')) {
-        let superChi = createNewChi('GodChi');
-        superChi.stats = { stamina: 99, strength: 99, agility: 99, wisdom: 99, swim: 99, fly: 99 };
-        superChi.statPoints = { stamina: 99, strength: 99, agility: 99, wisdom: 99, swim: 99, fly: 99 };
-        _state.data.chis.push(superChi);
-        _state.save();
+    // ── Vocab manager: player's real SRS library, live scheduling ────────────
+    setGvmTheme('dark');
+    _vocabMgr = new GameVocabManager({
+        ...GameVocabManager.defaultConfig(),
+        ...(_state.data.vocabConfig || {}),
+    });
+    const srsPool = GameVocabManager.loadSrsPool();
+    if (srsPool.length > 0) {
+        _vocabMgr.setPool(srsPool, 'chao_banned', { globalSrs: true });
     }
 
-    if (!_state.data.chis.find(c => c.name === 'MidChi')) {
-        let midChi = createNewChi('MidChi');
-        midChi.stats = { stamina: 20, strength: 20, agility: 20, wisdom: 20, swim: 20, fly: 20 };
-        midChi.statPoints = { stamina: 0, strength: 0, agility: 0, wisdom: 0, swim: 0, fly: 0 };
-        _state.data.chis.push(midChi);
-        _state.save();
-    }
-    
+    applyDebugVisibility();
     renderChiSelector();
     updateUI();
     checkAllDailyNikkis();
+
+    // Refresh whichever dynamic tab is currently open.
+    const activeTab = _screens.setup.querySelector('.chao-tab-btn.active');
+    if (activeTab && activeTab.dataset.tab === 'chao-tab-study') {
+        renderStudyTabHere(_screens.setup.querySelector('#chao-tab-study'));
+    }
 
     if (_garden3D) {
         _garden3D.destroy();

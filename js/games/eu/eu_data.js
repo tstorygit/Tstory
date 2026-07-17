@@ -685,8 +685,11 @@ export const EVENT_TEMPLATES = [
         },
         onWrong: ({ g }) => {
             g.stability = Math.max(0, g.stability - 1);
-            const pp = g.provinces.filter(p => p.owner === 'player');
-            if (pp.length) pp[Math.floor(Math.random() * pp.length)].unrest = Math.min(100, pp[0].unrest + 20);
+            const pp = g.provinces.filter(p => p.owner === 'player' && !p.cored);
+            if (pp.length) {
+                const t = pp[Math.floor(Math.random() * pp.length)];
+                t.unrest = Math.min(100, t.unrest + 20);
+            }
             return 'Misunderstanding! −1 Stability, +20 Unrest';
         },
     },

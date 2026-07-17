@@ -6,7 +6,7 @@ import { showGameQuiz } from '../../game_vocab_mgr_ui.js';
 import { generateStage } from './leg_map.js';
 import { initEngine, stopEngine } from './leg_engine.js';
 import { initInput, cleanupInput } from './leg_input.js';
-import { initUI, updateHUD, setVocabMgr, showDeathScreen } from './leg_ui.js';
+import { initUI, updateHUD, setVocabMgr, showDeathScreen, updateMinimap } from './leg_ui.js';
 import { PERKS } from './leg_entities.js';
 
 let _screens  = null;
@@ -33,6 +33,8 @@ let gameState = {
     ap:          0,
     perks:       {},
     isPaused:    false,
+    secondWinds:    1,  // per-stage "cheat death via vocab" charges
+    maxSecondWinds: 1,
 };
 
 export function init(screens, onExit) {
@@ -153,12 +155,22 @@ function startGame() {
     applyStats();
     gameState.player.hp = gameState.player.maxHp;
     gameState.player.mp = gameState.player.maxMp;
+    gameState.secondWinds = gameState.maxSecondWinds;
+    gameState.isPaused = false;
+
+    // Guard against corrupted/old saves: never start with a locked weapon equipped
+    if (!gameState.unlockedWeapons.includes(gameState.player.equippedWeapon)) {
+        gameState.player.equippedWeapon = 'sword';
+    }
 
     const map = generateStage(gameState.stage, gameState.unlockedWeapons);
-    initEngine(_screens.game.querySelector('#leg-canvas'), gameState, map);
 
+    // IMPORTANT: callbacks must exist BEFORE initEngine — loadRoom fires
+    // onRoomChange during engine init.
     gameState.callbacks = {
         onUIUpdate: () => updateHUD(gameState),
+
+        onRoomChange: () => updateMinimap(gameState, map),
 
         // ── Room entry quiz (Option A) ──────────────────────────────────────
         // Fires after the scroll completes for every uncleared non-start room.
@@ -175,7 +187,7 @@ function startGame() {
         },
 
         onRoomEnter: (room, spawnFn, spawnBuffedFn) => {
-            _quiz({
+            const shown = _quiz({
                 title:     '⚔️ Brace yourself!',
                 titleColor:'#e74c3c',
                 subtitle:  'Answer correctly — wrong answer buffs the enemies!',
@@ -188,11 +200,14 @@ function startGame() {
                     }
                 },
             });
+            // Never let a swallowed quiz leave the room unspawnable (and
+            // therefore unclearable) — spawn normally instead.
+            if (!shown) spawnFn();
         },
 
         // ── Chest quiz (Option D) ──────────────────────────────────────────
         onChestOpen: (weaponId) => {
-            _quiz({
+            const shown = _quiz({
                 title:     '🎁 Treasure Chest!',
                 titleColor:'#f1c40f',
                 subtitle:  'Answer correctly to claim the reward!',
@@ -207,6 +222,7 @@ function startGame() {
                     }
                 },
             });
+            if (!shown) { gameState.player.potions++; updateHUD(gameState); } // never lose the chest silently
         },
 
         // ── Shrine quiz (Option D, player-initiated) ───────────────────────
@@ -230,7 +246,7 @@ function startGame() {
 
         // ── Stairs quiz (Option D) ─────────────────────────────────────────
         onStairsReached: (resetFn) => {
-            _quiz({
+            const shown = _quiz({
                 title:     '🏁 Descend?',
                 titleColor:'#f1c40f',
                 subtitle:  'Answer correctly to proceed to the next stage!',
@@ -245,35 +261,67 @@ function startGame() {
                     }
                 },
             });
+            if (!shown) resetFn(); // quiz swallowed — re-arm the stairs, never dead-lock them
         },
 
         // ── Level up (natural pause — keep as-is) ─────────────────────────
         onExpGained: () => checkLevelUp(),
 
-        // ── Damage — pure ARPG, no quiz ───────────────────────────────────
+        // ── Damage — with the promised "dodge fatal blows" vocab clutch ──
+        // A blow that would kill triggers a Second Wind quiz (limited charges
+        // per stage). Correct: survive at 30% HP with i-frames. Wrong: death.
         onTakeDamage: (dmg) => {
-            gameState.player.hp -= dmg;
-            gameState.player.invincibility = 1.0;
             _runStats.damageTaken += dmg;
-            checkDeath();
+            gameState.player.invincibility = Math.max(gameState.player.invincibility, 1.0);
+            const newHp = gameState.player.hp - dmg;
+
+            if (newHp <= 0 && gameState.secondWinds > 0 && !gameState.isPaused) {
+                gameState.secondWinds--;
+                gameState.player.hp = 1; // cling to life while the quiz is up
+                updateHUD(gameState);
+                _quiz({
+                    title:     '💀 FATAL BLOW!',
+                    titleColor:'#e74c3c',
+                    subtitle:  'Answer correctly to twist away from death!',
+                    onAnswer:  (isCorrect) => {
+                        if (isCorrect) {
+                            gameState.player.hp = Math.max(10, Math.ceil(gameState.player.maxHp * 0.3));
+                            gameState.player.invincibility = 2.5;
+                            _showBanner(`✨ Second Wind! (${gameState.secondWinds} left this stage)`, '#2ecc71');
+                        } else {
+                            gameState.player.hp = 0;
+                            checkDeath();
+                        }
+                        updateHUD(gameState);
+                    },
+                });
+            } else {
+                gameState.player.hp = newHp;
+                checkDeath();
+            }
             updateHUD(gameState);
         },
 
         onItemFound: (type, wid) => handleLootDrop(type, wid),
     };
 
+    initEngine(_screens.game.querySelector('#leg-canvas'), gameState, map);
+
     updateHUD(gameState);
 }
 
 // ── Quiz helper — pauses game, shows quiz, resumes ────────────────────────────
+// Returns true if the quiz was actually shown. Callers that gate progression
+// (room spawns, stairs) MUST provide a fallback when this returns false,
+// otherwise a swallowed quiz can soft-lock the run.
 function _quiz({ title, titleColor, subtitle, onAnswer }) {
     // Guard: don't stack quizzes
-    if (gameState.isPaused) return;
+    if (gameState.isPaused) return false;
 
     gameState.isPaused = true;
     _vocabMgr.pause();
 
-    showGameQuiz(_vocabMgr, {
+    const shown = showGameQuiz(_vocabMgr, {
         container:  _screens.game.querySelector('#leg-ui-layer'),
         title, titleColor, subtitle,
         onAnswer: (isCorrect, word, res) => {
@@ -281,7 +329,23 @@ function _quiz({ title, titleColor, subtitle, onAnswer }) {
             gameState.isPaused = false;
             onAnswer(isCorrect, word, res);
         },
+        onEmpty: () => {
+            // Pool exhausted / nothing available — unfreeze and treat as correct
+            _vocabMgr.resume();
+            gameState.isPaused = false;
+            onAnswer(true, null, null);
+        },
     });
+
+    if (!shown) {
+        // showGameQuiz returned null (empty pool) — onEmpty above already ran,
+        // but guard the paused flag in case it didn't fire.
+        if (gameState.isPaused && !document.querySelector('.gvm-overlay')) {
+            _vocabMgr.resume();
+            gameState.isPaused = false;
+        }
+    }
+    return true;
 }
 
 // ── Banner helper — brief on-screen message ───────────────────────────────────
@@ -295,10 +359,13 @@ function _showBanner(text, bg = '#2c3e50') {
     setTimeout(() => el.remove(), 2500);
 }
 
+let _lvlBusy = false; // prevents stacked level-up overlays on multi-kills
+
 function checkLevelUp() {
-    if (gameState.player.exp >= gameState.player.nextExp && gameState.player.level < 999) {
-        gameState.player.exp     -= gameState.player.nextExp;
-        gameState.player.nextExp  = Math.floor(15 * gameState.player.level);
+    if (!_lvlBusy && !gameState.isPaused &&
+        gameState.player.exp >= gameState.player.nextExp && gameState.player.level < 999) {
+        _lvlBusy = true;
+        gameState.player.exp -= gameState.player.nextExp;
 
         // Freeze immediately so combat stops
         gameState.isPaused = true;
@@ -331,17 +398,21 @@ function checkLevelUp() {
                 subtitle:   'Answer perfectly for +3 Stat Points!',
                 onAnswer: (isCorrect) => {
                     gameState.player.level++;
+                    gameState.player.nextExp = Math.floor(15 * gameState.player.level);
                     gameState.statPoints += isCorrect ? 3 : 1;
+                    applyStats(); // maxHp grows with level — recalc BEFORE the refill
                     gameState.player.hp   = gameState.player.maxHp;
                     gameState.player.mp   = gameState.player.maxMp;
                     _vocabMgr.resume();
                     gameState.isPaused = false;
+                    _lvlBusy = false;
                     updateHUD(gameState);
                     const menuBtn = document.getElementById('leg-btn-menu');
                     if (menuBtn) {
                         menuBtn.style.borderColor = '#e74c3c';
                         setTimeout(() => menuBtn.style.borderColor = '', 2000);
                     }
+                    checkLevelUp(); // catch a second banked level, if any
                 },
             });
         }, { once: true });
@@ -440,6 +511,9 @@ function applyStats() {
     p.maxHp    = 100 + (p.level * 10) + (p.def * 5) + perkHp;
     p.maxMp    = 50  + (p.wis * 10)   + perkMp;
     p.expBonus = (gameState.perks.exp || 0) * 0.1;
+    // Guardian Spirit perk: extra cheat-death charges per stage
+    gameState.maxSecondWinds = 1 + (gameState.perks.dodge || 0);
+    gameState.secondWinds = Math.min(gameState.secondWinds ?? 1, gameState.maxSecondWinds);
 }
 
 function loadMeta() {

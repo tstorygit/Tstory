@@ -157,6 +157,31 @@ function base64ToArrayBuffer(base64) {
     return bytes.buffer;
 }
 
+// ─── ERROR TOAST ─────────────────────────────────────────────────────────────
+// Small non-blocking toast so a failed speaker tap isn't completely silent.
+// Throttled so rapid taps don't stack toasts.
+
+let _lastToastAt = 0;
+
+function _showTtsToast(message) {
+    const now = Date.now();
+    if (now - _lastToastAt < 4000) return;
+    _lastToastAt = now;
+
+    document.getElementById('tts-error-toast')?.remove();
+    const toast = document.createElement('div');
+    toast.id = 'tts-error-toast';
+    toast.setAttribute('role', 'status');
+    toast.textContent = message;
+    toast.style.cssText =
+        'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);' +
+        'max-width:88vw;padding:10px 16px;border-radius:10px;z-index:9500;' +
+        'background:rgba(30,30,40,0.94);color:#fff;font-size:13px;line-height:1.4;' +
+        'box-shadow:0 4px 16px rgba(0,0,0,0.35);text-align:center;pointer-events:none;';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 4000);
+}
+
 // ─── PUBLIC API ──────────────────────────────────────────────────────────────
 
 export async function speakText(text, onStartCallback, onEndCallback) {
@@ -209,9 +234,11 @@ export async function speakText(text, onStartCallback, onEndCallback) {
         console.error("Gemini TTS Error:", e);
         if (speechId === currentSpeechId) {
             if (e.message.includes('blocked by AI filter')) {
-                alert(e.message);
+                _showTtsToast(e.message);
+            } else if (/api key/i.test(e.message)) {
+                _showTtsToast('🔊 Audio needs a Gemini API key — add one in Settings.');
             } else {
-                console.warn("TTS failed silently to prevent spamming alerts.");
+                _showTtsToast('🔊 Audio failed — check your connection or try again.');
             }
             if (onEndCallback) onEndCallback();
         }
@@ -251,7 +278,13 @@ export function stopSpeech() {
     currentSpeechId++;
     if (activeAudio) {
         activeAudio.pause();
+        const oldUrl = activeAudio.src;
         activeAudio.src = "";
+        // Interrupted playback never reaches onended — revoke here to avoid
+        // leaking one blob URL per interrupted utterance.
+        if (oldUrl && oldUrl.startsWith('blob:')) {
+            URL.revokeObjectURL(oldUrl);
+        }
         activeAudio = null;
     }
 }

@@ -7,14 +7,14 @@
  * including SRS scheduling, go through the GameVocabManager instance.
  */
 
-import { mountVocabSelector }  from '../../vocab_selector.js';
+import { mountVocabSelector, getDeckConfig } from '../../vocab_selector.js';
 import { GameVocabManager }    from '../../game_vocab_mgr.js';
 import { renderVocabSettings, poolSourceLabel } from '../../game_vocab_mgr_ui.js';
 import { initInput }          from './surv_input.js';
 import {
     initCanvas, startRun, stop, applyUpgrade, applyHeal, applyPenalty,
     pause, resume, getActiveWeapons, getActivePassives, getElapsedTime,
-    resize as resizeCanvas,
+    getPlayerLevel, resize as resizeCanvas,
 } from './surv_engine.js';
 import {
     initUI, resetGameUI, drawHUD, incrementKill,
@@ -119,13 +119,18 @@ export function init(screens, onExit) {
         onBossWarning: () => showBossWarning(),
     });
 
-    _screens.game.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+    // The game-screen div persists across launches while init() runs on every
+    // launch — guard so the touchmove blocker is only attached once.
+    if (!_screens.game.dataset.survTouchmoveBound) {
+        _screens.game.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+        _screens.game.dataset.survTouchmoveBound = '1';
+    }
 
     // initUI must come before initInput (writes joystick HTML into DOM)
     initUI(
         _screens.game.querySelector('#surv-ui-layer'),
         { applyUpgrade, applyHeal, applyPenalty, pause, resume,
-          getActiveWeapons, getActivePassives, getElapsedTime },
+          getActiveWeapons, getActivePassives, getElapsedTime, getPlayerLevel },
         _getOrCreateVocabMgr(),  // provide initial instance; replaced before each run
         { saveMeta, onLeaveRound: () => returnToCamp() }
     );
@@ -156,6 +161,24 @@ function _getOrCreateVocabMgr() {
             minAccuracy: cfg.minAccuracy,
         },
     });
+
+    // Restore saved local SRS progress BEFORE anything can call saveMeta() —
+    // saveMeta() writes _vocabMgr.exportState() into _meta.vocabState for
+    // local-mode managers, so a manager created here without its state would
+    // overwrite the player's progress with an empty export.
+    if (_meta?.vocabState) {
+        _vocabMgr.importState(_meta.vocabState);
+    }
+
+    // Set the pool here too, not just at run start (Overview §4.5), so
+    // isGlobalSrs / _hasCustomWords — and therefore getPoolSource() and the
+    // greyed-out fields in renderVocabSettings — are correct whenever the
+    // settings overlay is opened between runs.
+    if (_vocabPool.length) {
+        const hasSrsWords = _vocabPool.some(w => w.deckId === 'srs');
+        _vocabMgr.setPool(_vocabPool, 'surv_banned', { globalSrs: hasSrsWords });
+    }
+
     return _vocabMgr;
 }
 
@@ -256,8 +279,18 @@ function loadMeta() {
     };
     try { _meta = JSON.parse(localStorage.getItem('surv_meta')) || def; }
     catch { _meta = def; }
+    // Default every top-level field — old saves may predate any of them.
+    _meta.souls         = _meta.souls || 0;
+    _meta.unlockedChars = Array.isArray(_meta.unlockedChars) && _meta.unlockedChars.length
+        ? _meta.unlockedChars : [...def.unlockedChars];
+    _meta.upgrades    = { ...def.upgrades,     ..._meta.upgrades };
     _meta.stats       = { ...def.stats,       ..._meta.stats };
     _meta.vocabConfig = { ...def.vocabConfig,  ..._meta.vocabConfig };
+
+    // A reset (or an old save) can leave the selected character locked
+    if (!_meta.unlockedChars.includes(selectedChar)) {
+        selectedChar = _meta.unlockedChars[0] || 'gamewizard';
+    }
 
     // Migrate old totalWordsMastered key
     if (_meta.stats.totalWordsMastered && !_meta.stats.totalCorrect) {
@@ -298,6 +331,9 @@ function showVocabSelector(fromSettings = false) {
 
     _selector = mountVocabSelector(selectorWrap, {
         bannedKey: 'surv_banned', defaultCount: 'All', title: 'Vocabulary Queue',
+        // Restore the player's last deck selection (Overview §4.5) — null on
+        // first launch / old saves, which falls back to the selector defaults.
+        preloadConfig: _meta?.deckConfig || null,
     });
     const actions = _selector.getActionsEl();
 
@@ -308,6 +344,14 @@ function showVocabSelector(fromSettings = false) {
     startBtn.onclick = async () => {
         const queue = await _selector.getQueue();
         if (!queue.length) return;
+
+        // Snapshot the selector state so the same selection is restored via
+        // preloadConfig next time the selector opens (Overview §4.5).
+        const deckCfg = getDeckConfig(selectorWrap);
+        if (deckCfg) {
+            _meta.deckConfig = deckCfg;
+            saveMeta();
+        }
 
         // Separate SRS words (deckId:'srs') from custom deck words
         const srsWords    = queue.filter(w => w.deckId === 'srs');

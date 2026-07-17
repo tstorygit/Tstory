@@ -59,7 +59,16 @@ export class TowerEngine {
         };
 
         this._resize();
-        window.addEventListener('resize', () => this._resize());
+        this._onResize = () => this._resize();
+        window.addEventListener('resize', this._onResize);
+    }
+
+    // Fully tears down the engine (rAF loop + window listener). Called when the
+    // game's init() runs again on a fresh DOM so old engines can't leak or keep
+    // drawing to a detached canvas.
+    destroy() {
+        this.stop();
+        window.removeEventListener('resize', this._onResize);
     }
 
     _resize() {
@@ -248,18 +257,21 @@ export class TowerEngine {
 
         if (this.wave % 10 === 0 && this.enemiesToSpawn === 1) {
             type = 'boss'; hpMult = 10; spdMult = 0.4; dmgMult = 5; cashMult = 20; color = '#e74c3c'; atkSpeed = 1.5;
+            this.spawnFloatText('☠ BOSS INCOMING', '#e74c3c', true);
         } else {
-            const advChance = Math.min(0.3, this.wave / 100); 
+            const advChance = Math.min(0.3, this.wave / 100);
             const rand = Math.random();
-            
+
             if (this.wave > 15 && rand < advChance) {
                 let subRand = Math.random();
-                if (subRand < 0.33) {
+                if (subRand < 0.25) {
                     type = 'healer'; hpMult = 2.0; spdMult = 0.7; color = '#2ecc71'; cashMult = 3;
-                } else if (subRand < 0.66) {
+                } else if (subRand < 0.5) {
                     type = 'spawner'; hpMult = 3.0; spdMult = 0.3; color = '#e67e22'; cashMult = 4;
-                } else {
+                } else if (subRand < 0.75) {
                     type = 'shielded'; hpMult = 0.1; spdMult = 0.9; color = '#00ffff'; cashMult = 3; atkSpeed = 1.2;
+                } else {
+                    type = 'splitter'; hpMult = 2.0; spdMult = 0.8; color = '#ff6ef7'; cashMult = 2.5;
                 }
             } else {
                 let fastChance = 0.05 + Math.min(0.25, (this.wave / 50) * 0.25);
@@ -321,7 +333,7 @@ export class TowerEngine {
             kb: 0,
             cash: baseCash,
             color: color,
-            radius: type === 'boss' ? 36 : type === 'tank' || type === 'spawner' ? 28 : type === 'fast' ? 16 : type === 'shielded' ? 24 : 20,
+            radius: type === 'boss' ? 36 : type === 'tank' || type === 'spawner' ? 28 : type === 'fast' ? 16 : type === 'shielded' ? 24 : type === 'splitter' ? 22 : 20,
             tickTimer: 0,
             affixes: affixes,
             armorStacks: armorStacks,
@@ -343,8 +355,32 @@ export class TowerEngine {
             hp: 1, maxHp: 1,
             dmg: baseDmg,
             speed: finalSpeed,
+            _baseSpeed: finalSpeed,
             atkSpeed: 0.5, attackCooldown: 0.5,
             kb: 0, cash: 0, color: '#e74c3c', radius: 10, tickTimer: 0,
+            affixes:[], armorStacks: 0, blinkTimer: 0
+        });
+    }
+
+    // Splitter fragments: two smaller, faster shards released when a splitter dies.
+    _spawnFragment(parent) {
+        const finalSpeed = (parent._baseSpeed || parent.speed || 40) * 1.4;
+        this.enemies.push({
+            id: Math.random().toString(36),
+            type: 'fragment',
+            x: parent.x + (Math.random() - 0.5) * 24,
+            y: parent.y + (Math.random() - 0.5) * 24,
+            hp: parent.maxHp * 0.25,
+            maxHp: parent.maxHp * 0.25,
+            dmg: parent.dmg * 0.6,
+            speed: finalSpeed,
+            _baseSpeed: finalSpeed,
+            atkSpeed: 0.8, attackCooldown: 0.8,
+            kb: 0,
+            cash: parent.cash * 0.2,
+            color: '#ff9ff3',
+            radius: 12,
+            tickTimer: 0,
             affixes:[], armorStacks: 0, blinkTimer: 0
         });
     }
@@ -466,7 +502,7 @@ export class TowerEngine {
                     let bosses = candidates.filter(e => e.type === 'boss');
                     target = bosses.length > 0 ? bosses[0] : candidates[0];
                 } else if (this.targetMode === 'fast') {
-                    let fasts = candidates.filter(e => e.type === 'fast' || e.type === 'swarm');
+                    let fasts = candidates.filter(e => e.type === 'fast' || e.type === 'swarm' || e.type === 'fragment');
                     target = fasts.length > 0 ? fasts[0] : candidates[0];
                 }
                 
@@ -620,6 +656,10 @@ export class TowerEngine {
             
             if (e.hp <= 0 && !e.dead) {
                 e.dead = true;
+                if (e.type === 'splitter') {
+                    this._spawnFragment(e);
+                    this._spawnFragment(e);
+                }
                 if (e.cash > 0) {
                     this.spawnFloatText(`+$${fmt(e.cash)}`, '#2ecc71', false, e.x, e.y);
                 }
@@ -844,6 +884,8 @@ export class TowerEngine {
             if (e.type === 'healer') sides = 12;
             if (e.type === 'spawner') sides = 4;
             if (e.type === 'shielded') sides = 5;
+            if (e.type === 'splitter') sides = 7;
+            if (e.type === 'fragment') sides = 3;
             
             if (e.type === 'healer') {
                 this.ctx.beginPath();
@@ -970,6 +1012,36 @@ export class TowerEngine {
             this.ctx.textAlign = 'right';
             this.ctx.textBaseline = 'middle';
             this.ctx.fillText(`\u{1FA99}\u00D75  ${secs}s`, this.canvas.width - 9, 19);
+        }
+
+        // \u2500\u2500 Boss HP bar (screen-space, top center) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+        const boss = this.enemies.find(e => e.type === 'boss');
+        if (boss) {
+            const barW = Math.min(420, this.canvas.width - 40);
+            const barX = (this.canvas.width - barW) / 2;
+            // Drop below the coin-surge badge when both are visible
+            const barY = this.buffs.coinBoost > 0 ? 38 : 10;
+            const hpPct = Math.max(0, boss.hp / boss.maxHp);
+
+            this.ctx.fillStyle = 'rgba(0,0,0,0.6)';
+            this.ctx.fillRect(barX - 2, barY - 2, barW + 4, 16);
+            this.ctx.fillStyle = '#3a0e14';
+            this.ctx.fillRect(barX, barY, barW, 12);
+            this.ctx.fillStyle = '#e74c3c';
+            this.ctx.fillRect(barX, barY, barW * hpPct, 12);
+            this.ctx.strokeStyle = 'rgba(231,76,60,0.9)';
+            this.ctx.lineWidth = 1;
+            this.ctx.strokeRect(barX, barY, barW, 12);
+
+            this.ctx.fillStyle = '#fff';
+            this.ctx.font = 'bold 9px monospace';
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            let label = `\u2620 BOSS  ${Math.ceil(hpPct * 100)}%`;
+            if (boss.affixes && boss.affixes.length > 0) {
+                label += '  [' + boss.affixes.map(a => a === 'vampiric' ? 'VAMP' : a === 'armored' ? 'ARMOR' : 'TELE').join(' \u00B7 ') + ']';
+            }
+            this.ctx.fillText(label, this.canvas.width / 2, barY + 6);
         }
     }
 }

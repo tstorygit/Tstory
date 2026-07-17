@@ -78,6 +78,9 @@ export class GameVocabManager {
         const thresholds = {
             minDueTime:  10,
             minAccuracy: 0.80,
+            // defaultConfig() and renderVocabSettings save these two flat — honor them
+            ...(typeof config.minDueTime  === 'number' ? { minDueTime:  config.minDueTime  } : {}),
+            ...(typeof config.minAccuracy === 'number' ? { minAccuracy: config.minAccuracy } : {}),
             ...(config.autoThresholds || {})
         };
         this.config = {
@@ -475,6 +478,16 @@ export class GameVocabManager {
         return { refId, type, wordObj: selectedWordObj, options, correctIdx, displayMode };
     }
 
+    /**
+     * Drop an in-flight pull without grading it. Use when a quiz UI is
+     * dismissed mid-question (e.g. the player closes the overlay) so the
+     * pending word is neither stat-counted nor written to any SRS schedule.
+     * @returns {boolean} true if the refId was pending, false otherwise.
+     */
+    discardWord(refId) {
+        return this._pendingPulls.delete(refId);
+    }
+
     gradeWord(refId, grade) {
         const pull = this._pendingPulls.get(refId);
         if (!pull) return null;
@@ -796,8 +809,13 @@ export class GameVocabManager {
         }));
 
         // ── Preferred path: live srsDb module ────────────────────────────────
-        if (srsDbModule && typeof srsDbModule.importFromNeko === 'function') {
-            return srsDbModule.importFromNeko(exportArray, policy);
+        // Default to the module's own srsDb import — it keeps the in-memory DB
+        // in sync, whereas the localStorage fallback below is invisible to an
+        // already-loaded srs_db until the next page reload.
+        const db = (srsDbModule && typeof srsDbModule.importFromNeko === 'function')
+            ? srsDbModule : srsDb;
+        if (typeof db.importFromNeko === 'function') {
+            return db.importFromNeko(exportArray, policy);
         }
 
         // ── Fallback: write directly to the shared localStorage key ──────────
@@ -854,9 +872,12 @@ export class GameVocabManager {
         try {
             let wordDict = null;
 
-            // ── Preferred: live module ────────────────────────────────────────
-            if (srsDbModule && typeof srsDbModule.getAllWords === 'function') {
-                wordDict = srsDbModule.getAllWords(); // { [word]: srsEntry }
+            // ── Preferred: live module (defaults to this module's own import,
+            //    which sees unsaved in-memory changes localStorage misses) ─────
+            const db = (srsDbModule && typeof srsDbModule.getAllWords === 'function')
+                ? srsDbModule : srsDb;
+            if (typeof db.getAllWords === 'function') {
+                wordDict = db.getAllWords(); // { [word]: srsEntry }
             }
 
             // ── Fallback: localStorage ────────────────────────────────────────

@@ -4,17 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>AI Japanese Reader & SRS</title>
-    <!-- The ?v=2 forces the browser to load the new CSS instead of the cached version -->
-    <link rel="stylesheet" href="styles.css?v=2">
+    <!-- The ?v=3 forces the browser to load the new CSS instead of the cached version -->
+    <link rel="stylesheet" href="styles.css?v=3">
     
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#4A90E2">
     <link rel="manifest" href="manifest.json">
-    <link rel="apple-touch-icon" href="https://via.placeholder.com/192/4A90E2/ffffff?text=JP">
-    <!-- JSZip for export/import functionality -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <link rel="icon" href="icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="icon.svg">
+    <!-- JSZip for export/import functionality (vendored locally for offline PWA use) -->
+    <script src="js/vendor/jszip.min.js"></script>
 </head>
 <body>
 
@@ -121,7 +122,7 @@
                             <button type="button" id="btn-add-api-key" class="btn-add-key">+ Add Key</button>
                         </div>
                         <div id="api-keys-container"></div>
-                        <p class="settings-hint" style="padding: 4px 0 0; font-size:11px;">Multiple keys rotate automatically when a key is rate-limited.</p>
+                        <p class="settings-hint" style="padding: 4px 0 0; font-size:11px;">Multiple keys rotate automatically when a key is rate-limited. Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="color:var(--primary-color);">aistudio.google.com</a>.</p>
                     </div>
                     <div class="settings-row">
                         <label class="settings-label" for="setting-text-model">Text Model</label>

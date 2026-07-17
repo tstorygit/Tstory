@@ -7,10 +7,9 @@ export const CRIT_MULT   = 1.5;
 // How many correct answers needed to kill an enemy on average.
 export const HITS_TO_KILL = 5;
 
-const _defNarrations = [
-    'You hold your ground!', 'You weather the storm!',
-    'Your guard holds!', 'Barely, but you block it!',
-];
+// Bonus damage for gambling on the WILD stance (applied after the type roll).
+export const WILD_BONUS = 1.15;
+
 const _defFailNarrations = [
     'Your defense crumbles!', 'The blow gets through!',
     'You fail to parry in time!', 'A painful hit!',
@@ -21,8 +20,9 @@ function _pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 /**
  * Compute how much damage one correct answer deals to an enemy.
  * Base: enemyMaxHp / HITS_TO_KILL, scaled by type matchup and ATK vs DEF.
+ * @param {boolean} isWild — WILD stance gamble: +15% damage on top of the rolled type.
  */
-export function computePlayerDamage(enemyCard, attackType, playerAtk, pb = {}) {
+export function computePlayerDamage(enemyCard, attackType, playerAtk, pb = {}, isWild = false) {
     let typeMult = 1.0;
     let feedback = 'neutral';
     if (enemyCard.weakTo === attackType) {
@@ -44,93 +44,37 @@ export function computePlayerDamage(enemyCard, attackType, playerAtk, pb = {}) {
     const enemyDef  = Math.max(0, (enemyCard.def ?? 0) - (pb.defPenBonus ?? 0));
     const atkFactor = Math.max(0.5, (playerAtk + 5) / (playerAtk + enemyDef + 5));
     const baseDmg   = Math.max(1, Math.round((enemyCard.maxHp / HITS_TO_KILL) * atkFactor));
-    const dmg       = Math.max(1, Math.round(baseDmg * typeMult));
+    let dmg         = Math.max(1, Math.round(baseDmg * typeMult));
+    if (isWild) dmg = Math.max(1, Math.round(dmg * WILD_BONUS));
 
     return { dmg, mult: typeMult, feedback };
 }
 
 /**
- * getAttackMultiplier — EXP multiplier for type matchup.
- * Kept for any code that still calls it directly.
+ * Enemy retaliation on wrong answer / timeout.
+ * Base damage ramps from 10% of player max HP (floor 0) to 18% (floor 80+),
+ * then is mitigated by DEF: heavy END builds can reduce it to 25%.
+ * @param {number} dmgMult — extra multiplier (e.g. 1.5 for a telegraphed charge attack).
  */
-export function getAttackMultiplier(enemyCard, attackType, pb = {}) {
-    if (enemyCard.weakTo === attackType) {
-        const mult = 1.75 + (pb.weaknessAmpBonus ?? 0) / 100;
-        return { mult, feedback: 'weakness' };
-    }
-    if (enemyCard.resists === attackType) {
-        return { mult: 0.5, feedback: 'resist' };
-    }
-    const critChance = 0.10 + (pb.critChanceBonus ?? 0) / 100;
-    if (Math.random() < critChance) {
-        const mult = pb.transcendence ? CRIT_MULT * 1.10 : CRIT_MULT;
-        return { mult, feedback: 'crit' };
-    }
-    const mult = pb.transcendence ? 1.10 : 1.0;
-    return { mult, feedback: 'neutral' };
-}
-
-/**
- * Enemy retaliation on wrong answer.
- * Targets ~10% of player max HP per wrong answer (before DEF mitigation).
- * At 90% correct rate this gives roughly 10-15 waves of survival without healing.
- */
-export function handleWrongAnswerRetaliation(g, enemyCard) {
-    const isCrit   = Math.random() < 0.20;
-    const baseHit  = Math.max(1, Math.round(g.playerHp * 0.10));
-    const atkRatio = Math.max(0.5, (enemyCard.atk + 5) / (enemyCard.atk + (g.playerDef ?? 0) + 5));
-    let dmg        = Math.max(1, Math.round(baseHit * atkRatio));
+export function handleWrongAnswerRetaliation(g, enemyCard, dmgMult = 1) {
+    const isCrit    = Math.random() < 0.20;
+    const floorRamp = 0.10 + Math.min(0.08, (g.currentFloor ?? 0) * 0.001);
+    const baseHit   = Math.max(1, Math.round(g.playerHp * floorRamp));
+    const atkRatio  = Math.max(0.25, (enemyCard.atk + 10) / (enemyCard.atk + (g.playerDef ?? 0) * 1.5 + 10));
+    let dmg         = Math.max(1, Math.round(baseHit * atkRatio * dmgMult));
     if (isCrit) dmg = Math.round(dmg * CRIT_MULT);
 
     const narration = isCrit
         ? `💀 ${enemyCard.name} lands a CRIT for ${dmg} damage!`
         : _pick(_defFailNarrations) + ` ${enemyCard.name} deals ${dmg} damage!`;
 
-    return { dmg, narration };
-}
-
-export function handlePlayerDefense(g, isCorrect) {
-    const enemy = (g.enemyGroup?.length && g.selectedGroupIdx !== null)
-        ? g.enemyGroup[g.selectedGroupIdx]
-        : g.enemy;
-    if (!enemy) return { dmg: 0, narration: '—', feedback: null };
-
-    const pb     = g._pb ?? {};
-    const isCrit = Math.random() < 0.20;
-    let feedback = null;
-
-    const baseHit  = Math.max(1, Math.round(g.playerHp * 0.10));
-    const atkRatio = Math.max(0.5, (enemy.atk + 5) / (enemy.atk + (g.playerDef ?? 0) + 5));
-    let afterDef   = Math.max(1, Math.round(baseHit * atkRatio));
-    if (isCrit) { afterDef = Math.round(afterDef * CRIT_MULT); feedback = 'enemy_crit'; }
-
-    if (isCorrect) {
-        const parryFrac = Math.max(0.01, 0.5 - (pb.parryBoostBonus ?? 0) / 100);
-        const dmg = Math.max(1, Math.round(afterDef * parryFrac));
-        let narration = _pick(_defNarrations) + ` Damage reduced to ${dmg}!`;
-        if (isCrit) narration = '⚠️ Critical parried! ' + narration;
-        return { dmg, narration, feedback };
-    } else {
-        const narration = isCrit
-            ? `💀 ${enemy.name} lands a CRIT for ${afterDef} damage!`
-            : _pick(_defFailNarrations) + ` ${enemy.name} deals ${afterDef} damage!`;
-        return { dmg: afterDef, narration, feedback };
-    }
-}
-
-export function handlePlayerAttack(g, word, isCorrect, attackType) {
-    const enemy = g.enemy;
-    if (!enemy) return { dmg: 0, narration: '—', feedback: null };
-    const pb = g._pb ?? {};
-    const { dmg, feedback } = computePlayerDamage(enemy, attackType, g.playerAtk, pb);
-    return { dmg: isCorrect ? dmg : 0, narration: '', feedback };
+    return { dmg, narration, isCrit };
 }
 
 /**
- * EXP per correct answer.
- * Tuned: ~90 correct answers * (expYield/5) ≈ expToNextLevel(playerLevel).
- * Early enemy expYield ~12–16 → 3–4 EXP/answer → ~40 answers to Lv2 (tutorialish).
- * expYield scales with floor so the curve tracks the level² formula throughout.
+ * EXP per answer.
+ * Correct: expYield/5 (≈ HITS_TO_KILL answers per enemy → ~1 expYield per kill
+ * before the kill bonus). Wrong: small consolation trickle.
  */
 export function actionExp(enemyExpYield, isCorrect) {
     return isCorrect
@@ -138,38 +82,27 @@ export function actionExp(enemyExpYield, isCorrect) {
         : Math.ceil(enemyExpYield / 25);
 }
 
+/**
+ * Scale EXP by answer speed. Instant answer = 100%, last-moment answer = 35%.
+ * Answer-time perks (Temporal Insight / Time Bend) extend the window, raising
+ * the average fraction remaining — so they indirectly boost EXP too.
+ */
 export function timeAdjustExp(rawExp, timeRemainingFraction) {
-    const MIN_FACTOR = 0.05;
-    return Math.round(rawExp * (MIN_FACTOR + (1 - MIN_FACTOR) * timeRemainingFraction));
+    const MIN_FACTOR = 0.35;
+    const f = Math.max(0, Math.min(1, timeRemainingFraction ?? 1));
+    return Math.round(rawExp * (MIN_FACTOR + (1 - MIN_FACTOR) * f));
 }
 
 export function applyExpBonuses(rawExp, additiveExpPct, multExpPct) {
-    const afterAdd = rawExp * (1 + additiveExpPct / 100);
-    return Math.round(afterAdd * (1 + multExpPct / 100));
+    const afterAdd = rawExp * (1 + (additiveExpPct ?? 0) / 100);
+    return Math.round(afterAdd * (1 + (multExpPct ?? 0) / 100));
 }
 
-/** Level curve: 150 × level² */
+/**
+ * Level curve: ~70 × level^1.75 (was 150 × level², which demanded 50+ correct
+ * answers for the very first level-up). Early levels now come every ~20-25
+ * correct answers; deep levels still grow steeply.
+ */
 export function expToNextLevel(level) {
-    return Math.max(150, Math.round(150 * Math.pow(level, 2)));
-}
-
-export function generateMcOptions(targetWord, vocabQueue) {
-    const correct = targetWord.trans;
-    const pool    = vocabQueue
-        .filter(w => w.word !== targetWord.word && w.trans !== correct)
-        .map(w => w.trans);
-
-    for (let i = pool.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [pool[i], pool[j]] = [pool[j], pool[i]];
-    }
-
-    const opts = [correct, ...pool.slice(0, 3)];
-    while (opts.length < 4) opts.push(`Option ${opts.length + 1}`);
-
-    for (let i = opts.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [opts[i], opts[j]] = [opts[j], opts[i]];
-    }
-    return opts;
+    return Math.max(60, Math.round(70 * Math.pow(level, 1.75)));
 }

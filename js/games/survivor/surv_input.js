@@ -10,6 +10,13 @@ let touchZone, touchBase, touchKnob;
 
 export function initInput(container) {
 
+    // games_ui.js calls the game's init() (and therefore initInput) on EVERY
+    // launch, not once — detach the previous document-level handlers first so
+    // keyboard listeners never stack across launches. (The joystick handlers
+    // below don't stack: their target elements are rebuilt each launch.)
+    if (boundKeydown) document.removeEventListener('keydown', boundKeydown);
+    if (boundKeyup)   document.removeEventListener('keyup',   boundKeyup);
+
     // ── Keyboard ──
     boundKeydown = (e) => {
         const k = e.key.toLowerCase();
@@ -21,6 +28,12 @@ export function initInput(container) {
     };
     document.addEventListener('keydown', boundKeydown);
     document.addEventListener('keyup',   boundKeyup);
+
+    // Clear any stale state from a previous launch (e.g. a keyup that fired
+    // while the game view was hidden, leaving a key latched "down").
+    keys = { w: false, a: false, s: false, d: false };
+    joystick.active = false;
+    joystick.nx = 0; joystick.ny = 0;
 
     // ── Find joystick elements ──
     touchZone = container.querySelector('#surv-joystick-zone');

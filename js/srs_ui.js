@@ -1,10 +1,15 @@
 import * as srsDb from './srs_db.js';
+import * as srsStats from './srs_stats.js';
 import { settings } from './settings.js';
 import { initStatsUI } from './srs_stats_ui.js';
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
 let reviewQueue  = [];
 let currentIndex = 0;
+
+/** Snapshot of the word before the most recent answer, for undo. */
+let lastAnswer = null;   // { snapshot: {...word}, index: number }
+let undoBtn   = null;
 
 /**
  * 'lingq' — classic 0-5 status swipe (original behaviour, no scheduling)
@@ -113,16 +118,6 @@ export function initSRS() {
     const srsTabBtn = document.querySelector('button[data-target="view-srs"]');
     if (srsTabBtn) srsTabBtn.addEventListener('click', loadReviewQueue);
 
-    const readerTabBtn = document.querySelector('button[data-target="view-reader"]');
-    if (readerTabBtn) {
-        readerTabBtn.addEventListener('click', () => {
-            if (sessionStorage.getItem('srs-dirty')) {
-                sessionStorage.removeItem('srs-dirty');
-                document.dispatchEvent(new CustomEvent('srs:ratings-changed'));
-            }
-        });
-    }
-
     if (getComputedStyle(flashcardContainer).position === 'static')
         flashcardContainer.style.position = 'relative';
 
@@ -165,6 +160,8 @@ export function initSRS() {
         flipCard();
     });
 
+    _initUndoButton();
+
     _applyModeUI();
     initPointerGestures();
     initKeyboardControls();
@@ -174,6 +171,52 @@ export function initSRS() {
     setInterval(updateSrsBadge, 30000);   // re-check every 30 s (sub-day words)
 
     _initDebugButton();
+}
+
+// ─── UNDO LAST ANSWER ─────────────────────────────────────────────────────────
+function _initUndoButton() {
+    if (document.getElementById('srs-undo-btn')) return;
+    undoBtn = document.createElement('button');
+    undoBtn.id          = 'srs-undo-btn';
+    undoBtn.textContent = '↩ Undo';
+    undoBtn.title       = 'Undo last answer (U)';
+    undoBtn.style.cssText = `
+        display:none; font-size:11px; padding:3px 8px; border-radius:6px; cursor:pointer;
+        background:rgba(74,144,226,0.12); color:var(--primary-color);
+        border:1px solid rgba(74,144,226,0.35); font-weight:600; letter-spacing:0.3px;
+    `;
+    undoBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        undoLast();
+    });
+    const counter = document.getElementById('srs-counter');
+    const parent  = counter?.parentElement;
+    if (parent) parent.insertBefore(undoBtn, counter);
+}
+
+function _updateUndoBtn() {
+    if (undoBtn) undoBtn.style.display = lastAnswer ? '' : 'none';
+}
+
+function undoLast() {
+    if (!lastAnswer || drag.locked) return;
+
+    // Restore the pre-answer word state EXACTLY. saveWord() merges over the
+    // existing entry, so SM-2 fields added by gradeWord() that were absent in
+    // the snapshot (e.g. interval/dueDate on a never-scheduled card) would
+    // survive a plain merge. Delete first so the snapshot fully replaces it.
+    srsDb.deleteWord(lastAnswer.snapshot.word);
+    srsDb.saveWord({ ...lastAnswer.snapshot });
+    // Remove the just-recorded review event from the stats log
+    srsStats.undoLastReview(lastAnswer.snapshot.word);
+
+    currentIndex = lastAnswer.index;
+    lastAnswer   = null;
+    _updateUndoBtn();
+    sessionStorage.setItem('srs-dirty', '1');
+    updateSrsBadge();
+    updateCounter();
+    renderCurrentCard();
 }
 
 // ─── SRS NAV BADGE ────────────────────────────────────────────────────────────
@@ -251,6 +294,8 @@ function loadReviewQueue() {
         reviewQueue = srsDb.getFilteredWords({ sort: 'oldest' }).slice(0, 20);  // original LingQ behaviour
     }
     currentIndex = 0;
+    lastAnswer   = null;   // a fresh queue invalidates the undo snapshot
+    _updateUndoBtn();
     updateCounter();
     renderCurrentCard();
 }
@@ -336,8 +381,10 @@ function _highlightLingqStatus() {
 function commitLingq(newStatus, direction) {
     if (drag.locked) return;
     drag.locked = true;
+    lastAnswer = { snapshot: { ...reviewQueue[currentIndex] }, index: currentIndex };
     srsDb.updateWordStatus(reviewQueue[currentIndex].word, newStatus);
     sessionStorage.setItem('srs-dirty', '1');
+    _updateUndoBtn();
     updateSrsBadge();
     if (direction) exitAnimate(direction, nextCard); else nextCard();
 }
@@ -346,8 +393,10 @@ function commitLingq(newStatus, direction) {
 function commitGrade(grade, direction) {
     if (drag.locked) return;
     drag.locked = true;
+    lastAnswer = { snapshot: { ...reviewQueue[currentIndex] }, index: currentIndex };
     srsDb.gradeWord(reviewQueue[currentIndex].word, grade, settings.srsAutoStatus ?? true);
     sessionStorage.setItem('srs-dirty', '1');
+    _updateUndoBtn();
     updateSrsBadge();
     if (direction) exitAnimate(direction, nextCard); else nextCard();
 }
@@ -488,10 +537,18 @@ function flashThenCommit(commitFn, arg, dir) {
 
 // ─── KEYBOARD ─────────────────────────────────────────────────────────────────
 function initKeyboardControls() {
+    const viewSrs = document.getElementById('view-srs');
     document.addEventListener('keydown', e => {
+        // Only react while the SRS view is actually visible — otherwise arrow
+        // keys pressed in other views would grade cards invisibly.
+        if (!viewSrs || !viewSrs.classList.contains('active')) return;
+        if (['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)) return;
+        if ((e.key === 'u' || e.key === 'U') && !drag.locked) {
+            if (lastAnswer) { e.preventDefault(); undoLast(); }
+            return;
+        }
         if (drag.locked||currentIndex>=reviewQueue.length) return;
         if (flashcardContainer.style.display==='none') return;
-        if (['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)) return;
         if (reviewMode==='srs') {
             switch(e.key) {
                 case 'ArrowRight': e.preventDefault(); flashThenCommit(commitGrade,2,'right'); break;

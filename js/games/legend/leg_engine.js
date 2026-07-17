@@ -12,6 +12,37 @@ let floatingTexts = [];
 let drops = [];
 let rafId;
 let lastTime = 0;
+let _shakeTime = 0;   // screen-shake timer after the player is hit
+let _hudAccum  = 0;   // throttled HUD refresh accumulator (MP regen display)
+// Loop generation counter. Every scheduled frame carries the generation it was
+// created under; a frame whose generation is stale bails out immediately.
+// This is the ONLY reliable way to kill the loop when stopEngine()/initEngine()
+// is called synchronously from INSIDE a running frame (death, stairs onEmpty →
+// startGame): cancelAnimationFrame can't cancel the currently executing
+// callback, and its tail would otherwise schedule a zombie/second loop.
+let _loopGen = 0;
+
+// ── Shared walkability helpers ───────────────────────────────────────────────
+const PLAYER_WALKABLE = new Set([TILE.FLOOR, TILE.STAIRS, TILE.CHEST, TILE.GRASS, TILE.STUMP, TILE.SHRINE]);
+const ENEMY_WALKABLE  = new Set([TILE.FLOOR, TILE.GRASS, TILE.STUMP, TILE.STAIRS, TILE.CHEST, TILE.SHRINE]);
+
+// Is the pixel (x,y) on a walkable tile? outOfBounds controls whether pixels
+// outside the room count as walkable (true for the player so edge transitions
+// can trigger; false for enemies so they can never leave the room).
+function _pixelWalkable(room, x, y, walkSet, outOfBounds) {
+    const tc = Math.floor(x / TILE_SIZE);
+    const tr = Math.floor(y / TILE_SIZE);
+    if (tr < 0 || tr >= ROOM_ROWS || tc < 0 || tc >= ROOM_COLS) return outOfBounds;
+    return walkSet.has(room.grid[tr][tc]);
+}
+
+// AABB check: all four corners of a box of half-extent R centred at (x,y).
+function _boxCanMove(room, x, y, R, walkSet, outOfBounds) {
+    return _pixelWalkable(room, x - R, y - R, walkSet, outOfBounds) &&
+           _pixelWalkable(room, x + R, y - R, walkSet, outOfBounds) &&
+           _pixelWalkable(room, x - R, y + R, walkSet, outOfBounds) &&
+           _pixelWalkable(room, x + R, y + R, walkSet, outOfBounds);
+}
 
 // ── Room-scroll transition ────────────────────────────────────────────────────
 // When the player walks off an edge we freeze gameplay and scroll the canvas
@@ -37,14 +68,24 @@ function _fitCanvas() {
 }
 
 export function initEngine(cvs, st, map) {
+    cancelAnimationFrame(rafId); // kill any previous loop (stage advance / rebirth re-init)
+    _loopGen++;                  // invalidate frames already executing/scheduled
     canvas = cvs;
     ctx = canvas.getContext('2d');
     state = st;
     mapData = map;
     transition = null;
+    _shakeTime = 0;
+    _hudAccum = 0;
+    state.grappleTarget = null;
+    state.player.kbX = 0; state.player.kbY = 0; state.player.kbTimer = 0;
 
     canvas.width  = ROOM_COLS * TILE_SIZE;
     canvas.height = ROOM_ROWS * TILE_SIZE;
+    // Emoji sprites are positioned by their centre — set alignment once so
+    // sprites and hitboxes line up from the very first frame.
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
     prewarmTileCache(TILE_SIZE);
 
     // Pre-clear the start room — it never gets enemies, so mark it up-front
@@ -52,6 +93,7 @@ export function initEngine(cvs, st, map) {
     const startR = map.rooms[map.startRoom.y][map.startRoom.x];
     startR.cleared = true;
     startR.spawned = true;
+    startR.entered = true;
 
     _fitCanvas();
 
@@ -60,12 +102,17 @@ export function initEngine(cvs, st, map) {
     _resizeHandler = () => _fitCanvas();
     window.addEventListener('resize', _resizeHandler);
 
-    loadRoom(state.roomX, state.roomY, true);
+    // ALWAYS enter a fresh map at its start room. state.roomX/Y may hold stale
+    // coordinates from a previous (larger) stage — indexing with them crashed
+    // on rebirth/stage-advance before this reset existed.
+    loadRoom(map.startRoom.x, map.startRoom.y, true);
     lastTime = performance.now();
-    rafId = requestAnimationFrame(loop);
+    const gen = _loopGen;
+    rafId = requestAnimationFrame(t => loop(t, gen));
 }
 
 export function stopEngine() {
+    _loopGen++; // stale-out any frame that is executing right now
     cancelAnimationFrame(rafId);
     if (_resizeHandler) {
         window.removeEventListener('resize', _resizeHandler);
@@ -80,30 +127,77 @@ export function stopEngine() {
 let pendingRoomEnter = null; // { room, spawnFn, spawnBuffedFn }
 
 function loadRoom(rx, ry, snapPlayer = false) {
+    // Safety net: never index outside the room grid. Fall back to the start
+    // room if anything hands us stale/out-of-range coordinates.
+    if (ry < 0 || ry >= mapData.rows || rx < 0 || rx >= mapData.cols ||
+        !mapData.rooms[ry] || !mapData.rooms[ry][rx]) {
+        rx = mapData.startRoom.x;
+        ry = mapData.startRoom.y;
+        snapPlayer = true;
+    }
     state.roomX = rx; state.roomY = ry;
     const room = mapData.rooms[ry][rx];
     activeEnemies = [];
     activeHitboxes = [];
     drops = [];
     pendingRoomEnter = null; // cancel any stale pending from previous room
+    state.grappleTarget = null;
+    state.player.kbTimer = 0;
+    room.visited = true;
 
     // On initial load (or rebirth/stage-start) place the player on a safe tile
     if (snapPlayer) {
         const [sx, sy] = _safeSpawnPos(room);
         state.player.x = sx;
         state.player.y = sy;
+    } else {
+        // Post-transition insurance: if the landing spot is somehow inside a
+        // solid tile, nudge the player to the nearest safe tile instead of
+        // wedging them in a wall.
+        if (!_boxCanMove(room, state.player.x, state.player.y, 9, PLAYER_WALKABLE, false)) {
+            const [sx, sy] = _nearestSafePos(room, state.player.x, state.player.y);
+            state.player.x = sx;
+            state.player.y = sy;
+        }
     }
+    state.player.lastValidX = state.player.x;
+    state.player.lastValidY = state.player.y;
 
     const isStart = (rx === mapData.startRoom.x && ry === mapData.startRoom.y);
 
     if (!room.cleared && !isStart) {
-        // Defer — fired from the main loop once the game is unpaused
-        pendingRoomEnter = {
-            room,
-            spawnFn:       () => _spawnRoom(room),
-            spawnBuffedFn: () => _spawnRoomBuffed(room),
-        };
+        if (!room.entered) {
+            // First visit — defer the entry quiz; fired from the main loop
+            // once the game is unpaused.
+            room.entered = true;
+            pendingRoomEnter = {
+                room,
+                spawnFn:       () => _spawnRoom(room),
+                spawnBuffedFn: () => _spawnRoomBuffed(room),
+            };
+        } else {
+            // Re-entering a room the player fled — no quiz spam, enemies just
+            // respawn (with spawn grace + distance, so no cheap hits).
+            _spawnRoom(room);
+        }
     }
+
+    if (state.callbacks?.onRoomChange) state.callbacks.onRoomChange();
+}
+
+// Nearest walkable tile centre to a pixel position (used as landing insurance).
+function _nearestSafePos(room, px, py) {
+    let best = null, bestD = Infinity;
+    for (let r = 1; r < ROOM_ROWS - 1; r++) {
+        for (let c = 1; c < ROOM_COLS - 1; c++) {
+            if (!PLAYER_WALKABLE.has(room.grid[r][c])) continue;
+            const cx = c * TILE_SIZE + TILE_SIZE / 2;
+            const cy = r * TILE_SIZE + TILE_SIZE / 2;
+            const d = Math.hypot(cx - px, cy - py);
+            if (d < bestD) { bestD = d; best = [cx, cy]; }
+        }
+    }
+    return best || [canvas.width / 2, canvas.height / 2];
 }
 
 function _spawnRoom(room) {
@@ -124,25 +218,57 @@ function _spawnRoom(room) {
 // Returns a random safe floor-tile centre position [px, py] in a room.
 // Guarantees the spawn tile is walkable so neither player nor enemy appears
 // inside a tree, rock, wall, or other collision tile.
-function _safeSpawnPos(room) {
+// When minPlayerDist > 0, prefers tiles at least that far from the player so
+// enemies never materialise on top of them.
+function _safeSpawnPos(room, minPlayerDist = 0) {
     const walkable = new Set([TILE.FLOOR, TILE.CHEST, TILE.GRASS, TILE.STUMP, TILE.SHRINE]);
     const candidates = [];
+    const farCandidates = [];
     for (let r = 1; r < ROOM_ROWS - 1; r++) {
         for (let c = 1; c < ROOM_COLS - 1; c++) {
             if (walkable.has(room.grid[r][c])) {
-                candidates.push([c * TILE_SIZE + TILE_SIZE / 2, r * TILE_SIZE + TILE_SIZE / 2]);
+                const px = c * TILE_SIZE + TILE_SIZE / 2;
+                const py = r * TILE_SIZE + TILE_SIZE / 2;
+                candidates.push([px, py]);
+                if (minPlayerDist > 0 &&
+                    Math.hypot(px - state.player.x, py - state.player.y) >= minPlayerDist) {
+                    farCandidates.push([px, py]);
+                }
             }
         }
     }
-    if (!candidates.length) return [canvas.width / 2, canvas.height / 2]; // fallback
-    return candidates[Math.floor(Math.random() * candidates.length)];
+    const pool = farCandidates.length ? farCandidates : candidates;
+    if (!pool.length) return [canvas.width / 2, canvas.height / 2]; // fallback
+    return pool[Math.floor(Math.random() * pool.length)];
 }
+
+const SPAWN_GRACE = 0.7;          // seconds enemies are inert + translucent after spawning
+const ENEMY_MIN_SPAWN_DIST = TILE_SIZE * 3; // never spawn closer than 3 tiles to the player
 
 function _enemyHp(template, isBoss) {
     // Stage 1: slime = 8 HP → 1–2 sword hits. Scales ×1.25 per stage.
-    // Boss multiplier kept separate so boss always feels imposing.
+    // Boss multiplier kept separate so boss feels imposing without becoming a
+    // damage sponge (was ×10 — a stage-5 boss took ~90 hits to kill).
     const stageScale = 1 + (state.stage - 1) * 0.25;
-    return template.hpMult * 8 * stageScale * (isBoss ? 10 : 1);
+    return template.hpMult * 8 * stageScale * (isBoss ? 3.5 : 1);
+}
+
+// Shared instance-field initialiser so every spawn path gets the same
+// combat-state fields (telegraph machine, grace, stun, flash).
+function _makeEnemy(template, x, y, hp, isBoss, speedMult = 1) {
+    return {
+        ...template,
+        x, y,
+        hp, maxHp: hp,
+        speed: template.speed * speedMult,
+        isBoss,
+        flashTimer: 0, iFrames: 0, stunTimer: 0,
+        spawnGrace: SPAWN_GRACE,
+        atkState: null, atkTimer: 0, atkCd: 1.2 + Math.random() * 1.5,
+        lungeDX: 0, lungeDY: 0,
+        enraged: false,
+        wanderTimer: 0, wdx: 0, wdy: 0,
+    };
 }
 
 function _spawnRoomBuffed(room) {
@@ -153,32 +279,20 @@ function _spawnRoomBuffed(room) {
     for (let i = 0; i < count; i++) {
         const template = isBossRoom ? BOSSES[0] : ENEMIES[Math.floor(Math.random() * ENEMIES.length)];
         const hp = _enemyHp(template, isBossRoom) * 1.4;
-        const [sx, sy] = _safeSpawnPos(room);
-        activeEnemies.push({
-            ...template,
-            x: sx, y: sy,
-            hp, maxHp: hp,
-            speed: template.speed * 1.25,
-            isBoss: isBossRoom, flashTimer: 0, iFrames: 0,
-            stunTimer: 0,
-        });
+        const [sx, sy] = _safeSpawnPos(room, ENEMY_MIN_SPAWN_DIST);
+        activeEnemies.push(_makeEnemy(template, sx, sy, hp, isBossRoom, 1.25));
     }
 }
 
 function spawnEnemy(template, isBoss) {
     const hp = _enemyHp(template, isBoss);
     const room = mapData.rooms[state.roomY][state.roomX];
-    const [sx, sy] = _safeSpawnPos(room);
-    activeEnemies.push({
-        ...template,
-        x: sx, y: sy,
-        hp, maxHp: hp,
-        isBoss, flashTimer: 0, iFrames: 0,
-        stunTimer: 0,
-    });
+    const [sx, sy] = _safeSpawnPos(room, ENEMY_MIN_SPAWN_DIST);
+    activeEnemies.push(_makeEnemy(template, sx, sy, hp, isBoss));
 }
 
-function loop(time) {
+function loop(time, gen) {
+    if (gen !== _loopGen) return; // engine stopped/re-inited since this frame was scheduled
     const dt = Math.min(0.1, (time - lastTime) / 1000);
     lastTime = time;
 
@@ -200,11 +314,16 @@ function loop(time) {
             loadRoom(newRX, newRY);
         }
 
-        rafId = requestAnimationFrame(loop);
+        rafId = requestAnimationFrame(t => loop(t, gen));
         return;
     }
 
-    if (state.isPaused) { lastTime = time; rafId = requestAnimationFrame(loop); return; }
+    if (state.isPaused) {
+        consumeTap(); // discard taps/keys queued while a quiz or menu is open
+        lastTime = time;
+        rafId = requestAnimationFrame(t => loop(t, gen));
+        return;
+    }
 
     // Fire deferred room-enter quiz now that we are guaranteed to be unpaused
     // and outside any transition. This prevents the quiz from being swallowed
@@ -213,17 +332,32 @@ function loop(time) {
         const { room, spawnFn, spawnBuffedFn } = pendingRoomEnter;
         pendingRoomEnter = null;
         state.callbacks.onRoomEnter(room, spawnFn, spawnBuffedFn);
-        rafId = requestAnimationFrame(loop);
+        if (gen !== _loopGen) return; // callback may have re-inited the engine
+        rafId = requestAnimationFrame(t => loop(t, gen));
         return; // let the quiz render before processing another frame
     }
 
     updatePlayer(dt);
+    // A callback fired from updatePlayer (stairs onEmpty → startGame, death)
+    // can synchronously stop or re-init the engine — don't keep stepping or
+    // re-scheduling a stale generation.
+    if (gen !== _loopGen) return;
     updateEnemies(dt);
+    if (gen !== _loopGen) return; // death inside onTakeDamage
     updateHitboxes(dt);
+    if (gen !== _loopGen) return; // death/re-init inside onExpGained
     updateDrops();
     draw(dt);
 
-    rafId = requestAnimationFrame(loop);
+    // Throttled HUD refresh so passive MP regen is visible without spamming
+    // DOM writes every frame.
+    _hudAccum += dt;
+    if (_hudAccum >= 0.3) {
+        _hudAccum = 0;
+        if (state.callbacks?.onUIUpdate) state.callbacks.onUIUpdate();
+    }
+
+    rafId = requestAnimationFrame(t => loop(t, gen));
 }
 
 function easeInOut(t) {
@@ -252,28 +386,26 @@ function updatePlayer(dt) {
         state.player.dirX = move.x; state.player.dirY = move.y;
     }
 
+    const roomNow = mapData.rooms[state.roomY][state.roomX];
+    const R = 9; // player collision half-extent in pixels
+    const canMove = (x, y) => _boxCanMove(roomNow, x, y, R, PLAYER_WALKABLE, true);
+
+    // ── Knockback from enemy hits — decays fast, respects collision ────────
+    if (state.player.kbTimer > 0) {
+        state.player.kbTimer -= dt;
+        const kx = state.player.x + state.player.kbX * dt;
+        const ky = state.player.y + state.player.kbY * dt;
+        if (canMove(kx, ky))                       { state.player.x = kx; state.player.y = ky; }
+        else if (canMove(kx, state.player.y))      { state.player.x = kx; }
+        else if (canMove(state.player.x, ky))      { state.player.y = ky; }
+        state.player.kbX *= Math.max(0, 1 - dt * 8);
+        state.player.kbY *= Math.max(0, 1 - dt * 8);
+    }
+
     if (state.player.attackTimer <= 0) {
         const speed = (120 + state.player.agi * 2) * dt;
-        let nx = state.player.x + move.x * speed;
-        let ny = state.player.y + move.y * speed;
-
-        const room = mapData.rooms[state.roomY][state.roomX];
-        const R = 9; // player collision half-extent in pixels
-
-        // Returns true if tile at pixel (x,y) is walkable.
-        // Out-of-bounds is allowed so the transition trigger can fire.
-        const walkable = (x, y) => {
-            const tc = Math.floor(x / TILE_SIZE);
-            const tr = Math.floor(y / TILE_SIZE);
-            if (tr < 0 || tr >= ROOM_ROWS || tc < 0 || tc >= ROOM_COLS) return true;
-            const t = room.grid[tr][tc];
-            return t === TILE.FLOOR || t === TILE.STAIRS || t === TILE.CHEST || t === TILE.GRASS || t === TILE.STUMP;
-        };
-
-        // Check all four corners of the AABB for a given center position
-        const canMove = (x, y) =>
-            walkable(x - R, y - R) && walkable(x + R, y - R) &&
-            walkable(x - R, y + R) && walkable(x + R, y + R);
+        const nx = state.player.x + move.x * speed;
+        const ny = state.player.y + move.y * speed;
 
         // Try full move, then slide on each axis independently
         if (canMove(nx, ny)) {
@@ -285,66 +417,39 @@ function updatePlayer(dt) {
             state.player.y = ny;         // slide along Y
         }
         // else: fully blocked, don't move
+    }
 
-        // Track last valid (non-pit, walkable) position for pit rescue
+    // Track last valid (non-pit, walkable) position for pit rescue
+    {
         const cx = Math.floor(state.player.x / TILE_SIZE);
         const cy = Math.floor(state.player.y / TILE_SIZE);
         if (cy >= 0 && cy < ROOM_ROWS && cx >= 0 && cx < ROOM_COLS) {
-            const curTile = room.grid[cy][cx];
-            if (curTile === TILE.FLOOR || curTile === TILE.GRASS || curTile === TILE.STUMP ||
-                curTile === TILE.STAIRS || curTile === TILE.CHEST || curTile === TILE.SHRINE) {
+            if (PLAYER_WALKABLE.has(roomNow.grid[cy][cx])) {
                 state.player.lastValidX = state.player.x;
                 state.player.lastValidY = state.player.y;
             }
         }
     }
 
-    // ── PIT pull mechanic (Zelda-style) ────────────────────────────────────
-    // When the player is near a pit, they get pulled toward its centre.
-    // If they reach the middle they take damage and snap back to safety.
-    // The grapple hook / being airborne while grappling bypasses the pull.
+    // ── PIT fall rescue ─────────────────────────────────────────────────────
+    // Pits are hard blockers (collision already prevents walking in). The old
+    // "pull" mechanic dragged the player through collision into the pit faster
+    // than they could walk away — an inescapable death magnet. Now the only way
+    // to end up over a pit is knockback or a bad grapple; if the player's
+    // centre lands on a pit tile they take fall damage and snap back.
     if (!state.grappleTarget) {
-        const room = mapData.rooms[state.roomY][state.roomX];
-        const PIT_PULL_RADIUS = TILE_SIZE * 1.6;   // px — pull starts 1.6 tiles away
-        const PIT_FALL_RADIUS = TILE_SIZE * 0.3;   // px — fall threshold
-        const PIT_PULL_STRENGTH = 280;              // px/s at full pull
-
         const pc = Math.floor(state.player.x / TILE_SIZE);
         const pr = Math.floor(state.player.y / TILE_SIZE);
-        let nearestPitDist = Infinity, nearestPitX = 0, nearestPitY = 0;
-        for (let dr = -2; dr <= 2; dr++) {
-            for (let dc = -2; dc <= 2; dc++) {
-                const tr = pr + dr, tc = pc + dc;
-                if (tr < 0 || tr >= ROOM_ROWS || tc < 0 || tc >= ROOM_COLS) continue;
-                if (room.grid[tr][tc] !== TILE.PIT) continue;
-                const pitCX = tc * TILE_SIZE + TILE_SIZE / 2;
-                const pitCY = tr * TILE_SIZE + TILE_SIZE / 2;
-                const d = Math.hypot(state.player.x - pitCX, state.player.y - pitCY);
-                if (d < nearestPitDist) {
-                    nearestPitDist = d; nearestPitX = pitCX; nearestPitY = pitCY;
-                }
+        if (pr >= 0 && pr < ROOM_ROWS && pc >= 0 && pc < ROOM_COLS &&
+            roomNow.grid[pr][pc] === TILE.PIT) {
+            const fallDmg = Math.max(5, Math.floor(state.player.maxHp * 0.15));
+            if (state.player.invincibility <= 0) {
+                state.callbacks.onTakeDamage(fallDmg, null);
             }
-        }
-
-        if (nearestPitDist < PIT_PULL_RADIUS) {
-            if (nearestPitDist < PIT_FALL_RADIUS) {
-                // Fell in — damage and snap back to last valid safe position
-                const fallDmg = Math.max(5, Math.floor(state.player.maxHp * 0.15));
-                if (state.player.invincibility <= 0) {
-                    state.callbacks.onTakeDamage(fallDmg, null);
-                }
-                state.player.x = state.player.lastValidX ?? (canvas.width / 2);
-                state.player.y = state.player.lastValidY ?? (canvas.height / 2);
-                state.player.invincibility = Math.max(state.player.invincibility, 1.5);
-            } else {
-                // Gradual pull — gets stronger the closer you are
-                const pullFactor = 1 - (nearestPitDist / PIT_PULL_RADIUS);
-                const dx = nearestPitX - state.player.x;
-                const dy = nearestPitY - state.player.y;
-                const dist = nearestPitDist || 1;
-                state.player.x += (dx / dist) * PIT_PULL_STRENGTH * pullFactor * dt;
-                state.player.y += (dy / dist) * PIT_PULL_STRENGTH * pullFactor * dt;
-            }
+            state.player.x = state.player.lastValidX ?? (canvas.width / 2);
+            state.player.y = state.player.lastValidY ?? (canvas.height / 2);
+            state.player.kbTimer = 0;
+            state.player.invincibility = Math.max(state.player.invincibility, 1.5);
         }
     }
 
@@ -363,24 +468,28 @@ function updatePlayer(dt) {
 
         // Check if the player is actually inside the door opening before allowing
         // the transition. If they hit a wall segment next to a door, bounce back.
+        // The carved opening spans tiles [pos-1, pos+1], i.e. tile-units
+        // [pos-1, pos+2). Match that range exactly — the old ±1.5 window
+        // rejected the outer half of the edge tiles and bounced players who
+        // were legitimately walking through the side of a door.
         const curRoom = mapData.rooms[state.roomY][state.roomX];
         let inDoorOpening = false;
         if (triggerDY === -1 && curRoom.doors.n) {
             const dc = curRoom.dpos.n;
             const px = state.player.x / TILE_SIZE;
-            inDoorOpening = (px >= dc - 1.5 && px <= dc + 1.5);
+            inDoorOpening = (px >= dc - 1 && px < dc + 2);
         } else if (triggerDY === 1 && curRoom.doors.s) {
             const dc = curRoom.dpos.s;
             const px = state.player.x / TILE_SIZE;
-            inDoorOpening = (px >= dc - 1.5 && px <= dc + 1.5);
+            inDoorOpening = (px >= dc - 1 && px < dc + 2);
         } else if (triggerDX === -1 && curRoom.doors.w) {
             const dr = curRoom.dpos.w;
             const py = state.player.y / TILE_SIZE;
-            inDoorOpening = (py >= dr - 1.5 && py <= dr + 1.5);
+            inDoorOpening = (py >= dr - 1 && py < dr + 2);
         } else if (triggerDX === 1 && curRoom.doors.e) {
             const dr = curRoom.dpos.e;
             const py = state.player.y / TILE_SIZE;
-            inDoorOpening = (py >= dr - 1.5 && py <= dr + 1.5);
+            inDoorOpening = (py >= dr - 1 && py < dr + 2);
         }
 
         if (!inDoorOpening) {
@@ -621,62 +730,120 @@ function tryDropLoot(x, y, chance) {
     }
 }
 
+// Move an enemy with AABB collision (flying enemies only clamp to the room).
+function _enemyMove(e, nx, ny, flying) {
+    if (flying) {
+        // Flying: ignore tiles but never leave the playfield — an off-screen
+        // enemy is unkillable and soft-locks the room-clear check.
+        e.x = Math.max(TILE_SIZE * 0.5 + 8, Math.min(canvas.width  - TILE_SIZE * 0.5 - 8, nx));
+        e.y = Math.max(TILE_SIZE * 0.5 + 8, Math.min(canvas.height - TILE_SIZE * 0.5 - 8, ny));
+        return;
+    }
+    const room = mapData.rooms[state.roomY][state.roomX];
+    const ER = 8;
+    const ok = (x, y) => _boxCanMove(room, x, y, ER, ENEMY_WALKABLE, false);
+    if (ok(nx, ny))            { e.x = nx; e.y = ny; }
+    else if (ok(nx, e.y))      { e.x = nx; }
+    else if (ok(e.x, ny))      { e.y = ny; }
+    // else fully blocked — stay put
+}
+
 function updateEnemies(dt) {
+    const spawnQueue = []; // boss adds are queued so we don't mutate mid-iteration
     activeEnemies.forEach(e => {
         if (e.flashTimer > 0) e.flashTimer -= dt;
         if (e.iFrames    > 0) e.iFrames    -= dt;
+
+        // Spawn grace — enemy is inert and translucent; can't move or damage.
+        if (e.spawnGrace > 0) { e.spawnGrace -= dt; return; }
+
         if (e.stunTimer  > 0) { e.stunTimer -= dt; return; } // stunned — skip movement
-        
-        if (e.ai === 'chase' || e.ai === 'chase_fly') {
-            const dx = state.player.x - e.x;
-            const dy = state.player.y - e.y;
-            const dist = Math.hypot(dx, dy) || 1;
 
-            let nx = e.x + (dx/dist) * e.speed * dt;
-            let ny = e.y + (dy/dist) * e.speed * dt;
+        const flying = (e.ai === 'chase_fly' || e.ai === 'wander');
+        const pdx  = state.player.x - e.x;
+        const pdy  = state.player.y - e.y;
+        const pdist = Math.hypot(pdx, pdy) || 1;
 
-            if (e.ai !== 'chase_fly') {
-                const room = mapData.rooms[state.roomY][state.roomX];
-                // Use a small AABB (R=8px) and allow all walkable tiles — not
-                // just FLOOR — so enemies don't freeze on grass/stumps or clip
-                // through walls when only the centre pixel is tested.
-                const ER = 8;
-                const enemyWalkable = (x, y) => {
-                    const tc = Math.floor(x / TILE_SIZE);
-                    const tr = Math.floor(y / TILE_SIZE);
-                    if (tr < 0 || tr >= ROOM_ROWS || tc < 0 || tc >= ROOM_COLS) return false;
-                    const t = room.grid[tr][tc];
-                    return t === TILE.FLOOR || t === TILE.GRASS || t === TILE.STUMP ||
-                           t === TILE.STAIRS || t === TILE.CHEST || t === TILE.SHRINE;
-                };
-                const enemyCanMove = (x, y) =>
-                    enemyWalkable(x - ER, y - ER) && enemyWalkable(x + ER, y - ER) &&
-                    enemyWalkable(x - ER, y + ER) && enemyWalkable(x + ER, y + ER);
-
-                if (enemyCanMove(nx, ny)) {
-                    // full move OK
-                } else if (enemyCanMove(nx, e.y)) {
-                    ny = e.y; // slide X only
-                } else if (enemyCanMove(e.x, ny)) {
-                    nx = e.x; // slide Y only
-                } else {
-                    nx = e.x; ny = e.y; // fully blocked
-                }
+        // ── Boss enrage: at half HP, speed up and call two adds (once) ─────
+        if (e.isBoss && !e.enraged && e.hp <= e.maxHp / 2) {
+            e.enraged = true;
+            e.speed *= 1.2;
+            const room = mapData.rooms[state.roomY][state.roomX];
+            for (let i = 0; i < 2; i++) {
+                const tpl = ENEMIES[Math.floor(Math.random() * ENEMIES.length)];
+                const [sx, sy] = _safeSpawnPos(room, ENEMY_MIN_SPAWN_DIST);
+                spawnQueue.push(_makeEnemy(tpl, sx, sy, _enemyHp(tpl, false), false));
             }
-            e.x = nx; e.y = ny;
-        } else if (e.ai === 'wander') {
-            e.x += (Math.random() - 0.5) * e.speed * dt * 2;
-            e.y += (Math.random() - 0.5) * e.speed * dt * 2;
+            spawnFloat(e.x, e.y - 40, 'ENRAGED!', '#e74c3c');
         }
 
-        // Damage Player
+        // ── Telegraphed attack state machine (chase / chase_fly / boss) ────
+        let contactMult = 1;                // lunges hit harder than a graze
+        if (e.atkState === 'windup') {
+            e.atkTimer -= dt;
+            if (e.atkTimer <= 0) {
+                e.atkState = 'lunge';
+                e.atkTimer = e.isBoss ? 0.35 : 0.22;
+                e.lungeDX = pdx / pdist;    // direction locked at launch
+                e.lungeDY = pdy / pdist;
+            }
+            // frozen while winding up — this is the dodge window
+        } else if (e.atkState === 'lunge') {
+            e.atkTimer -= dt;
+            const lungeSpeed = e.speed * (e.isBoss ? 5 : 4);
+            _enemyMove(e, e.x + e.lungeDX * lungeSpeed * dt, e.y + e.lungeDY * lungeSpeed * dt, flying);
+            contactMult = 1.5;
+            if (e.atkTimer <= 0) { e.atkState = 'recover'; e.atkTimer = e.isBoss ? 0.9 : 0.7; }
+        } else if (e.atkState === 'recover') {
+            e.atkTimer -= dt;
+            if (e.atkTimer <= 0) { e.atkState = null; e.atkCd = 2.0 + Math.random() * 1.5; }
+            // slow drift while recovering — punish window for the player
+            if (e.ai !== 'wander') _enemyMove(e, e.x + (pdx / pdist) * e.speed * 0.3 * dt, e.y + (pdy / pdist) * e.speed * 0.3 * dt, flying);
+        } else {
+            // ── Normal movement ────────────────────────────────────────────
+            if (e.ai === 'chase' || e.ai === 'chase_fly') {
+                _enemyMove(e, e.x + (pdx / pdist) * e.speed * dt, e.y + (pdy / pdist) * e.speed * dt, flying);
+            } else if (e.ai === 'wander') {
+                // Pick a heading every ~1–2 s; 45% of the time drift toward the
+                // player so bats stay engaged and killable. Bounds-clamped.
+                e.wanderTimer -= dt;
+                if (e.wanderTimer <= 0) {
+                    e.wanderTimer = 0.8 + Math.random() * 1.2;
+                    const ang = Math.random() < 0.45
+                        ? Math.atan2(pdy, pdx) + (Math.random() - 0.5) * 0.9
+                        : Math.random() * Math.PI * 2;
+                    e.wdx = Math.cos(ang); e.wdy = Math.sin(ang);
+                }
+                _enemyMove(e, e.x + e.wdx * e.speed * dt, e.y + e.wdy * e.speed * dt, true);
+            }
+
+            // Start a telegraph when close enough and off cooldown
+            e.atkCd -= dt;
+            if (e.lungeRange > 0 && e.atkCd <= 0 && pdist < e.lungeRange) {
+                e.atkState = 'windup';
+                e.atkTimer = e.windup || 0.5;
+            }
+        }
+
+        // ── Contact damage — respects i-frames, gives feedback + knockback ──
         if (Math.hypot(e.x - state.player.x, e.y - state.player.y) < 25) {
             if (state.player.invincibility <= 0) {
-                const dmg = Math.max(1, Math.floor(e.atkMult * 5 * (1 + state.stage * 0.2) - state.player.def));
-                state.callbacks.onTakeDamage(dmg, e); 
+                const dmg = Math.max(1, Math.floor(
+                    (e.atkMult * 5 * (1 + state.stage * 0.2) - state.player.def) * contactMult
+                ));
+                // Knockback away from the attacker + hit feedback
+                const kdx = state.player.x - e.x, kdy = state.player.y - e.y;
+                const kd  = Math.hypot(kdx, kdy) || 1;
+                state.player.kbX = (kdx / kd) * 260;
+                state.player.kbY = (kdy / kd) * 260;
+                state.player.kbTimer = 0.18;
+                _shakeTime = 0.25;
+                spawnFloat(state.player.x, state.player.y - 22, `-${dmg}`, '#ff5544');
+                state.callbacks.onTakeDamage(dmg, e);
             }
         }
     });
+    if (spawnQueue.length) activeEnemies.push(...spawnQueue);
 }
 
 function updateHitboxes(dt) {
@@ -762,15 +929,20 @@ function updateHitboxes(dt) {
                 e.flashTimer = 0.15;
                 e.iFrames    = 0.15;
 
-                // Knockback — halved from previous values
+                // Knockback — collision-checked so enemies can't be punched
+                // through walls (a knocked-into-a-wall enemy was permanently
+                // stuck and could hold the room-clear hostage).
                 const kbBase = hb.weapon.id === 'sword' ? 16
                              : hb.weapon.id === 'axe'   ? 13
                              : hb.weapon.id === 'star'  ? 15
                              : hb.weapon.id === 'spear' ? 12
                              : 8;
                 const kbDist = e.isBoss ? kbBase * 0.5 : kbBase;
-                e.x += hb.dirX * kbDist;
-                e.y += hb.dirY * kbDist;
+                const flyingKb = (e.ai === 'chase_fly' || e.ai === 'wander');
+                _enemyMove(e, e.x + hb.dirX * kbDist, e.y + hb.dirY * kbDist, flyingKb);
+
+                // Getting hit interrupts a windup/lunge (except bosses mid-lunge)
+                if (!e.isBoss && e.atkState) { e.atkState = null; e.atkCd = 1.2 + Math.random(); }
 
                 // Stun duration comes from the enemy's own stunTime field
                 e.stunTimer = e.stunTime ?? (e.isBoss ? 0.25 : 0.45);
@@ -778,7 +950,9 @@ function updateHitboxes(dt) {
                 spawnFloat(e.x, e.y, dmg, '#fff');
 
                 if (e.hp <= 0) {
-                    const exp = Math.floor(e.xp * (1 + (state.player.expBonus || 0)));
+                    // XP scales with stage so levelling doesn't stall on deep floors
+                    const stageXp = 1 + (state.stage - 1) * 0.2;
+                    const exp = Math.floor(e.xp * stageXp * (1 + (state.player.expBonus || 0)));
                     state.player.exp += exp;
                     spawnFloat(e.x, e.y - 20, `+${exp}XP`, '#f1c40f');
                     e.dead = true;
@@ -922,6 +1096,14 @@ function draw(dt) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const room = mapData.rooms[state.roomY][state.roomX];
 
+    // ── Screen shake on player hit ─────────────────────────────────────────
+    ctx.save();
+    if (_shakeTime > 0) {
+        _shakeTime -= dt;
+        const mag = 3 * Math.min(1, _shakeTime / 0.25);
+        ctx.translate((Math.random() - 0.5) * 2 * mag, (Math.random() - 0.5) * 2 * mag);
+    }
+
     drawRoomTiles(room);
 
     // ── Pulsing ▼ beacon above the stairs when the room is cleared ────────
@@ -943,14 +1125,25 @@ function draw(dt) {
         ctx.globalAlpha = 1;
         ctx.restore();
     }
+    ctx.font = '20px Arial';   // was inheriting whatever the last frame left behind
     drops.forEach(d => { ctx.fillText(d.emoji, d.x, d.y); });
 
-    ctx.font = '24px Arial'; 
     activeEnemies.forEach(e => {
-        if (e.isBoss) ctx.font = '48px Arial'; else ctx.font = '24px Arial';
-        ctx.globalAlpha = e.flashTimer > 0 ? 0.5 : 1;
-        ctx.fillText(e.emoji, e.x, e.y);
+        ctx.font = e.isBoss ? '48px Arial' : '24px Arial';
+
+        // Windup telegraph: sprite shivers + red ! above the head
+        let ex = e.x;
+        if (e.atkState === 'windup') ex += Math.sin(performance.now() / 25) * 2;
+
+        ctx.globalAlpha = e.spawnGrace > 0 ? 0.4 : (e.flashTimer > 0 ? 0.5 : 1);
+        ctx.fillText(e.emoji, ex, e.y);
         ctx.globalAlpha = 1;
+
+        if (e.atkState === 'windup') {
+            ctx.font = 'bold 18px Arial';
+            ctx.fillStyle = '#e74c3c';
+            ctx.fillText('!', e.x, e.y - (e.isBoss ? 44 : 28));
+        }
 
         // HP bar — always visible, wider and taller for bosses
         const barW  = e.isBoss ? 56 : 28;
@@ -1145,4 +1338,15 @@ function draw(dt) {
         f.life -= dt / 0.8; // life 1→0 over 0.8 s regardless of frame rate
     });
     floatingTexts = floatingTexts.filter(f => f.life > 0);
+
+    ctx.restore(); // end screen-shake translate
+
+    // Red hurt vignette — fades out with the shake timer
+    if (_shakeTime > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.28 * Math.min(1, _shakeTime / 0.25);
+        ctx.fillStyle = '#e74c3c';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.restore();
+    }
 }

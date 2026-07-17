@@ -19,6 +19,7 @@ export function initUI(container, cbs, vocabMgr) {
                 <div id="leg-lvl-txt" style="margin-bottom:2px; font-size:10px;">LV. 1</div>
                 <div class="leg-bar-wrap" style="width:60px;height:5px;"><div id="leg-exp-fill" class="leg-exp-fill"></div></div>
                 <div id="leg-exp-txt" style="font-size:8px; color:#bdc3c7; margin-top:2px;">0/100</div>
+                <div id="leg-sw-txt" style="font-size:8px; color:#2ecc71; margin-top:1px;" title="Second Winds — a vocab answer can cancel a fatal blow">💫x1</div>
             </div>
             <div class="leg-hud-col" style="align-items:flex-end;">
                 <span id="leg-mp-txt" class="leg-stat-text">MP</span>
@@ -59,7 +60,7 @@ export function initUI(container, cbs, vocabMgr) {
                     </div>
                     <div class="leg-col-title" style="margin-top:8px;">Action Button</div>
                     <button id="leg-toggle-magic" class="leg-btn" style="width:100%;font-size:10px;">Equip Magic (Heal 30HP / -10MP)</button>
-                    <p style="font-size:9px;color:#aaa;margin-top:8px;">Tap screen to use equipped action.</p>
+                    <p style="font-size:9px;color:#aaa;margin-top:8px;">Move: drag the screen or WASD/arrows.<br>Act: tap the screen or Space/Enter.</p>
                 </div>
                 <div class="leg-menu-col">
                     <div class="leg-col-title">Stats</div>
@@ -108,6 +109,8 @@ export function initUI(container, cbs, vocabMgr) {
 
         <div class="leg-overlay" id="leg-death-overlay" style="background:rgba(10,0,0,0.96); align-items:center; justify-content:center; display:none; overflow-y:auto;">
         </div>
+
+        <div id="leg-minimap" class="leg-minimap"></div>
     `;
 
     dom = {
@@ -144,6 +147,8 @@ export function initUI(container, cbs, vocabMgr) {
         tabVocab: container.querySelector('#leg-tab-vocab'),
         vocabMount: container.querySelector('#leg-vocab-settings-mount'),
         menuTabs: container.querySelectorAll('.leg-menu-tab'),
+        swTxt: container.querySelector('#leg-sw-txt'),
+        minimap: container.querySelector('#leg-minimap'),
     };
 
     dom.menuBtn.onclick = () => { callbacks.onPause(); renderMenu(); dom.menuOverlay.style.display = 'flex'; };
@@ -211,13 +216,15 @@ export function initUI(container, cbs, vocabMgr) {
 
 export function updateHUD(state) {
     const p = state.player;
-    dom.hpFill.style.width = `${(p.hp/p.maxHp)*100}%`;
-    dom.hpTxt.textContent = `HP ${Math.floor(p.hp)}/${p.maxHp}`;
+    dom.hpFill.style.width = `${Math.max(0, (p.hp/p.maxHp))*100}%`;
+    dom.hpTxt.textContent = `HP ${Math.max(0, Math.floor(p.hp))}/${p.maxHp}`;
     dom.mpFill.style.width = `${(p.mp/p.maxMp)*100}%`;
     dom.mpTxt.textContent = `MP ${Math.floor(p.mp)}/${p.maxMp}`;
-    dom.expFill.style.width = `${(p.exp/p.nextExp)*100}%`;
+    dom.expFill.style.width = `${Math.min(100, (p.exp/p.nextExp)*100)}%`;
     dom.expTxt.textContent = `${p.exp} / ${p.nextExp}`;
-    dom.lvlTxt.textContent = `LV. ${p.level}`;
+    const isBossFloor = state.stage % 5 === 0;
+    dom.lvlTxt.textContent = `F${state.stage}${isBossFloor ? '👑' : ''} · LV.${p.level}`;
+    if (dom.swTxt) dom.swTxt.textContent = `💫x${state.secondWinds ?? 0}`;
     
     dom.btnAction.textContent = state.magicMode ? '✨' : WEAPONS[p.equippedWeapon].icon;
     dom.btnAction.className = state.magicMode ? 'leg-btn leg-btn-magic' : 'leg-btn';
@@ -225,6 +232,33 @@ export function updateHUD(state) {
     if (state.statPoints === 0 && dom.menuBtn.style.borderColor === 'rgb(231, 76, 60)') {
         dom.menuBtn.style.borderColor = '';
     }
+}
+
+/**
+ * Zelda-style dungeon minimap. Shows every room slot of the current stage:
+ * unexplored rooms are dim, visited rooms lit, the current room highlighted,
+ * and the exit (stairs/boss room) always marked so the objective is visible.
+ * Called by legend.js via the engine's onRoomChange callback.
+ */
+export function updateMinimap(state, map) {
+    if (!dom.minimap || !map) return;
+    const isBossFloor = state.stage % 5 === 0;
+    let html = `<div class="leg-minimap-title">F${state.stage} ${isBossFloor ? '👑 BOSS' : ''}</div>`;
+    html += `<div class="leg-minimap-grid" style="grid-template-columns:repeat(${map.cols}, 12px);">`;
+    for (let ry = 0; ry < map.rows; ry++) {
+        for (let rx = 0; rx < map.cols; rx++) {
+            const room = map.rooms[ry][rx];
+            if (!room) { html += `<div class="leg-mm-cell leg-mm-void"></div>`; continue; }
+            const isCur  = (rx === state.roomX && ry === state.roomY);
+            const cls = isCur          ? 'leg-mm-cur'
+                      : room.visited   ? 'leg-mm-seen'
+                      :                  'leg-mm-unseen';
+            const mark = room.isExit ? (isBossFloor ? '☠' : '▾') : '';
+            html += `<div class="leg-mm-cell ${cls} ${room.isExit ? 'leg-mm-exit' : ''}">${mark}</div>`;
+        }
+    }
+    html += `</div>`;
+    dom.minimap.innerHTML = html;
 }
 
 /** Called by legend.js on player death. Shows full stats then rebirth/exit options. */
@@ -396,8 +430,8 @@ const _WORLD_LEGEND = [
     {
         tile: '⬛', label: 'Pit',
         color: '#e74c3c',
-        desc: 'Bottomless void — instant death if you fall in.',
-        interact: 'Walk around it. Use the Chain ⛓️ to fire at a nearby Post and zip across.',
+        desc: 'A dark chasm blocking your path. Falling in hurts and knocks you back.',
+        interact: 'Walk around it, or equip the Chain ⛓️, face a purple Post across the gap, and tap to zip over.',
     },
     {
         tile: '🌲', label: 'Tree',
@@ -426,8 +460,8 @@ const _WORLD_LEGEND = [
     {
         tile: '⬇️', label: 'Stairs',
         color: '#f1c40f',
-        desc: 'Exit to the next floor. Only active after all enemies are defeated.',
-        interact: 'Walk up to the glowing steps and TAP to descend. You\'ll get a vocab quiz first.',
+        desc: 'Exit to the next floor (marked ▾ on the minimap). Lights up gold once the room is cleared.',
+        interact: 'Clear the room, stand on the glowing steps, and TAP. Answer the vocab quiz to descend.',
     },
     {
         tile: '📦', label: 'Chest',

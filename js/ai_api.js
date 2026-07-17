@@ -108,14 +108,14 @@ export async function generateText(prompt, systemInstruction = "", expectJson = 
                 if (!response.ok) {
                     const errorData = await response.json().catch(() => ({}));
                     const status = response.status;
-                    const isRateLimit = status === 429 || status === 503 || status >= 500;
 
                     if (settings.debugMode) {
                         console.warn(`[AI API] Key #${keyIdx + 1} · ${modelName} → HTTP ${status}`);
                     }
 
-                    if (isRateLimit) setModelIndex(keyIdx, mi + 1);
-                    else setModelIndex(keyIdx, mi + 1);
+                    // Advance to the next model for this key (rate limit, server error,
+                    // or model-specific rejection alike).
+                    setModelIndex(keyIdx, mi + 1);
 
                     throw new Error(`Status ${status}: ${errorData.error?.message || 'Server error'}`);
                 }
@@ -208,8 +208,14 @@ export async function generateImage(prompt) {
                 console.groupEnd();
             }
 
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:predict?key=${apiKey}`;
-            const payload = { instances: [{ prompt }], parameters: { sampleCount: 1 } };
+            // Gemini image models generate images via :generateContent with
+            // responseModalities — the :predict endpoint is Imagen-only and
+            // rejects these models.
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { responseModalities: ["TEXT", "IMAGE"] }
+            };
 
             const controller = new AbortController();
             const timeoutMs = (settings.requestTimeoutSecs || 120) * 1000;
@@ -232,14 +238,19 @@ export async function generateImage(prompt) {
 
                 const data = await response.json();
 
-                if (data.predictions?.[0]?.bytesBase64Encoded) {
+                // Preferred: inline image data from a Gemini image model
+                const parts = data.candidates?.[0]?.content?.parts || [];
+                const imgPart = parts.find(p => p.inlineData?.data);
+                if (imgPart) {
                     if (settings.debugMode) console.log(`[${new Date().toLocaleTimeString()}] 🖼️ Image received`);
-                    return `data:image/png;base64,${data.predictions[0].bytesBase64Encoded}`;
-                } else if (data.candidates?.[0]?.content) {
-                    return data.candidates[0].content.parts[0].text;
-                } else {
-                    throw new Error("Unexpected Image API response structure.");
+                    return `data:${imgPart.inlineData.mimeType || 'image/png'};base64,${imgPart.inlineData.data}`;
                 }
+                // Legacy Imagen-style response (kept for safety)
+                if (data.predictions?.[0]?.bytesBase64Encoded) {
+                    if (settings.debugMode) console.log(`[${new Date().toLocaleTimeString()}] 🖼️ Image received (predict)`);
+                    return `data:image/png;base64,${data.predictions[0].bytesBase64Encoded}`;
+                }
+                throw new Error("Unexpected Image API response structure.");
 
             } catch (error) {
                 clearTimeout(timeoutId);

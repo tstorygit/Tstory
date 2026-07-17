@@ -184,8 +184,11 @@ export function initSettings() {
             settings.sentenceNewline = document.getElementById('setting-sentence-newline').checked;
             settings.proLevel5 = document.getElementById('setting-pro-level5').checked;
             settings.enableSentenceParsing = document.getElementById('setting-sentence-parsing').checked;
-            settings.requestTimeoutSecs = parseInt(document.getElementById('setting-timeout').value) || 120;
-            settings.ttsCacheLimit = parseInt(document.getElementById('setting-tts-limit').value) || 50;
+            settings.requestTimeoutSecs = _clampInt(document.getElementById('setting-timeout').value, 10, 600, 120);
+            settings.ttsCacheLimit = _clampInt(document.getElementById('setting-tts-limit').value, 0, 500, 50);
+            // Reflect the clamped values back into the inputs
+            document.getElementById('setting-timeout').value = settings.requestTimeoutSecs;
+            document.getElementById('setting-tts-limit').value = settings.ttsCacheLimit;
             settings.theme = document.getElementById('setting-theme').value;
             
             // New JLPT/Prompt setting
@@ -201,15 +204,38 @@ export function initSettings() {
 
             localStorage.setItem('ai_reader_settings', JSON.stringify(settings));
             applyTheme(settings.theme);
-            alert('Settings Saved!');
+
+            // Non-blocking save feedback instead of an alert()
+            const originalText = '💾 Save Settings';
+            saveBtn.textContent = '✓ Saved!';
+            saveBtn.disabled = true;
+            setTimeout(() => {
+                saveBtn.textContent = originalText;
+                saveBtn.disabled = false;
+            }, 1400);
         });
     }
+}
+
+/** Parse an int and clamp it to [min, max], falling back to dflt when not a number. */
+function _clampInt(raw, min, max, dflt) {
+    const n = parseInt(raw, 10);
+    if (isNaN(n)) return dflt;
+    return Math.max(min, Math.min(max, n));
 }
 
 function loadSettings() {
     const saved = localStorage.getItem('ai_reader_settings');
     if (saved) {
-        const parsed = JSON.parse(saved);
+        // A corrupted settings blob must never break app initialization
+        let parsed = null;
+        try { parsed = JSON.parse(saved); } catch (e) {
+            console.warn("Corrupted settings in localStorage — falling back to defaults.", e);
+        }
+        if (!parsed || typeof parsed !== 'object') {
+            renderApiKeyInputs([]);
+            return;
+        }
         Object.assign(settings, parsed);
 
         // Migrate legacy single-key to array

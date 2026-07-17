@@ -3,11 +3,19 @@ import { GameVocabManager } from '../../game_vocab_mgr.js';
 import { getChiTrueStat } from './chao_state.js';
 
 export class MatsuriPageant {
-    constructor(vocabMgr, stateManager, renderArea, uiOverlay) {
+    /**
+     * @param {GameVocabManager} vocabMgr
+     * @param {ChaoStateManager} stateManager
+     * @param {HTMLElement} renderArea
+     * @param {HTMLElement} uiOverlay
+     * @param {Function} [onComplete] (appeal:number, reward:number) => void — fired when the course ends
+     */
+    constructor(vocabMgr, stateManager, renderArea, uiOverlay, onComplete) {
         this.vocabMgr = vocabMgr;
         this.stateManager = stateManager;
         this.renderArea = renderArea;
         this.uiOverlay = uiOverlay;
+        this.onComplete = onComplete || null;
         this.chiData = stateManager.getActiveChi();
         
         this.pStr = getChiTrueStat(this.chiData, 'strength');
@@ -15,12 +23,17 @@ export class MatsuriPageant {
         this.pFly = getChiTrueStat(this.chiData, 'fly');
         this.pWis = getChiTrueStat(this.chiData, 'wisdom');
 
-        this.judgeAppeal = 0; 
+        this.judgeAppeal = 0;
 
-        if (GameVocabManager.loadSrsPool().length > 0) {
-            this.vocabMgr.setPool(GameVocabManager.loadSrsPool(), 'chao_banned', { globalSrs: true });
+        // The vocab pool is owned and set by chao.js at launch (globalSrs mode).
+        // If the manager has no pool yet (fresh install with empty SRS), fall
+        // back to loading it here so the pageant still asks questions once the
+        // player has words.
+        if (this.vocabMgr.getStats().totalPoolSize === 0) {
+            const pool = GameVocabManager.loadSrsPool();
+            if (pool.length > 0) this.vocabMgr.setPool(pool, 'chao_banned', { globalSrs: true });
         }
-        
+
         this.clock = new THREE.Clock();
         this.animationId = null;
         this.uiInterval = null;
@@ -148,9 +161,17 @@ export class MatsuriPageant {
     startPageant() {
         this.currentStationIdx = 0;
         this.judgeAppeal = 0;
-        this.addAppeal(0); 
+        this.chiMesh.position.set(0, 1, 8);
+
+        // Bond bonus: the judges remember a well-loved Chi.
+        const bondBonus = Math.min(15, Math.floor((this.chiData.connection || 0) / 5));
+        this.addAppeal(bondBonus);
+
         this.nextStation();
-        this.animate();
+        if (bondBonus > 0) {
+            this.msgArea.innerHTML = `<p style="color:#ff79c6; text-align:center; margin:0 0 4px 0;">💖 The judges smile at ${this.chiData.name}'s strong bond! (+${bondBonus}% starting appeal)</p>` + this.msgArea.innerHTML;
+        }
+        if (!this.animationId) this.animate();
     }
 
     nextStation() {
@@ -158,15 +179,33 @@ export class MatsuriPageant {
         if (this.currentStationIdx >= this.stations.length) {
             this.phase = 'DONE';
             let finalMsg = "";
-            if (this.judgeAppeal >= 80) finalMsg = "🏆 A Flawless Performance! The crowd goes wild!";
-            else if (this.judgeAppeal >= 50) finalMsg = "🏅 A solid effort! The judges nod in approval.";
-            else finalMsg = "😅 Well, they tried their best! Room for improvement!";
+            let reward = 10;
+            if (this.judgeAppeal >= 80) {
+                finalMsg = "🏆 A Flawless Performance! The crowd goes wild!";
+                reward = 60;
+                this.stateManager.data.stats.totalPageantsWon = (this.stateManager.data.stats.totalPageantsWon || 0) + 1;
+            } else if (this.judgeAppeal >= 50) {
+                finalMsg = "🏅 A solid effort! The judges nod in approval.";
+                reward = 30;
+            } else {
+                finalMsg = "😅 Well, they tried their best! Room for improvement!";
+            }
+
+            this.stateManager.data.seishin += reward;
+            this.stateManager.data.stats.totalSeishinEarned = (this.stateManager.data.stats.totalSeishinEarned || 0) + reward;
+            this.stateManager.save();
 
             this.msgArea.innerHTML = `
                 <h3 style="color:#50fa7b; text-align:center; margin:0 0 5px 0;">Course Complete!</h3>
                 <p style="text-align:center; color:#eee; margin:0 0 5px 0;">Final Appeal: <b>${this.judgeAppeal}%</b></p>
-                <p style="text-align:center; color:#f1fa8c; margin:0;">${finalMsg}</p>
+                <p style="text-align:center; color:#f1fa8c; margin:0 0 5px 0;">${finalMsg}</p>
+                <p style="text-align:center; color:#50fa7b; margin:0 0 8px 0;">Prize: <b>+${reward} 🌸 Seishin</b></p>
+                <div style="text-align:center;"><button id="pageant-again-btn" class="chao-action-btn" style="margin:0; padding:8px 16px;">🎭 Perform Again</button></div>
             `;
+            const againBtn = this.msgArea.querySelector('#pageant-again-btn');
+            if (againBtn) againBtn.addEventListener('click', () => this.startPageant());
+
+            if (this.onComplete) this.onComplete(this.judgeAppeal, reward);
             return;
         }
 
@@ -235,14 +274,18 @@ export class MatsuriPageant {
     }
 
     evaluateChiWisdom(challenge) {
-        const baseChance = Math.log10(this.pWis + 1) / 2; 
+        // 0.05 at newborn wisdom up to ~0.85 at max — low-wisdom Chis panic
+        // and hand the question to the player (the vocab rescue mini-game).
+        const baseChance = Math.min(0.85, 0.05 + (this.pWis / 9999) * 0.8);
         const isSuccessful = Math.random() < baseChance;
 
         if (isSuccessful) {
             this.phase = 'CELEBRATE';
             this.addAppeal(20);
             this.msgArea.innerHTML = `<div style="color: #50fa7b; font-weight:bold; text-align:center;">✨ ${this.chiData.name} answered confidently! "It's ${challenge.options[challenge.correctIdx]}!"</div>`;
-            this.vocabMgr.gradeWord(challenge.refId, 3);
+            // Graded as 'good' (2), not 'easy' (3): the Chi answered on its own,
+            // so we avoid over-inflating the player's real SRS interval.
+            this.vocabMgr.gradeWord(challenge.refId, 2);
             setTimeout(() => {
                 this.currentStationIdx++;
                 this.nextStation();
